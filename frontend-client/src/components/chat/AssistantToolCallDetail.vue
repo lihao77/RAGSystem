@@ -6,7 +6,7 @@
     <div v-if="terminalView" class="tool-terminal markdown-body">
       <div class="tool-terminal__chrome">
         <span class="tool-terminal__dots" aria-hidden="true"><i></i><i></i><i></i></span>
-        <span class="tool-terminal__title">bash</span>
+        <span class="tool-terminal__title">{{ terminalView.title || 'bash' }}</span>
         <span v-if="terminalView.workingDir" class="tool-terminal__dir" :title="terminalView.workingDir">
           {{ terminalView.workingDir }}
         </span>

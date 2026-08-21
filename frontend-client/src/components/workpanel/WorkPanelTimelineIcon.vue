@@ -40,12 +40,6 @@
       <path d="M12 3a14 14 0 0 0 0 18" />
     </template>
 
-    <template v-else-if="kind === 'map'">
-      <path d="m9 18-6 3V6l6-3 6 3 6-3v15l-6 3-6-3Z" />
-      <path d="M9 3v15" />
-      <path d="M15 6v15" />
-    </template>
-
     <template v-else-if="kind === 'chart'">
       <path d="M4 19V5" />
       <path d="M4 19h16" />

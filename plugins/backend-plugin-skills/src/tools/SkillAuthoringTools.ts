@@ -42,7 +42,7 @@ export function createSkillAuthoringTools(input: {
           return toolSuccess(drafts.map(draftSummary), {
             toolName: "list_skill_drafts",
             summary: `${drafts.length} Skill draft(s) found`,
-            outputType: "skills.drafts",
+            outputType: "json",
           });
         } catch (error) {
           return toolError("list_skill_drafts", errorMessage(error));
@@ -74,7 +74,7 @@ export function createSkillAuthoringTools(input: {
           }, {
             toolName: "get_skill_draft",
             summary: `Skill draft '${result.draft.id}' copied to the current Session workspace`,
-            outputType: "skills.draft",
+            outputType: "json",
           });
         } catch (error) {
           return toolError("get_skill_draft", errorMessage(error));
@@ -110,7 +110,7 @@ export function createSkillAuthoringTools(input: {
           }, {
             toolName: "create_skill_draft",
             summary: `Skill draft '${draft.id}' created in the current Session workspace`,
-            outputType: "skills.draft",
+            outputType: "json",
           });
         } catch (error) {
           return toolError("create_skill_draft", errorMessage(error));
@@ -145,7 +145,7 @@ export function createSkillAuthoringTools(input: {
             summary: result.published
               ? `Skill draft '${result.draft.id}' published successfully`
               : `Skill draft '${result.draft.id}' synchronized and is awaiting administrator publication`,
-            outputType: "skills.draft",
+            outputType: "json",
           });
         } catch (error) {
           return toolError("publish_skill_draft", errorMessage(error));

@@ -36,7 +36,7 @@
 
     /* === 风格色 accent 组 —— 换主题改这里 ===
        单变量 + color-mix 自动衍生。换风格只改 --color-accent / -rgb 两行，
-       所有 accent/primary/ring/active/result/link/地图标记自动跟随。 */
+       所有 accent/primary/ring/active/result/link 自动跟随。 */
     --color-accent: #fafafa;
     --color-accent-rgb: 250, 250, 250;
     /* 第二品牌色：与 accent 组成环境光（黑白体系：白→中性灰） */
@@ -63,7 +63,7 @@
     --color-interactive-rgb: 42, 42, 42;
 
     /* 背景层级 —— neutral 纯灰，由深到浅每级差~16，区分明显不糊 */
-    /* 应用最底层(消息区/图表/地图画布的底,非 body 背景;body 用 --ambient-bg) */
+    /* 应用最底层(消息区/图表画布的底,非 body 背景;body 用 --ambient-bg) */
     --color-bg-app: #060606;
     --color-bg-primary: #0a0a0a;
     /* 卡片/主内容面/画布 */
@@ -93,18 +93,7 @@
     --color-border-hover: rgba(255, 255, 255, 0.16);
     --color-border-focus: color-mix(in srgb, var(--color-accent) 55%, transparent);
 
-    /* 地图 / 结果 / 风险 —— 功能性着色，accent 由风格色派生 */
-    --color-map-marker-fill: var(--color-accent);
-    --color-map-marker-border: var(--color-accent-active);
-    --color-map-marker-glyph: #ffffff;
-    --color-map-marker-ring-fill: rgba(255, 255, 255, 0.12);
-    --color-map-overlay-accent: var(--color-accent);
-    --color-map-overlay-border: rgba(255, 255, 255, 0.4);
-    --color-map-overlay-point-stroke: #ffffff;
-    /* 风险圈/范围圈 —— 暖橙,深炭下用低饱和 agent-orange */
-    --color-map-circle: var(--color-agent-orange);
-    /* maplibre 控件图标为黑色 sprite，深色下反色显示（亮色主题在下方重置为 none） */
-    --map-ctrl-icon-filter: invert(1);
+    /* 结果 / 风险 —— 功能性着色，accent 由风格色派生 */
     --color-risk-badge-text: var(--color-on-color);
     --color-risk-badge-ring: rgba(255, 255, 255, 0.8);
     --color-result-text: var(--color-accent-hover);
@@ -345,7 +334,7 @@
     --color-interactive-rgb: 255, 255, 255;
 
     /* 背景层级 —— neutral 纯灰，由浅到深 */
-    /* 应用最底层(消息区/图表/地图画布的底,非 body 背景;body 用 --ambient-bg) */
+    /* 应用最底层(消息区/图表画布的底,非 body 背景;body 用 --ambient-bg) */
     --color-bg-app: #fafafa;
     --color-bg-primary: #ffffff;
     /* 卡片/主内容面 */
@@ -375,16 +364,7 @@
     --color-border-hover: rgba(0, 0, 0, 0.16);
     --color-border-focus: color-mix(in srgb, var(--color-accent) 55%, transparent);
 
-    /* 地图 / 结果 / 风险 —— accent 由风格色派生 */
-    --color-map-marker-fill: var(--color-accent);
-    --color-map-marker-border: var(--color-accent-active);
-    --color-map-marker-glyph: #ffffff;
-    --color-map-marker-ring-fill: rgba(255, 255, 255, 0.82);
-    --color-map-overlay-accent: var(--color-accent);
-    --color-map-overlay-border: rgba(17, 17, 17, 0.22);
-    --color-map-overlay-point-stroke: #111111;
-    --color-map-circle: var(--color-agent-orange);
-    --map-ctrl-icon-filter: none;
+    /* 结果 / 风险 —— accent 由风格色派生 */
     --color-risk-badge-text: var(--color-on-color-strong);
     --color-risk-badge-ring: rgba(17, 17, 17, 0.16);
     --color-result-text: var(--color-accent);

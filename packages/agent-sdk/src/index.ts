@@ -5,6 +5,8 @@ export type { CreateRuntimeOptions, PreviewInput, PreviewResult, RunInput, RunHa
 export { createHookRegistry, EMPTY_HOOK_OUTPUT } from "./hooks/index.js";
 export type { HookEvent, HookHandler, HookInputMap, HookOutputMap, HookRegistry, HookDecision, ToolBeforeOutput, ToolAfterOutput, RoundBeforeOutput, BaseHookOutput, RunBeforeInput, RunAfterInput, RunFinallyInput, RoundBeforeInput, RoundAfterInput, ToolBeforeInput, ToolAfterInput, ToolErrorInput } from "./hooks/index.js";
 export type { AgentProfile, ResolvedTier, TierMap, AgentBehavior, MessageInfo, RunStepRecord, RunRecord, RunStatus, MessageRole, ToolCallRef } from "./types.js";
+export type { ToolOutputType } from "./contracts.js";
+export { TOOL_OUTPUT_TYPES } from "./contracts.js";
 export type { KernelEvent, ModelRequestEvent, ModelAttemptStartedEvent, ModelAttemptFailedEvent, ModelAttemptCompletedEvent, FirstTokenEvent, OutputDeltaEvent, OutputFileRefEvent, IntentDeltaEvent, IntentCompleteEvent, ReasoningDeltaEvent, ReasoningCompleteEvent, AssistantIntermediateEvent, ToolCallEvent, ToolResultEvent, RuntimeErrorEvent, ContextUsageSnapshot, ContextUsageEvent, EventSink, Context, Protocol, ToolProvider, MessageRefreshResult, MessageRefresher, ToolInstructionMode, RuntimeSession, KernelResult, KernelOutcome, PreparedRoundToolCall, KernelToolCall, KernelObservation, ToolExecutionResult, ToolResultMedia } from "./contracts.js";
 export { StreamingAssistantContentParser, parseAssistantContent, renderAssistantContentFallback, normalizeWorkspaceRelativePath } from "./assistant-content.js";
 export type { AssistantContentPart, AssistantFilePresentation, AssistantContentStreamEvent } from "./assistant-content.js";

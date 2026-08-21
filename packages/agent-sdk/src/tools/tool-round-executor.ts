@@ -339,12 +339,8 @@ async function resolveToolObservation(input: {
       const tool = input.opts.registry.getTool(input.toolName);
       const observationPolicy = tool?.observationPolicy ?? "default";
       const llmFacingResult = await buildLlmFacingToolResult({
-        toolContext: input.toolContext,
         toolName: input.toolName,
         result: input.result,
-        profile: input.opts.profile,
-        provider: input.opts.provider,
-        dataRoot: input.opts.dataRoot,
         observationPolicy,
       });
       let modelContent: KernelObservation["modelContent"] | undefined;
@@ -352,8 +348,6 @@ async function resolveToolObservation(input: {
         modelContent = await buildToolMediaModelContent({
           result: input.result,
           observation: "",
-          toolContext: input.toolContext,
-          profile: input.opts.profile,
           provider: input.opts.provider,
           dataRoot: input.opts.dataRoot,
         }) ?? undefined;
@@ -456,7 +450,7 @@ function summarizeBackgroundWaitResult(waitResult: ToolWaitResult): string {
 }
 
 function materializeForRef(result: ToolExecutionResult): Record<string, unknown> {
-  return { success: result.success, tool_name: result.toolName, summary: result.summary, content: result.content, metadata: result.metadata, files: result.files };
+  return { success: result.success, tool_name: result.toolName, summary: result.summary, output_type: result.outputType, content: result.content, metadata: result.metadata, files: result.files };
 }
 
 function asNonEmptyString(value: unknown): string | null {

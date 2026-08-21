@@ -92,7 +92,6 @@ export function getToolIconKind(toolName = '') {
   if (name === 'request_user_input') return 'input'
   if (name === 'agent') return 'agentCall'
   if (name.includes('skill')) return 'skill'
-  if (name.includes('map') || name.includes('geo') || name.includes('spatial') || name.includes('basin')) return 'map'
   if (name.includes('chart') || name.includes('visual') || name.includes('risk_matrix')) return 'chart'
   if (name.includes('bash') || name.includes('code') || name.includes('script') || name.includes('terminal')) return 'code'
   if (name.includes('file') || name.includes('document') || name.includes('report') || name.includes('artifact')) return 'file'
@@ -177,12 +176,16 @@ export function formatToolContent(value, maxLength = 1600) {
   return formatContent(value, maxLength)
 }
 
-/** execute_bash 终端视图：终端风格详情组件的展示模型（命令/stdout/stderr/退出码/后台）。 */
+/** streams 呈现类型的终端视图：命令/stdout/stderr/退出码/后台。
+   判据是 raw_result 信封的 output_type（协议契约）；工具名兜底兼容旧数据
+   （旧 bash 消息 output_type 为 json，但渲染格式同为 streams 排版）。 */
 export function getToolTerminalView(node) {
-  if (!node || node.type !== 'tool_call' || node.tool_name !== 'execute_bash') return null
-  const { args, content, metadata, preview } = parseToolPayload(node)
+  if (!node || node.type !== 'tool_call') return null
+  const { args, content, metadata, preview, payload } = parseToolPayload(node)
+  if (payload?.output_type !== 'streams' && node.tool_name !== 'execute_bash') return null
   const text = parseBashObservationText(preview)
   return {
+    title: node.tool_name === 'execute_bash' ? 'bash' : getToolDisplayName(node),
     command: pickString(args.command, metadata.command),
     description: pickString(args.description),
     workingDir: compactPath(pickString(metadata.working_dir, args.working_dir), 48),
@@ -215,9 +218,12 @@ function parseBashObservationText(value) {
   }
   const result = { stdout: '', stderr: '', returnCode: null, backgroundStarted: false, backgroundTaskId: null }
   const lines = text.split(/\r?\n/)
-  if (/^命令执行完成，返回码 \d+/.test(lines[0]) || /^命令执行超时/.test(lines[0])) {
-    const code = lines[0].match(/返回码 (\d+)/)
+  // 摘要行始终是首行（渲染器 parts[0]）；bash 与 skill 脚本的句式都匹配
+  if (/执行完成/.test(lines[0]) && /返回码/.test(lines[0])) {
+    const code = lines[0].match(/返回码[:：]?\s*(\d+)/)
     if (code) result.returnCode = Number(code[1])
+    lines.shift()
+  } else if (/^命令执行超时/.test(lines[0])) {
     lines.shift()
   }
   const body = lines.join('\n')
@@ -782,13 +788,16 @@ function buildToolOutputSections(node, args, content, metadata, payload) {
 
   if (name === 'glob') {
     sections.push(section('output-glob-error', '错误', content?.error))
-    sections.push(section('output-glob-files', '文件列表', formatList(content?.filenames), 'code'))
+    // 后端字段是 files（旧持久化数据为 filenames，兼容读取）
+    sections.push(section('output-glob-files', '文件列表', formatList(content?.files ?? content?.filenames), 'code'))
     return compactSections(sections)
   }
 
   if (name === 'web_fetch') {
     sections.push(section('output-web-error', '错误', content?.error))
-    sections.push(section('output-web-content', content?.truncated ? '内容预览' : '页面内容', content?.content, 'code'))
+    // 后端 content 是 html→text 的裸字符串（旧数据可能包了一层 content 字段）
+    const pageContent = typeof content === 'string' ? content : content?.content
+    sections.push(section('output-web-content', content?.truncated ? '内容预览' : '页面内容', pageContent, 'code'))
     return compactSections(sections)
   }
 
@@ -803,7 +812,16 @@ function buildToolOutputSections(node, args, content, metadata, payload) {
   if (name.includes('skill')) {
     sections.push(section('output-skill-stdout', 'stdout', content?.stdout, 'code'))
     sections.push(section('output-skill-stderr', 'stderr', content?.stderr, 'code'))
-    if (content?.main_content) {
+    if (typeof content === 'string' && content) {
+      // markdown 归位后 activate/load 的 content 是纯 markdown 字符串
+      sections.push(section(
+        'output-skill-markdown',
+        name === 'load_skill_resource' ? '资源内容' : 'SKILL.md',
+        content,
+        'code',
+        { language: 'markdown' },
+      ))
+    } else if (content?.main_content) {
       sections.push(section('output-skill-main', 'SKILL.md', content.main_content, 'code'))
     } else if (content?.content && typeof content.content === 'string') {
       sections.push(section('output-skill-content', '资源内容', content.content, 'code'))
@@ -910,7 +928,7 @@ function previewSearchTool(name, args, content, running) {
   }
 
   if (name === 'glob') {
-    const count = firstNumber(content?.numFiles, countFrom(content?.filenames))
+    const count = firstNumber(content?.count, content?.numFiles, countFrom(content?.files ?? content?.filenames))
     return joinParts([pattern ? `匹配 ${quoteShort(pattern)}` : '匹配文件', count != null ? `${count} 个文件` : ''])
   }
 
@@ -1190,7 +1208,7 @@ function countLabel(value, unit = '') {
 }
 
 function searchCountLabel(name, args, content) {
-  if (name === 'glob') return countLabel(firstNumber(content?.numFiles, countFrom(content?.filenames)), ' 个文件')
+  if (name === 'glob') return countLabel(firstNumber(content?.count, content?.numFiles, countFrom(content?.files ?? content?.filenames)), ' 个文件')
   const unit = args.output_mode === 'files_with_matches' ? ' 个文件' : ' 条'
   return countLabel(firstNumber(content?.count, countFrom(content?.matches)), unit)
 }

@@ -217,15 +217,13 @@ export class SkillToolService {
       );
     }
     return successResult(
-      {
-        skill_name: skill.name,
-        description: skill.description,
-        main_content: skill.content,
-      },
+      skill.content,
       {
         summary: `Skill '${skill.name}' 已激活，加载主文件 ${skill.content.length} 字符`,
         outputType: "markdown",
         metadata: {
+          skill_name: skill.name,
+          description: skill.description,
           content_length: skill.content.length,
           activation_time: "now",
           status: "activated",
@@ -259,15 +257,13 @@ export class SkillToolService {
     }
     const content = fs.readFileSync(resourcePath, "utf8");
     return successResult(
-      {
-        file_name: resourceFile,
-        content,
-        skill: skill.name,
-      },
+      content,
       {
         summary: `成功加载 ${resourceFile} (${content.length} 字符)`,
         outputType: "markdown",
         metadata: {
+          file_name: resourceFile,
+          skill: skill.name,
           length: content.length,
         },
         toolName,
@@ -371,7 +367,7 @@ export class SkillToolService {
         },
         {
           summary: `脚本 ${scriptName} 执行完成（返回码: ${scriptResult.returnCode}）`,
-          outputType: "text",
+          outputType: "streams",
           metadata: meta,
           toolName,
         },
@@ -568,7 +564,7 @@ export class SkillToolService {
       },
       {
         summary: "后台任务已启动",
-        outputType: "json",
+        outputType: "streams",
         metadata: {
           success: true,
           skill: skill.name,
@@ -910,7 +906,7 @@ function successResult<T>(
   content: T,
   input: {
     summary: string;
-    outputType: string;
+    outputType: import("@ragsystem/agent-sdk").ToolOutputType;
     metadata: Record<string, unknown>;
     toolName: string;
     llmHint?: string | null;

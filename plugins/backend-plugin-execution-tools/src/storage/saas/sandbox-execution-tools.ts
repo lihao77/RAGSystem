@@ -122,7 +122,7 @@ export class SaaSBashToolService {
       return toolSuccess({ stdout: result.stdout, stderr: result.stderr, return_code: result.returnCode, interrupted: result.interrupted, background_task_id: null, background_started: false, classification: plan.category }, {
         toolName: "execute_bash",
         summary: result.interrupted ? `命令执行超时（${plan.timeoutSeconds} 秒）` : `命令执行完成，返回码 ${result.returnCode}`,
-        outputType: "json",
+        outputType: "streams",
         metadata: { ...plan.metadata, truncated: result.truncated === true, shell: "sandbox" },
       });
     } catch (error) { return toolError("execute_bash", `命令执行失败: ${messageOf(error)}`, plan.metadata); }

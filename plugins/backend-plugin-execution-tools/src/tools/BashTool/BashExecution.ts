@@ -152,7 +152,7 @@ export class LocalBashToolService {
 
       return successResult(content, {
         summary,
-        outputType: "json",
+        outputType: "streams",
         metadata: {
           ...plan.metadata,
           execution_paths: this.paths.roots(context),
@@ -210,7 +210,7 @@ export class LocalBashToolService {
       },
       {
         summary: "后台任务已启动",
-        outputType: "json",
+        outputType: "streams",
         metadata: {
           ...plan.metadata,
           execution_paths: this.paths.roots(context),
@@ -419,7 +419,7 @@ function successResult<T>(
   content: T,
   input: {
     summary: string;
-    outputType: string;
+    outputType: import("@ragsystem/agent-sdk").ToolOutputType;
     metadata: Record<string, unknown>;
   },
 ): ToolExecutionResult {

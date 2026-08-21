@@ -109,6 +109,8 @@ export function createRequestUserInputTools(deps: RequestUserInputToolDeps): Too
               options: readOptions(input),
               responded_at: resolution.respondedAt,
               degraded: false,
+              // 语义标记原先靠 observation 按工具名兜底，随特判删除改为工具自声明
+              semantic: "user_input_response",
             },
           });
         } catch (error) {

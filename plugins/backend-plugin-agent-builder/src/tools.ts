@@ -63,7 +63,7 @@ export function createAgentBuilderTools(
           }, {
             toolName: "list_agent_builder_capabilities",
             summary: `Found ${tools.length} Tool(s) and ${itemCount} capability item(s) across ${capabilityProviders.length} provider(s)`,
-            outputType: "agent_builder.capabilities",
+            outputType: "json",
           });
         } catch (error) {
           return toolError("list_agent_builder_capabilities", error instanceof Error ? error.message : String(error));
@@ -90,7 +90,7 @@ export function createAgentBuilderTools(
           return toolSuccess(drafts, {
             toolName: "list_agent_drafts",
             summary: `${drafts.length} Agent draft(s) found`,
-            outputType: "agent_builder.drafts",
+            outputType: "json",
           });
         } catch (error) {
           return toolError("list_agent_drafts", errorMessage(error));
@@ -124,7 +124,7 @@ export function createAgentBuilderTools(
           }, {
             toolName: "get_agent_draft",
             summary: `Agent draft '${draft.id}' copied to the current Session workspace`,
-            outputType: "agent_builder.draft",
+            outputType: "json",
           });
         } catch (error) {
           return toolError("get_agent_draft", error instanceof Error ? error.message : String(error));
@@ -160,7 +160,7 @@ export function createAgentBuilderTools(
           }, {
             toolName: "create_agent_draft",
             summary: `Agent draft '${result.draft.id}' created in the current Session workspace`,
-            outputType: "agent_builder.draft",
+            outputType: "json",
           });
         } catch (error) {
           return toolError("create_agent_draft", error instanceof Error ? error.message : String(error));
@@ -200,7 +200,7 @@ export function createAgentBuilderTools(
             summary: result.auto_published
               ? `Agent draft '${result.draft.id}' published to Team '${result.draft.source_team_name}'`
               : `Agent draft '${result.draft.id}' synchronized and is awaiting administrator publication`,
-            outputType: "agent_builder.draft",
+            outputType: "json",
           });
         } catch (error) {
           return toolError("publish_agent_draft", errorMessage(error));

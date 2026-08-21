@@ -2,15 +2,14 @@
  * Observation 渲染 + 大 payload 落盘（迁自 backend-ts observation.ts + rendering.ts 的 tool-result 部分）。
  *
  * 工具执行的"O"：把 ToolExecutionResult 变成回喂给模型的 observation 文本。
- * 两层职责：
- * - buildLlmFacingToolResult：大 payload 决策——超过 inline 预算的 content 物化成临时文件，
- *   结果替换成文件路径引用（供后续工具 {result_N} 复用）。工具自己生成的持久文件由其 cwd 决定，
- *   observation 只负责处理仍停留在内存中的结果。
- * - renderToolResultContent：把最终结果包进 <tool_result> 语义块（execute_bash/request_user_input 等特判）。
+ * 三层正交职责（数据/呈现/预算互不干涉）：
+ * - 数据面 content：纯结构化数据，经 raw_result 直通 UI、{result_N} 引用与持久化，本层不改写。
+ * - 呈现面 outputType：封闭枚举（text/json/markdown/streams/image），本层按类型排版，
+ *   不认识任何工具名（streams = 进程执行结果的流式排版，由工具声明）。
+ * - 预算面：单一 inline 阈值（现代模型上下文 256k+，不再按上下文分桶、不分 text/json），
+ *   超过即物化成临时文件 + 引用文本；force_file / observationPolicy:"inline" 为逃生舱。
  *
  * 与 backend-ts 差异：
- * - agent: AgentConfig → profile: AgentProfile；maxContextTokens 从 profile.llmTiers.default 取（已决值）。
- * - budget_profile 从 profile.customParams 取。
  * - result 字段 snake_case → camelCase（toolName/outputType/llmHint）。
  * - metadata record 的 key 保持 snake_case（数据契约，消费端产出原样）。
  */
@@ -19,8 +18,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { ContentPart, ProviderConfig } from "@ragsystem/agent-llm";
-import type { ToolFile, ToolExecutionResult, ToolExecContext, ToolResultMedia } from "../contracts.js";
-import type { AgentProfile } from "../types.js";
+import type { ToolFile, ToolExecutionResult, ToolResultMedia } from "../contracts.js";
 import type { ObservationPolicy } from "../prompt/tool-types.js";
 import { renderSemanticBlock } from "../llm-protocol/xml/rendering.js";
 
@@ -29,31 +27,25 @@ const MAX_TOOL_IMAGES = 4;
 const MAX_TOOL_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_TOOL_IMAGE_TOTAL_BYTES = 20 * 1024 * 1024;
 
+/* 单一 inline 阈值与物化文件 TTL：不分 text/json、不按模型上下文分桶。
+   阈值防的不是"装不下"而是注意力经济（长上下文检索退化）与压缩压力；
+   落盘 + 引用是被 Claude Code 验证的模式（其 inline 上限约 30KB 字符）。 */
+const INLINE_CHAR_LIMIT = 16_000;
+const FILE_TTL_SECONDS = 24 * 60 * 60;
+
 interface ObservationDecision {
   mode: "inline" | "file_ref";
   reason: string;
   estimatedSize: number;
   fileTtlSeconds: number | null;
-  budgetBucket: string;
-}
-
-interface ObservationBudget {
-  bucketName: string;
-  inlineTextLimit: number;
-  inlineJsonLimit: number;
-  fileTtlSeconds: number;
 }
 
 export async function buildLlmFacingToolResult(input: {
-  toolContext: ToolExecContext;
   toolName: string;
   result: ToolExecutionResult;
-  profile: AgentProfile;
-  provider: ProviderConfig;
-  dataRoot: string;
   observationPolicy?: ObservationPolicy;
 }): Promise<ToolExecutionResult> {
-  const decision = decideObservation(input.result, { toolName: input.toolName, profile: input.profile, provider: input.provider, observationPolicy: input.observationPolicy ?? "default" });
+  const decision = decideObservation(input.result, input.observationPolicy ?? "default");
   if (decision.mode === "inline") {
     return input.result;
   }
@@ -74,14 +66,11 @@ export async function buildLlmFacingToolResult(input: {
 export async function buildToolMediaModelContent(input: {
   result: ToolExecutionResult;
   observation: string;
-  toolContext: ToolExecContext;
-  profile: AgentProfile;
   provider: ProviderConfig;
   dataRoot: string;
 }): Promise<ContentPart[] | null> {
   const media = input.result.media?.slice(0, MAX_TOOL_IMAGES) ?? [];
   if (!media.length) return null;
-  const budget = resolveObservationBudget(input.profile, input.provider);
   const parts: ContentPart[] = [{ type: "text", text: input.observation }];
   const materialized: ToolResultMedia[] = [];
   const rejectedReasons: string[] = [];
@@ -103,7 +92,7 @@ export async function buildToolMediaModelContent(input: {
         toolName: input.result.toolName,
         mimeType: item.mimeType,
         bytes,
-        ttlSeconds: budget.fileTtlSeconds,
+        ttlSeconds: FILE_TTL_SECONDS,
       });
       input.result.files.push(file);
       materialized.push({ ...item, source: { type: "file", path: file.path } });
@@ -202,72 +191,36 @@ function isPathUnder(candidate: string, root: string): boolean {
   return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
+const OBSERVATION_TEMP_DIR_PREFIX = "ragsystem-observation-";
+
 async function createObservationTempRoot(): Promise<string> {
-  return fs.promises.mkdtemp(path.join(os.tmpdir(), "ragsystem-observation-"));
+  return fs.promises.mkdtemp(path.join(os.tmpdir(), OBSERVATION_TEMP_DIR_PREFIX));
 }
 
 /* ============================================================
  * 大 payload 决策 + 落盘
  * ========================================================== */
 
-function decideObservation(result: ToolExecutionResult, input: { toolName: string; profile: AgentProfile; provider: ProviderConfig; observationPolicy: ObservationPolicy }): ObservationDecision {
+function decideObservation(result: ToolExecutionResult, observationPolicy: ObservationPolicy): ObservationDecision {
   const estimatedSize = estimateObservationSize(result.content);
-  const budget = resolveObservationBudget(input.profile, input.provider);
   const metadata = result.metadata ?? {};
 
   if (metadata.force_file === true) {
-    return { mode: "file_ref", reason: "force_file", estimatedSize, fileTtlSeconds: budget.fileTtlSeconds, budgetBucket: budget.bucketName };
+    return { mode: "file_ref", reason: "force_file", estimatedSize, fileTtlSeconds: FILE_TTL_SECONDS };
   }
   if (!result.success) {
-    return { mode: "inline", reason: "error_inline", estimatedSize, fileTtlSeconds: null, budgetBucket: budget.bucketName };
+    return { mode: "inline", reason: "error_inline", estimatedSize, fileTtlSeconds: null };
   }
-  const outputType = result.outputType.toLowerCase();
-  if (outputType === "chart" || outputType === "map") {
-    return { mode: "inline", reason: "visualization_inline", estimatedSize, fileTtlSeconds: null, budgetBucket: budget.bucketName };
+  if (observationPolicy === "inline") {
+    return { mode: "inline", reason: "tool_policy_inline", estimatedSize, fileTtlSeconds: null };
   }
-  if (input.observationPolicy === "inline") {
-    return { mode: "inline", reason: "tool_policy_inline", estimatedSize, fileTtlSeconds: null, budgetBucket: budget.bucketName };
-  }
-  const inlineLimit = inlineLimitForObservation(result, budget);
+  const inline = estimatedSize <= INLINE_CHAR_LIMIT;
   return {
-    mode: estimatedSize <= inlineLimit ? "inline" : "file_ref",
-    reason: estimatedSize <= inlineLimit ? "size_inline" : "large_payload",
+    mode: inline ? "inline" : "file_ref",
+    reason: inline ? "size_inline" : "large_payload",
     estimatedSize,
-    fileTtlSeconds: estimatedSize <= inlineLimit ? null : budget.fileTtlSeconds,
-    budgetBucket: budget.bucketName,
+    fileTtlSeconds: inline ? null : FILE_TTL_SECONDS,
   };
-}
-
-function resolveObservationBudget(profile: AgentProfile, _provider: ProviderConfig): ObservationBudget {
-  const maxContextTokens = profile.llmTiers.default?.maxContextTokens ?? 128000;
-  const budgetProfile = asNonEmptyString(profile.customParams?.budget_profile) ?? "worker";
-  let budget: ObservationBudget;
-  if (maxContextTokens <= 8000) {
-    budget = { bucketName: "compact", inlineTextLimit: 800, inlineJsonLimit: 1200, fileTtlSeconds: 6 * 60 * 60 };
-  } else if (maxContextTokens <= 32000) {
-    budget = { bucketName: "balanced", inlineTextLimit: 1600, inlineJsonLimit: 2400, fileTtlSeconds: 12 * 60 * 60 };
-  } else {
-    budget = { bucketName: "expansive", inlineTextLimit: 2600, inlineJsonLimit: 3600, fileTtlSeconds: 24 * 60 * 60 };
-  }
-  if (budgetProfile === "orchestrator") {
-    return {
-      bucketName: budget.bucketName,
-      inlineTextLimit: Math.floor(budget.inlineTextLimit * 0.85),
-      inlineJsonLimit: Math.floor(budget.inlineJsonLimit * 0.85),
-      fileTtlSeconds: Math.max(2 * 60 * 60, Math.floor(budget.fileTtlSeconds * 0.75)),
-    };
-  }
-  return budget;
-}
-
-function inlineLimitForObservation(result: ToolExecutionResult, budget: ObservationBudget): number {
-  if (result.outputType === "text" || typeof result.content === "string") {
-    return budget.inlineTextLimit;
-  }
-  if (isRecord(result.content) && isGeoJsonLike(result.content)) {
-    return Math.floor(budget.inlineJsonLimit * 0.4);
-  }
-  return budget.inlineJsonLimit;
 }
 
 function makeObservationOnlyToolResult(result: ToolExecutionResult, observation: string): ToolExecutionResult {
@@ -294,7 +247,7 @@ async function saveObservationFile(input: { toolName: string; content: unknown; 
   await fs.promises.writeFile(filePath, isText ? (input.content as string) : stringifyJsonForFile(input.content), "utf8");
   const stat = await fs.promises.stat(filePath);
   const createdAt = Date.now() / 1000;
-  const metadata: Record<string, unknown> = { tool_name: input.toolName, created_at: createdAt, reason: input.decision.reason, estimated_size: input.decision.estimatedSize, budget_bucket: input.decision.budgetBucket, lifecycle: "transient" };
+  const metadata: Record<string, unknown> = { tool_name: input.toolName, created_at: createdAt, reason: input.decision.reason, estimated_size: input.decision.estimatedSize, lifecycle: "transient" };
   if (input.decision.fileTtlSeconds !== null) {
     metadata.expires_at = createdAt + input.decision.fileTtlSeconds;
   }
@@ -406,8 +359,8 @@ function isGeoJsonLike(data: Record<string, unknown>): boolean {
  * ========================================================== */
 
 export function renderToolResultContent(input: { callId: string; toolName: string; result: ToolExecutionResult }): string {
-  const semantic = inferToolResultSemantic(input.toolName, input.result);
-  return renderSemanticBlock("tool_result", renderCompactToolObservation(input.result, input.toolName), {
+  const semantic = inferToolResultSemantic(input.result);
+  return renderSemanticBlock("tool_result", renderCompactToolObservation(input.result), {
     id: input.callId,
     name: input.toolName,
     ok: input.result.success ? "true" : "false",
@@ -415,15 +368,12 @@ export function renderToolResultContent(input: { callId: string; toolName: strin
   });
 }
 
-function renderCompactToolObservation(result: ToolExecutionResult, toolName: string): string {
+function renderCompactToolObservation(result: ToolExecutionResult): string {
   if (!result.success) {
     return `[ERROR] ${stringifyToolContent(result.content) || "未知错误"}`;
   }
-  if (result.toolName === "request_user_input" && typeof result.content === "string") {
-    return appendLlmHint(result.content, result);
-  }
-  if ((result.toolName || toolName) === "execute_bash") {
-    return appendLlmHint(renderBashToolObservation(result), result);
+  if (result.outputType === "streams") {
+    return appendLlmHint(renderStreamsObservation(result), result);
   }
   const renderedContent = renderToolContentForObservation(result.content, result.outputType);
   let observation = renderObservationPrefix(result);
@@ -441,10 +391,9 @@ function renderCompactToolObservation(result: ToolExecutionResult, toolName: str
   return appendLlmHint(observation || result.summary, result);
 }
 
-function inferToolResultSemantic(toolName: string, result: ToolExecutionResult): string | null {
+function inferToolResultSemantic(result: ToolExecutionResult): string | null {
   const semantic = result.metadata.semantic;
-  if (typeof semantic === "string" && semantic.trim()) { return semantic.trim(); }
-  return toolName === "request_user_input" ? "user_input_response" : null;
+  return typeof semantic === "string" && semantic.trim() ? semantic.trim() : null;
 }
 
 function renderObservationPrefix(result: ToolExecutionResult): string {
@@ -465,7 +414,11 @@ function renderMetadataObservationPrefix(result: ToolExecutionResult): string {
   return parts.join("\n\n");
 }
 
-function renderBashToolObservation(result: ToolExecutionResult): string {
+/* streams 类型渲染：进程执行结果（{stdout, stderr, return_code}）。
+   裸 stdout + [stderr]/[stdout] 标记块；失败（return_code≠0）时 stderr 在前——
+   错误原因优先进入模型注意力。声明该类型的工具（execute_bash、execute_skill_script 等）
+   自动获得此排版，核心不认识任何工具名。 */
+function renderStreamsObservation(result: ToolExecutionResult): string {
   const content = result.content;
   const summary = result.summary || "";
   if (!isRecord(content)) {

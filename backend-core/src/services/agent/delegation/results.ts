@@ -1,4 +1,4 @@
-import type { ToolExecutionResult } from "@ragsystem/agent-sdk";
+import type { ToolExecutionResult, ToolOutputType } from "@ragsystem/agent-sdk";
 import { toolError, toolSuccess } from "../sdk/tool-results.js";
 
 export interface DelegationRunResult {
@@ -8,7 +8,7 @@ export interface DelegationRunResult {
   interaction_kind?: "approval" | "user_input";
   content: string;
   summary: string;
-  outputType: string;
+  outputType: ToolOutputType;
   metadata: Record<string, unknown>;
 }
 
@@ -48,7 +48,7 @@ export function successResult<T>(
   content: T,
   input: {
     summary: string;
-    outputType: string;
+    outputType: ToolOutputType;
     metadata: Record<string, unknown>;
     toolName: string;
     llmHint?: string | null;

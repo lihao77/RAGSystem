@@ -20,7 +20,7 @@ export type { RuntimeToolProviderOptions } from "./runtime-tool-provider.js";
 export { executeToolCallRound } from "./tool-round-executor.js";
 export type { ToolRoundExecutorOptions } from "./tool-round-executor.js";
 // Observation 渲染
-export { buildLlmFacingToolResult, buildToolMediaModelContent, renderToolResultContent } from "./observation.js";
+export { buildLlmFacingToolResult, buildToolMediaModelContent, renderToolResultContent} from "./observation.js";
 // 工具引用/错误
 export { resolveToolArgumentReferences, collectResultPlaceholders, collectResultReferenceIndexes, materializeToolResult, buildToolReferenceErrorResult, buildToolExecutionErrorResult } from "./tool-references.js";
 // 并发调度

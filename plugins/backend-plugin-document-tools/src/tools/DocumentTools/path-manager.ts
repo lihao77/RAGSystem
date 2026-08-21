@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 import type { ToolExecContext } from "@ragsystem/agent-sdk";
@@ -114,8 +115,11 @@ export class LocalDocumentPathManager {
   }
 
   private allowedRoots(roots: ExecutionPaths, operation: ManagedOperation): string[] {
-    if (operation === "read") return Object.values(roots);
-    return [roots.workspace];
+    // 系统临时目录是天然暂存区（observation 物化产物等临时数据落在此），读写均放行；
+    // uploads 只读，workspace 读写
+    const systemTemp = os.tmpdir();
+    if (operation === "read") return [...Object.values(roots), systemTemp];
+    return [roots.workspace, systemTemp];
   }
 }
 

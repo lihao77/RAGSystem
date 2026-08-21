@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 
 import { BackendPluginManager } from "@ragsystem/backend-core/plugins/plugin-manager.js";
+import { isPathUnder } from "@ragsystem/backend-core/tools/shared/paths.js";
 import { BACKEND_HOST_RESOURCES } from "@ragsystem/backend-core/plugins/host-resources.js";
 import { provideBackendResource } from "@ragsystem/backend-core/plugins/resource-registry.js";
 import {
@@ -229,3 +230,56 @@ function fakeSandboxRuntime() {
     async closeAll() {},
   };
 }
+
+test("系统临时目录天然可读写：observation 物化文件可回读、temp 可写入", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-document-temp-"));
+  try {
+    const runtime = createLocalDocumentToolsRuntimeFactory()({
+      deploymentKind: "local",
+      dataRoot: root,
+    });
+    const context = { sessionId: "session-temp", runId: "run-temp" };
+    // 忠实模拟真实策略语义：assertWithin 内部做 isPathUnder 判定（无审批放行）
+    const strictPolicy = {
+      isApproved: () => false,
+      assertWithin: (candidatePath, roots) => {
+        if (roots.some((root) => isPathUnder(candidatePath, root))) return path.resolve(candidatePath);
+        throw new Error("路径超出允许的受管目录范围，禁止访问");
+      },
+    };
+
+    // 1. 在系统 temp 下写入
+    const tempTarget = path.join(os.tmpdir(), `ragsystem-document-temp-write-${Date.now()}.txt`);
+    const written = await runtime.document.writeFile(
+      { content: "temp data", filePath: tempTarget },
+      context,
+      { custom_params: {} },
+      strictPolicy,
+    );
+    assert.equal(written.success, true, written.summary);
+    assert.equal(fs.readFileSync(tempTarget, "utf8"), "temp data");
+
+    // 2. 回读（模拟 observation 物化产物的取回路径）
+    const read = await runtime.document.readFile(
+      { filePath: tempTarget },
+      context,
+      { custom_params: {} },
+      strictPolicy,
+    );
+    assert.equal(read.success, true, read.summary);
+    assert.equal(read.content, "temp data");
+
+    // 3. 受管目录之外的普通外部路径仍走审批边界（严格策略下抛错）
+    const outside = await runtime.document.readFile(
+      { filePath: path.join(path.parse(root).root || path.dirname(root), "definitely-outside.txt") },
+      context,
+      { custom_params: {} },
+      strictPolicy,
+    );
+    assert.equal(outside.success, false);
+    assert.match(outside.summary, /超出允许的受管目录范围/);
+    fs.rmSync(tempTarget, { force: true });
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

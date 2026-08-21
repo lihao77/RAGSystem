@@ -202,3 +202,71 @@ test('tool payload recovers structured content from the observation json fence',
   assert.equal(view.removed, 1)
   assert.deepEqual(view.lines.map((line) => line.type), ['hunk', 'removed', 'added'])
 })
+
+test('terminal view keys on raw_result output_type streams, not just tool name', () => {
+  const node = {
+    type: 'tool_call',
+    tool_name: 'execute_skill_script',
+    status: 'success',
+    arguments: JSON.stringify({ skill_name: 'pdf', script_name: 'build.py' }),
+    raw_result: JSON.stringify({
+      success: true,
+      tool_name: 'execute_skill_script',
+      output_type: 'streams',
+      content: { stdout: 'built 3 pages', stderr: '', return_code: 0 },
+      metadata: {},
+    }),
+  }
+
+  const view = getToolTerminalView(node)
+  assert.equal(view.title, '执行 pdf 脚本')
+  assert.equal(view.stdout, 'built 3 pages')
+  assert.equal(view.exitCode, 0)
+
+  // 非 streams 且非 bash 名 → 不渲染终端视图
+  const plain = { ...node, raw_result: JSON.stringify({ output_type: 'json', content: { data: 1 } }) }
+  assert.equal(getToolTerminalView(plain), null)
+})
+
+test('skill markdown output renders string content as a markdown section', () => {
+  const node = {
+    type: 'tool_call',
+    tool_name: 'activate_skill',
+    status: 'success',
+    arguments: JSON.stringify({ skill_name: 'pdf' }),
+    raw_result: JSON.stringify({
+      success: true,
+      tool_name: 'activate_skill',
+      output_type: 'markdown',
+      content: '# PDF 技能\n\n说明正文',
+      metadata: { skill_name: 'pdf', content_length: 14 },
+    }),
+  }
+
+  const sections = getToolOutputSections(node)
+  const markdown = sections.find((section) => section.id === 'output-skill-markdown')
+  assert.equal(markdown.label, 'SKILL.md')
+  assert.equal(markdown.language, 'markdown')
+  assert.match(markdown.text, /PDF 技能/)
+})
+
+test('glob sections read the current files field with legacy filenames fallback', () => {
+  const base = {
+    type: 'tool_call',
+    tool_name: 'glob',
+    status: 'success',
+    arguments: JSON.stringify({ pattern: '*.py' }),
+  }
+  const current = {
+    ...base,
+    raw_result: JSON.stringify({ output_type: 'json', content: { files: ['a.py', 'b.py'], count: 2 } }),
+  }
+  const legacy = {
+    ...base,
+    raw_result: JSON.stringify({ output_type: 'json', content: { filenames: ['old.py'] } }),
+  }
+
+  assert.match(getToolOutputSections(current).find((s) => s.id === 'output-glob-files').text, /a\.py/)
+  assert.match(getToolOutputSections(legacy).find((s) => s.id === 'output-glob-files').text, /old\.py/)
+  assert.match(getToolSubtitle(current), /2 个文件/)
+})

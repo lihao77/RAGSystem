@@ -33,14 +33,9 @@
             ref="reasoningEl"
             class="assistant-step-reasoning"
             :style="detailIndentStyle"
-            @scroll.passive="updateReasoningFades"
+            @scroll.passive="handleReasoningScroll"
           >
-            <MarkdownContent
-              :content="node.reasoning || ''"
-              :streaming="reasoningStreaming"
-              @notify="emit('notify', $event)"
-              @citation-click="emit('citation-click', $event)"
-            />
+            <div class="assistant-step-reasoning-text">{{ reasoningDisplayText }}</div>
           </div>
         </div>
         <div class="assistant-step-reasoning-fade is-bottom" aria-hidden="true"></div>
@@ -233,6 +228,9 @@ const summaryText = computed(() => {
 watch(() => getExecutionNodeKey(props.node), () => {
   expanded.value = false;
   reasoningOverride.value = null;
+  reasoningUserPinned.value = false;
+  cancelPendingReasoningFrame();
+  flushReasoningText();
 });
 
 // 思考块折叠:流式中自动展开,完成后自动收起;用户点击后本次覆盖自动行为。
@@ -246,17 +244,86 @@ function toggleReasoningExpanded() {
   reasoningOverride.value = !reasoningExpanded.value;
 }
 
-// 流式时思考块自动跟随最新内容；用户主动上滑阅读（距底 >40px）则不打扰。
-// 吸附判定在渲染前读旧位置；滚动必须等渲染后读新 scrollHeight——提前读永远差一截，
-// 且单次增量渲染超过 40px 时会被误判成用户上滑而永久停止跟随。
+/* 思考正文：思维链是模型的原始文本，按纯文本渲染（不走 markdown）。
+   流式期间 rAF 节流 + 尾部窗口截断——否则长思考时每个 delta 都全量
+   markdown 解析 + v-html 重建整棵 DOM，累计 O(n²)，几百字后就开始掉帧；
+   截断把每次 patch 的文本量钉在常数，完成后展开即全文。 */
+const REASONING_STREAM_WINDOW = 2000;
 const reasoningEl = ref(null);
+const reasoningUserPinned = ref(false);
+const reasoningDisplayText = ref('');
+let programmaticScrollUntil = 0;
+let reasoningRafId = 0;
+let reasoningWindowCut = 0;
+
+function flushReasoningText() {
+  const text = props.node.reasoning || '';
+  if (!reasoningStreaming.value) {
+    reasoningWindowCut = 0;
+    reasoningDisplayText.value = text;
+    return;
+  }
+  // 用户上滑阅读时冻结窗口起点：跟随暂停期间窗口继续前移会把正在读的
+  // 头部内容截掉，滚回底部后下一次刷新窗口再前进。
+  if (reasoningUserPinned.value && reasoningWindowCut > 0) {
+    reasoningDisplayText.value = `…（前 ${reasoningWindowCut} 字流式期间已折叠）\n${text.slice(reasoningWindowCut)}`;
+    return;
+  }
+  let cut = Math.max(0, text.length - REASONING_STREAM_WINDOW);
+  const lineBreak = text.lastIndexOf('\n', cut);
+  if (lineBreak > cut - 400) cut = lineBreak + 1;
+  reasoningWindowCut = cut;
+  reasoningDisplayText.value = cut > 0
+    ? `…（前 ${cut} 字流式期间已折叠，思考完成后可查看全文）\n${text.slice(cut)}`
+    : text;
+}
+
+function cancelPendingReasoningFrame() {
+  if (!reasoningRafId) return;
+  window.cancelAnimationFrame(reasoningRafId);
+  reasoningRafId = 0;
+}
+
 watch(() => props.node.reasoning, () => {
+  if (!reasoningStreaming.value) {
+    flushReasoningText();
+    return;
+  }
+  if (reasoningRafId) return;
+  reasoningRafId = window.requestAnimationFrame(() => {
+    reasoningRafId = 0;
+    flushReasoningText();
+  });
+}, { immediate: true });
+
+watch(reasoningStreaming, (streaming) => {
+  if (streaming) return;
+  cancelPendingReasoningFrame();
+  flushReasoningText();
+});
+
+/* 底部跟随：只信用户的真实滚动——滚离底部即暂停跟随，滚回底部自动恢复。
+   程序滚动后短窗内忽略 scroll 事件，避免自己触发的滚动改动 pin 状态。
+   不再用"渲染前距底 ≤40px"猜测：markdown/大增量会让单帧高度突增，
+   曾被误判成用户上滑而永久停止跟随。 */
+function handleReasoningScroll() {
+  if (performance.now() < programmaticScrollUntil) return;
   const el = reasoningEl.value;
-  const stickToBottom = Boolean(el) && el.scrollHeight - el.scrollTop - el.clientHeight <= 40;
+  if (!el) return;
+  reasoningUserPinned.value = el.scrollHeight - el.scrollTop - el.clientHeight > 8;
+  updateReasoningFades();
+}
+
+function stickReasoningToBottom() {
+  const el = reasoningEl.value;
+  if (!el) return;
+  programmaticScrollUntil = performance.now() + 150;
+  el.scrollTop = el.scrollHeight;
+}
+
+watch(reasoningDisplayText, () => {
   nextTick(() => {
-    if (el && stickToBottom && reasoningStreaming.value && reasoningExpanded.value) {
-      el.scrollTop = el.scrollHeight;
-    }
+    if (!reasoningUserPinned.value && reasoningExpanded.value) stickReasoningToBottom();
     updateReasoningFades();
     retargetReasoningHeight();
   });
@@ -278,14 +345,14 @@ watch(reasoningExpanded, (open) => {
     updateReasoningFades();
     syncReasoningHeight(open);
     // 流式中（手动收起后）重新展开：直接定位到最新内容，保持吸附。
-    const el = reasoningEl.value;
-    if (open && reasoningStreaming.value && el) el.scrollTop = el.scrollHeight;
+    if (open && reasoningStreaming.value) stickReasoningToBottom();
   });
 });
 
 onBeforeUnmount(() => {
   window.clearTimeout(reasoningHeightTimer);
   window.clearTimeout(collapseHeightTimer);
+  cancelPendingReasoningFrame();
 });
 
 /* 高度动画：max-height 用实测值驱动。固定 320px 区间会让短内容在过渡早期
@@ -447,7 +514,11 @@ function truncate(value, maxLength) {
   height: 14px;
 }
 
-.assistant-step-reasoning :deep(.markdown-body) {
+/* 思考正文按纯文本渲染（pre-wrap），不走 markdown：思维链是模型原始文本，
+   markdown 流式全量重解析是长思考掉帧的主因之一。 */
+.assistant-step-reasoning-text {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
   font-size: 13px;
   line-height: 1.7;
   color: var(--color-text-secondary);
@@ -589,8 +660,7 @@ function truncate(value, maxLength) {
   overflow-y: auto;
 }
 
-/* markdown 末元素的 margin-bottom 会被 BFC 容器包含，在块尾留出空白；思考块与 intent 块统一清零。 */
-.assistant-step-reasoning :deep(.markdown-body > :last-child),
+/* markdown 末元素的 margin-bottom 会被 BFC 容器包含，在块尾留出空白；intent 块统一清零。 */
 .assistant-step-intent :deep(.markdown-body > :last-child) {
   margin-bottom: 0;
 }

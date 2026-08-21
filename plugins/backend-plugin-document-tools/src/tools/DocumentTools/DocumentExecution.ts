@@ -152,7 +152,7 @@ export class LocalDocumentToolService {
         },
         {
           summary: `文件已写入: ${displayPath}（${stat.size} 字节）`,
-          outputType: "text",
+          outputType: "json",
           metadata: {
             execution_paths: this.pathManager.executionPaths(context, agent.custom_params),
             file_path: resolvedPath,
@@ -320,7 +320,7 @@ function successResult<T>(
   content: T,
   input: {
     summary: string;
-    outputType: string;
+    outputType: import("@ragsystem/agent-sdk").ToolOutputType;
     metadata: Record<string, unknown>;
     toolName: string;
   },

@@ -136,7 +136,7 @@ export function successResult<T>(
   content: T,
   input: {
     summary: string;
-    outputType: string;
+    outputType: import("@ragsystem/agent-sdk").ToolOutputType;
     metadata: Record<string, unknown>;
     toolName: string;
   },

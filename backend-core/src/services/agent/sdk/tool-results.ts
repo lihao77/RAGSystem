@@ -4,14 +4,14 @@
  * 所有工具/service 用这俩替代旧的 snake_case errorResult/successResult。
  * 对齐 @ragsystem/agent-sdk 的 ToolExecutionResult 形状。
  */
-import type { ToolExecutionResult, ToolResultMedia } from "@ragsystem/agent-sdk";
+import type { ToolExecutionResult, ToolOutputType, ToolResultMedia } from "@ragsystem/agent-sdk";
 
 export function toolSuccess<T>(
   content: T,
   input: {
     toolName: string;
     summary: string;
-    outputType: string;
+    outputType: ToolOutputType;
     metadata?: Record<string, unknown>;
     media?: ToolResultMedia[];
     llmHint?: string | null;

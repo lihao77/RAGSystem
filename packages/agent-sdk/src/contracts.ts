@@ -87,13 +87,23 @@ export interface ToolResultMedia {
   detail?: "auto" | "low" | "high";
 }
 
+/** outputType 封闭枚举：呈现类型（渲染排版 + UI 视图选择的依据），不是数据的一部分。
+ * - text: content 为字符串，原样进 observation
+ * - json: content 为对象/数组，json 围栏排版（默认兜底）
+ * - markdown: content 为 markdown 字符串
+ * - streams: 进程执行结果（{stdout, stderr, return_code}），流式排版（失败时 stderr 在前）
+ * - image: 媒体结果（media 数组承载图片）
+ * - error: 失败路径（content 为错误消息字符串） */
+export const TOOL_OUTPUT_TYPES = ["text", "json", "markdown", "streams", "image", "error"] as const;
+export type ToolOutputType = (typeof TOOL_OUTPUT_TYPES)[number];
+
 /** 工具执行结果（对齐 backend-ts ToolExecutionResult 形状）。 */
 export interface ToolExecutionResult {
   success: boolean;
   toolName: string;
   summary: string;
   answer: string | null;
-  outputType: string;
+  outputType: ToolOutputType;
   content: unknown;
   metadata: Record<string, unknown>;
   files: ToolFile[];

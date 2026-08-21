@@ -1,5 +1,5 @@
 import { MSG_TYPE } from "../../../contracts/message-kinds.js";
-import type { ToolExecutionResult } from "@ragsystem/agent-sdk";
+import { TOOL_OUTPUT_TYPES, type ToolExecutionResult, type ToolOutputType } from "@ragsystem/agent-sdk";
 
 interface DurableRoundMessage {
   metadata: Record<string, unknown>;
@@ -36,7 +36,10 @@ function parseToolResult(value: unknown): ToolExecutionResult | null {
     toolName: value.tool_name,
     summary: value.summary,
     answer: typeof value.answer === "string" ? value.answer : null,
-    outputType: typeof value.output_type === "string" ? value.output_type : "unknown",
+    // 持久化旧数据可能带非枚举值（历史自由字符串），归一到 json 默认档
+    outputType: (TOOL_OUTPUT_TYPES as readonly string[]).includes(value.output_type as string)
+      ? value.output_type as ToolOutputType
+      : "json",
     content: value.content,
     metadata: isRecord(value.metadata) ? value.metadata : {},
     files: Array.isArray(value.files) ? value.files as ToolExecutionResult["files"] : [],
