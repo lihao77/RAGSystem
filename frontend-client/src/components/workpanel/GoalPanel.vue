@@ -1,150 +1,125 @@
 <template>
-  <section class="runtime-section">
-    <header class="runtime-section__head">
-      <span class="runtime-section__icon" :style="{ color: statusToneColor(goal?.status) }">
-        <Target />
+  <section class="goal-panel" aria-label="目标">
+    <div class="goal-panel__bar">
+      <span class="panel-label">目标</span>
+      <span v-if="goal" class="goal-status" :style="{ '--tone': statusToneColor(goal.status) }">
+        <span class="goal-status__dot" :class="{ 'is-live': goal.status === 'active' }" />
+        {{ goalStatusLabel(goal.status) }}
       </span>
-      <div class="runtime-section__titles">
-        <h3 class="runtime-section__title">Goal</h3>
-        <p class="runtime-section__subtitle">跨 Run 持续推进的当前目标</p>
-      </div>
-      <TooltipProvider v-if="goal" :delay-duration="120">
-        <Tooltip>
-          <TooltipTrigger as-child>
-            <span class="runtime-section__status" :class="{ 'is-attention': isAttentionStatus(goal.status) }">
-              <span class="status-dot" :style="{ '--dot-color': statusToneColor(goal.status) }" />
-              <span v-if="isAttentionStatus(goal.status)" class="runtime-section__status-text">{{ statusMeta.label }}</span>
-            </span>
-          </TooltipTrigger>
-          <TooltipContent>{{ statusMeta.label }}</TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
-      <Button
-        variant="ghost"
-        size="icon-sm"
+      <button
+        type="button"
+        class="icon-btn"
         :disabled="goalState.loading || Boolean(goalState.pendingAction)"
-        aria-label="刷新 Goal"
-        title="刷新 Goal"
+        aria-label="刷新目标"
+        title="刷新目标"
         @click="goalState.loadGoal()"
       >
-        <RefreshCw data-icon="inline-start" :class="cn({ 'animate-spin': goalState.loading })" />
-      </Button>
-    </header>
-
-    <EmptyState
-      v-if="goalState.error && !goal"
-      row
-      tone="error"
-      :title="goalState.error"
-      class="runtime-empty"
-    />
-
-    <EmptyState
-      v-else-if="!goal"
-      row
-      :title="goalState.loading ? '正在加载 Goal' : '当前会话暂无 Goal'"
-      class="runtime-empty"
-    />
-
-    <div v-else class="runtime-section__body">
-      <p class="goal-objective">{{ goal.objective }}</p>
-
-      <div class="goal-meta">
-        <span class="goal-meta__chip">{{ progressText }}</span>
-        <span class="goal-meta__chip">自动续跑 {{ goal.continuation_count || 0 }} 次</span>
-        <span v-if="continuationReasonText" class="goal-meta__chip goal-meta__chip--muted">
-          {{ continuationReasonText }}
-        </span>
-      </div>
-
-      <p v-if="checkpointText" class="goal-checkpoint">{{ checkpointText }}</p>
-
-      <div v-if="steps.length" class="goal-steps">
-        <div class="goal-steps__head">
-          <span>阶段</span>
-          <span>{{ completedSteps }} / {{ steps.length }}</span>
-        </div>
-        <ol class="goal-steps__list">
-          <li
-            v-for="(step, index) in steps"
-            :key="step.id || index"
-            class="goal-step"
-            :class="{ 'is-current': step.status === 'in_progress' }"
-          >
-            <span class="goal-step__marker">
-              <Check v-if="step.status === 'completed'" />
-              <LoaderCircle v-else-if="step.status === 'in_progress'" class="animate-spin" />
-              <span v-else class="goal-step__index">{{ index + 1 }}</span>
-            </span>
-            <span class="goal-step__copy">
-              <strong>{{ stepTitle(step, index) }}</strong>
-              <span v-if="step.description && step.description !== stepTitle(step, index)">
-                {{ step.description }}
-              </span>
-            </span>
-            <span
-              class="goal-step__status"
-              :style="{ color: statusToneColor(step.status) }"
-              :title="stepStatusLabel(step.status)"
-            >
-              {{ isAttentionStatus(step.status) ? stepStatusLabel(step.status) : '' }}
-            </span>
-          </li>
-        </ol>
-      </div>
-
-      <p v-if="goalState.error" class="runtime-error" role="alert">{{ goalState.error }}</p>
+        <RefreshCw :class="{ spin: goalState.loading }" />
+      </button>
     </div>
 
-    <footer v-if="goal" class="runtime-section__foot">
-      <Button
-        v-if="goalState.canPause"
-        variant="outline"
-        size="sm"
-        :disabled="Boolean(goalState.pendingAction)"
-        @click="goalState.pauseGoal"
-      >
-        <LoaderCircle v-if="goalState.pendingAction === 'pause'" data-icon="inline-start" class="animate-spin" />
-        <Pause v-else data-icon="inline-start" />
-        暂停 Goal
-      </Button>
-      <Button
-        v-else-if="goalState.canStart"
-        size="sm"
-        :disabled="Boolean(goalState.pendingAction)"
-        @click="goalState.startGoal"
-      >
-        <LoaderCircle v-if="goalState.pendingAction === 'start'" data-icon="inline-start" class="animate-spin" />
-        <Play v-else data-icon="inline-start" />
-        继续 Goal
-      </Button>
-    </footer>
+    <p v-if="goalState.error && !goal" class="panel-note panel-note--error" role="alert">{{ goalState.error }}</p>
+    <p v-else-if="!goal" class="panel-note">{{ goalState.loading ? '正在加载目标…' : '当前会话暂无目标' }}</p>
+
+    <template v-else>
+      <p class="goal-objective">{{ goal.objective }}</p>
+
+      <div v-if="steps.length" class="goal-progress">
+        <div class="goal-progress__track" role="progressbar" :aria-valuenow="completedSteps" :aria-valuemax="steps.length">
+          <i class="goal-progress__fill" :style="{ width: `${progressPct}%` }" />
+        </div>
+        <span class="goal-progress__text">{{ completedSteps }}/{{ steps.length }} 阶段</span>
+      </div>
+      <p v-else class="goal-progress-alone">{{ progressText }}</p>
+
+      <p class="goal-meta">
+        自动续跑 {{ goal.continuation_count || 0 }} 次<template v-if="continuationReasonText"> · {{ continuationReasonText }}</template>
+      </p>
+      <p v-if="checkpointText" class="goal-checkpoint">{{ checkpointText }}</p>
+
+      <ol v-if="steps.length" class="goal-steps">
+        <li
+          v-for="(step, index) in steps"
+          :key="step.id || index"
+          class="goal-step"
+          :class="{ 'is-current': step.status === 'in_progress' }"
+        >
+          <span class="goal-step__marker" aria-hidden="true">
+            <Check v-if="step.status === 'completed'" />
+            <LoaderCircle v-else-if="step.status === 'in_progress'" class="spin" />
+            <span v-else class="goal-step__index">{{ index + 1 }}</span>
+          </span>
+          <span class="goal-step__title" :title="step.description && step.description !== stepTitle(step, index) ? step.description : undefined">
+            {{ stepTitle(step, index) }}
+          </span>
+          <span
+            v-if="isAttentionStatus(step.status)"
+            class="goal-step__status"
+            :style="{ color: statusToneColor(step.status) }"
+          >
+            {{ statusLabel(step.status) }}
+          </span>
+        </li>
+      </ol>
+
+      <div v-if="goalState.canPause || goalState.canStart" class="goal-actions">
+        <button
+          v-if="goalState.canPause"
+          type="button"
+          class="goal-btn"
+          :disabled="Boolean(goalState.pendingAction)"
+          @click="goalState.pauseGoal"
+        >
+          <LoaderCircle v-if="goalState.pendingAction === 'pause'" class="spin" />
+          <Pause v-else />
+          暂停
+        </button>
+        <button
+          v-else-if="goalState.canStart"
+          type="button"
+          class="goal-btn goal-btn--primary"
+          :disabled="Boolean(goalState.pendingAction)"
+          @click="goalState.startGoal"
+        >
+          <LoaderCircle v-if="goalState.pendingAction === 'start'" class="spin" />
+          <Play v-else />
+          继续
+        </button>
+      </div>
+
+      <p v-if="goalState.error" class="panel-note panel-note--error" role="alert">{{ goalState.error }}</p>
+    </template>
   </section>
 </template>
 
 <script setup>
 import { computed } from 'vue';
-import { Check, LoaderCircle, Pause, Play, RefreshCw, Target } from 'lucide-vue-next';
-import { Button } from '@/components/ui/button';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import EmptyState from '@/components/EmptyState.vue';
-import { cn } from '@/lib/utils';
+import { Check, LoaderCircle, Pause, Play, RefreshCw } from 'lucide-vue-next';
 import { statusLabel, statusToneColor } from '@/utils/participantVisual.js';
 
-// 异常/需注意状态才常驻文字,其余只留色点(文字收 Tooltip),与侧栏哲学一致。
+// 阶段/目标的异常状态才亮文字,其余由标记与色点表达。
 const ATTENTION_STATUSES = new Set(['failed', 'blocked', 'interrupted']);
 const isAttentionStatus = (status) => ATTENTION_STATUSES.has(status);
 
 const props = defineProps({
   goalState: { type: Object, required: true },
-  embedded: { type: Boolean, default: false },
 });
 
 const goal = computed(() => props.goalState.goal || null);
 const steps = computed(() => (Array.isArray(goal.value?.steps) ? goal.value.steps : []));
 const completedSteps = computed(() => steps.value.filter((step) => step.status === 'completed').length);
+const progressPct = computed(() => (
+  steps.value.length ? Math.round((completedSteps.value / steps.value.length) * 100) : 0
+));
 
-const statusMeta = computed(() => ({ label: statusLabel(goal.value?.status) }));
+// 通用 statusLabel 把 active 译作"就绪",目标语境下应为"进行中"。
+const goalStatusLabel = (status) => ({
+  active: '进行中',
+  paused: '已暂停',
+  completed: '已完成',
+  blocked: '已阻塞',
+  failed: '失败',
+}[status] || statusLabel(status));
 
 const progressText = computed(() => {
   if (steps.value.length) return `${completedSteps.value} / ${steps.value.length} 阶段完成`;
@@ -177,202 +152,283 @@ const checkpointText = computed(() => {
   return '';
 });
 
-const stepStatusLabel = (status) => statusLabel(status);
-
 function stepTitle(step, index = 0) {
   return step?.title || step?.subject || step?.description || `阶段 ${index + 1}`;
 }
 </script>
 
 <style scoped>
-.runtime-section {
+/* 目标面板:眉题 + 状态丸 + 进度条,不再用分区卡片大标题 */
+.goal-panel {
   display: flex;
   flex-direction: column;
-  border-bottom: 1px solid var(--color-border);
+  padding: 12px 16px 14px;
 }
 
-.runtime-section__head {
+.goal-panel__bar {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 14px 16px 10px;
+  gap: 8px;
+  margin-bottom: 8px;
 }
 
-.runtime-section__icon {
-  display: inline-flex;
-  width: 18px;
-  height: 18px;
-  flex: 0 0 auto;
-}
-
-.runtime-section__icon svg {
-  width: 100%;
-  height: 100%;
-}
-
-.runtime-section__titles {
-  min-width: 0;
-  flex: 1;
-}
-
-.runtime-section__title {
-  color: var(--color-text-primary);
-  font-size: var(--font-size-sm);
+.panel-label {
+  color: var(--color-text-muted);
+  font-size: 11px;
   font-weight: 650;
-  line-height: 1.3;
+  letter-spacing: 0.06em;
 }
 
-.runtime-section__subtitle {
+.goal-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--tone) 12%, transparent);
+  color: var(--tone);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.5;
+}
+
+.goal-status__dot {
+  width: 5px;
+  height: 5px;
+  border-radius: var(--radius-full);
+  background: currentColor;
+}
+
+.goal-status__dot.is-live {
+  animation: goal-dot-pulse 1.6s var(--ease-default) infinite;
+}
+
+.icon-btn {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  margin-left: auto;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-default), color var(--duration-fast) var(--ease-default);
+}
+
+.icon-btn:hover:not(:disabled) {
+  background: var(--color-hover-overlay-md);
+  color: var(--color-text-primary);
+}
+
+.icon-btn:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.icon-btn svg {
+  width: 13px;
+  height: 13px;
+}
+
+.panel-note {
+  padding: 4px 0;
   color: var(--color-text-muted);
   font-size: var(--font-size-xs);
 }
 
-.runtime-section__status {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 6px;
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-xs);
-}
-
-.status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: var(--radius-full);
-  background: var(--dot-color, var(--color-text-muted));
-}
-
-.runtime-section__body {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 2px 16px 14px;
+.panel-note--error {
+  color: var(--color-error);
 }
 
 .goal-objective {
   color: var(--color-text-primary);
-  font-weight: 650;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
   line-height: 1.55;
 }
 
-.goal-meta {
+.goal-progress {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
 }
 
-.goal-meta__chip {
-  padding: 2px 8px;
+.goal-progress__track {
+  height: 4px;
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
   border-radius: var(--radius-full);
-  background: var(--color-hover-overlay);
-  color: var(--color-text-secondary);
+  background: var(--color-hover-overlay-md);
+}
+
+.goal-progress__fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--color-brand-accent);
+  transition: width var(--duration-slow) var(--ease-default);
+}
+
+.goal-progress__text {
+  flex: 0 0 auto;
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.goal-progress-alone {
+  margin-top: 6px;
+  color: var(--color-text-muted);
   font-size: var(--font-size-xs);
 }
 
-.goal-meta__chip--muted {
+.goal-meta {
+  margin-top: 8px;
   color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
 }
 
 .goal-checkpoint {
-  color: var(--color-text-muted);
+  margin-top: 6px;
+  color: var(--color-text-secondary);
   font-size: var(--font-size-xs);
+  line-height: 1.5;
 }
 
 .goal-steps {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-}
-
-.goal-steps__head {
-  display: flex;
-  justify-content: space-between;
-  color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
-  font-weight: 650;
-  text-transform: uppercase;
-}
-
-.goal-steps__list {
-  display: flex;
-  flex-direction: column;
+  gap: 2px;
+  margin-top: 10px;
 }
 
 .goal-step {
-  display: grid;
-  grid-template-columns: 22px minmax(0, 1fr) auto;
+  display: flex;
+  min-width: 0;
   align-items: center;
-  gap: 10px;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--color-border);
-}
-
-.goal-step:last-child {
-  border-bottom: 0;
+  gap: 8px;
+  padding: 3px 0;
 }
 
 .goal-step__marker {
   display: inline-flex;
-  width: 20px;
-  height: 20px;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: center;
   border-radius: var(--radius-full);
-  background: var(--color-hover-overlay);
   color: var(--color-text-muted);
+}
+
+.goal-step__marker svg {
+  width: 11px;
+  height: 11px;
 }
 
 .goal-step.is-current .goal-step__marker {
   color: var(--color-brand-accent);
 }
 
-.goal-step__marker svg {
-  width: 12px;
-  height: 12px;
-}
-
 .goal-step__index {
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 650;
 }
 
-.goal-step__copy {
-  display: flex;
+.goal-step__title {
   min-width: 0;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.goal-step__copy strong {
-  color: var(--color-text-primary);
-  font-size: var(--font-size-sm);
-  line-height: 1.35;
-}
-
-.goal-step__copy span {
-  color: var(--color-text-muted);
+  flex: 1;
+  overflow: hidden;
+  color: var(--color-text-secondary);
   font-size: var(--font-size-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.goal-step.is-current .goal-step__title {
+  color: var(--color-text-primary);
 }
 
 .goal-step__status {
   flex: 0 0 auto;
-  font-size: var(--font-size-xs);
+  font-size: 11px;
 }
 
-.runtime-section__foot {
+.goal-actions {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-  padding: 4px 16px 14px;
+  margin-top: 12px;
 }
 
-.runtime-error {
-  color: var(--color-error);
+.goal-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-secondary);
   font-size: var(--font-size-xs);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-default), color var(--duration-fast) var(--ease-default);
 }
 
-.runtime-empty {
-  margin: 8px 16px 16px;
+.goal-btn:hover:not(:disabled) {
+  background: var(--color-hover-overlay-md);
+  color: var(--color-text-primary);
+}
+
+.goal-btn--primary {
+  border-color: color-mix(in srgb, var(--color-brand-accent) 35%, transparent);
+  background: color-mix(in srgb, var(--color-brand-accent) 12%, transparent);
+  color: var(--color-brand-accent);
+}
+
+.goal-btn--primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-brand-accent) 18%, transparent);
+  color: var(--color-brand-accent);
+}
+
+.goal-btn:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.goal-btn svg {
+  width: 12px;
+  height: 12px;
+}
+
+.spin {
+  animation: goal-spin 1s linear infinite;
+}
+
+@keyframes goal-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes goal-dot-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 40%, transparent); }
+  50% { box-shadow: 0 0 0 3px transparent; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spin,
+  .goal-status__dot.is-live {
+    animation: none;
+  }
+
+  .goal-progress__fill {
+    transition: none;
+  }
 }
 </style>

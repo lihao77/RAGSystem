@@ -26,16 +26,17 @@ test('审批和用户输入挂载在聊天主区域', async () => {
   assert.equal(hostSource.includes('<WorkPanelUserInput'), true);
 });
 
-test('运行侧栏不再接收或渲染审批和用户输入', async () => {
-  const panelSource = await readFile(new URL('./workpanel/WorkPanel.vue', import.meta.url), 'utf8');
-  const hostSource = await readFile(new URL('./chat/RuntimeCenterHost.vue', import.meta.url), 'utf8');
+test('运行概览不接收或渲染审批和用户输入', async () => {
+  const overviewSource = await readFile(new URL('./workpanel/RuntimeOverviewPanel.vue', import.meta.url), 'utf8');
+  const capsuleSource = await readFile(new URL('./chat/RuntimeCapsule.vue', import.meta.url), 'utf8');
 
-  assert.equal(panelSource.includes('<WorkPanelApproval'), false);
-  assert.equal(panelSource.includes('<WorkPanelUserInput'), false);
-  assert.equal(panelSource.includes('approvalQueue'), false);
-  assert.equal(panelSource.includes('pendingUserInput'), false);
-  assert.equal(hostSource.includes(':approval-queue="approvalQueue"'), false);
-  assert.equal(hostSource.includes(':pending-user-input="pendingUserInput"'), false);
-  assert.equal(hostSource.includes('ApprovalDialog'), false);
-  assert.equal(hostSource.includes('UserInputDialog'), false);
+  assert.equal(overviewSource.includes('<WorkPanelApproval'), false);
+  assert.equal(overviewSource.includes('<WorkPanelUserInput'), false);
+  assert.equal(overviewSource.includes('approvalQueue'), false);
+  assert.equal(overviewSource.includes('pendingUserInput'), false);
+  // 胶囊只展示待审批数量横幅,审批操作仍由聊天区 ChatInteractionHost 承担。
+  assert.equal(capsuleSource.includes('<WorkPanelApproval'), false);
+  assert.equal(capsuleSource.includes('<WorkPanelUserInput'), false);
+  assert.equal(capsuleSource.includes('ApprovalDialog'), false);
+  assert.equal(capsuleSource.includes('UserInputDialog'), false);
 });

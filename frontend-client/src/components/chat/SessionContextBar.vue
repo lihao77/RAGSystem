@@ -40,21 +40,15 @@
     </div>
 
     <div class="session-runtime-actions">
-      <Button
+      <RuntimeCapsule
         v-if="currentSessionId"
-        variant="ghost"
-        size="sm"
-        class="runtime-trigger"
-        :title="runtimeTriggerTitle"
-        aria-label="打开运行中心"
-        @click="emit('openRuntimeCenter', 'overview')"
-      >
-        <Activity />
-        <span class="runtime-trigger-label">运行</span>
-        <Badge v-if="runtimeBadge" :variant="runtimeBadge.variant" class="runtime-trigger-badge">
-          {{ runtimeBadge.label }}
-        </Badge>
-      </Button>
+        :task-state="taskState"
+        :goal-state="goalState"
+        :participants="participants"
+        :selected-participant-id="selectedParticipantId"
+        :approvals="approvals"
+        @select-participant="emit('selectParticipant', $event)"
+      />
 
       <DropdownMenu>
         <DropdownMenuTrigger as-child>
@@ -96,9 +90,8 @@
 
 <script setup>
 import { computed } from 'vue';
-import { Activity, Bot, Download, Ellipsis, FileText, GitBranch, Moon, Sun } from 'lucide-vue-next';
+import { Bot, Download, Ellipsis, FileText, GitBranch, Moon, Sun } from 'lucide-vue-next';
 import { IconMenu } from '../icons';
-import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { participantAccentColor } from '../../utils/participantVisual.js';
 import {
@@ -111,6 +104,7 @@ import {
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
 import { useThemeStore } from '../../stores/theme.js';
+import RuntimeCapsule from './RuntimeCapsule.vue';
 import SessionContextInfoButton from './SessionContextInfoButton.vue';
 
 const themeStore = useThemeStore();
@@ -129,13 +123,16 @@ const props = defineProps({
   showExecutionStatus: { type: Boolean, default: false },
   executionObservability: { type: Object, default: null },
   selectedParticipant: { type: Object, default: null },
+  participants: { type: Array, default: () => [] },
+  selectedParticipantId: { type: String, default: 'root' },
+  approvals: { type: Array, default: () => [] },
 });
 
 const emit = defineEmits([
   'openMobileSidebar',
   'exportSession',
   'openFileChanges',
-  'openRuntimeCenter',
+  'selectParticipant',
 ]);
 
 // 当前线程 agent chip:仅在切到非 root participant 时显示,标识"你在看谁的对话"。
@@ -147,26 +144,6 @@ const activeAgentChip = computed(() => {
     color: participantAccentColor(participant),
     isRoot: false,
   };
-});
-
-const goalBadge = computed(() => ({
-  active: { label: '进行中', variant: 'success' },
-  paused: { label: '暂停', variant: 'warning' },
-  completed: { label: '完成', variant: 'secondary' },
-  blocked: { label: '阻塞', variant: 'destructive' },
-}[props.goalState.goal?.status] || { label: '未知', variant: 'outline' }));
-
-const runtimeBadge = computed(() => {
-  if (props.taskState.runningCount) {
-    return { label: String(props.taskState.runningCount), variant: 'default' };
-  }
-  return props.goalState.goal ? goalBadge.value : null;
-});
-const runtimeTriggerTitle = computed(() => {
-  const details = [];
-  if (props.goalState.goal) details.push(`Goal ${goalBadge.value.label}`);
-  if (props.taskState.runningCount) details.push(`${props.taskState.runningCount} 个后台任务运行中`);
-  return details.length ? `打开运行中心：${details.join('，')}` : '打开运行中心';
 });
 </script>
 
@@ -268,16 +245,6 @@ const runtimeTriggerTitle = computed(() => {
   padding-right: calc(100vw - env(titlebar-area-width, 100vw));
 }
 
-.runtime-trigger {
-  min-width: 0;
-}
-
-.runtime-trigger-badge {
-  max-width: 72px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 .sidebar-menu-trigger {
   display: none;
 }
@@ -307,16 +274,6 @@ const runtimeTriggerTitle = computed(() => {
 @media (max-width: 480px) {
   .session-context-bar {
     gap: 6px;
-  }
-
-  .runtime-trigger {
-    width: 36px;
-    padding-inline: 0;
-  }
-
-  .runtime-trigger-label,
-  .runtime-trigger-badge {
-    display: none;
   }
 }
 

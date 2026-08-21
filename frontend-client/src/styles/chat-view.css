@@ -1352,19 +1352,6 @@
   }
 }
 
-@media (min-width: 1024px) {
-  .chat-main.multi-agent-active {
-    flex-direction: row;
-    align-items: stretch;
-  }
-
-  .chat-main.multi-agent-active .chat-conversation-column {
-    flex: 1 1 auto;
-    width: auto;
-    max-width: none;
-  }
-}
-
 /* ===== 用户消息编辑态(自 ChatViewV2 迁出,服务 MessageEditBox/UserMessage 后代) ===== */
 /* 压缩摘要已走通用 assistant 渲染路径,不再单独设卡 */
 .user-edit-shell {

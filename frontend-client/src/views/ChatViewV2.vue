@@ -1,25 +1,7 @@
 <template>
  <div class="chat-page-shell">
-    <main id="main-content" tabindex="-1" class="chat-main multi-agent-layout" :class="chatMainClasses">
-    <SessionParticipantNav
-      v-if="currentSessionId"
-      mode="desktop"
-      :participants="participants"
-      :selected-id="selectedParticipantId"
-      :loading="participantsLoading"
-      @select="selectParticipant"
-      @refresh="loadSessionParticipants(currentSessionId)"
-    />
+    <main id="main-content" tabindex="-1" class="chat-main" :class="chatMainClasses">
     <div class="chat-conversation-column">
-      <SessionParticipantNav
-        v-if="currentSessionId"
-        mode="mobile"
-        :participants="participants"
-        :selected-id="selectedParticipantId"
-        :loading="participantsLoading"
-        @select="selectParticipant"
-        @refresh="loadSessionParticipants(currentSessionId)"
-      />
       <SessionContextBar
         :current-session-id="currentSessionId || ''"
         :session-title="currentSessionTitle"
@@ -35,10 +17,13 @@
         :show-execution-status="showExecutionPill"
         :execution-observability="runtimeObservability"
         :selected-participant="selectedParticipant"
+        :participants="participants"
+        :selected-participant-id="selectedParticipantId"
+        :approvals="chatApprovalQueue"
         @open-mobile-sidebar="openMobileSidebar"
         @export-session="exportCurrentSession"
         @open-file-changes="fileChangesOpen = true"
-        @open-runtime-center="openRuntimeCenter"
+        @select-participant="selectParticipant"
       />
       <div class="chat-messages-wrapper" ref="messagesRef" @scroll="handleScroll">
         <ChatMessageList
@@ -127,11 +112,6 @@
       </div>
       </div>
     </div><!-- end .chat-conversation-column -->
-    <RuntimeCenterHost
-      v-model:open="runtimeCenterOpen"
-      :task-state="backgroundTaskState"
-      :goal-state="goalState"
-    />
     </main>
 
     <!-- 上下文快照抽屉 -->
@@ -222,13 +202,11 @@ import { useToast } from '../composables/useToast.js';
 import ChatMessageList from '../components/chat/ChatMessageList.vue';
 import ChatEmptyState from '../components/chat/ChatEmptyState.vue';
 import SessionContextBar from '../components/chat/SessionContextBar.vue';
-import SessionParticipantNav from '../components/chat/SessionParticipantNav.vue';
 import ParticipantThreadEmpty from '../components/chat/ParticipantThreadEmpty.vue';
 import ChatInteractionHost from '../components/chat/ChatInteractionHost.vue';
-import RuntimeCenterHost from '../components/chat/RuntimeCenterHost.vue';
+
 import { useSessionBackgroundTasks } from '../composables/useSessionBackgroundTasks.js';
 import { useSessionGoal } from '../composables/useSessionGoal.js';
-import { useSessionRuntimeCenter } from '../composables/useSessionRuntimeCenter.js';
 import { storeToRefs } from 'pinia';
 import { useSessionRunStore } from '../stores/session-run.js';
 import { useSessionListStore } from '../stores/session-list.js';
@@ -361,7 +339,6 @@ const showToast = (message, actionOrType = null, actionLabel = '重试') => {
 
 const {
   participants,
-  participantsLoading,
   selectedParticipant,
   loadSessionParticipants,
 } = useSessionParticipants({ chatSdkClient, showToast });
@@ -454,11 +431,6 @@ const {
 
 const goalState = reactive(useSessionGoal(currentSessionId));
 const backgroundTaskState = reactive(useSessionBackgroundTasks(currentSessionId));
-const {
-  isOpen: runtimeCenterOpen,
-  open: openRuntimeCenter,
-  close: closeRuntimeCenter,
-} = useSessionRuntimeCenter();
 const currentContextMessage = computed(() => {
   if (_activeRun.assistantMsgIndex >= 0) {
     return messages.value[_activeRun.assistantMsgIndex] || null;
@@ -519,7 +491,6 @@ const chatMainClasses = computed(() => ({
   'is-launching-chat': newChatLaunching.value,
   'is-switching-to-new-chat': switchingToNewChat.value,
   'is-restoring-session-scroll': restoringSessionScroll.value,
-  'multi-agent-active': Boolean(currentSessionId.value),
 }));
 
 const {
@@ -862,7 +833,6 @@ watch(
 );
 
 watch(currentSessionId, (nextSessionId, previousSessionId) => {
-  closeRuntimeCenter();
   // 草稿会话落实（null → 新 id，ensureSession 回填）是本次发送的延续而非切换：
   // 幽灵气泡快照与图片识别状态必须保留到消息落库。
   if (!previousSessionId && nextSessionId) return;

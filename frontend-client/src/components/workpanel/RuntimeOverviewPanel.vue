@@ -1,23 +1,16 @@
 <template>
   <div class="runtime-overview">
-    <div class="runtime-overview-scroll">
-      <GoalPanel v-if="showGoalSection" embedded :goal-state="goalState" />
-
-      <BackgroundTasksPanel v-if="showTaskSection" embedded :task-state="taskState" />
-
-      <EmptyState
-        v-if="!showGoalSection && !showTaskSection"
-        title="当前没有需要管理的运行"
-        hint="持续目标或后台任务出现后会显示在这里"
-        class="runtime-overview-empty"
-      />
-    </div>
+    <GoalPanel v-if="showGoalSection" :goal-state="goalState" />
+    <div v-if="showGoalSection && showTaskSection" class="runtime-overview__divider" />
+    <BackgroundTasksPanel v-if="showTaskSection" :task-state="taskState" />
+    <p v-if="!showGoalSection && !showTaskSection" class="runtime-overview__empty">
+      当前没有运行中的目标或后台任务
+    </p>
   </div>
 </template>
 
 <script setup>
 import { computed } from 'vue';
-import EmptyState from '@/components/EmptyState.vue';
 import BackgroundTasksPanel from './BackgroundTasksPanel.vue';
 import GoalPanel from './GoalPanel.vue';
 
@@ -37,20 +30,20 @@ const showTaskSection = computed(() => Boolean(
 <style scoped>
 .runtime-overview {
   display: flex;
-  min-height: 0;
-  flex: 1;
+  min-width: 0;
   flex-direction: column;
 }
 
-.runtime-overview-scroll {
-  display: flex;
-  min-height: 0;
-  flex: 1;
-  flex-direction: column;
-  overflow-y: auto;
+.runtime-overview__divider {
+  height: 1px;
+  margin: 0 16px;
+  background: var(--color-border);
 }
 
-.runtime-overview-empty {
-  margin: auto 16px;
+.runtime-overview__empty {
+  padding: 20px 16px;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  text-align: center;
 }
 </style>
