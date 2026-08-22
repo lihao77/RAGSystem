@@ -101,6 +101,23 @@ test("DeepSeek thinking + tools：缺 reasoning_content 的 assistant 轮补空�
   assert.equal(assistants[1].reasoning_content, "");
 });
 
+test("DeepSeek 特判走能力位：未标记的兼容厂商不补 reasoning_content", async () => {
+  const { providerTypeSpec } = await import("../dist/provider-registry.js");
+  assert.equal(providerTypeSpec("deepseek").requiresReasoningContentOnAssistantMessages, true);
+  assert.notEqual(providerTypeSpec("qwen").requiresReasoningContentOnAssistantMessages, true);
+
+  const body = buildChatBody({
+    provider: { key: "qwen", name: "Qwen", provider_type: "qwen", api_key: "k" },
+    model: "qwen-plus",
+    thinkingLevel: "on",
+    messages: multiRoundMessages({}, {}),
+  });
+
+  const assistants = body.messages.filter((message) => message.role === "assistant" && message.tool_calls);
+  assert.equal(assistants[0].reasoning_content, undefined);
+  assert.equal(assistants[1].reasoning_content, undefined);
+});
+
 test("OpenAI Responses 开启思考时请求 encrypted reasoning 内容", () => {
   const body = buildResponsesBody({
     provider: { key: "test", name: "test", provider_type: "openai_resp", api_key: "k" },

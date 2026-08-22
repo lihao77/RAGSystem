@@ -44,6 +44,11 @@ export interface ProviderTypeSpec {
   exposesPromptCacheToggle: boolean;
   supportsStreamUsageOptions: boolean;
   nativeFunctionCalling: NativeFunctionCallingMode;
+  /**
+   * 思考模式下 tools 请求要求每条 assistant 消息都带 reasoning 字段（无思考的轮次补空串），
+   * 缺失即 400（DeepSeek 官方行为）。引擎据此补齐；新厂商有同款怪癖改此标志位即可。
+   */
+  requiresReasoningContentOnAssistantMessages?: boolean;
 }
 
 export const PROVIDER_TYPE_SPECS: readonly ProviderTypeSpec[] = [
@@ -91,6 +96,7 @@ export const PROVIDER_TYPE_SPECS: readonly ProviderTypeSpec[] = [
     type: "deepseek", defaultEndpoint: "https://api.deepseek.com/v1", chatKind: "openai_compatible", supportsEmbedding: false, supportsRerank: false,
     promptCacheMode: "automatic_prefix", usageFormat: "deepseek", supportsPromptCacheKey: false,
     supportsPromptCacheTtl: false, exposesPromptCacheToggle: false, supportsStreamUsageOptions: true, nativeFunctionCalling: "configurable",
+    requiresReasoningContentOnAssistantMessages: true,
   },
   {
     type: "openrouter", defaultEndpoint: "https://openrouter.ai/api/v1", chatKind: "openai_compatible", supportsEmbedding: true, supportsRerank: true,
