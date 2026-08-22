@@ -1,5 +1,6 @@
 import type { RunStepInfo } from "@ragsystem/backend-core/contracts/common.js";
 import { normalizeSessionTeamSnapshot, type MessageInfo, type SessionInfo, type SessionListProjection } from "@ragsystem/backend-core/contracts/session/session.js";
+import { parseMessageProviderState } from "@ragsystem/backend-core/contracts/conversation-store/chat-message-codec.js";
 import { parseJsonObject, sqliteTimestampToIso } from "./helpers.js";
 import { decodeChatFields } from "@ragsystem/backend-core/contracts/conversation-store/chat-message-codec.js";
 import { MessageContentPartSchema } from "@ragsystem/agent-protocol";
@@ -53,6 +54,7 @@ export function rowToMessage(row: MessageRow): MessageInfo {
     thread_key: row.thread_key ?? "root",
     child_agent_id: row.child_agent_id,
     created_at: row.created_at,
+    provider_state: parseMessageProviderState(row.provider_state),
     ...decodeChatFields(metadata),
   };
 }

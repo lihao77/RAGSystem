@@ -8,8 +8,6 @@ import type {
   OutboxRow,
   PendingInteractionRecord,
   PendingInteractionStatus,
-  ProviderContinuationRecord,
-  PutProviderContinuationInput,
   RunInfo,
   RunStepRecord,
   UpdateChildAgentLastRunInput,
@@ -113,15 +111,6 @@ export interface RuntimePendingInteractionStorage {
   cancelPendingInteractions(sessionId: string): Promise<number>;
 }
 
-export interface RuntimeProviderContinuationStorage {
-  putProviderContinuation(input: PutProviderContinuationInput): Promise<ProviderContinuationRecord>;
-  getProviderContinuation(
-    sessionId: string,
-    messageId: string,
-  ): Promise<ProviderContinuationRecord | null>;
-  deleteProviderContinuations(sessionId: string, threadKey: string): Promise<number>;
-}
-
 export interface RuntimeParticipantStorage {
   updateChildAgentLastRun(input: UpdateChildAgentLastRunInput): Promise<boolean>;
 }
@@ -132,7 +121,6 @@ export interface RuntimeStorageRepositories {
   runs: RuntimeRunStorage;
   outbox: RuntimeOutboxStorage;
   pendingInteractions: RuntimePendingInteractionStorage;
-  providerContinuations: RuntimeProviderContinuationStorage;
   agentMailbox: AgentMailboxStorePort;
   participants: RuntimeParticipantStorage;
 }
@@ -343,14 +331,10 @@ export interface RuntimePersistMessageInput {
   message: AddMessageInput & { messageId: string };
   /** Root lease that must still belong to this storage instance in the message transaction. */
   leaseRootRunId?: string | null;
-  deleteProviderContinuationThreadKey?: string | null;
-  providerContinuation?: PutProviderContinuationInput | null;
 }
 
 export interface RuntimePersistMessageResult {
   message: MessageInfo;
-  deletedProviderContinuations: number;
-  providerContinuation: ProviderContinuationRecord | null;
 }
 
 export type RuntimeInteractionResolution =

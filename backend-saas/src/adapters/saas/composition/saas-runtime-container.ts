@@ -183,7 +183,6 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
       agentMailbox: conversationRuntime.createAgentMailboxStore(tenantId),
       commitRunInput: (input) => runtimeStorage.operations.commitRunInput(input),
       conversation: conversationRuntime.conversation,
-      providerContinuations: conversationRuntime.providerContinuations,
       clientEvents,
       createEventPersister: (context) => new AsyncKernelEventPersister(
         runtimeStorage,

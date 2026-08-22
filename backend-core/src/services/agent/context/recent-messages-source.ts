@@ -20,6 +20,7 @@ import {
 import { projectConversationExtensions, type ProjectionRegistry } from "./extensions/index.js";
 import type { ChatMessage } from "@ragsystem/agent-llm";
 import type { MessageInfo } from "../../../contracts/session/session.js";
+import type { MessageProviderState } from "../../../contracts/conversation-store/types.js";
 import type { SessionFileLookupPort } from "../../../contracts/session/session-file-storage.js";
 import { projectCanonicalMessageContent } from "./message-content-projector.js";
 
@@ -31,6 +32,7 @@ export class RecentMessagesContextSource implements AgentContextSource {
     private readonly supportsVision: boolean = false,
     private readonly extensionRegistry: ProjectionRegistry,
     private readonly attachmentFiles: SessionFileLookupPort | null = null,
+    private readonly providerIdentity: { providerKey: string; model: string } | null = null,
   ) {}
 
   async build(request: ResolvedAgentContextRequest): Promise<AgentContextContribution> {
@@ -49,7 +51,7 @@ export class RecentMessagesContextSource implements AgentContextSource {
       },
     };
     const { conversation, originals } = messagesToConversation(historyMessages);
-    await restoreActiveProviderContinuation(request.sessionId, conversation, originals, this.history);
+    restoreActiveProviderContinuation(conversation, originals, this.providerIdentity);
     // Canonical message content first, then metadata-only context extensions.
     // 附件图片可缓存；tool 图片每次读盘以遵守 transient TTL。两者都不把图片字节写入 SQLite。
     const attachmentCache = new Map<string, Promise<{ body: Uint8Array; contentType: string | null } | null>>();
@@ -82,16 +84,23 @@ export class RecentMessagesContextSource implements AgentContextSource {
   }
 }
 
-async function restoreActiveProviderContinuation(
-  sessionId: string,
+/**
+ * 恢复未关闭工具事务的隐藏推理状态（消息行内 provider_state）。
+ * 门控三连，任一不满足即不挂载：
+ * 1. 事务开放：最后的非 tool 消息必须是 assistant 工具调用（后续 user/assistant 消息开启新事务，不得继承隐藏状态）；
+ * 2. 印章匹配：provider_key + model 与本次 run 一致（签名是签发模型专属的加密证明，跨模型回放会被拒或静默计费）；
+ * 3. 逐轮恢复：事务内每条 assistant 工具调用轮都挂载（厂商要求整段事务的隐藏推理一起回传）。
+ */
+function restoreActiveProviderContinuation(
   conversation: ChatMessage[],
   originals: (MessageInfo | null)[],
-  history: ConversationHistoryPort,
-): Promise<void> {
-  if (!history.getProviderContinuation) return;
-  const getContinuation = history.getProviderContinuation;
-  // A continuation is active only when the last non-tool message is its assistant tool call.
-  // A later user or assistant message starts a new transaction and must not inherit hidden state.
+  providerIdentity: { providerKey: string; model: string } | null,
+): void {
+  if (!providerIdentity) return;
+  const matchesStamp = (state: MessageProviderState): boolean =>
+    state.provider_key === providerIdentity.providerKey && state.model === providerIdentity.model;
+
+  // 事务开放判定：从末尾跳过 tool 消息，第一条非 tool 消息必须是 assistant 工具调用。
   let activeIndex = -1;
   for (let index = conversation.length - 1; index >= 0; index -= 1) {
     const message = conversation[index];
@@ -101,30 +110,27 @@ async function restoreActiveProviderContinuation(
     break;
   }
   if (activeIndex < 0) return;
-  if (!await restoreMessageContinuation(sessionId, conversation[activeIndex]!, originals[activeIndex] ?? null, getContinuation)) return;
-  // 事务内更早的 assistant 工具调用轮同样要恢复：厂商要求整段事务的隐藏推理
-  // （thinking 块 / reasoning items / thoughtSignature）一起回传，缺一轮即可能 400。
-  // 某轮记录缺失时跳过该轮、继续恢复其余（历史数据不全时尽力而为）。
+  if (!restoreMessageContinuation(conversation[activeIndex]!, originals[activeIndex] ?? null, matchesStamp)) return;
+  // 事务内更早的 assistant 工具调用轮同样恢复；印章不匹配或数据缺失的轮次跳过。
   for (let index = activeIndex - 1; index >= 0; index -= 1) {
     const message = conversation[index];
     if (!message || message.role === "tool") continue;
     if (message.role !== "assistant" || !message.tool_calls?.length) return;
-    await restoreMessageContinuation(sessionId, message, originals[index] ?? null, getContinuation);
+    restoreMessageContinuation(message, originals[index] ?? null, matchesStamp);
   }
 }
 
-async function restoreMessageContinuation(
-  sessionId: string,
+function restoreMessageContinuation(
   message: ChatMessage,
   original: MessageInfo | null,
-  getContinuation: NonNullable<ConversationHistoryPort["getProviderContinuation"]>,
-): Promise<boolean> {
-  if (!original) return false;
-  const record = await getContinuation(sessionId, original.id);
-  if (!record) return false;
+  matchesStamp: (state: MessageProviderState) => boolean,
+): boolean {
+  if (!original?.provider_state) return false;
+  if (!matchesStamp(original.provider_state)) return false;
+  const state = original.provider_state.state;
   const expected = new Set(message.tool_calls?.map((call) => call.id) ?? []);
-  if (record.state.toolCallIds.length !== expected.size || !record.state.toolCallIds.every((id) => expected.has(id))) return false;
-  message.provider_continuation = record.state;
+  if (state.toolCallIds.length !== expected.size || !state.toolCallIds.every((id) => expected.has(id))) return false;
+  message.provider_continuation = state;
   return true;
 }
 

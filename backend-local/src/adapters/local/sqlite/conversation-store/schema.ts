@@ -135,6 +135,7 @@ export const BASELINE_SCHEMA_SQL = `
       thread_key TEXT NOT NULL DEFAULT 'root',
       child_agent_id TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      provider_state TEXT,
       FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
     );
 
@@ -305,15 +306,6 @@ export const BASELINE_SCHEMA_SQL = `
     CREATE INDEX idx_pending_interactions_tool ON pending_interactions(session_id, tool_call_id, status);
     CREATE INDEX idx_pending_interactions_resume_claim ON pending_interactions(session_id, root_run_id, resume_claim_id) WHERE resume_claim_id IS NOT NULL;
     CREATE INDEX idx_pending_interactions_resume_claim_expiry ON pending_interactions(session_id, status, resume_claim_expires_at);
-
-    CREATE TABLE provider_continuations (
-      message_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, thread_key TEXT NOT NULL,
-      provider_type TEXT NOT NULL, tool_call_ids TEXT NOT NULL, state TEXT NOT NULL,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE,
-      FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
-    );
-    CREATE INDEX idx_provider_continuations_session_thread ON provider_continuations(session_id, thread_key, created_at);
 
     CREATE TABLE workflow_tasks (
       task_id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, subject TEXT NOT NULL,

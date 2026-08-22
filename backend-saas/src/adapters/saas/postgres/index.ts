@@ -15,7 +15,6 @@ export * from "./ws-ticket-schema.js";
 export * from "./ws-ticket-migrations.js";
 export * from "./ws-ticket-repository.js";
 export * from "./realtime-event-relay.js";
-export * from "./provider-continuation-repository.js";
 export * from "./run-schema.js";
 export * from "./run-migrations.js";
 export * from "./run-repository.js";

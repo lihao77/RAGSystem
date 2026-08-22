@@ -7,7 +7,7 @@ export interface MigrationDatabase {
   prepare: import("node:sqlite").DatabaseSync["prepare"];
 }
 
-export const LATEST_SCHEMA_VERSION = 18;
+export const LATEST_SCHEMA_VERSION = 19;
 
 export function assertVersionsContiguous(migrations: readonly { version: number; name: string }[]): void {
   migrations.forEach((migration, index) => {
@@ -33,7 +33,7 @@ export function runMigrations(db: MigrationDatabase): void {
     assertCurrentSchema(db);
     return;
   }
-  if (current >= 1 && current <= 17) {
+  if (current >= 1 && current <= 18) {
     assertVersionOneSchema(db);
     runInTransaction(db, () => {
       if (current === 1) db.exec("ALTER TABLE runs ADD COLUMN terminal_reason TEXT");
@@ -76,6 +76,16 @@ export function runMigrations(db: MigrationDatabase): void {
         if (runStepColumns.some((column) => column.name === "message_id")) {
           db.exec("ALTER TABLE run_steps DROP COLUMN message_id");
         }
+      }
+      if (current <= 18) {
+        // v19: continuation 状态合并进消息行（provider_state），独立表退役。
+        // 旧表不做 backfill——旧记录无 provider/model 印章，门控必然丢弃，等价 drop。
+        const messageColumns = db.prepare("PRAGMA table_info(messages)").all() as unknown as Array<{ name: string }>;
+        if (!messageColumns.some((column) => column.name === "provider_state")) {
+          db.exec("ALTER TABLE messages ADD COLUMN provider_state TEXT");
+        }
+        db.exec("DROP TABLE IF EXISTS provider_continuations");
+        db.exec("DROP INDEX IF EXISTS idx_provider_continuations_session_thread");
       }
       ensureRunStepOrderingAndBoundaries(db);
       backfillCanonicalRunMessageBoundaries(db);
@@ -438,6 +448,15 @@ function assertCurrentSchema(db: MigrationDatabase): void {
   const messageColumns = db.prepare("PRAGMA table_info(messages)").all() as unknown as Array<{ name: string }>;
   if (!messageColumns.some((column) => column.name === "content_parts")) {
     throw new Error("Conversation database is missing canonical message content_parts");
+  }
+  if (!messageColumns.some((column) => column.name === "provider_state")) {
+    throw new Error("Conversation database is missing messages.provider_state");
+  }
+  const retiredContinuations = db.prepare(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name='provider_continuations'",
+  ).get();
+  if (retiredContinuations) {
+    throw new Error("Conversation database contains obsolete provider_continuations table");
   }
   const runStepColumns = db.prepare("PRAGMA table_info(run_steps)").all() as unknown as Array<{ name: string }>;
   if (runStepColumns.some((column) => column.name === "message_id")) {

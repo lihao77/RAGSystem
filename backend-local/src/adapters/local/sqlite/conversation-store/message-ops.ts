@@ -6,6 +6,7 @@ import { runInTransaction } from "./shared/transaction.js";
 import { parseJsonObject, stringifyJson } from "./helpers.js";
 import { decodeChatFields, encodeChatFields } from "@ragsystem/backend-core/contracts/conversation-store/chat-message-codec.js";
 import { rowToMessage } from "./mappers.js";
+import { parseMessageProviderState } from "@ragsystem/backend-core/contracts/conversation-store/chat-message-codec.js";
 import type { AddMessageInput } from "@ragsystem/backend-core/contracts/conversation-store/index.js";
 import { AddMessageInputSchema } from "@ragsystem/backend-core/contracts/conversation-store/types.js";
 import type { MessageRow, SqlInputValue } from "./types.js";
@@ -48,15 +49,15 @@ export class MessageOps {
     if (!session) throw new Error(`Cannot add message to missing session: ${input.sessionId}`);
     this.db
       .prepare(`
-        INSERT INTO messages (id, session_id, role, content, content_parts, metadata, thread_key, child_agent_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO messages (id, session_id, role, content, content_parts, metadata, thread_key, child_agent_id, provider_state)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
-      .run(messageId, input.sessionId, input.role, input.content, stringifyJson(contentParts), stringifyJson(persistedMetadata), threadKey, childAgentId);
+      .run(messageId, input.sessionId, input.role, input.content, stringifyJson(contentParts), stringifyJson(persistedMetadata), threadKey, childAgentId, input.providerState ? stringifyJson(input.providerState) : null);
     this.db.prepare("UPDATE sessions SET updated_at=CURRENT_TIMESTAMP WHERE session_id=?").run(input.sessionId);
 
     const row = this.db
       .prepare(`
-        SELECT seq, id, role, content, content_parts, metadata, thread_key, child_agent_id, created_at
+        SELECT seq, id, role, content, content_parts, metadata, thread_key, child_agent_id, created_at, provider_state
         FROM messages
         WHERE id=?
       `)
@@ -76,6 +77,7 @@ export class MessageOps {
       thread_key: row.thread_key ?? "root",
       child_agent_id: row.child_agent_id,
       created_at: row.created_at,
+      provider_state: parseMessageProviderState(input.providerState ?? null),
       ...decodeChatFields(persistedMetadata),
     };
     this.projector.projectInsertedMessage(message);
@@ -125,7 +127,7 @@ export class MessageOps {
       .get(sessionId, resolvedThreadKey, resolvedThreadKey) as { cnt: number };
     const rows = this.db
       .prepare(`
-        SELECT seq, id, session_id, role, content, content_parts, metadata, thread_key, child_agent_id, created_at
+        SELECT seq, id, session_id, role, content, content_parts, metadata, thread_key, child_agent_id, created_at, provider_state
         FROM messages
         WHERE session_id=? AND (? IS NULL OR thread_key=?)
         ORDER BY seq DESC
@@ -163,7 +165,7 @@ export class MessageOps {
       .prepare(`SELECT COUNT(1) AS cnt FROM messages WHERE ${where}`)
       .get(sessionId, resolvedThreadKey) as { cnt: number };
     const rows = this.db
-      .prepare(`SELECT seq, id, session_id, role, content, content_parts, metadata, thread_key, child_agent_id, created_at
+      .prepare(`SELECT seq, id, session_id, role, content, content_parts, metadata, thread_key, child_agent_id, created_at, provider_state
         FROM messages WHERE ${where} ORDER BY seq DESC LIMIT ? OFFSET ?`)
       .all(sessionId, resolvedThreadKey, limit, offset) as unknown as MessageRow[];
     const items = rows.map(rowToMessage).reverse();
@@ -173,7 +175,7 @@ export class MessageOps {
   getMessageBySeq(sessionId: string, seq: number): MessageInfo | null {
     const row = this.db
       .prepare(`
-        SELECT seq, id, session_id, role, content, content_parts, metadata, thread_key, child_agent_id, created_at
+        SELECT seq, id, session_id, role, content, content_parts, metadata, thread_key, child_agent_id, created_at, provider_state
         FROM messages
         WHERE session_id=? AND seq=?
       `)
@@ -184,7 +186,7 @@ export class MessageOps {
   getMessageById(sessionId: string, messageId: string): MessageInfo | null {
     const row = this.db
       .prepare(`
-        SELECT seq, id, session_id, role, content, content_parts, metadata, thread_key, child_agent_id, created_at
+        SELECT seq, id, session_id, role, content, content_parts, metadata, thread_key, child_agent_id, created_at, provider_state
         FROM messages
         WHERE session_id=? AND id=?
       `)
@@ -195,7 +197,7 @@ export class MessageOps {
   getFirstMessageAfterSeq(sessionId: string, seq: number): MessageInfo | null {
     const row = this.db
       .prepare(`
-        SELECT seq, id, session_id, role, content, content_parts, metadata, thread_key, child_agent_id, created_at
+        SELECT seq, id, session_id, role, content, content_parts, metadata, thread_key, child_agent_id, created_at, provider_state
         FROM messages
         WHERE session_id=? AND seq>?
         ORDER BY seq ASC
@@ -208,7 +210,7 @@ export class MessageOps {
   listMessagesAfterSeq(sessionId: string, seq: number, limit = 20): MessageInfo[] {
     const rows = this.db
       .prepare(`
-        SELECT seq, id, session_id, role, content, content_parts, metadata, thread_key, child_agent_id, created_at
+        SELECT seq, id, session_id, role, content, content_parts, metadata, thread_key, child_agent_id, created_at, provider_state
         FROM messages
         WHERE session_id=? AND seq>?
         ORDER BY seq ASC
@@ -221,7 +223,7 @@ export class MessageOps {
   listMessagesBeforeOrAtSeq(sessionId: string, seq: number, limit = 20): MessageInfo[] {
     const rows = this.db
       .prepare(`
-        SELECT seq, id, session_id, role, content, content_parts, metadata, thread_key, child_agent_id, created_at
+        SELECT seq, id, session_id, role, content, content_parts, metadata, thread_key, child_agent_id, created_at, provider_state
         FROM messages
         WHERE session_id=? AND seq<=?
         ORDER BY seq DESC

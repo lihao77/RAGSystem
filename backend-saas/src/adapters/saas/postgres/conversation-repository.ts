@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { PaginatedResult } from "@ragsystem/backend-core/contracts/common.js";
 import type { AddMessageInput } from "@ragsystem/backend-core/contracts/conversation-store/index.js";
 import { AddMessageInputSchema } from "@ragsystem/backend-core/contracts/conversation-store/types.js";
-import { decodeChatFields, encodeChatFields } from "@ragsystem/backend-core/contracts/conversation-store/chat-message-codec.js";
+import { decodeChatFields, encodeChatFields, parseMessageProviderState } from "@ragsystem/backend-core/contracts/conversation-store/chat-message-codec.js";
 import type { PermissionMode } from "@ragsystem/backend-core/contracts/runtime/permissions.js";
 import type {
   CreateSessionRecordInput,
@@ -76,6 +76,8 @@ function message(row: Record<string, unknown>): MessageInfo {
     thread_key: String(row.thread_key ?? "root"),
     child_agent_id: row.child_agent_id == null ? null : String(row.child_agent_id),
     created_at: iso(row.created_at),
+    // JSONB 原样读出；印章/state 结构由恢复侧 parseProviderContinuationState 兜底校验。
+    provider_state: parseMessageProviderState(row.provider_state),
     ...(decodeChatFields(metadata) as Partial<MessageInfo>),
   };
 }
@@ -236,8 +238,8 @@ export class PostgresConversationRepository implements AsyncConversationReposito
     const contentParts: MessageContentPart[] = normalized.contentParts;
     return this.executor.transaction(async (executor) => {
       const result = await executor.query(
-        "INSERT INTO conversation_messages(id,session_id,role,content,content_parts,metadata,thread_key,child_agent_id) VALUES($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7,$8) RETURNING *",
-        [id, normalized.sessionId, normalized.role, normalized.content, JSON.stringify(contentParts), JSON.stringify(metadata), threadKey, normalized.childAgentId ?? null],
+        "INSERT INTO conversation_messages(id,session_id,role,content,content_parts,metadata,thread_key,child_agent_id,provider_state) VALUES($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7,$8,$9::jsonb) RETURNING *",
+        [id, normalized.sessionId, normalized.role, normalized.content, JSON.stringify(contentParts), JSON.stringify(metadata), threadKey, normalized.childAgentId ?? null, normalized.providerState ? JSON.stringify(normalized.providerState) : null],
       );
       await executor.query("UPDATE conversation_sessions SET updated_at=CURRENT_TIMESTAMP WHERE session_id=$1", [normalized.sessionId]);
       if (!result.rows[0]) throw new Error("message insert returned no row");

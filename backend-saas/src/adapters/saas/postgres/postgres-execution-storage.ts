@@ -1,7 +1,6 @@
 import type {
   DurableExecutionClientEventPort,
   DurableExecutionConversationPort,
-  DurableExecutionProviderContinuationPort,
   ExecutionRunPersistenceContext,
   ExecutionStorage,
   ExecutionEventPersister,
@@ -13,7 +12,6 @@ export function createPostgresExecutionStorage(input: {
   conversation: Omit<DurableExecutionConversationPort, "updateMessageMetadata"> & {
     updateMessage(input: { sessionId: string; messageId: string; roleFilter: "user"; metadata: Record<string, unknown> }): Promise<boolean>;
   };
-  providerContinuations: DurableExecutionProviderContinuationPort;
   clientEvents: DurableExecutionClientEventPort;
   createEventPersister(context: ExecutionRunPersistenceContext): ExecutionEventPersister;
   resultReader: ExecutionStorage["resultReader"];
@@ -38,7 +36,6 @@ export function createPostgresExecutionStorage(input: {
         metadata,
       }),
     },
-    providerContinuations: { getProviderContinuation: (sessionId, messageId) => input.providerContinuations.getProviderContinuation(input.tenantId, sessionId, messageId) },
     resultReader: input.resultReader,
     agentMailbox: input.agentMailbox!,
     commitRunInput: input.commitRunInput,

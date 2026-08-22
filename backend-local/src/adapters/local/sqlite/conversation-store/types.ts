@@ -24,6 +24,8 @@ export interface MessageRow {
   thread_key: string | null;
   child_agent_id: string | null;
   created_at: string;
+  /** JSON 序列化的 MessageProviderState（含签发者印章）；非工具调用消息为 NULL。 */
+  provider_state: string | null;
 }
 
 export interface SessionRow {

@@ -61,23 +61,15 @@ export interface CreatePendingInteractionInput {
   requestPayload: Record<string, unknown>;
 }
 
-/** Private provider state bound to an assistant tool-call message. Never exposed as message metadata. */
-export interface ProviderContinuationRecord {
-  message_id: string;
-  session_id: string;
-  thread_key: string;
-  provider_type: string;
-  tool_call_ids: string[];
-  state: ProviderContinuationState;
-  created_at: string;
-}
-
-export interface PutProviderContinuationInput {
-  messageId: string;
-  sessionId: string;
-  threadKey: string;
-  providerType: string;
-  toolCallIds: string[];
+/**
+ * 消息行内嵌的 provider 私有推理状态信封（含签发者印章）。
+ * 印章用于换 provider/模型门控：不匹配即不回放（签名是签发模型专属的加密证明）。
+ */
+export interface MessageProviderState {
+  /** 签发 provider 的配置 key（provider 无 key 时为 name），跨 provider 门控依据。 */
+  provider_key: string;
+  /** 签发模型名，同 provider 换模型门控依据。 */
+  model: string;
   state: ProviderContinuationState;
 }
 
@@ -106,6 +98,7 @@ export const AddMessageInputSchema = z.object({
   messageId: z.string().optional(),
   threadKey: z.string().optional(),
   childAgentId: z.string().nullable().optional(),
+  providerState: z.object({ provider_key: z.string(), model: z.string(), state: z.unknown() }).optional(),
 });
 export type AddMessageInput = z.infer<typeof AddMessageInputSchema>;
 

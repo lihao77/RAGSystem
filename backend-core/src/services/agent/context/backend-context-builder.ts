@@ -14,6 +14,8 @@ export interface BuildBackendAgentContextOptions {
   threadKey?: string | null;
   touch?: boolean;
   sessionFiles?: SessionFileLookupPort | null;
+  /** 本次 run 实际使用的 provider/model（含 selectedLlm 覆盖）；continuation 恢复的印章门控依据。 */
+  providerIdentity?: { providerKey: string; model: string } | null;
 }
 
 export async function buildBackendAgentContext(
@@ -28,6 +30,7 @@ export async function buildBackendAgentContext(
     profile.llmTiers.default?.provider.supports_vision === true,
     extensionRegistry,
     options.sessionFiles ?? null,
+    options.providerIdentity ?? null,
   );
   const cacheTracker = new ProviderCacheTracker(
     historyPort,

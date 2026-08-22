@@ -19,6 +19,7 @@ import { OptionalSessionIdSchema } from "./session-id.js";
 import type { TenantId } from "../../identity/types.js";
 import type { MessageContentPart } from "@ragsystem/agent-protocol";
 import { AgentConfigSchema, type AgentConfig } from "../agent/agent-config.js";
+import type { MessageProviderState } from "../conversation-store/types.js";
 import { createHash } from "node:crypto";
 
 export const SessionTeamSnapshotSchema = z.object({
@@ -281,6 +282,11 @@ export interface MessageInfo {
   /** tool 消息的工具名。 */
   name?: string | undefined;
   has_execution?: boolean;
+  /**
+   * assistant 工具调用消息内嵌的 provider 私有推理状态（含签发者印章）。
+   * 服务端域字段：仅恢复 continuation 的回放判定使用，任何面向客户端的投影必须剥离。
+   */
+  provider_state?: MessageProviderState | null | undefined;
 }
 
 /**

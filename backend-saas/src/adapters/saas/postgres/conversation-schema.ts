@@ -449,4 +449,11 @@ export const POSTGRES_CONVERSATION_MIGRATIONS: PostgresConversationMigration[] =
     END $$;
     ALTER TABLE conversation_sessions ADD COLUMN team_snapshot JSONB NOT NULL;
   `,
+}, {
+  version: 8,
+  name: "messages_provider_state",
+  sql: `
+    ALTER TABLE conversation_messages ADD COLUMN IF NOT EXISTS provider_state JSONB;
+    DROP TABLE IF EXISTS provider_continuations;
+  `,
 }];

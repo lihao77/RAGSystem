@@ -322,7 +322,6 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
                 throw new Error(`orphaned run not found while recovering session: ${run.run_id}`);
               }
               if (nextStatus !== "suspended") {
-                tx.deleteProviderContinuations(session.session_id, run.thread_key || "root");
               }
               const recoveredRun = { runId: run.run_id, parentRunId: run.parent_run_id };
               if (shouldSuspend) sessionSuspendedRuns.push(recoveredRun);
@@ -544,21 +543,14 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
 
   private persistMessage(input: RuntimePersistMessageInput): Promise<RuntimePersistMessageResult> {
     return this.serial.run(() => {
-      assertContinuationScope(input);
       return this.store.runInTransaction((tx) => {
         const session = tx.getSession(input.message.sessionId);
         if (!session) throw new Error(`session not found: ${input.message.sessionId}`);
         if (session.tenant_id !== this.tenantId) {
           throw new Error(`session belongs to another tenant: ${input.message.sessionId}`);
         }
-        const deletedProviderContinuations = input.deleteProviderContinuationThreadKey
-          ? tx.deleteProviderContinuations(input.message.sessionId, input.deleteProviderContinuationThreadKey)
-          : 0;
         const message = resolveDeterministicMessage(tx, input.message, "message");
-        const providerContinuation = input.providerContinuation
-          ? tx.putProviderContinuation(input.providerContinuation)
-          : null;
-        return { message, deletedProviderContinuations, providerContinuation };
+        return { message };
       });
     });
   }
@@ -832,7 +824,6 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
         if (!tx.updateRunStatus(run.run_id, input.sessionId, "interrupted", finalMessage.id, "session_stopped")) {
           throw new Error(`run not found while interrupting session: ${run.run_id}`);
         }
-        tx.deleteProviderContinuations(input.sessionId, threadKey);
         const interrupted = { runId: run.run_id, parentRunId: run.parent_run_id };
         interruptedRuns.push(interrupted);
         for (const terminalRecord of buildRunTerminalRecords({
@@ -921,7 +912,6 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
         if (currentRun.status !== "running" && !replayingTerminal) {
           if (currentRun.lease_root_run_id !== currentRun.run_id
             && (currentRun.status === "completed" || currentRun.status === "failed" || currentRun.status === "interrupted")) {
-            tx.deleteProviderContinuations(input.sessionId, currentRun.thread_key || "root");
             return {
               finalMessage: currentRun.final_message_id
                 ? tx.getMessageById(input.sessionId, currentRun.final_message_id)
@@ -970,7 +960,6 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
           const runStatus = isRequestedRun ? input.status : (input.status === "completed" ? "failed" as const : input.status);
           const cleanup = runStatus === "failed" || runStatus === "interrupted";
           const threadKey = run.thread_key || "root";
-          tx.deleteProviderContinuations(input.sessionId, threadKey);
           const messages = tx.getRecentMessages(input.sessionId, Number.MAX_SAFE_INTEGER, threadKey);
           const closedToolMessages: MessageInfo[] = [];
           if (cleanup) {
@@ -1146,17 +1135,6 @@ function assertFinalizeMessagePolicy(input: RuntimeFinalizeRunInput): void {
   }
   if (input.status === "suspended" && input.finalMessage) {
     throw new Error("suspended run must not include a final message");
-  }
-}
-
-function assertContinuationScope(input: RuntimePersistMessageInput): void {
-  const continuation = input.providerContinuation;
-  if (!continuation) return;
-  if (continuation.messageId !== input.message.messageId) {
-    throw new Error("provider continuation message mismatch");
-  }
-  if (continuation.sessionId !== input.message.sessionId) {
-    throw new Error("provider continuation session mismatch");
   }
 }
 

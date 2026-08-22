@@ -444,7 +444,10 @@ export async function executeRunWithSdk(
     rootCallId: input.rootCallId,
     rootRunId: interactionRootRunId,
     taskId: input.taskId,
-    ...(input.provider.provider_type ? { providerType: input.provider.provider_type } : {}),
+    ...(profile.llmTiers.default ? {
+      providerKey: profile.llmTiers.default.provider.key ?? profile.llmTiers.default.provider.name,
+      model: profile.llmTiers.default.modelName,
+    } : {}),
     ...(input.executionKind ? { executionKind: input.executionKind } : {}),
     taskSummary: input.task.slice(0, 200),
     ...(input.requestId !== undefined ? { requestId: input.requestId } : {}),
@@ -511,8 +514,6 @@ export async function executeRunWithSdk(
   const historyPort: ConversationHistoryPort & SessionMetadataPort = {
     getRecentMessages: (sid: string, limit: number | undefined, tk: string | null | undefined) =>
       deps.storage.conversation.getRecentMessages(sid, limit ?? HISTORY_SCAN_LIMIT, tk ?? "root"),
-    getProviderContinuation: (sid: string, messageId: string) =>
-      deps.storage.providerContinuations.getProviderContinuation(sid, messageId),
     getSession: (sid: string) => sessionMetadata.getSession(sid),
     updateSessionMetadata: (sid: string, patch: Record<string, unknown>) =>
       sessionMetadata.updateSessionMetadata?.(sid, patch) ?? null,
@@ -522,6 +523,12 @@ export async function executeRunWithSdk(
     sessionId: input.sessionId,
     threadKey: input.threadKey,
     sessionFiles: deps.sessionFiles ?? null,
+    ...(profile.llmTiers.default ? {
+      providerIdentity: {
+        providerKey: profile.llmTiers.default.provider.key ?? profile.llmTiers.default.provider.name,
+        model: profile.llmTiers.default.modelName,
+      },
+    } : {}),
   });
   await sessionMetadata.flush();
   let conversation = built.conversation;

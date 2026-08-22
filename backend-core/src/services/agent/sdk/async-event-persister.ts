@@ -3,7 +3,6 @@ import type { AssistantContentPart, KernelEvent } from "@ragsystem/agent-sdk";
 
 import type {
   AddMessageInput,
-  PutProviderContinuationInput,
 } from "../../../contracts/conversation-store/index.js";
 import type { Envelope } from "../../../contracts/events.js";
 import { MSG_TYPE } from "../../../contracts/message-kinds.js";
@@ -36,7 +35,10 @@ export interface AsyncPersisterRunContext {
   rootCallId: string;
   rootRunId?: string;
   taskId?: string | null;
-  providerType?: string;
+  /** 签发隐藏推理状态的 provider 配置 key（印章）。 */
+  providerKey?: string;
+  /** 签发隐藏推理状态的模型名（印章）。 */
+  model?: string;
   executionKind?: string;
   taskSummary?: string;
   requestId?: string | null;
@@ -374,32 +376,29 @@ export class AsyncKernelEventPersister {
     if (message.tool_calls) {
       input.toolCalls = message.tool_calls as AddMessageInput["toolCalls"];
     }
-    const providerContinuation = this.buildProviderContinuation(message, messageId);
+    const providerState = this.buildProviderState(message);
+    if (providerState) input.providerState = providerState;
     await this.storage.operations.persistMessage({
       leaseRootRunId: this.leaseRunId(),
       message: input,
-      deleteProviderContinuationThreadKey: this.ctx.threadKey,
-      ...(providerContinuation ? { providerContinuation } : {}),
     });
   }
 
-  private buildProviderContinuation(
-    message: ChatMessage,
-    messageId: string,
-  ): PutProviderContinuationInput | null {
+  /**
+   * 工具事务的隐藏推理状态随消息行落库（含签发者印章）。
+   * 印章用于恢复时的换 provider/模型门控：不匹配即不回放。
+   */
+  private buildProviderState(message: ChatMessage): AddMessageInput["providerState"] | null {
     if (!message.provider_continuation || !message.tool_calls?.length) return null;
     const callIds = message.tool_calls.map((call) => call.id);
     const stateIds = new Set(message.provider_continuation.toolCallIds);
     if (callIds.length !== stateIds.size || !callIds.every((id) => stateIds.has(id))) return null;
-    if (!this.ctx.providerType) {
-      throw new Error("providerType is required to persist provider continuation");
+    if (!this.ctx.providerKey || !this.ctx.model) {
+      throw new Error("providerKey and model are required to persist provider state");
     }
     return {
-      messageId,
-      sessionId: this.ctx.sessionId,
-      threadKey: this.ctx.threadKey,
-      providerType: this.ctx.providerType,
-      toolCallIds: callIds,
+      provider_key: this.ctx.providerKey,
+      model: this.ctx.model,
       state: message.provider_continuation,
     };
   }

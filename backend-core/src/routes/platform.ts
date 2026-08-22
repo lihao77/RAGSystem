@@ -211,6 +211,6 @@ function redactSensitive(value: unknown): unknown {
   if (!value || typeof value !== "object") return value;
   return Object.fromEntries(Object.entries(value).map(([key, entry]) => [
     key,
-    /password_hash|passwordHash|token|secret/i.test(key) ? "[REDACTED]" : redactSensitive(entry),
+    /password_hash|passwordHash|token|secret|provider_state/i.test(key) ? "[REDACTED]" : redactSensitive(entry),
   ]));
 }

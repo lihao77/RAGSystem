@@ -8,7 +8,6 @@ import {
   PostgresConversationRepository,
   PostgresWorkspaceRepository,
   PostgresOutboxRepository,
-  PostgresProviderContinuationRepository,
   PostgresPendingInteractionRepository,
   PostgresProviderRepository,
   PostgresRunRepository,
@@ -83,7 +82,6 @@ export interface SaaSConversationRuntimeHandle {
   outbox: PostgresOutboxRepository;
   /** Process-level outbox recovery poller shared across all tenant runtimes. */
   sharedOutboxDispatcher: OutboxDispatcher;
-  providerContinuations: PostgresProviderContinuationRepository;
   pendingInteractions: PostgresPendingInteractionRepository;
   providers: PostgresProviderRepository;
   backgroundTasks: PostgresBackgroundTaskRepository;
@@ -189,7 +187,6 @@ export async function createSaaSConversationRuntime(
       void recoverExpiredRunLeases().catch(() => undefined);
     }, 20_000);
     runLeaseRecoveryTimer.unref?.();
-    const providerContinuations = new PostgresProviderContinuationRepository(executor);
     const pendingInteractions = new PostgresPendingInteractionRepository(executor);
     const providers = new PostgresProviderRepository(executor, options.secretResolver);
     const backgroundTasks = new PostgresBackgroundTaskRepository(executor);
@@ -216,7 +213,6 @@ export async function createSaaSConversationRuntime(
       runs,
       outbox,
       sharedOutboxDispatcher,
-      providerContinuations,
       pendingInteractions,
       providers,
       backgroundTasks,

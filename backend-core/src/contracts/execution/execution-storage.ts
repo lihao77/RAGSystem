@@ -88,14 +88,6 @@ export interface DurableExecutionConversationPort {
   insertCompressionMessage(input: { sessionId: string; summaryContent: string; replacesUpToSeq?: number | null; threadKey?: string; childAgentId?: string | null; metadata?: Record<string, unknown> }): Promise<MessageInfo>;
 }
 
-export interface DurableExecutionProviderContinuationPort {
-  getProviderContinuation(tenantId: TenantId, sessionId: string, messageId: string): Promise<{ state: ProviderContinuationState } | null>;
-}
-
-export interface ExecutionProviderContinuationPort {
-  getProviderContinuation(sessionId: string, messageId: string): Promise<{ state: ProviderContinuationState } | null>;
-}
-
 export interface ExecutionRunStepQuery {
   runId?: string | null;
   sessionId?: string | null;
@@ -118,7 +110,6 @@ export interface ExecutionStorage {
   tenantId: TenantId;
   conversation: DurableExecutionConversationPort;
   agentMailbox: AgentMailboxStorePort;
-  providerContinuations: ExecutionProviderContinuationPort;
   resultReader: ExecutionResultReader;
   commitRunInput(input: RuntimeCommitRunInputInput): Promise<RuntimeCommitRunInputResult>;
   createEventPersister(context: ExecutionRunPersistenceContext): ExecutionEventPersister;

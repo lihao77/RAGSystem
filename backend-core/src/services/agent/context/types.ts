@@ -4,15 +4,12 @@
  * 自 SDK context/types.ts 迁入(去 SDK 数据库依赖的一环):recent 组装归 backend,
  * 插件 context source 亦 implements 这些端口。MessageInfo 用 backend contracts/session(snake)。
  */
-import type { ChatMessage, ProviderContinuationState } from "@ragsystem/agent-llm";
+import type { ChatMessage } from "@ragsystem/agent-llm";
 import type { MessageInfo } from "../../../contracts/session/session.js";
 
 /** Promise-only conversation history read boundary. */
 export interface ConversationHistoryPort {
   getRecentMessages(sessionId: string, limit?: number, threadKey?: string | null): Promise<MessageInfo[]>;
-  /** Private lookup; omitted by read-only projections that must not expose provider state. */
-  getProviderContinuation?(sessionId: string, messageId: string):
-    Promise<{ state: ProviderContinuationState } | null>;
 }
 
 /** 会话元数据读写端口(conversationStore 装配侧实现)。 */

@@ -25,7 +25,6 @@ import type {
   RuntimePersistMessageResult,
   RuntimeOutboxStorage,
   RuntimePendingInteractionStorage,
-  RuntimeProviderContinuationStorage,
   RuntimeRecordEnvelopeInput,
   RuntimeRecordEnvelopeResult,
   RuntimeRecordInteractionInput,
@@ -69,7 +68,6 @@ import type { PostgresExecutor } from "./postgres-executor.js";
 import { PostgresConversationRepository } from "./conversation-repository.js";
 import { PostgresOutboxRepository } from "./outbox-repository.js";
 import { PostgresPendingInteractionRepository } from "./pending-interaction-repository.js";
-import { PostgresProviderContinuationRepository } from "./provider-continuation-repository.js";
 import { PostgresRunRepository } from "./run-repository.js";
 import { PostgresAgentMailboxRepository } from "./agent-mailbox-repository.js";
 import { PostgresChildAgentRepository } from "./child-agent-repository.js";
@@ -82,7 +80,6 @@ function createTransactionFacade(
   const runRepository = new PostgresRunRepository(executor);
   const outboxRepository = new PostgresOutboxRepository(executor);
   const pendingInteractionRepository = new PostgresPendingInteractionRepository(executor);
-  const providerContinuationRepository = new PostgresProviderContinuationRepository(executor);
   const agentMailbox = new PostgresAgentMailboxRepository(tenantId, executor);
   const childAgents = new PostgresChildAgentRepository(executor);
 
@@ -132,26 +129,12 @@ function createTransactionFacade(
     cancelPendingInteractions: pendingInteractionRepository.cancelPendingInteractions.bind(pendingInteractionRepository),
   };
 
-  const providerContinuations: RuntimeProviderContinuationStorage = {
-    putProviderContinuation: (input) => providerContinuationRepository.putProviderContinuation(tenantId, input),
-    getProviderContinuation: (sessionId, messageId) => providerContinuationRepository.getProviderContinuation(
-      tenantId,
-      sessionId,
-      messageId,
-    ),
-    deleteProviderContinuations: (sessionId, threadKey) => providerContinuationRepository.deleteProviderContinuations(
-      tenantId,
-      sessionId,
-      threadKey,
-    ),
-  };
-
   const participants = {
     updateChildAgentLastRun: (input: Parameters<PostgresChildAgentRepository["updateChildAgentLastRun"]>[1]) => (
       childAgents.updateChildAgentLastRun(tenantId, input)
     ),
   };
-  return { conversation, runs, outbox, pendingInteractions, providerContinuations, agentMailbox, participants };
+  return { conversation, runs, outbox, pendingInteractions, agentMailbox, participants };
 }
 
 export class PostgresRuntimeStorage implements RuntimeStorage {
@@ -762,7 +745,6 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
           if (!await tx.runs.updateRunStatus(runId, sessionId, "interrupted", finalMessage.id, "run_lease_expired")) {
             throw new Error(`run not found while recovering expired lease: ${runId}`);
           }
-          await tx.providerContinuations.deleteProviderContinuations(sessionId, threadKey);
         }
       }
       const projectedRuns = recoveredRuns.rows.map((row) => ({
@@ -832,7 +814,6 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
   }
 
   private async persistMessage(input: RuntimePersistMessageInput): Promise<RuntimePersistMessageResult> {
-    assertContinuationScope(input);
     return this.executor.transaction(async (transactionExecutor) => {
       if (input.leaseRootRunId) {
         await lockAdvisoryKey(
@@ -851,17 +832,8 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
         );
       }
       const tx = createTransactionFacade(this.tenantId, transactionExecutor);
-      const deletedProviderContinuations = input.deleteProviderContinuationThreadKey
-        ? await tx.providerContinuations.deleteProviderContinuations(
-          input.message.sessionId,
-          input.deleteProviderContinuationThreadKey,
-        )
-        : 0;
       const message = await getOrCreateMessage(transactionExecutor, tx, input.message, "message");
-      const providerContinuation = input.providerContinuation
-        ? await tx.providerContinuations.putProviderContinuation(input.providerContinuation)
-        : null;
-      return { message, deletedProviderContinuations, providerContinuation };
+      return { message };
     });
   }
 
@@ -1351,7 +1323,6 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
         if (!await tx.runs.updateRunStatus(runId, input.sessionId, "interrupted", finalMessage.id, "session_stopped")) {
           throw new Error(`run not found while interrupting session: ${runId}`);
         }
-        await tx.providerContinuations.deleteProviderContinuations(input.sessionId, threadKey);
         const interrupted = { runId, parentRunId };
         interruptedRuns.push(interrupted);
         for (const terminalRecord of buildRunTerminalRecords({
@@ -1427,7 +1398,6 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
           if (root.status === "completed" || root.status === "failed" || root.status === "interrupted" || root.status === "suspended") {
             await tx.pendingInteractions.finalizePendingInteractions(input.sessionId, rootRunId, root.status);
             if (root.status !== "suspended") {
-              await tx.providerContinuations.deleteProviderContinuations(input.sessionId, root.thread_key || "root");
             }
             recoveredClaimIds.add(group[0]!.resume_claim_id!);
             recoveredBatchIds.add(group[0]!.batch_id);
@@ -1487,8 +1457,6 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
       if (run.status !== "running" && run.status !== input.status) {
         if (run.lease_root_run_id !== run.run_id
           && (run.status === "completed" || run.status === "failed" || run.status === "interrupted")) {
-          await createTransactionFacade(this.tenantId, transactionExecutor).providerContinuations
-            .deleteProviderContinuations(input.sessionId, run.thread_key || "root");
           const convergedMessage = run.final_message_id
             ? await createTransactionFacade(this.tenantId, transactionExecutor).conversation
               .getMessageById(input.sessionId, run.final_message_id)
@@ -1544,7 +1512,6 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
         const runStatus = isRequestedRun ? input.status : (input.status === "completed" ? "failed" as const : input.status);
         const runReason = isRequestedRun ? expectedTerminalReason : (expectedTerminalReason ?? "parent_run_terminated");
         const threadKey = scopedRun.thread_key || "root";
-        await tx.providerContinuations.deleteProviderContinuations(input.sessionId, threadKey);
         const messages = await tx.conversation.getRecentMessages(input.sessionId, 10_000, threadKey);
         const closedToolMessages: MessageInfo[] = [];
         if (runStatus === "failed" || runStatus === "interrupted") {
@@ -1911,16 +1878,6 @@ function assertTerminalMessageRule(input: RuntimeFinalizeRunInput): void {
   }
 }
 
-function assertContinuationScope(input: RuntimePersistMessageInput): void {
-  const continuation = input.providerContinuation;
-  if (!continuation) return;
-  if (continuation.messageId !== input.message.messageId) {
-    throw new Error("provider continuation message mismatch");
-  }
-  if (continuation.sessionId !== input.message.sessionId) {
-    throw new Error("provider continuation session mismatch");
-  }
-}
 
 function assertInteractionIdentity(
   existing: PendingInteractionRecord,

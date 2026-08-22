@@ -29,9 +29,6 @@ export function createLocalExecutionStorage(input: {
       }),
       insertCompressionMessage: async (message) => input.conversation.insertCompressionMessage(message),
     },
-    providerContinuations: {
-      getProviderContinuation: async (sessionId, messageId) => input.conversation.getProviderContinuation(sessionId, messageId),
-    },
     resultReader: {
       getRun: async (sessionId, runId) => input.conversation.getRun(sessionId, runId),
       listRuns: async (sessionId, limit, offset) => input.conversation.listRuns(sessionId, limit, offset),
