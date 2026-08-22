@@ -180,4 +180,15 @@ describe("RecentMessagesContextSource", () => {
 
     expect(conversation.every((entry) => entry.provider_continuation === undefined)).toBe(true);
   });
+
+  it("synthesizes tool results for tool calls interrupted before execution", async () => {
+    // 崩溃窗口：第二轮 assistant 工具调用已落库、结果未落库。
+    const history = openTransactionHistory().slice(0, 4); // user → A1 → T1 → A2（无 T2）
+    const conversation = await buildConversation(history);
+
+    const lastEntry = conversation[conversation.length - 1]!;
+    expect(lastEntry.role).toBe("tool");
+    expect(lastEntry.tool_call_id).toBe("call-2");
+    expect(lastEntry.content).toContain("No result provided");
+  });
 });

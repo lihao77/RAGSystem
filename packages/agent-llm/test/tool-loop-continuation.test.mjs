@@ -65,7 +65,7 @@ test("Anthropic 事务外的历史 assistant 消息不注入任何 thinking", ()
   assert.deepEqual(body.messages[3].content.map((block) => block.type), ["thinking", "tool_use"]);
 });
 
-test("Anthropic 缺签名的 thinking 块被剥离（sanitize 行为保持）", () => {
+test("Anthropic 缺签名的 thinking 块降级为 text 块而非丢弃", () => {
   const body = buildAnthropicBody({
     provider: { key: "test", name: "test", provider_type: "anthropic", api_key: "k" },
     model: "test-model",
@@ -75,13 +75,42 @@ test("Anthropic 缺签名的 thinking 块被剥离（sanitize 行为保持）", 
         role: "assistant",
         content: "",
         tool_calls: [toolCall("call-1")],
-        reasoning_blocks: [{ type: "thinking", thinking: "unsigned", signature: "" }],
+        reasoning_blocks: [{ type: "thinking", thinking: "unsigned thought", signature: "" }],
       },
       { role: "tool", tool_call_id: "call-1", content: "result" },
     ],
   });
 
-  assert.deepEqual(body.messages[1].content.map((block) => block.type), ["tool_use"]);
+  assert.deepEqual(body.messages[1].content.map((block) => block.type), ["text", "tool_use"]);
+  assert.equal(body.messages[1].content[0].text, "unsigned thought");
+});
+
+test("DeepSeek thinking + tools：缺 reasoning_content 的 assistant 轮补空串", () => {
+  const body = buildChatBody({
+    provider: { key: "ds", name: "DeepSeek", provider_type: "deepseek", api_key: "k" },
+    model: "deepseek-v4-pro",
+    thinkingLevel: "low",
+    messages: multiRoundMessages(
+      { provider_continuation: { protocol: "openai_chat", toolCallIds: ["call-1"], assistantFields: { reasoning_content: "think one" } } },
+      {},
+    ),
+  });
+
+  const assistants = body.messages.filter((message) => message.role === "assistant" && message.tool_calls);
+  assert.equal(assistants[0].reasoning_content, "think one");
+  assert.equal(assistants[1].reasoning_content, "");
+});
+
+test("OpenAI Responses 开启思考时请求 encrypted reasoning 内容", () => {
+  const body = buildResponsesBody({
+    provider: { key: "test", name: "test", provider_type: "openai_resp", api_key: "k" },
+    model: "gpt-test",
+    thinkingLevel: "low",
+    messages: [{ role: "user", content: "hi" }],
+  });
+
+  assert.deepEqual(body.include, ["reasoning.encrypted_content"]);
+  assert.deepEqual(body.reasoning, { effort: "low" });
 });
 
 const responsesContinuation = (callId, items) => ({

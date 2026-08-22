@@ -62,6 +62,8 @@ export function buildResponsesBody(request: LlmRequest, stream = false): Record<
     temperature: reasoningEffort ? undefined : (request.temperature ?? undefined),
     max_output_tokens: request.maxCompletionTokens ?? undefined,
     reasoning: reasoningEffort ? { effort: reasoningEffort } : undefined,
+    // 无服务端存储（store:false 或跨进程回放）时，reasoning items 需带加密内容才能回放。
+    include: reasoningEffort ? ["reasoning.encrypted_content"] : undefined,
     prompt_cache_key: request.provider.supports_prompt_caching !== false ? request.promptCacheKey : undefined,
     tools: request.tools?.length
       ? request.tools.map((tool) => ({

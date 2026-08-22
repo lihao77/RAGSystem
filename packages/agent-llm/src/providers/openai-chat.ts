@@ -55,10 +55,24 @@ export function buildChatBody(request: LlmRequest, stream = false): Record<strin
   const thinkingParams = buildThinkingParams(request.provider, request.thinkingLevel);
   const usesModernTokenField = request.provider.provider_type === "openai_chat" && Boolean(thinkingParams?.reasoning_effort);
   const promptCacheParams = buildPromptCacheParams(request);
+  const messages = request.messages.map(stripInternalMessageFields);
+  // DeepSeek thinking 模式 + tools：官方要求每一轮 assistant 都带 reasoning_content
+  //（无思考的轮次也要空串），缺失即 400。其他兼容网关忽略未知字段，不受影响。
+  const deepseekThinking = thinkingParams?.thinking as { type?: unknown } | undefined;
+  const requiresReasoningContent = request.provider.provider_type === "deepseek"
+    && thinkingParams !== null
+    && deepseekThinking?.type === "enabled";
+  if (requiresReasoningContent) {
+    for (const message of messages) {
+      if (message.role === "assistant" && message.tool_calls && message.reasoning_content === undefined) {
+        message.reasoning_content = "";
+      }
+    }
+  }
   return {
     ...compactRecord(request.extraParams),
     model: request.model,
-    messages: request.messages.map(stripInternalMessageFields),
+    messages,
     temperature: request.temperature ?? undefined,
     ...(usesModernTokenField
       ? { max_completion_tokens: request.maxCompletionTokens ?? undefined }

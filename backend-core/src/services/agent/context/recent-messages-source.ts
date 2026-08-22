@@ -51,7 +51,9 @@ export class RecentMessagesContextSource implements AgentContextSource {
       },
     };
     const { conversation, originals } = messagesToConversation(historyMessages);
+    // 先恢复（依赖 originals 与 conversation 的索引对齐），再补孤儿结果（会改变数组长度）。
     restoreActiveProviderContinuation(conversation, originals, this.providerIdentity);
+    closeOrphanedToolCalls(conversation);
     // Canonical message content first, then metadata-only context extensions.
     // 附件图片可缓存；tool 图片每次读盘以遵守 transient TTL。两者都不把图片字节写入 SQLite。
     const attachmentCache = new Map<string, Promise<{ body: Uint8Array; contentType: string | null } | null>>();
@@ -82,6 +84,31 @@ export class RecentMessagesContextSource implements AgentContextSource {
     cache.set(key, pending);
     return pending;
   }
+}
+
+/**
+ * 中断窗口兜底：assistant 工具调用缺对应 tool 结果的，就地补合成结果。
+ * 缺 tool_result 的 tool_use 会被各家 API 直接 400；终态 finalize 会补写正式的
+ * 终结 tool 消息，这里只覆盖"崩溃在 finalize 之前"的窗口（有正式结果时天然跳过）。
+ */
+function closeOrphanedToolCalls(conversation: ChatMessage[]): void {
+  const answered = new Set(
+    conversation.filter((message) => message?.role === "tool").map((message) => message.tool_call_id),
+  );
+  const patched: ChatMessage[] = [];
+  let orphaned = 0;
+  for (const message of conversation) {
+    patched.push(message);
+    if (message?.role !== "assistant" || !message.tool_calls?.length) continue;
+    for (const call of message.tool_calls) {
+      if (answered.has(call.id)) continue;
+      patched.push({ role: "tool", tool_call_id: call.id, content: "No result provided (interrupted before execution)" });
+      orphaned += 1;
+    }
+  }
+  if (orphaned === 0) return;
+  conversation.length = 0;
+  conversation.push(...patched);
 }
 
 /**

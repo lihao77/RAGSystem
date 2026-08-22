@@ -126,7 +126,7 @@ function mapAnthropicMessage(message: ChatMessage): Record<string, unknown> {
     const continuationBlocks = message.provider_continuation?.protocol === "anthropic_messages"
       ? message.provider_continuation.blocks
       : message.reasoning_blocks;
-    content.push(...sanitizeReasoningBlocks(continuationBlocks));
+    content.push(...renderReasoningBlocks(continuationBlocks));
   }
   if (message.content) content.push(...toAnthropicContent(message.content));
   else if (!message.tool_calls?.length && content.length === 0) content.push({ type: "text", text: "" });
@@ -141,12 +141,24 @@ function mapAnthropicMessage(message: ChatMessage): Record<string, unknown> {
   return { role, content };
 }
 
-function sanitizeReasoningBlocks(blocks: ReasoningBlock[] | undefined): ReasoningBlock[] {
-  if (!blocks) return [];
-  const output: ReasoningBlock[] = [];
-  for (const block of blocks) {
-    if (block.type === "thinking" && block.signature) output.push({ ...block });
-    if (block.type === "redacted_thinking" && block.data) output.push({ ...block });
+/**
+ * 隐藏推理块 → wire 内容块。
+ * 带签名的 thinking / redacted_thinking 原样回传（签名校验要求）；
+ * 空签名 thinking（如中断的流式响应）不能作为 thinking 块下发——官方会拒——
+ * 有正文的降级为普通 text 块保留信息，空块丢弃。
+ */
+function renderReasoningBlocks(blocks: ReasoningBlock[] | undefined): unknown[] {
+  const output: unknown[] = [];
+  for (const block of blocks ?? []) {
+    if (block.type === "redacted_thinking" && block.data) {
+      output.push({ type: "redacted_thinking", data: block.data });
+    } else if (block.type === "thinking") {
+      if (block.signature) {
+        output.push({ type: "thinking", thinking: block.thinking, signature: block.signature });
+      } else if (block.thinking.trim()) {
+        output.push({ type: "text", text: block.thinking });
+      }
+    }
   }
   return output;
 }
