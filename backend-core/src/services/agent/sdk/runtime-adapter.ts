@@ -923,6 +923,7 @@ export async function executeRunWithSdk(
   const finalized = await journal.submit(() => persister.finalize("completed", {
     content: result.content,
     contentParts: result.contentParts,
+    ...(result.providerContinuation ? { providerContinuation: result.providerContinuation } : {}),
   }));
   if (isInteractionRoot) {
     await deps.pendingInteractions.onRootFinalized(

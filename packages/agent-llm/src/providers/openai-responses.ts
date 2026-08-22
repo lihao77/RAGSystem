@@ -253,11 +253,12 @@ function buildResponsesContinuation(
   toolCalls: ChatToolCall[],
   newItems: Record<string, unknown>[],
 ): Extract<ProviderContinuationState, { protocol: "openai_responses" }> | null {
-  if (!toolCalls.length || !newItems.length) return null;
+  // 纯文字轮（无 function call）的 reasoning items 同样落库：无状态模式下官方支持跨轮回放。
+  if (!newItems.length) return null;
   return {
     protocol: "openai_responses",
     toolCallIds: toolCalls.map((call) => call.id),
-    anchorCallId: toolCalls[0]!.id,
+    ...(toolCalls.length ? { anchorCallId: toolCalls[0]!.id } : {}),
     reasoningItems: newItems,
   };
 }

@@ -142,6 +142,8 @@ export interface KernelResult {
   };
   /** 整个 run 各轮 LLM 调用的累计 token 用量；无 provider 返回时为 undefined。 */
   usage?: TokenUsage;
+  /** final 轮的厂商思考 continuation（含签名/加密块），由 persister 落库 provider_state 供跨 run 回放。 */
+  providerContinuation?: ChatMessage["provider_continuation"];
 }
 
 /* ============================================================

@@ -59,8 +59,8 @@ export type ProviderContinuationState =
   | {
       protocol: "openai_responses";
       toolCallIds: string[];
-      /** First function call of this round; the round's reasoning items replay immediately before it. */
-      anchorCallId: string;
+      /** First function call of this round; reasoning items replay immediately before it. Absent on text-only rounds. */
+      anchorCallId?: string;
       reasoningItems: Record<string, unknown>[];
     }
   | {
@@ -72,7 +72,7 @@ export type ProviderContinuationState =
   | {
       protocol: "openai_chat";
       toolCallIds: string[];
-      /** Provider-specific reasoning fields that must be replayed with the assistant tool call. */
+      /** Provider-specific reasoning fields (reasoning_content 等) replayed with the assistant message. */
       assistantFields: Record<string, unknown>;
     };
 

@@ -139,46 +139,122 @@ describe("RecentMessagesContextSource", () => {
     expect(assistants[1]!.provider_continuation).toEqual(providerStateOf("call-2", "round two").state);
   });
 
-  it("restores nothing when the open transaction was issued by a different model", async () => {
-    // 中断事务由 kimi/k3 签发，续跑换到 kimi/k3.5：整段事务的隐藏状态都不回放，
-    // 签名是签发模型专属的加密证明，混用会被拒或静默计费。
+  it("degrades cross-model rounds to <think> text instead of dropping or replaying signatures", async () => {
+    // 事务由 kimi/k3 与 kimi/k3.5 混合签发，当前 run 是 kimi/k3（pi 语义）：
+    // 匹配轮原样回放；不匹配轮的签名对该模型无效，思考文本降级为 <think> 正文注入。
     const conversation = await buildConversation(openTransactionHistory({
       "intent-1": providerStateOf("call-1", "round one"),
       "intent-2": providerStateOf("call-2", "round two", "kimi", "k3.5"),
     }));
 
-    expect(conversation.every((entry) => entry.provider_continuation === undefined)).toBe(true);
-  });
-
-  it("restores the active round and skips missing earlier state instead of aborting", async () => {
-    const conversation = await buildConversation(openTransactionHistory({
-      "intent-2": providerStateOf("call-2", "round two"),
-    }));
-
     const assistants = conversation.filter((entry) => entry.role === "assistant");
-    expect(assistants[0]!.provider_continuation).toBeUndefined();
-    expect(assistants[1]!.provider_continuation).toEqual(providerStateOf("call-2", "round two").state);
+    expect(assistants[0]!.provider_continuation).toEqual(providerStateOf("call-1", "round one").state);
+    expect(assistants[1]!.provider_continuation).toBeUndefined();
+    expect(JSON.stringify(assistants[1]!.content)).toContain("<think>");
+    expect(JSON.stringify(assistants[1]!.content)).toContain("round two");
   });
 
-  it("restores nothing when the active round lacks provider state", async () => {
+  it("restores stamped rounds independently; later rounds missing state do not block earlier ones", async () => {
     const conversation = await buildConversation(openTransactionHistory({
       "intent-1": providerStateOf("call-1", "round one"),
     }));
 
-    expect(conversation.every((entry) => entry.provider_continuation === undefined)).toBe(true);
+    const assistants = conversation.filter((entry) => entry.role === "assistant");
+    expect(assistants[0]!.provider_continuation).toEqual(providerStateOf("call-1", "round one").state);
+    expect(assistants[1]!.provider_continuation).toBeUndefined();
   });
 
-  it("restores nothing once a later user message closes the transaction", async () => {
+  it("restores across closed transactions, including the text-only final round", async () => {
+    const finalState: MessageProviderState = {
+      provider_key: "kimi",
+      model: "k3",
+      state: {
+        protocol: "anthropic_messages",
+        toolCallIds: [],
+        blocks: [{ type: "thinking", thinking: "final reasoning", signature: "sig-final" }],
+      },
+    };
     const history = [
       ...openTransactionHistory({
         "intent-1": providerStateOf("call-1", "round one"),
         "intent-2": providerStateOf("call-2", "round two"),
       }),
-      message({ id: "user-2", seq: 6, role: "user", content: "next question", content_parts: [{ type: "text", text: "next question" }], metadata: {} }),
+      message({
+        id: "final-1",
+        seq: 6,
+        role: "assistant",
+        content: "done",
+        content_parts: [{ type: "text", text: "done" }],
+        metadata: { msg_type: MSG_TYPE.ASSISTANT_FINAL },
+        provider_state: finalState,
+      }),
+      message({ id: "user-2", seq: 7, role: "user", content: "next question", content_parts: [{ type: "text", text: "next question" }], metadata: {} }),
     ];
     const conversation = await buildConversation(history);
 
+    const assistants = conversation.filter((entry) => entry.role === "assistant");
+    expect(assistants).toHaveLength(3);
+    expect(assistants.every((entry) => entry.provider_continuation !== undefined)).toBe(true);
+    expect(assistants[2]!.provider_continuation).toEqual(finalState.state);
+  });
+
+  it("drops redacted-only reasoning on cross-model rounds without injecting text", async () => {
+    const redactedState: MessageProviderState = {
+      provider_key: "kimi",
+      model: "k3",
+      state: {
+        protocol: "anthropic_messages",
+        toolCallIds: ["call-1"],
+        blocks: [{ type: "redacted_thinking", data: "opaque" }],
+      },
+    };
+    const conversation = await buildConversation(
+      openTransactionHistory({ "intent-1": redactedState }),
+      { providerKey: "kimi", model: "k3.5" },
+    );
+
     expect(conversation.every((entry) => entry.provider_continuation === undefined)).toBe(true);
+    expect(JSON.stringify(conversation)).not.toContain("<think>");
+  });
+
+  it("degrades openai_chat reasoning_content cross-model via <think> text", async () => {
+    const chatState: MessageProviderState = {
+      provider_key: "deepseek",
+      model: "deepseek-v4-pro",
+      state: {
+        protocol: "openai_chat",
+        toolCallIds: ["call-1"],
+        assistantFields: { reasoning_content: "deepseek thought" },
+      },
+    };
+    const conversation = await buildConversation(
+      openTransactionHistory({ "intent-1": chatState }),
+      { providerKey: "deepseek", model: "deepseek-v4-pro-preview" },
+    );
+
+    const assistants = conversation.filter((entry) => entry.role === "assistant");
+    expect(assistants[0]!.provider_continuation).toBeUndefined();
+    expect(JSON.stringify(assistants[0]!.content)).toContain("deepseek thought");
+  });
+
+  it("leaves encrypted responses reasoning items unreadable cross-model", async () => {
+    const responsesState: MessageProviderState = {
+      provider_key: "openai",
+      model: "gpt-test",
+      state: {
+        protocol: "openai_responses",
+        toolCallIds: ["call-1"],
+        anchorCallId: "call-1",
+        reasoningItems: [{ type: "reasoning", id: "rs-1", encrypted_content: "RSN(enc)" }],
+      },
+    };
+    const conversation = await buildConversation(
+      openTransactionHistory({ "intent-1": responsesState }),
+      { providerKey: "openai", model: "gpt-other" },
+    );
+
+    expect(conversation.every((entry) => entry.provider_continuation === undefined)).toBe(true);
+    expect(JSON.stringify(conversation)).not.toContain("<think>");
   });
 
   it("synthesizes tool results for tool calls interrupted before execution", async () => {

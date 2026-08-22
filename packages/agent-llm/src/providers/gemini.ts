@@ -232,8 +232,9 @@ function parseGeminiResponse(body: Record<string, unknown>): LlmResult {
   }
   const result: LlmResult = { content, raw: body, finishReason };
   if (reasoning) result.reasoning = reasoning;
-  if (toolCalls.length) {
-    result.toolCalls = toolCalls;
+  if (toolCalls.length) result.toolCalls = toolCalls;
+  // 纯文字轮也持久化 candidate parts 原样回放（含 thought/thoughtSignature 字段）。
+  if (parts.length) {
     result.providerContinuation = {
       protocol: "gemini_generate_content",
       toolCallIds: toolCalls.map((call) => call.id),
@@ -310,8 +311,9 @@ async function parseGeminiStream(
   }
   const result: LlmResult = { content, finishReason };
   if (reasoning) result.reasoning = reasoning;
-  if (completedTools.length) {
-    result.toolCalls = completedTools;
+  if (completedTools.length) result.toolCalls = completedTools;
+  // 同 parseGeminiResponse：纯文字轮也保留 replayParts 原样回放。
+  if (replayParts.length) {
     result.providerContinuation = {
       protocol: "gemini_generate_content",
       toolCallIds: completedTools.map((call) => call.id),

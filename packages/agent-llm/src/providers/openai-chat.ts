@@ -56,15 +56,15 @@ export function buildChatBody(request: LlmRequest, stream = false): Record<strin
   const usesModernTokenField = request.provider.provider_type === "openai_chat" && Boolean(thinkingParams?.reasoning_effort);
   const promptCacheParams = buildPromptCacheParams(request);
   const messages = request.messages.map(stripInternalMessageFields);
-  // 能力位驱动（provider-registry）：思考模式下要求每轮 assistant 都带 reasoning 字段的厂商
-  // （DeepSeek 官方，缺失 400）补空串；其他兼容网关忽略未知字段，不受影响。
+  // 能力位驱动（provider-registry）：思考模式下要求每条 assistant 消息都带 reasoning 字段的厂商
+  // （DeepSeek 官方：带 tools 时含未调工具的纯文字轮在内，缺失 400）补空串兜底；其他兼容网关忽略未知字段。
   const deepseekThinking = thinkingParams?.thinking as { type?: unknown } | undefined;
   const requiresReasoningContent = thinkingParams !== null
     && deepseekThinking?.type === "enabled"
     && providerTypeSpec(request.provider.provider_type)?.requiresReasoningContentOnAssistantMessages === true;
   if (requiresReasoningContent) {
     for (const message of messages) {
-      if (message.role === "assistant" && message.tool_calls && message.reasoning_content === undefined) {
+      if (message.role === "assistant" && message.reasoning_content === undefined) {
         message.reasoning_content = "";
       }
     }
@@ -294,7 +294,8 @@ function mergeReasoningDetail(previous: Record<string, unknown>, next: Record<st
 }
 
 function buildOpenAiChatContinuation(toolCalls: ChatToolCall[], assistantFields: Record<string, unknown>): ProviderContinuationState | undefined {
-  if (toolCalls.length === 0 || Object.keys(assistantFields).length === 0) return undefined;
+  // 纯文字轮（无工具调用）也持久化 reasoning_content：DeepSeek 官方要求全历史回传（toolCallIds 允许为空）。
+  if (Object.keys(assistantFields).length === 0) return undefined;
   return {
     protocol: "openai_chat",
     toolCallIds: toolCalls.map((call) => call.id),

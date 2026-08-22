@@ -156,7 +156,8 @@ function renderReasoningBlocks(blocks: ReasoningBlock[] | undefined): unknown[] 
       if (block.signature) {
         output.push({ type: "thinking", thinking: block.thinking, signature: block.signature });
       } else if (block.thinking.trim()) {
-        output.push({ type: "text", text: block.thinking });
+        // 降级为正文的思考统一用 <think> 包裹，与跨模型投影一致，避免与回答正文混淆。
+        output.push({ type: "text", text: `<think>${block.thinking}</think>` });
       }
     }
   }
@@ -222,7 +223,8 @@ function parseAnthropicResponse(body: Record<string, unknown>): LlmResult {
   if (reasoning) result.reasoning = reasoning;
   if (reasoningBlocks.length) result.reasoningBlocks = reasoningBlocks;
   if (toolCalls.length) result.toolCalls = toolCalls;
-  if (reasoningBlocks.length && toolCalls.length) {
+  // 纯文字轮（无工具调用）的 thinking 同样落库：新模型保留全部历史思考，旧模型由 API 自动剥离。
+  if (reasoningBlocks.length) {
     result.providerContinuation = {
       protocol: "anthropic_messages",
       toolCallIds: toolCalls.map((call) => call.id),
@@ -365,7 +367,8 @@ async function parseAnthropicStream(
   if (reasoning) result.reasoning = reasoning;
   if (reasoningBlocks.length) result.reasoningBlocks = reasoningBlocks;
   if (completedTools.length) result.toolCalls = completedTools;
-  if (reasoningBlocks.length && completedTools.length) {
+  // 同 parseAnthropicResponse：纯文字轮的 thinking 也要落库回放。
+  if (reasoningBlocks.length) {
     result.providerContinuation = {
       protocol: "anthropic_messages",
       toolCallIds: completedTools.map((call) => call.id),

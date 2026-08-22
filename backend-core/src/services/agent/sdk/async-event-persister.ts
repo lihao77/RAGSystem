@@ -73,6 +73,8 @@ export interface AsyncFinalMessageInput {
   content: string;
   contentParts?: AssistantContentPart[];
   metadata?: Record<string, unknown>;
+  /** final 轮思考 continuation；落库为 provider_state 供跨 run 回放。 */
+  providerContinuation?: ChatMessage["provider_continuation"];
 }
 
 /** Deployment-neutral kernel persister backed by a tenant-bound RuntimeStorage adapter. */
@@ -376,7 +378,7 @@ export class AsyncKernelEventPersister {
     if (message.tool_calls) {
       input.toolCalls = message.tool_calls as AddMessageInput["toolCalls"];
     }
-    const providerState = this.buildProviderState(message);
+    const providerState = this.buildProviderState(message.provider_continuation, message.tool_calls);
     if (providerState) input.providerState = providerState;
     await this.storage.operations.persistMessage({
       leaseRootRunId: this.leaseRunId(),
@@ -385,13 +387,17 @@ export class AsyncKernelEventPersister {
   }
 
   /**
-   * 工具事务的隐藏推理状态随消息行落库（含签发者印章）。
-   * 印章用于恢复时的换 provider/模型门控：不匹配即不回放。
+   * 隐藏推理状态随消息行落库（含签发者印章 provider_key + model）。
+   * 印章用于回放时的换 provider/模型门控：匹配则原样回放，不匹配降级为文本或丢弃。
+   * 纯文字轮（无 tool_calls）的 continuation 同样落库——跨 run 全历史回放要求最终轮数据在场。
    */
-  private buildProviderState(message: ChatMessage): AddMessageInput["providerState"] | null {
-    if (!message.provider_continuation || !message.tool_calls?.length) return null;
-    const callIds = message.tool_calls.map((call) => call.id);
-    const stateIds = new Set(message.provider_continuation.toolCallIds);
+  private buildProviderState(
+    providerContinuation: ChatMessage["provider_continuation"],
+    toolCalls?: ChatMessage["tool_calls"],
+  ): AddMessageInput["providerState"] | null {
+    if (!providerContinuation) return null;
+    const callIds = (toolCalls ?? []).map((call) => call.id);
+    const stateIds = new Set(providerContinuation.toolCallIds);
     if (callIds.length !== stateIds.size || !callIds.every((id) => stateIds.has(id))) return null;
     if (!this.ctx.providerKey || !this.ctx.model) {
       throw new Error("providerKey and model are required to persist provider state");
@@ -399,7 +405,7 @@ export class AsyncKernelEventPersister {
     return {
       provider_key: this.ctx.providerKey,
       model: this.ctx.model,
-      state: message.provider_continuation,
+      state: providerContinuation,
     };
   }
 
@@ -416,7 +422,7 @@ export class AsyncKernelEventPersister {
         ...(this.ctx.messageMetadata ?? {}),
         ...(finalMessage.metadata ?? {}),
       };
-      return {
+      const input: AddMessageInput & { messageId: string } = {
         messageId: finalMessage.id?.trim() || `${this.ctx.runId}:final`,
         sessionId: this.ctx.sessionId,
         role: "assistant",
@@ -425,16 +431,19 @@ export class AsyncKernelEventPersister {
           ? finalMessage.contentParts.flatMap((part): MessageContentPart[] => part.type === "text"
             ? [{ type: "text", text: part.text }]
             : [{
-                type: "file_ref",
-                file_path: part.filePath,
-                presentation: part.presentation,
-                ...(part.caption ? { caption: part.caption } : {}),
-              }])
+              type: "file_ref",
+              file_path: part.filePath,
+              presentation: part.presentation,
+              ...(part.caption ? { caption: part.caption } : {}),
+            }])
           : (finalMessage.content ? [{ type: "text", text: finalMessage.content }] : []),
         threadKey: this.ctx.threadKey,
         childAgentId: this.ctx.childAgentId ?? null,
         metadata,
       };
+      const providerState = this.buildProviderState(finalMessage.providerContinuation);
+      if (providerState) input.providerState = providerState;
+      return input;
     }
     if (status !== "failed" && status !== "interrupted") return null;
     return buildTerminalAssistantMessage({

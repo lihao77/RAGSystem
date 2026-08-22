@@ -219,7 +219,13 @@ export class NativeHybridProtocol implements Protocol {
       kind: "final",
       finalAnswer: fallbackContent || rawContent,
       contentParts: contentParser.getParts(),
-      assistantMessage: { role: "assistant", content: fallbackContent || rawContent },
+      // final 轮的思考 continuation 也要随消息携带：跨 run 回放要求最终轮数据不丢。
+      assistantMessage: {
+        role: "assistant",
+        content: fallbackContent || rawContent,
+        ...(result.reasoningBlocks?.length ? { reasoning_blocks: result.reasoningBlocks } : {}),
+        ...(result.providerContinuation ? { provider_continuation: result.providerContinuation } : {}),
+      },
       finishReason: result.finishReason ?? null,
       usage: result.usage,
     };
@@ -271,7 +277,13 @@ export class NativeHybridProtocol implements Protocol {
       kind: "final",
       finalAnswer: parsedContent.content,
       contentParts: parsedContent.parts,
-      assistantMessage: { role: "assistant", content: parsedContent.content },
+      // 同流式路径：final 轮的思考 continuation 随消息携带。
+      assistantMessage: {
+        role: "assistant",
+        content: parsedContent.content,
+        ...(result.reasoningBlocks?.length ? { reasoning_blocks: result.reasoningBlocks } : {}),
+        ...(result.providerContinuation ? { provider_continuation: result.providerContinuation } : {}),
+      },
       finishReason: result.finishReason ?? null,
       usage: result.usage,
     };

@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildAnthropicBody } from "../dist/providers/anthropic.js";
-import { buildChatBody } from "../dist/providers/openai-chat.js";
+import { buildAnthropicBody, AnthropicAdapter } from "../dist/providers/anthropic.js";
+import { buildChatBody, OpenAiChatAdapter } from "../dist/providers/openai-chat.js";
 import { buildResponsesBody, OpenAiResponsesAdapter } from "../dist/providers/openai-responses.js";
+import { parseProviderContinuationState } from "../dist/provider-continuation.js";
 
 const thinking = (text, signature) => ({ type: "thinking", thinking: text, signature });
 const toolCall = (id) => ({ id, type: "function", function: { name: "read_file", arguments: "{}" } });
@@ -48,7 +49,7 @@ test("Anthropic 恢复的 provider_continuation 同样注入对应 assistant 消
   assert.deepEqual(body.messages[3].content.map((block) => block.type), ["thinking", "tool_use"]);
 });
 
-test("Anthropic 事务外的历史 assistant 消息不注入任何 thinking", () => {
+test("Anthropic 无思考数据的 assistant 消息不注入任何块", () => {
   const body = buildAnthropicBody({
     provider: { key: "test", name: "test", provider_type: "anthropic", api_key: "k" },
     model: "test-model",
@@ -65,7 +66,31 @@ test("Anthropic 事务外的历史 assistant 消息不注入任何 thinking", ()
   assert.deepEqual(body.messages[3].content.map((block) => block.type), ["thinking", "tool_use"]);
 });
 
-test("Anthropic 缺签名的 thinking 块降级为 text 块而非丢弃", () => {
+test("Anthropic 跨 run：provider_continuation 注入事务外的纯文字轮（pi 全历史语义）", () => {
+  const body = buildAnthropicBody({
+    provider: { key: "test", name: "test", provider_type: "anthropic", api_key: "k" },
+    model: "test-model",
+    messages: [
+      { role: "user", content: "old question" },
+      {
+        role: "assistant",
+        content: "old answer",
+        provider_continuation: {
+          protocol: "anthropic_messages",
+          toolCallIds: [],
+          blocks: [thinking("final round reasoning", "sig-final")],
+        },
+      },
+      { role: "user", content: "new question" },
+    ],
+  });
+
+  assert.deepEqual(body.messages[1].content.map((block) => block.type), ["thinking", "text"]);
+  assert.equal(body.messages[1].content[0].signature, "sig-final");
+  assert.equal(body.messages[1].content[1].text, "old answer");
+});
+
+test("Anthropic 缺签名的 thinking 块降级为 <think> 包裹的 text 块而非丢弃", () => {
   const body = buildAnthropicBody({
     provider: { key: "test", name: "test", provider_type: "anthropic", api_key: "k" },
     model: "test-model",
@@ -82,23 +107,30 @@ test("Anthropic 缺签名的 thinking 块降级为 text 块而非丢弃", () => 
   });
 
   assert.deepEqual(body.messages[1].content.map((block) => block.type), ["text", "tool_use"]);
-  assert.equal(body.messages[1].content[0].text, "unsigned thought");
+  assert.equal(body.messages[1].content[0].text, "<think>unsigned thought</think>");
 });
 
-test("DeepSeek thinking + tools：缺 reasoning_content 的 assistant 轮补空串", () => {
+test("DeepSeek thinking + tools：缺 reasoning_content 的 assistant 轮（含纯文字轮）补空串", () => {
   const body = buildChatBody({
     provider: { key: "ds", name: "DeepSeek", provider_type: "deepseek", api_key: "k" },
     model: "deepseek-v4-pro",
     thinkingLevel: "low",
-    messages: multiRoundMessages(
-      { provider_continuation: { protocol: "openai_chat", toolCallIds: ["call-1"], assistantFields: { reasoning_content: "think one" } } },
-      {},
-    ),
+    messages: [
+      { role: "user", content: "check the file" },
+      { role: "assistant", content: "old answer" },
+      { role: "user", content: "check both files" },
+      { role: "assistant", content: "", tool_calls: [toolCall("call-1")], provider_continuation: { protocol: "openai_chat", toolCallIds: ["call-1"], assistantFields: { reasoning_content: "think one" } } },
+      { role: "tool", tool_call_id: "call-1", content: "first result" },
+      { role: "assistant", content: "", tool_calls: [toolCall("call-2")] },
+      { role: "tool", tool_call_id: "call-2", content: "second result" },
+    ],
   });
 
-  const assistants = body.messages.filter((message) => message.role === "assistant" && message.tool_calls);
-  assert.equal(assistants[0].reasoning_content, "think one");
-  assert.equal(assistants[1].reasoning_content, "");
+  const assistants = body.messages.filter((message) => message.role === "assistant");
+  assert.equal(assistants.length, 3);
+  assert.equal(assistants[0].reasoning_content, "");
+  assert.equal(assistants[1].reasoning_content, "think one");
+  assert.equal(assistants[2].reasoning_content, "");
 });
 
 test("DeepSeek 特判走能力位：未标记的兼容厂商不补 reasoning_content", async () => {
@@ -209,4 +241,97 @@ test("OpenAI chat 兼容通道循环内每条 assistant 各自回显 reasoning �
   assert.equal(assistants[1].reasoning_content, "think two");
   assert.equal("provider_continuation" in assistants[0], false);
   assert.equal("provider_continuation" in assistants[1], false);
+});
+
+test("codec：纯文字轮 continuation（空 toolCallIds）往返解析", () => {
+  const anthropicTextRound = parseProviderContinuationState({
+    protocol: "anthropic_messages",
+    toolCallIds: [],
+    blocks: [thinking("final reasoning", "sig-final")],
+  });
+  assert.deepEqual(anthropicTextRound, {
+    protocol: "anthropic_messages",
+    toolCallIds: [],
+    blocks: [thinking("final reasoning", "sig-final")],
+  });
+
+  const responsesTextRound = parseProviderContinuationState({
+    protocol: "openai_responses",
+    toolCallIds: [],
+    reasoningItems: [{ type: "reasoning", id: "rs-final" }],
+  });
+  assert.deepEqual(responsesTextRound, {
+    protocol: "openai_responses",
+    toolCallIds: [],
+    reasoningItems: [{ type: "reasoning", id: "rs-final" }],
+  });
+  assert.equal("anchorCallId" in responsesTextRound, false);
+
+  const chatTextRound = parseProviderContinuationState({
+    protocol: "openai_chat",
+    toolCallIds: [],
+    assistantFields: { reasoning_content: "plain text round" },
+  });
+  assert.deepEqual(chatTextRound, {
+    protocol: "openai_chat",
+    toolCallIds: [],
+    assistantFields: { reasoning_content: "plain text round" },
+  });
+});
+
+test("纯文字轮响应也产出 continuation：三协议 final 轮思考不再丢弃", async () => {
+  const jsonResponse = (payload) => new Response(JSON.stringify(payload), { headers: { "content-type": "application/json" } });
+  const originalFetch = globalThis.fetch;
+  const provider = { key: "test", name: "test", api_key: "k" };
+
+  try {
+    globalThis.fetch = async () => jsonResponse({
+      content: [{ type: "thinking", thinking: "final thought", signature: "sig" }, { type: "text", text: "done" }],
+      stop_reason: "end_turn",
+    });
+    const anthropic = await new AnthropicAdapter().complete({
+      provider: { ...provider, provider_type: "anthropic" },
+      model: "test-model",
+      messages: [{ role: "user", content: "go" }],
+    });
+    assert.deepEqual(anthropic.providerContinuation, {
+      protocol: "anthropic_messages",
+      toolCallIds: [],
+      blocks: [thinking("final thought", "sig")],
+    });
+
+    globalThis.fetch = async () => jsonResponse({
+      choices: [{ message: { role: "assistant", content: "done", reasoning_content: "final thought" }, finish_reason: "stop" }],
+    });
+    const chat = await new OpenAiChatAdapter().complete({
+      provider: { ...provider, provider_type: "openai_chat" },
+      model: "test-model",
+      messages: [{ role: "user", content: "go" }],
+    });
+    assert.deepEqual(chat.providerContinuation, {
+      protocol: "openai_chat",
+      toolCallIds: [],
+      assistantFields: { reasoning_content: "final thought" },
+    });
+
+    globalThis.fetch = async () => jsonResponse({
+      status: "completed",
+      output: [
+        { type: "reasoning", id: "rs-final", encrypted_content: "RSN(enc)" },
+        { type: "message", role: "assistant", content: [{ type: "output_text", text: "done" }] },
+      ],
+    });
+    const responses = await new OpenAiResponsesAdapter().complete({
+      provider: { ...provider, provider_type: "openai_resp" },
+      model: "test-model",
+      messages: [{ role: "user", content: "go" }],
+    });
+    assert.deepEqual(responses.providerContinuation, {
+      protocol: "openai_responses",
+      toolCallIds: [],
+      reasoningItems: [{ type: "reasoning", id: "rs-final", encrypted_content: "RSN(enc)" }],
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

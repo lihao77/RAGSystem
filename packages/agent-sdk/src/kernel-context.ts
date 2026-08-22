@@ -27,6 +27,7 @@ export class KernelContext {
   private finalAnswer: string | null = null;
   private finalContentParts: AssistantContentPart[] = [];
   private finishReason: string | null = null;
+  private providerContinuation: ChatMessage["provider_continuation"] = undefined;
 
   private constructor(session: RuntimeSession) {
     this.session = session;
@@ -72,11 +73,17 @@ export class KernelContext {
     throwIfAborted(this.session.signal, "Agent run aborted");
   }
 
-  /** 记录最终回答并退出循环。 */
-  setFinalAnswer(answer: string, contentParts: AssistantContentPart[], finishReason: string | null = null): void {
+  /** 记录最终回答并退出循环；providerContinuation 为 final 轮思考状态，供落库跨 run 回放。 */
+  setFinalAnswer(
+    answer: string,
+    contentParts: AssistantContentPart[],
+    finishReason: string | null = null,
+    providerContinuation: ChatMessage["provider_continuation"] = undefined,
+  ): void {
     this.finalAnswer = answer;
     this.finalContentParts = contentParts;
     this.finishReason = finishReason;
+    this.providerContinuation = providerContinuation;
   }
 
   /** 产出 KernelResult（metadata 源自 profile/provider，对齐 backend-ts KernelResult 形状）。 */
@@ -85,6 +92,7 @@ export class KernelContext {
       content: this.finalAnswer ?? "",
       contentParts: this.finalContentParts.map((part) => ({ ...part })),
       finishReason: this.finishReason,
+      ...(this.providerContinuation ? { providerContinuation: this.providerContinuation } : {}),
       metadata: {
         agentName: this.session.profile.agentName,
         providerKey: this.session.provider.key,

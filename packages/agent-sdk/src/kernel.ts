@@ -217,6 +217,7 @@ export class AgentKernel {
           outcome.kind === "final" ? (outcome.finalAnswer ?? "") : "",
           outcome.kind === "final" ? (outcome.contentParts ?? [{ type: "text", text: outcome.finalAnswer ?? "" }]) : [],
           outcome.finishReason,
+          outcome.kind === "final" ? outcome.assistantMessage.provider_continuation : undefined,
         );
         break;
       }
