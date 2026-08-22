@@ -83,7 +83,7 @@ export class AgentSessionApplication implements ExecutionSessionPort {
     const threadKey = input.threadKey?.trim() || "root";
     const data = await this.repository.listVisibleMessages(input.sessionId, threadKey, input.limit ?? 20, input.offset ?? 0);
     data.items = data.items.map((item) => ({
-      ...item,
+      ...stripPrivateMessageFields(item),
       has_execution: shouldExposeExecutionCarrier(item) && item.metadata.execution_history_discarded !== true,
     }));
     return data;
@@ -421,4 +421,13 @@ function shouldExposeExecutionCarrier(message: MessageInfo): boolean {
 
 function parseArchivedEnvelope(payload: Record<string, unknown>): Envelope {
   return EnvelopeSchema.parse(payload) as Envelope;
+}
+
+/**
+ * API 出口剥离服务端私有字段：provider_state 是 continuation 回放专用状态（含厂商签名），
+ * 不属于客户端消息契约——SessionMessageSchema 为 strict 校验，带出会直接 500。
+ */
+export function stripPrivateMessageFields<T extends MessageInfo>(message: T): Omit<T, "provider_state"> {
+  const { provider_state: _providerState, ...client } = message;
+  return client;
 }
