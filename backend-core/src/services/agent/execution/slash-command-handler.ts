@@ -102,7 +102,6 @@ export class SlashCommandHandler {
     const savedUserMessage = await this.sessions.addMessage({
       sessionId: input.sessionId,
       role: "user",
-      content: input.originalTask,
       contentParts: [commandPart],
       metadata: {
         ...(input.messageMetadata ?? {}),
@@ -137,7 +136,6 @@ export class SlashCommandHandler {
     const message = await this.sessions.addMessage({
       sessionId: input.sessionId,
       role: "system",
-      content: result.content,
       contentParts: [resultPart],
       metadata: {},
     });

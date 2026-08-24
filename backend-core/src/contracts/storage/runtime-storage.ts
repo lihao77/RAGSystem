@@ -186,7 +186,6 @@ export function rootMailboxConversationMessage(input: {
     sessionId: input.sessionId,
     messageId: message.messageId,
     role: "user",
-    content,
     contentParts: message.inputType === "agent_message"
       ? [{ type: "text", text: content }]
       : message.contentParts ?? [],

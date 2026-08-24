@@ -13,7 +13,6 @@ function message(overrides: Partial<MessageInfo>): MessageInfo {
     seq: 1,
     session_id: "session-1",
     role: "assistant",
-    content: "",
     content_parts: [],
     metadata: {},
     created_at: "2026-01-01T00:00:00.000Z",
@@ -43,7 +42,6 @@ describe("RecentMessagesContextSource", () => {
           id: `observation-${index + 1}`,
           seq: index * 2 + 2,
           role: "tool",
-          content,
           content_parts: [{ type: "text", text: content }],
           metadata: { msg_type: MSG_TYPE.OBSERVATION },
           tool_call_id: callId,
@@ -91,9 +89,9 @@ describe("RecentMessagesContextSource", () => {
       id: `intent-${id}`,
       seq,
       role: "assistant",
-      ...(thinkingParts[`intent-${id}`]
-        ? { content: "", content_parts: [{ type: "thinking" as const, text: thinkingParts[`intent-${id}`], round: Number(id), complete: true }] }
-        : {}),
+      content_parts: thinkingParts[`intent-${id}`]
+        ? [{ type: "thinking" as const, text: thinkingParts[`intent-${id}`]!, round: Number(id), complete: true }]
+        : [],
       metadata: { msg_type: MSG_TYPE.ROUND },
       tool_calls: [{
         id: `call-${id}`,
@@ -106,14 +104,13 @@ describe("RecentMessagesContextSource", () => {
       id: `observation-${id}`,
       seq,
       role: "tool",
-      content: `result ${id}`,
       content_parts: [{ type: "text", text: `result ${id}` }],
       metadata: { msg_type: MSG_TYPE.OBSERVATION },
       tool_call_id: `call-${id}`,
       name: "read",
     });
     return [
-      message({ id: "user-1", seq: 1, role: "user", content: "do it", content_parts: [{ type: "text", text: "do it" }], metadata: {} }),
+      message({ id: "user-1", seq: 1, role: "user", content_parts: [{ type: "text", text: "do it" }], metadata: {} }),
       call("1", 2),
       observation("1", 3),
       call("2", 4),
@@ -196,14 +193,13 @@ describe("RecentMessagesContextSource", () => {
         id: "terminal-1",
         seq: 6,
         role: "assistant",
-        content: "本次运行已中断，未生成最终答案。原因：用户主动停止运行",
         content_parts: [
           { type: "thinking" as const, text: "salvaged half-thinking", complete: false },
           { type: "text", text: "本次运行已中断，未生成最终答案。原因：用户主动停止运行" },
         ],
         metadata: { msg_type: MSG_TYPE.RUN_TERMINAL, terminal_status: "interrupted", visible_to_user: true },
       }),
-      message({ id: "user-2", seq: 7, role: "user", content: "你可以看到停止前的思考吗", content_parts: [{ type: "text", text: "你可以看到停止前的思考吗" }], metadata: {} }),
+      message({ id: "user-2", seq: 7, role: "user", content_parts: [{ type: "text", text: "你可以看到停止前的思考吗" }], metadata: {} }),
     ];
     const conversation = await buildConversation(history);
 
@@ -234,12 +230,11 @@ describe("RecentMessagesContextSource", () => {
         id: "final-1",
         seq: 6,
         role: "assistant",
-        content: "done",
         content_parts: [{ type: "text", text: "done" }],
         metadata: { msg_type: MSG_TYPE.ROUND },
         provider_state: finalState,
       }),
-      message({ id: "user-2", seq: 7, role: "user", content: "next question", content_parts: [{ type: "text", text: "next question" }], metadata: {} }),
+      message({ id: "user-2", seq: 7, role: "user", content_parts: [{ type: "text", text: "next question" }], metadata: {} }),
     ];
     const conversation = await buildConversation(history);
 
@@ -260,18 +255,17 @@ describe("RecentMessagesContextSource", () => {
       },
     };
     const history = [
-      message({ id: "user-1", seq: 1, role: "user", content: "go", content_parts: [{ type: "text", text: "go" }], metadata: {} }),
+      message({ id: "user-1", seq: 1, role: "user", content_parts: [{ type: "text", text: "go" }], metadata: {} }),
       // 零正文纯思考轮（如 length 截断在思考段）：无 content_parts、无 tool_calls，仅 provider_state
       message({
         id: "final-empty",
         seq: 2,
         role: "assistant",
-        content: "",
         content_parts: [{ type: "thinking" as const, text: "thought without an answer", complete: false }],
         metadata: { msg_type: MSG_TYPE.ROUND },
         provider_state: emptyFinal,
       }),
-      message({ id: "user-2", seq: 3, role: "user", content: "again", content_parts: [{ type: "text", text: "again" }], metadata: {} }),
+      message({ id: "user-2", seq: 3, role: "user", content_parts: [{ type: "text", text: "again" }], metadata: {} }),
     ];
 
     const matched = await buildConversation(history);

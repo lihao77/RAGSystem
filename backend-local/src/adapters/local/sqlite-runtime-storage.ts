@@ -1147,7 +1147,7 @@ function assertMessageMatches(
   const expectedChildAgentId = input.childAgentId ?? null;
   const mismatched = existing.session_id !== input.sessionId
     || existing.role !== input.role
-    || existing.content !== input.content
+    || !sameJson(existing.content_parts, input.contentParts)
     || existing.thread_key !== expectedThreadKey
     || existing.child_agent_id !== expectedChildAgentId
     || (existing.tool_call_id ?? null) !== (input.toolCallId ?? null)

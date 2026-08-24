@@ -12,7 +12,6 @@ import type {
 export interface AgentSessionMessageInput {
   sessionId: string;
   role: MessageInfo["role"];
-  content: string;
   contentParts: MessageContentPart[];
   metadata?: Record<string, unknown>;
   toolCalls?: MessageInfo["tool_calls"];
@@ -25,7 +24,6 @@ export interface AgentSessionMessageInput {
 
 export interface AgentSessionMessageUpdate {
   messageId: string;
-  content?: string | null;
   contentParts?: MessageContentPart[] | null;
   metadata?: Record<string, unknown> | null;
   sessionId?: string | null;

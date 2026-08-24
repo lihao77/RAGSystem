@@ -1,3 +1,4 @@
+import { partsToPlainText } from "@ragsystem/agent-protocol";
 import { randomUUID } from "node:crypto";
 
 import type { AgentConfig } from "../../../contracts/agent/agent-config.js";
@@ -390,7 +391,7 @@ export class AgentRunEngine {
     return {
       success: run?.status === "completed" && Boolean(finalMessage),
       ...(run?.status === "suspended" ? { suspended: true, rootRunId: input.runId } : {}),
-      answer: finalMessage?.content ?? null,
+      answer: finalMessage ? partsToPlainText(finalMessage.content_parts) : null,
       content_parts: finalMessage?.content_parts ?? [],
       agent_name: run?.agent_name ?? input.agentName,
       execution_time: executionTime,
@@ -688,7 +689,7 @@ export class AgentRunEngine {
           ? await this.storage.resultReader.getMessageById(sessionId, run.final_message_id)
           : null;
         return finalMessage
-          ? { content: finalMessage.content, success: run.status === "completed", runId: watchedRunId, contentParts: finalMessage.content_parts }
+          ? { content: partsToPlainText(finalMessage.content_parts), success: run.status === "completed", runId: watchedRunId, contentParts: finalMessage.content_parts }
           : { content: `followup run ended with status ${run.status}`, success: false, runId: watchedRunId };
       }
       await new Promise<void>((resolve) => {

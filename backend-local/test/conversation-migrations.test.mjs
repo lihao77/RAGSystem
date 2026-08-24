@@ -147,9 +147,9 @@ test("v13 pending user messages migrate idempotently to root mailbox", () => {
       ) VALUES (?, ?, ?, 'private', 'direct', 'web', ?)
     `).run("session-1", "tnt_test", "usr_test", "{}");
     db.prepare(`
-      INSERT INTO messages (id, session_id, role, content, content_parts, metadata, thread_key)
-      VALUES (?, ?, 'user', ?, ?, ?, 'root')
-    `).run("pending-1", "session-1", "follow up", '[{"type":"text","text":"follow up"}]', '{"followup_pending":true,"request_id":"req-1"}');
+      INSERT INTO messages (id, session_id, role, content_parts, metadata, thread_key)
+      VALUES (?, ?, 'user', ?, ?, 'root')
+    `).run("pending-1", "session-1", '[{"type":"text","text":"follow up"}]', '{"followup_pending":true,"request_id":"req-1"}');
 
     runMigrations(db);
     runMigrations(db);

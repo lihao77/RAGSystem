@@ -7,6 +7,7 @@
  * 不带 tool_calls 的最终轮行（含 terminal salvage）→ 只回放思考（正文由消息槽
  * assistant 行承载，与 live final 相位让位语义一致）。
  */
+import { partsToPlainText } from "@ragsystem/agent-protocol";
 import type { KernelEvent } from "@ragsystem/agent-sdk";
 import { translateKernelEvent, type WireTranslationContext } from "../agent/sdk/event-translation.js";
 import type { Envelope } from "../../contracts/events.js";
@@ -46,8 +47,9 @@ export function synthesizeExecutionEnvelopes(
       if (thinking && thinking.type === "thinking" && thinking.text) {
         emit({ type: "reasoning_complete", agentName, content: thinking.text, round });
       }
-      if (row.content) {
-        emit({ type: "intent_complete", agentName, content: row.content, round });
+      const intentText = partsToPlainText(row.content_parts);
+      if (intentText) {
+        emit({ type: "intent_complete", agentName, content: intentText, round });
       }
       for (const call of row.tool_calls ?? []) {
         emit({
@@ -94,7 +96,7 @@ export function synthesizeExecutionEnvelopes(
         toolName: row.name ?? "tool",
         success: terminalToolStatus ? false : reference?.ok !== false && reference?.success !== false,
         summary: "",
-        observation: row.content,
+        observation: partsToPlainText(row.content_parts),
         metadata: terminalToolStatus ? { terminal_status: terminalToolStatus } : {},
         referenceResult: reference ?? {},
         elapsedTime: 0,

@@ -9,7 +9,6 @@ function message(overrides: Partial<MessageInfo>): MessageInfo {
     seq: 1,
     session_id: "session-1",
     role: "user",
-    content: "task",
     content_parts: [{ type: "text", text: "task" }],
     metadata: {},
     created_at: new Date(0).toISOString(),

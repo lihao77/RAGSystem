@@ -1,3 +1,4 @@
+import { partsToPlainText } from "@ragsystem/agent-protocol";
 import { describe, expect, it } from "vitest";
 import { countMessagesTokens } from "@ragsystem/agent-sdk";
 
@@ -19,26 +20,27 @@ const SETTINGS = {
 };
 
 let seqCounter = 0;
-function msg(role: MessageInfo["role"], extra: Partial<MessageInfo> = {}): MessageInfo {
+function msg(role: MessageInfo["role"], extra: Partial<MessageInfo> & { text?: string } = {}): MessageInfo {
   seqCounter += 1;
+  const { text, ...rest } = extra;
+  const plain = text ?? `${role}-${seqCounter}`;
   return {
     id: `m${seqCounter}`,
     seq: seqCounter,
     session_id: "s",
     role,
-    content: `${role}-${seqCounter}`,
-    content_parts: [],
+    content_parts: plain ? [{ type: "text", text: plain }] : [],
     metadata: {},
     created_at: "",
     thread_key: "root",
     child_agent_id: null,
-    ...extra,
+    ...rest,
   };
 }
 
 /** 约 105 tokens 的 ASCII 内容（400 字符 / 4 + framing）。 */
 function bigMsg(role: MessageInfo["role"], extra: Partial<MessageInfo> = {}): MessageInfo {
-  return msg(role, { content: "x".repeat(400), ...extra });
+  return msg(role, { text: "x".repeat(400), ...extra });
 }
 
 function toolCall(id: string) {
@@ -153,7 +155,7 @@ describe("selectCompressibleSegment 保留区 token 预算", () => {
 
   it("小窗口下 token 上限优先于近期消息条数下限", () => {
     seqCounter = 0;
-    const history = Array.from({ length: 7 }, () => msg("assistant", { content: "x".repeat(3000) }));
+    const history = Array.from({ length: 7 }, () => msg("assistant", { text: "x".repeat(3000) }));
     const selected = selectCompressibleSegment(history, {
       ...SETTINGS,
       preserveMinTokens: 1000,
@@ -164,7 +166,8 @@ describe("selectCompressibleSegment 保留区 token 预算", () => {
     if (!selected.ok) return;
     const kept = history.filter((message) => message.seq > selected.replacesUpToSeq);
     expect(kept.length).toBeLessThan(6);
-    expect(countMessagesTokens(kept)).toBeLessThanOrEqual(1000);
+    // kept 是 MessageInfo：裸文本从 parts 派生后计数
+    expect(countMessagesTokens(kept.map((m) => ({ content: partsToPlainText(m.content_parts), role: m.role })))).toBeLessThanOrEqual(1000);
   });
 });
 

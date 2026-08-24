@@ -6,6 +6,7 @@ import {
   registerTenantPluginRoutes,
 } from "../src/routes/plugins.js";
 import type { BackendUiContribution } from "../src/plugins/backend-plugin.js";
+import { createTenantId, createUserId } from "../src/identity/types.js";
 
 const uiContributions: readonly BackendUiContribution[] = [
   {
@@ -55,10 +56,10 @@ describe("plugin registry routes", () => {
 
   it("tenant endpoint maps config groups to plugins by sourceExtension", async () => {
     const app = Fastify();
-    app.decorateRequest("container", null);
-    app.decorateRequest("identity", null);
+    app.decorateRequest("container", null as never);
+    app.decorateRequest("identity", null as never);
     app.addHook("onRequest", async (request) => {
-      request.identity = { userId: "u1", tenantId: "t1", role: "owner" };
+      request.identity = { userId: createUserId("usr_u1"), tenantId: createTenantId("tnt_t1"), role: "owner", permissions: [] };
       request.container = {
         systemConfig: {
           getSchema: () => ({
@@ -69,7 +70,7 @@ describe("plugin registry routes", () => {
             ],
           }),
         },
-      };
+      } as never;
     });
     await app.register(async (scope) => {
       scope.addHook("preHandler", async () => {});

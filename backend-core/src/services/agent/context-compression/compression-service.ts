@@ -14,6 +14,7 @@ import { countMessagesTokens, estimateMessageTokens, readTierParams, resolveCont
 import type { AgentConfig } from "../../../contracts/agent/agent-config.js";
 import type { ModelProviderConfig } from "../../../contracts/integrations/model-adapter.js";
 import type { CompressionHistoryPort } from "../../../contracts/runtime/core-runtime-ports.js";
+import { partsToPlainText } from "@ragsystem/agent-protocol";
 import type { MessageInfo } from "../../../contracts/session/session.js";
 import type { SystemConfigService } from "../../config/system-config-service.js";
 import { HISTORY_SCAN_LIMIT, resolveCompressionView } from "../context/index.js";
@@ -21,6 +22,17 @@ import { hasAgentVisibleMessageContent } from "../context/message-content-projec
 import { projectAgentProfile } from "../sdk/projection.js";
 import { resolveContextCompressionSettings, normalizePreserveTokenBudgets, type ContextCompressionSettings } from "./index.js";
 import { MSG_TYPE } from "../../../contracts/message-kinds.js";
+
+/** MessageInfo → token 计数形状：裸文本从 content_parts 派生，消息行不再有 content 列。 */
+function toTokenCountable(message: MessageInfo) {
+  return {
+    content: partsToPlainText(message.content_parts),
+    role: message.role,
+    ...(message.name ? { name: message.name } : {}),
+    ...(message.tool_call_id ? { tool_call_id: message.tool_call_id } : {}),
+    ...(message.tool_calls?.length ? { tool_calls: message.tool_calls } : {}),
+  };
+}
 
 // 桥接文案即叙事锚点:告知模型"开头是摘要(被告知的情况),之后是正在发生的现场(未压缩原文,不重叠)"。
 const COMPACT_SUMMARY_PREFIX = "本次会话从之前的对话继续，以下是该对话早期内容的摘要。摘要之后是最近未压缩的原始对话，与摘要内容不重叠。\n\n";
@@ -165,7 +177,7 @@ export class AgentCompressionService {
     const persistedMessages = await this.history.getRecentMessages(input.sessionId, HISTORY_SCAN_LIMIT, threadKey);
     const rawMessages = persistedMessages.filter(isCompressibleHistoryMessage);
     const historyResolved = resolveCompressionView(rawMessages);
-    const estimatedHistoryTokens = countMessagesTokens(historyResolved);
+    const estimatedHistoryTokens = countMessagesTokens(historyResolved.map(toTokenCountable));
     const historyTokens = resolveEffectiveHistoryTokens(
       estimatedHistoryTokens,
       input.systemPromptTokens,
@@ -237,7 +249,7 @@ export function selectCompressibleSegment(historyResolved: MessageInfo[], settin
   const candidates = historyResolved.slice(startIndex);
   const minPreserveCount = settings.preserveRecentTurns * 2;
   if (candidates.length <= minPreserveCount
-    && (settings.preserveBudgetTokens === undefined || countMessagesTokens(candidates) <= settings.preserveMaxTokens)) {
+    && (settings.preserveBudgetTokens === undefined || countMessagesTokens(candidates.map(toTokenCountable)) <= settings.preserveMaxTokens)) {
     return { ok: false, reason: "insufficient_candidates" };
   }
   const boundary = selectPreserveBoundary(candidates, settings);
@@ -246,7 +258,7 @@ export function selectCompressibleSegment(historyResolved: MessageInfo[], settin
   if (segment.length === 0 || replacesUpToSeq === null) {
     return { ok: false, reason: "missing_segment_seq" };
   }
-  const existingSummary = startIndex === 1 ? extractText(historyResolved[0]?.content ?? "") : "";
+  const existingSummary = startIndex === 1 ? partsToPlainText(historyResolved[0]?.content_parts) : "";
   return { ok: true, segment, replacesUpToSeq, existingSummary };
 }
 
@@ -265,7 +277,7 @@ function selectPreserveBoundary(candidates: MessageInfo[], settings: ContextComp
     if (kept >= minMessages && tokens >= settings.preserveMinTokens) break;
     const message = candidates[boundary - 1];
     if (!message) break;
-    const nextTokens = tokens + estimateMessageTokens(message);
+    const nextTokens = tokens + estimateMessageTokens(toTokenCountable(message));
     // 只有真实加载预算存在时才把 token 上限作为硬边界;纯边界函数仍允许条数下限优先,
     // 以便在没有模型预算上下文时保持原有事务对齐语义。
     if (settings.preserveBudgetTokens !== undefined && kept > 0 && nextTokens > settings.preserveMaxTokens) break;
@@ -344,12 +356,12 @@ function findCrossingToolCallOwner(
 function preferUserMessageStart(candidates: MessageInfo[], boundary: number, settings: ContextCompressionSettings): number {
   if (boundary <= 0 || boundary >= candidates.length) return boundary;
   if (candidates[boundary]?.role === "user") return boundary;
-  let tokens = countMessagesTokens(candidates.slice(boundary));
+  let tokens = countMessagesTokens(candidates.slice(boundary).map(toTokenCountable));
   let walked = boundary;
   while (walked > 0) {
     const previous = candidates[walked - 1];
     if (!previous) break;
-    const nextTokens = tokens + estimateMessageTokens(previous);
+    const nextTokens = tokens + estimateMessageTokens(toTokenCountable(previous));
     // 内收含 user 锚点本身都受上限约束:短历史锚点可能就在段首,无约束会把整段掏空。
     if (nextTokens > settings.preserveMaxTokens) return boundary;
     if (previous.role === "user") return walked - 1;
@@ -421,7 +433,7 @@ function buildSummaryMessages(segment: ReadonlyArray<MessageInfo>, existingSumma
     ? `\n\n---已有历史摘要（将与新内容合并）---\n${existingSummary.trim()}\n---end---`
     : "";
   const conversationText =
-    segment.map((m) => `${m.role}: ${extractText(m.content).trim()}`).filter((line) => line.trim()).join("\n") || "（无内容）";
+    segment.map((m) => `${m.role}: ${partsToPlainText(m.content_parts).trim()}`).filter((line) => line.trim()).join("\n") || "（无内容）";
   return [
     { role: "system", content: "你是一名专业的对话摘要助手。你的任务是将对话压缩为结构化摘要，以便后续会话继续进行。不要调用任何工具；只输出一个 <summary>…</summary> 块。" },
     { role: "user", content: `${NO_TOOLS_PREAMBLE}${COMPACT_PROMPT_BODY}${existingSection}\n\n---待压缩对话内容---\n${conversationText}\n---end---${NO_TOOLS_TRAILER}` },

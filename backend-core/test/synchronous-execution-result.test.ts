@@ -130,8 +130,7 @@ describe("synchronous execution result", () => {
               };
             }
             return {
-              content: messageId === "consumer-final" ? "follow-up complete" : "previous run complete",
-              content_parts: [{ type: "text" as const, text: messageId }],
+              content_parts: [{ type: "text" as const, text: messageId === "consumer-final" ? "follow-up complete" : "previous run complete" }],
               metadata: {},
             };
           },

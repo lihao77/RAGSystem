@@ -4,6 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
+import { partsToPlainText } from '@ragsystem/agent-protocol';
 import { createTenantId } from '@ragsystem/backend-core/identity/types.js';
 import { buildTerminalAssistantMessage } from '@ragsystem/backend-core/contracts/storage/runtime-finalization.js';
 import { SessionRuntimeService } from '@ragsystem/backend-core/services/runtime/session-runtime-service.js';
@@ -121,7 +122,6 @@ test('message participant identity comes from canonical fields, not metadata', (
   const rootMessage = store.addMessage({
     sessionId: 'identity-session',
     role: 'user',
-    content: 'root',
     contentParts: [{ type: 'text', text: 'root' }],
     metadata: { thread_key: 'metadata-child', child_agent_id: 'metadata-child' },
   });
@@ -132,7 +132,6 @@ test('message participant identity comes from canonical fields, not metadata', (
   const childMessage = store.addMessage({
     sessionId: 'identity-session',
     role: 'assistant',
-    content: 'child',
     contentParts: [{ type: 'text', text: 'child' }],
     threadKey: 'child:worker',
     childAgentId: 'worker',
@@ -299,7 +298,6 @@ test('Local 崩溃恢复对无可恢复交互的 run 使用 interrupted', async 
     messageId: 'run-1:intent:0',
     sessionId: 'session-1',
     role: 'assistant',
-    content: '正在执行命令',
     contentParts: [{ type: 'text', text: '正在执行命令' }],
     threadKey: 'root',
     toolCalls: [{
@@ -316,7 +314,7 @@ test('Local 崩溃恢复对无可恢复交互的 run 使用 interrupted', async 
   assert.deepEqual(recovered.interruptedRuns, [{ runId: 'run-1', parentRunId: null }]);
   assert.equal(store.getRun('session-1', 'run-1').status, 'interrupted');
   assert.match(
-    store.getMessageById('session-1', store.getRun('session-1', 'run-1').final_message_id).content,
+    partsToPlainText(store.getMessageById('session-1', store.getRun('session-1', 'run-1').final_message_id).content_parts),
     /本次运行已中断/,
   );
   assert.equal(
@@ -335,7 +333,6 @@ test('中断终态会关闭悬空 tool call 并写入 tool_result 事件', async
     messageId: 'run-1:intent:0',
     sessionId: 'session-1',
     role: 'assistant',
-    content: '正在执行命令',
     contentParts: [{ type: 'text', text: '正在执行命令' }],
     threadKey: 'root',
     toolCalls: [{
@@ -371,7 +368,7 @@ test('中断终态会关闭悬空 tool call 并写入 tool_result 事件', async
   assert.equal(closed?.metadata.terminal_tool_result, true);
   assert.equal(closed?.metadata.terminal_status, 'interrupted');
   assert.equal(closed?.metadata.terminal_reason, 'user stopped the run');
-  assert.equal(closed?.content, '工具执行被中断：user stopped the run');
+  assert.equal(closed ? partsToPlainText(closed.content_parts) : undefined, '工具执行被中断：user stopped the run');
   assert.equal(result.records.length, 5);
   const toolResult = result.records.find(record => record.outbox.event_type === 'client.tool_result');
   assert.equal(toolResult?.outbox.event_type, 'client.tool_result');
@@ -386,7 +383,6 @@ test('failed 终态会关闭悬空 tool call 并保留失败原因', async (t) =
     messageId: 'run-1:intent:0',
     sessionId: 'session-1',
     role: 'assistant',
-    content: '正在调用模型工具',
     contentParts: [{ type: 'text', text: '正在调用模型工具' }],
     threadKey: 'root',
     toolCalls: [{
@@ -433,7 +429,7 @@ test('failed 终态会关闭悬空 tool call 并保留失败原因', async (t) =
     .find((message) => message.role === 'tool' && message.tool_call_id === 'call-provider-1');
   assert.equal(closed?.metadata.terminal_status, 'failed');
   assert.equal(closed?.metadata.terminal_reason, 'provider stream disconnected');
-  assert.equal(closed?.content, '工具执行因 Run 失败而终止：provider stream disconnected');
+  assert.equal(closed ? partsToPlainText(closed.content_parts) : undefined, '工具执行因 Run 失败而终止：provider stream disconnected');
   assert.equal(store.getRun('session-1', 'run-1').status, 'failed');
   assert.equal(store.getRun('session-1', 'run-1').terminal_reason, 'provider stream disconnected');
 
@@ -684,7 +680,6 @@ test('恢复同一 run 时 intent 必须续用下一逻辑轮次，不能覆盖�
     message: {
       ...base,
       messageId: 'run-1:intent:0',
-      content: 'first intent',
       contentParts: [{ type: 'text', text: 'first intent' }],
       metadata: { ...base.metadata, round: 1 },
     },
@@ -696,7 +691,6 @@ test('恢复同一 run 时 intent 必须续用下一逻辑轮次，不能覆盖�
       message: {
         ...base,
         messageId: 'run-1:intent:0',
-        content: 'resumed intent',
         contentParts: [{ type: 'text', text: 'resumed intent' }],
         metadata: { ...base.metadata, round: 1 },
       },
@@ -709,15 +703,14 @@ test('恢复同一 run 时 intent 必须续用下一逻辑轮次，不能覆盖�
     message: {
       ...base,
         messageId: 'run-1:intent:1',
-        content: 'resumed intent',
         contentParts: [{ type: 'text', text: 'resumed intent' }],
       metadata: { ...base.metadata, round: 2 },
     },
   });
 
   assert.equal(resumed.message.id, 'run-1:intent:1');
-  assert.equal(store.getMessageById('session-1', 'run-1:intent:0').content, 'first intent');
-  assert.equal(store.getMessageById('session-1', 'run-1:intent:1').content, 'resumed intent');
+  assert.equal(partsToPlainText(store.getMessageById('session-1', 'run-1:intent:0').content_parts), 'first intent');
+  assert.equal(partsToPlainText(store.getMessageById('session-1', 'run-1:intent:1').content_parts), 'resumed intent');
 });
 
 test('Local resume claim attach 后立即从 resuming 投影为 running', async (t) => {

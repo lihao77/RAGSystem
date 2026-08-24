@@ -1,5 +1,6 @@
 import { createExecutionTreeState, applyEnvelope, getExecutionTree } from '@ragsystem/agent-protocol';
 import { getCurrentScope, onScopeDispose, watch } from 'vue';
+import { partsToPlainText } from '../utils/messageContentParts.js';
 import {
   getMessageExecutionTimeText,
   getMessageExecutionTimeTitle,
@@ -365,7 +366,7 @@ export function useMessageExecution(deps) {
     const message = createAssistantMessage({
       id: item.id,
       seq: item.seq,
-      content: item.content || '',
+      content: partsToPlainText(item.content_parts),
       content_parts: Array.isArray(item.content_parts) ? item.content_parts : [],
       executionTree: { root: null, steps: [] },
       status: item.status || [],

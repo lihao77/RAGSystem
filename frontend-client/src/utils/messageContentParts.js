@@ -122,6 +122,20 @@ function isImageDescriptionPart(part) {
 }
 
 /**
+ * 消息行的裸文本派生（API 已不再下发聚合 content 字段）：
+ * text part 全文 + 命令引用的原始输入 + 命令结果文本；thinking/附件引用不属于正文纯文本。
+ * 与后端 agent-protocol 的 partsToPlainText 同口径。
+ */
+export function partsToPlainText(parts) {
+  return normalizeMessageContentParts(parts).map((part) => {
+    if (part.type === 'text') return part.text;
+    if (part.type === 'command_ref') return part.raw_text || '';
+    if (part.type === 'command_result') return part.text || '';
+    return '';
+  }).join('');
+}
+
+/**
  * 用户消息在对话列表中的展示文本：排除图片描述 part（描述以附件角标收纳，不进入正文）。
  * content_parts 不可用时回退为聚合 content（结构化描述不写入聚合列，无需剥离）。
  */

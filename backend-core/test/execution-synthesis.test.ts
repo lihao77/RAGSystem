@@ -10,7 +10,6 @@ function row(overrides: Partial<MessageInfo>): MessageInfo {
     seq: 1,
     session_id: "session-1",
     role: "assistant",
-    content: "",
     content_parts: [],
     metadata: {},
     created_at: "2026-01-01T00:00:00.000Z",
@@ -23,12 +22,14 @@ function row(overrides: Partial<MessageInfo>): MessageInfo {
 const runMeta = { run_id: "run-1", agent_name: "agent-1" };
 
 describe("synthesizeExecutionEnvelopes", () => {
-  it("treats new round rows and legacy intent rows identically for tool rounds", () => {
+  it("replays tool rounds from parts: thinking and intent only when the row carries them", () => {
     const roundRow = row({
       id: "run-1:intent:0",
       seq: 2,
-      content: "我来查一下天气",
-      content_parts: [{ type: "thinking", text: "用户要查北京天气，调用工具。", round: 1, complete: true }],
+      content_parts: [
+        { type: "thinking", text: "用户要查北京天气，调用工具。", round: 1, complete: true },
+        { type: "text", text: "我来查一下天气" },
+      ],
       metadata: { ...runMeta, msg_type: MSG_TYPE.ROUND, round: 1 },
       tool_calls: [{
         id: "call-1",
@@ -39,8 +40,7 @@ describe("synthesizeExecutionEnvelopes", () => {
     const legacyIntent = row({
       id: "run-1:intent:1",
       seq: 4,
-      content: "再查一下湿度",
-      content_parts: [],
+      content_parts: [{ type: "text", text: "再查一下湿度" }],
       metadata: { ...runMeta, msg_type: MSG_TYPE.ROUND, round: 2 },
       tool_calls: [{
         id: "call-2",
@@ -75,7 +75,6 @@ describe("synthesizeExecutionEnvelopes", () => {
       id: "run-1:tool:call-1",
       seq: 3,
       role: "tool",
-      content: "{\"temp\":25}",
       content_parts: [{ type: "text", text: "{\"temp\":25}" }],
       metadata: { ...runMeta, msg_type: MSG_TYPE.OBSERVATION, tool_result_ref: { ok: true } },
       tool_call_id: "call-1",
@@ -85,8 +84,7 @@ describe("synthesizeExecutionEnvelopes", () => {
       id: "run-1:tool:call-9",
       seq: 5,
       role: "tool",
-      content: "boom",
-      content_parts: [],
+      content_parts: [{ type: "text", text: "boom" }],
       metadata: { ...runMeta, msg_type: MSG_TYPE.OBSERVATION, tool_result_ref: { ok: false } },
       tool_call_id: "call-9",
       name: "danger",
@@ -103,8 +101,7 @@ describe("synthesizeExecutionEnvelopes", () => {
     const intentRound = row({
       id: "run-1:intent:0",
       seq: 2,
-      content: "我来查",
-      content_parts: [],
+      content_parts: [{ type: "text", text: "我来查" }],
       metadata: { ...runMeta, msg_type: MSG_TYPE.ROUND, round: 1 },
       tool_calls: [{ id: "call-1", type: "function", function: { name: "read", arguments: "{}" } }],
     });
@@ -112,8 +109,7 @@ describe("synthesizeExecutionEnvelopes", () => {
       id: "run-1:tool:call-1",
       seq: 3,
       role: "tool",
-      content: "data",
-      content_parts: [],
+      content_parts: [{ type: "text", text: "data" }],
       metadata: { ...runMeta, msg_type: MSG_TYPE.OBSERVATION },
       tool_call_id: "call-1",
       name: "read",
@@ -121,7 +117,6 @@ describe("synthesizeExecutionEnvelopes", () => {
     const finalRow = row({
       id: "run-1:final",
       seq: 4,
-      content: "答案是 42",
       content_parts: [
         { type: "thinking", text: "查到了，直接回答。", complete: true },
         { type: "text", text: "答案是 42" },
@@ -149,7 +144,6 @@ describe("synthesizeExecutionEnvelopes", () => {
     const finalRow = row({
       id: "run-1:final",
       seq: 2,
-      content: "直接回答",
       content_parts: [{ type: "thinking", text: "不需要工具。", complete: true }],
       metadata: { ...runMeta, msg_type: MSG_TYPE.ROUND },
     });
@@ -162,7 +156,6 @@ describe("synthesizeExecutionEnvelopes", () => {
     const legacyFinal = row({
       id: "run-1:final",
       seq: 4,
-      content: "旧数据答案",
       content_parts: [{ type: "thinking", text: "旧思考", complete: true }],
       metadata: { ...runMeta, msg_type: MSG_TYPE.ROUND },
     });
@@ -179,8 +172,7 @@ describe("synthesizeExecutionEnvelopes", () => {
       id: "run-1:tool:call-9",
       seq: 3,
       role: "tool",
-      content: "工具执行被中断：用户主动停止运行",
-      content_parts: [],
+      content_parts: [{ type: "text", text: "工具执行被中断：用户主动停止运行" }],
       metadata: {
         ...runMeta,
         msg_type: MSG_TYPE.OBSERVATION,
@@ -201,7 +193,6 @@ describe("synthesizeExecutionEnvelopes", () => {
   it("terminal runs replay salvage thinking into the tree and close with interrupted agent_ended", () => {    const terminal = row({
       id: "run-1:terminal",
       seq: 4,
-      content: "本次运行已中断",
       content_parts: [
         { type: "thinking", text: "半截思考", complete: false },
         { type: "text", text: "本次运行已中断" },
@@ -225,7 +216,6 @@ describe("synthesizeExecutionEnvelopes", () => {
       id: "user-1",
       seq: 1,
       role: "user",
-      content: "查天气",
       content_parts: [{ type: "text", text: "查天气" }],
       metadata: { ...runMeta },
     });

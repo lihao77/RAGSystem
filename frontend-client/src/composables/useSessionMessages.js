@@ -1,14 +1,14 @@
 import { ref, nextTick } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useSessionRunStore } from '../stores/session-run.js';
-import { getMessageAttachments, normalizeMessageContentParts } from '../utils/messageContentParts.js';
+import { getMessageAttachments, normalizeMessageContentParts, partsToPlainText } from '../utils/messageContentParts.js';
 
 const AGENT_MESSAGE_WRAPPER = /^\[agent-message[^\]]*\]\r?\n([\s\S]*?)\r?\n\[\/agent-message\]\s*$/;
 
 export function getAgentMessageDisplayContent(item) {
   const metadataContent = item?.metadata?.agent_message_display_content;
   if (typeof metadataContent === 'string') return metadataContent;
-  const content = typeof item?.content === 'string' ? item.content : '';
+  const content = typeof item?.content === 'string' ? item.content : partsToPlainText(item?.content_parts);
   return content.match(AGENT_MESSAGE_WRAPPER)?.[1] ?? content;
 }
 
@@ -156,7 +156,7 @@ export function useSessionMessages(deps) {
               role: 'system',
               id: item.id,
               seq: item.seq,
-              content: item.content || '',
+              content: partsToPlainText(item.content_parts),
               content_parts: normalizeMessageContentParts(item.content_parts),
               metadata: item.metadata || {},
             };
@@ -164,7 +164,7 @@ export function useSessionMessages(deps) {
           const contentParts = normalizeMessageContentParts(item.content_parts);
           const metadata = item.metadata || {};
           const agentMessage = metadata.agent_message === true;
-          const content = agentMessage ? getAgentMessageDisplayContent(item) : (item.content || '');
+          const content = agentMessage ? getAgentMessageDisplayContent(item) : partsToPlainText(item.content_parts);
           const message = {
             role: 'user',
             id: item.id,

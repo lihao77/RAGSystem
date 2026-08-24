@@ -741,7 +741,6 @@ describe("executeRunWithSdk terminal convergence", () => {
       id: "mailbox-retry",
       session_id: "session-1",
       role: "user",
-      content: "[agent-message kind=request id=mailbox-retry]\nplease continue\n[/agent-message]",
       content_parts: [{ type: "text", text: "please continue" }],
       metadata: { agent_message: true },
       thread_key: "child-thread",

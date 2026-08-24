@@ -28,37 +28,6 @@ function run(runId: string, overrides: Partial<{
 }
 
 
-function boundaryStep(runId: string, messageId: string, order: number): RunStepInfo {
-  return {
-    ...executionStep(runId, `boundary-call-${order}`, order),
-    payload: {
-      type: "agent_message",
-      session_id: "session-1",
-      run_id: runId,
-      call_id: `boundary-call-${order}`,
-      payload: {
-        kind: "request",
-        message_id: messageId,
-        content: messageId,
-      },
-    },
-  };
-}
-
-function assistantBoundaryStep(runId: string, messageId: string, order: number): RunStepInfo {
-  return {
-    ...executionStep(runId, `assistant-call-${order}`, order),
-    payload: {
-      type: "stream_output",
-      session_id: "session-1",
-      run_id: runId,
-      message_id: messageId,
-      call_id: `assistant-call-${order}`,
-      payload: { phase: "final", content: "done" },
-    },
-  };
-}
-
 describe("AgentSessionApplication participant Run steps", () => {
   it("exposes visible input boundaries but not the terminal assistant as execution carriers", async () => {
     const messages = [
@@ -117,14 +86,12 @@ describe("AgentSessionApplication participant Run steps", () => {
     // 同源改造：participant 执行视图来自消息行合成，不再读 run_steps 归档。
     const threadRows = [
       {
-        id: "child-run:intent:0", seq: 2, role: "assistant", content: "查一下",
-        content_parts: [{ type: "thinking", text: "需要工具", round: 1, complete: true }],
+        id: "child-run:intent:0", seq: 2, role: "assistant", content_parts: [{ type: "thinking", text: "需要工具", round: 1, complete: true }, { type: "text", text: "查一下" }],
         metadata: { run_id: "child-run", msg_type: "intent", round: 1, agent_name: "child" },
         tool_calls: [{ id: "call-1", type: "function", function: { name: "read", arguments: "{}" } }],
       },
       {
-        id: "child-run:tool:call-1", seq: 3, role: "tool", content: "data",
-        content_parts: [], metadata: { run_id: "child-run", msg_type: "observation" },
+        id: "child-run:tool:call-1", seq: 3, role: "tool", content_parts: [{ type: "text", text: "data" }], metadata: { run_id: "child-run", msg_type: "observation" },
         tool_call_id: "call-1", name: "read",
       },
     ];
@@ -175,15 +142,13 @@ describe("AgentSessionApplication participant Run steps", () => {
       { id: "standalone", role: "user", metadata: {}, thread_key: "root", child_agent_id: null, seq: 5 },
     ];
     const threadRows = [
-      { id: "initial", seq: 1, role: "user", content: "任务", content_parts: [], metadata: { run_id: "root-run" }, tool_calls: [] },
+      { id: "initial", seq: 1, role: "user", content_parts: [{ type: "text", text: "任务" }], metadata: { run_id: "root-run" }, tool_calls: [] },
       {
-        id: "root-run:intent:0", seq: 2, role: "assistant", content: "我来看看",
-        content_parts: [], metadata: { run_id: "root-run", msg_type: "round", round: 1, agent_name: "agent" },
+        id: "root-run:intent:0", seq: 2, role: "assistant", content_parts: [{ type: "text", text: "我来看看" }], metadata: { run_id: "root-run", msg_type: "round", round: 1, agent_name: "agent" },
         tool_calls: [{ id: "call-1", type: "function", function: { name: "read", arguments: "{}" } }],
       },
       {
-        id: "root-run:tool:call-1", seq: 3, role: "tool", content: "data",
-        content_parts: [], metadata: { run_id: "root-run", msg_type: "observation" },
+        id: "root-run:tool:call-1", seq: 3, role: "tool", content_parts: [{ type: "text", text: "data" }], metadata: { run_id: "root-run", msg_type: "observation" },
         tool_call_id: "call-1", name: "read",
       },
     ];
@@ -217,31 +182,26 @@ describe("AgentSessionApplication participant Run steps", () => {
       { id: "u2", role: "user", metadata: { run_id: "root-run", consumed_by_run_id: "root-run", execution_kind: "session_followup", source: "running_session" }, thread_key: "root", child_agent_id: null, seq: 5 },
     ];
     const threadRows = [
-      { id: "u1", seq: 1, role: "user", content: "任务", content_parts: [], metadata: { run_id: "root-run" }, tool_calls: [] },
+      { id: "u1", seq: 1, role: "user", content_parts: [{ type: "text", text: "任务" }], metadata: { run_id: "root-run" }, tool_calls: [] },
       {
-        id: "root-run:intent:0", seq: 2, role: "assistant", content: "第一轮说明",
-        content_parts: [], metadata: { run_id: "root-run", msg_type: "round", round: 1, agent_name: "agent", boundary_message_id: "u1" },
+        id: "root-run:intent:0", seq: 2, role: "assistant", content_parts: [{ type: "text", text: "第一轮说明" }], metadata: { run_id: "root-run", msg_type: "round", round: 1, agent_name: "agent", boundary_message_id: "u1" },
         tool_calls: [{ id: "call-1", type: "function", function: { name: "read", arguments: "{}" } }],
       },
       {
-        id: "root-run:tool:call-1", seq: 3, role: "tool", content: "data",
-        content_parts: [], metadata: { run_id: "root-run", msg_type: "observation", boundary_message_id: "u1" },
+        id: "root-run:tool:call-1", seq: 3, role: "tool", content_parts: [{ type: "text", text: "data" }], metadata: { run_id: "root-run", msg_type: "observation", boundary_message_id: "u1" },
         tool_call_id: "call-1", name: "read",
       },
-      { id: "u2", seq: 5, role: "user", content: "插嘴", content_parts: [], metadata: { run_id: "root-run", execution_kind: "session_followup" }, tool_calls: [] },
+      { id: "u2", seq: 5, role: "user", content_parts: [{ type: "text", text: "插嘴" }], metadata: { run_id: "root-run", execution_kind: "session_followup" }, tool_calls: [] },
       {
-        id: "root-run:intent:1", seq: 6, role: "assistant", content: "插嘴后说明",
-        content_parts: [], metadata: { run_id: "root-run", msg_type: "round", round: 2, agent_name: "agent", boundary_message_id: "u2" },
+        id: "root-run:intent:1", seq: 6, role: "assistant", content_parts: [{ type: "text", text: "插嘴后说明" }], metadata: { run_id: "root-run", msg_type: "round", round: 2, agent_name: "agent", boundary_message_id: "u2" },
         tool_calls: [{ id: "call-2", type: "function", function: { name: "search", arguments: "{}" } }],
       },
       {
-        id: "root-run:tool:call-2", seq: 7, role: "tool", content: "hit",
-        content_parts: [], metadata: { run_id: "root-run", msg_type: "observation", boundary_message_id: "u2" },
+        id: "root-run:tool:call-2", seq: 7, role: "tool", content_parts: [{ type: "text", text: "hit" }], metadata: { run_id: "root-run", msg_type: "observation", boundary_message_id: "u2" },
         tool_call_id: "call-2", name: "search",
       },
       {
-        id: "root-run:final", seq: 8, role: "assistant", content: "最终答案",
-        content_parts: [{ type: "thinking", text: "收尾", complete: true }, { type: "text", text: "最终答案" }],
+        id: "root-run:final", seq: 8, role: "assistant", content_parts: [{ type: "thinking", text: "收尾", complete: true }, { type: "text", text: "最终答案" }],
         metadata: { run_id: "root-run", msg_type: "round", agent_name: "agent", boundary_message_id: "u2" },
         tool_calls: [],
       },
@@ -257,7 +217,7 @@ describe("AgentSessionApplication participant Run steps", () => {
     const first = await sessions.listMessageExecution({ sessionId: "session-1", messageId: "u1" });
     const second = await sessions.listMessageExecution({ sessionId: "session-1", messageId: "u2" });
 
-    const shape = (items: { type: string; payload: unknown }[]) =>
+    const shape = (items: { type: string; payload?: unknown }[]) =>
       items.map((item) => [item.type, (item.payload as Record<string, unknown>).phase ?? null]);
     expect(shape(first.items)).toEqual([
       ["stream_output", "intent_complete"],
@@ -273,7 +233,7 @@ describe("AgentSessionApplication participant Run steps", () => {
       ["agent_ended", "end"],
     ]);
     // 段间不重复：两段各一个工具，合起来恰为全量。
-    const toolCalls = (items: { type: string; payload: unknown }[]) =>
+    const toolCalls = (items: { type: string; payload?: unknown }[]) =>
       items.filter((item) => item.type === "tool_call")
         .map((item) => (item.payload as Record<string, unknown>).tool);
     expect(toolCalls(first.items)).toEqual(["read"]);
@@ -287,16 +247,14 @@ describe("AgentSessionApplication participant Run steps", () => {
       { id: "u2", role: "user", metadata: { run_id: "root-run", execution_kind: "session_followup" }, thread_key: "root", child_agent_id: null, seq: 4 },
     ];
     const threadRows = [
-      { id: "u1", seq: 1, role: "user", content: "任务", content_parts: [], metadata: { run_id: "root-run" }, tool_calls: [] },
+      { id: "u1", seq: 1, role: "user", content_parts: [{ type: "text", text: "任务" }], metadata: { run_id: "root-run" }, tool_calls: [] },
       {
-        id: "root-run:intent:0", seq: 2, role: "assistant", content: "第一轮",
-        content_parts: [], metadata: { run_id: "root-run", msg_type: "round", round: 1, agent_name: "agent" },
+        id: "root-run:intent:0", seq: 2, role: "assistant", content_parts: [{ type: "text", text: "第一轮" }], metadata: { run_id: "root-run", msg_type: "round", round: 1, agent_name: "agent" },
         tool_calls: [{ id: "call-1", type: "function", function: { name: "read", arguments: "{}" } }],
       },
-      { id: "u2", seq: 4, role: "user", content: "插嘴", content_parts: [], metadata: { run_id: "root-run" }, tool_calls: [] },
+      { id: "u2", seq: 4, role: "user", content_parts: [{ type: "text", text: "插嘴" }], metadata: { run_id: "root-run" }, tool_calls: [] },
       {
-        id: "root-run:final", seq: 5, role: "assistant", content: "答案",
-        content_parts: [{ type: "thinking", text: "思考", complete: true }, { type: "text", text: "答案" }],
+        id: "root-run:final", seq: 5, role: "assistant", content_parts: [{ type: "thinking", text: "思考", complete: true }, { type: "text", text: "答案" }],
         metadata: { run_id: "root-run", msg_type: "round", agent_name: "agent" },
         tool_calls: [],
       },

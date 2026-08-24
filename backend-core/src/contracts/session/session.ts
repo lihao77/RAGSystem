@@ -269,7 +269,7 @@ export interface MessageInfo {
   seq: number;
   session_id: string;
   role: "system" | "user" | "assistant" | "tool";
-  content: string;
+  /** 唯一持久化内容形态；裸文本用 partsToPlainText 派生。 */
   content_parts: MessageContentPart[];
   metadata: Record<string, unknown>;
   created_at: string;

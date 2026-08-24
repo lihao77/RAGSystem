@@ -8,6 +8,7 @@ import {
 import type { RuntimeFinalizeRunInput, RuntimeStorage } from "../src/contracts/storage/runtime-storage.js";
 import type { MessageInfo } from "../src/contracts/session/session.js";
 import { createTenantId } from "../src/identity/types.js";
+import { partsToPlainText } from "@ragsystem/agent-protocol";
 import { AsyncKernelEventPersister } from "../src/services/agent/sdk/async-event-persister.js";
 import { filterHistoryMessages, messagesToConversation } from "../src/services/agent/context/history-view.js";
 import { createTestTeamSnapshot } from "./session-team-fixture.js";
@@ -31,7 +32,6 @@ describe("buildTerminalToolMessages", () => {
         seq: 1,
         session_id: "session-1",
         role: "assistant",
-        content: "searching",
         content_parts: [{ type: "text", text: "searching" }],
         metadata: { run_id: "current-run", round: 1 },
         created_at: "2026-01-01T00:00:00.000Z",
@@ -59,7 +59,7 @@ describe("buildTerminalToolMessages", () => {
       role: "tool",
       toolCallId: "call-1",
       name: "execute_bash",
-      content,
+      contentParts: [{ type: "text", text: content }],
       metadata: {
         terminal_tool_result: true,
         terminal_status: terminalStatus,
@@ -75,7 +75,6 @@ describe("buildTerminalToolMessages", () => {
       seq: 1,
       session_id: "session-1",
       role: "assistant",
-      content: "waiting for approval",
       content_parts: [{ type: "text", text: "waiting for approval" }],
       metadata: { run_id: "active-run", round: 1 },
       created_at: "2026-01-01T00:00:00.000Z",
@@ -104,7 +103,6 @@ describe("buildTerminalToolMessages", () => {
       seq: 1,
       session_id: "session-1",
       role: "assistant",
-      content: "calling tool",
       content_parts: [{ type: "text", text: "calling tool" }],
       metadata: { run_id: "run-1", round: 1 },
       created_at: "2026-01-01T00:00:00.000Z",
@@ -125,7 +123,7 @@ describe("buildTerminalToolMessages", () => {
     });
 
     expect(closed?.metadata).toMatchObject({ terminal_reason: "未提供失败原因" });
-    expect(closed?.content).toBe("工具执行因 Run 失败而终止：未提供失败原因");
+    expect(closed ? partsToPlainText(closed.contentParts) : undefined).toBe("工具执行因 Run 失败而终止：未提供失败原因");
   });
 
   it("stamps the owning round's boundary on closed tools, deriving it when absent", () => {
@@ -137,7 +135,6 @@ describe("buildTerminalToolMessages", () => {
         seq: 2,
         session_id: "session-1",
         role: "assistant",
-        content: "first round",
         content_parts: [{ type: "text", text: "first round" }],
         metadata: { run_id: "run-1", round: 1, boundary_message_id: "u1" },
         created_at: "2026-01-01T00:00:00.000Z",
@@ -154,7 +151,6 @@ describe("buildTerminalToolMessages", () => {
         seq: 6,
         session_id: "session-1",
         role: "assistant",
-        content: "post interjection round",
         content_parts: [{ type: "text", text: "post interjection round" }],
         metadata: { run_id: "run-1", round: 2, boundary_message_id: "u2" },
         created_at: "2026-01-01T00:00:01.000Z",
@@ -177,7 +173,7 @@ describe("buildTerminalToolMessages", () => {
       reason: "backend restarted",
     });
 
-    expect(closed.map((message) => [message.toolCallId, message.metadata.boundary_message_id]))
+    expect(closed.map((message) => [message.toolCallId, message.metadata?.boundary_message_id]))
       .toEqual([["call-1", "u1"], ["call-2", "u2"]]);
   });
 });
@@ -204,7 +200,6 @@ describe("buildTerminalAssistantMessage", () => {
       reason,
     });
     expect(message.messageId).toBe("run-1:terminal");
-    expect(message.content).toBe(content);
     expect(message.contentParts).toEqual([{ type: "text", text: content }]);
     expect(message.metadata).toMatchObject({
       msg_type: "run_terminal",
@@ -255,7 +250,7 @@ describe("buildTerminalAssistantMessage", () => {
       { type: "thinking", text: "思考到一半的推理", round: 2, complete: false },
       { type: "text", text: "本次运行已中断，未生成最终答案。原因：用户主动停止运行" },
     ]);
-    expect(message.content).toBe("本次运行已中断，未生成最终答案。原因：用户主动停止运行");
+    expect(partsToPlainText(message.contentParts)).toBe("本次运行已中断，未生成最终答案。原因：用户主动停止运行");
     expect(message.metadata).toMatchObject({ partial: true, interrupted: true });
   });
 
@@ -274,7 +269,7 @@ describe("buildTerminalAssistantMessage", () => {
       { type: "thinking", text: "完整思考", complete: true },
       { type: "text", text: `这是流到一半的最终回答\n\n${reasonText}` },
     ]);
-    expect(message.content).toBe(`这是流到一半的最终回答\n\n${reasonText}`);
+    expect(partsToPlainText(message.contentParts)).toBe(`这是流到一半的最终回答\n\n${reasonText}`);
     expect(message.metadata).toMatchObject({ partial: true });
   });
 
@@ -288,7 +283,7 @@ describe("buildTerminalAssistantMessage", () => {
       reason: "boom",
       salvage: null,
     });
-    expect(message.metadata.partial).toBeUndefined();
+    expect(message.metadata?.partial).toBeUndefined();
     expect(message.contentParts).toHaveLength(1);
   });
 });
@@ -300,7 +295,6 @@ describe("buildRunTerminalRecords", () => {
       seq: 2,
       session_id: "session-1",
       role: "assistant",
-      content: "done",
       content_parts: [{ type: "text", text: "done" }],
       metadata: { run_id: "run-1" },
       created_at: "2026-01-01T00:00:00.000Z",
@@ -339,7 +333,6 @@ describe("buildRunTerminalRecords", () => {
       seq: 3,
       session_id: "session-1",
       role: "tool",
-      content: "工具执行被中断",
       content_parts: [{ type: "text", text: "工具执行被中断" }],
       metadata: { run_id: "run-1", boundary_message_id: "u2" },
       created_at: "2026-01-01T00:00:00.000Z",
@@ -387,7 +380,6 @@ describe("AsyncKernelEventPersister terminal cleanup", () => {
             seq: 2,
             session_id: input.sessionId,
             role: "assistant",
-            content: input.finalMessage!.content,
             content_parts: input.finalMessage!.contentParts ?? [],
             metadata: input.finalMessage!.metadata ?? {},
             created_at: "2026-01-01T00:00:00.000Z",
@@ -459,12 +451,12 @@ describe("AsyncKernelEventPersister terminal cleanup", () => {
 
   it("persists per-round thinking as a first-class thinking part on INTENT and final rows", async () => {
     const tenantId = createTenantId("tnt_test");
-    let persistedMessage: { contentParts: unknown; content: string } | null = null;
+    let persistedMessage: { contentParts: Parameters<typeof partsToPlainText>[0] } | null = null;
     let finalizeInput: RuntimeFinalizeRunInput | null = null;
     const storage = {
       tenantId,
       operations: {
-        persistMessage: vi.fn(async (input: { message: { contentParts: unknown; content: string } }) => {
+        persistMessage: vi.fn(async (input: { message: { contentParts: Parameters<typeof partsToPlainText>[0] } }) => {
           persistedMessage = input.message;
         }),
         finalizeRun: vi.fn(async (input: RuntimeFinalizeRunInput) => {
@@ -475,7 +467,6 @@ describe("AsyncKernelEventPersister terminal cleanup", () => {
               seq: 3,
               session_id: input.sessionId,
               role: "assistant",
-              content: input.finalMessage!.content,
               content_parts: input.finalMessage!.contentParts ?? [],
               metadata: input.finalMessage!.metadata ?? {},
               created_at: "2026-01-01T00:00:00.000Z",
@@ -529,7 +520,7 @@ describe("AsyncKernelEventPersister terminal cleanup", () => {
       { type: "thinking", text: "用户要查天气，需要调用工具。", round: 1, complete: true },
       { type: "text", text: "我来查一下天气" },
     ]);
-    expect(persistedMessage!.content).toBe("我来查一下天气");
+    expect(partsToPlainText(persistedMessage!.contentParts)).toBe("我来查一下天气");
 
     await persister.finalize("completed", { content: "北京今天晴。", reasoning: "最终轮思考全文" });
     expect(finalizeInput).not.toBeNull();
@@ -624,7 +615,6 @@ describe("AsyncKernelEventPersister terminal cleanup", () => {
         messageId: "u1",
         sessionId: "session-1",
         role: "user",
-        content: "任务",
         contentParts: [],
         threadKey: "root",
         childAgentId: null,
@@ -688,7 +678,6 @@ describe("AsyncKernelEventPersister terminal cleanup", () => {
             seq: 2,
             session_id: input.sessionId,
             role: "assistant",
-            content: input.finalMessage!.content,
             content_parts: input.finalMessage!.contentParts ?? [],
             metadata: input.finalMessage!.metadata ?? {},
             created_at: "2026-01-01T00:00:00.000Z",

@@ -213,7 +213,6 @@ export class AgentSessionApplication implements ExecutionSessionPort {
   async addMessage(input: {
     sessionId: string;
     role: MessageInfo["role"];
-    content: string;
     contentParts: MessageContentPart[];
     metadata?: Record<string, unknown>;
     toolCalls?: MessageInfo["tool_calls"];
@@ -249,7 +248,6 @@ export class AgentSessionApplication implements ExecutionSessionPort {
   async updateUserMessage(input: { sessionId: string; messageId: string; content: string }): Promise<boolean> {
     return this.repository.updateMessage({
       messageId: input.messageId,
-      content: input.content,
       contentParts: input.content ? [{ type: "text", text: input.content }] : [],
       sessionId: input.sessionId,
       roleFilter: "user",

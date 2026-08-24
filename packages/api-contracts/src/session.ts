@@ -133,7 +133,7 @@ export const SessionMessageSchema = z.object({
   seq: z.number().int().nonnegative(),
   session_id: z.string().min(1),
   role: z.enum(["system", "user", "assistant", "tool"]),
-  content: z.string(),
+  /** 唯一内容形态；裸文本由消费方从 parts 派生（partsToPlainText）。 */
   content_parts: z.array(MessageContentPartSchema),
   metadata: z.record(z.string(), z.unknown()),
   created_at: z.string(),

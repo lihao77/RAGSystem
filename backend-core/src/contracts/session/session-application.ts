@@ -29,7 +29,6 @@ export interface ExecutionSessionPort {
   addMessage(input: {
     sessionId: string;
     role: MessageInfo["role"];
-    content: string;
     contentParts: MessageContentPart[];
     metadata?: Record<string, unknown>;
     toolCalls?: MessageInfo["tool_calls"];

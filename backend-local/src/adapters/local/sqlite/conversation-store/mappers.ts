@@ -45,7 +45,6 @@ export function rowToMessage(row: MessageRow): MessageInfo {
     id: row.id,
     session_id: row.session_id,
     role: row.role,
-    content: row.content,
     content_parts: parsedContentParts.data,
     metadata,
     thread_key: row.thread_key ?? "root",

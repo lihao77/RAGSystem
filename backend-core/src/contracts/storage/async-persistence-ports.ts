@@ -1,3 +1,4 @@
+import type { MessageContentPart } from "@ragsystem/agent-protocol";
 import type { PaginatedResult } from "../common.js";
 import type {
   AddMessageInput,
@@ -45,7 +46,7 @@ export interface AsyncConversationRepository {
     afterMessageId?: string | null;
     tenantId?: string | null;
   }): Promise<number>;
-  updateMessage(input: { messageId: string; content?: string | null; metadata?: Record<string, unknown> | null; sessionId?: string | null; roleFilter?: MessageInfo["role"] | null }): Promise<boolean>;
+  updateMessage(input: { messageId: string; contentParts?: MessageContentPart[] | null; metadata?: Record<string, unknown> | null; sessionId?: string | null; roleFilter?: MessageInfo["role"] | null }): Promise<boolean>;
   insertCompressionMessage(input: { sessionId: string; summaryContent: string; replacesUpToSeq?: number | null; threadKey?: string; childAgentId?: string | null; metadata?: Record<string, unknown> }): Promise<MessageInfo>;
 }
 

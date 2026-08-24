@@ -1,3 +1,4 @@
+import { partsToPlainText } from '@ragsystem/agent-protocol';
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -46,7 +47,6 @@ test("visible message SQL only treats native JSON booleans as visibility flags",
       store.addMessage({
         sessionId: "session-1",
         role: "user",
-        content,
         contentParts: [{ type: "text", text: content }],
         metadata,
         threadKey: "root",
@@ -54,7 +54,7 @@ test("visible message SQL only treats native JSON booleans as visibility flags",
     }
 
     const page = store.listVisibleMessages("session-1", "root");
-    assert.deepEqual(page.items.map(item => item.content), cases.filter(item => item[2]).map(item => item[0]));
+    assert.deepEqual(page.items.map(item => partsToPlainText(item.content_parts)), cases.filter(item => item[2]).map(item => item[0]));
     assert.equal(page.total, cases.filter(item => item[2]).length);
   } finally {
     store.close();

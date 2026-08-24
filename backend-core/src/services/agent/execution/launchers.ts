@@ -1,3 +1,4 @@
+import { partsToPlainText } from "@ragsystem/agent-protocol";
 import { createHash, randomUUID } from "node:crypto";
 
 import type {
@@ -705,7 +706,7 @@ class AgentLaunchers {
     if (!isRootUserRevisionAnchor(retryMessage)) {
       return { started: false, session_id: sessionId, deleted: 0, error: "只能从根会话中的用户消息重试" };
     }
-    const task = input.modifyUserMessage?.trim() || retryMessage.content.trim();
+    const task = input.modifyUserMessage?.trim() || partsToPlainText(retryMessage.content_parts).trim();
     if (!task) {
       return { started: false, session_id: sessionId, deleted: 0, error: "无法获取要重试的任务内容" };
     }
@@ -1196,7 +1197,7 @@ class AgentLaunchers {
           correlationId: sourceMessage.correlation_id,
           replyToMessageId: sourceMessageId,
           outcome: {
-            content: finalMessage?.content ?? fallbackContent,
+            content: finalMessage ? partsToPlainText(finalMessage.content_parts) : fallbackContent,
             contentParts: finalMessage?.content_parts ?? [{ type: "text", text: fallbackContent }],
             success: run.status === "completed",
             runId: run.run_id,

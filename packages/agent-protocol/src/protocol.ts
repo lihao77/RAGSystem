@@ -379,6 +379,22 @@ export const MessageContentPartSchema = z.discriminatedUnion("type", [
   }).strict(),
 ]);
 
+/**
+ * 消息行的唯一持久化内容形态是 content_parts；裸文本一律从这里派生（parts→text）。
+ * 口径 = text part 全文 + 命令引用的原始输入 + 命令结果文本（与老 content 列的语义对齐，
+ * 供会话列表预览/压缩输入/执行合成等"裸文本"读者使用）。thinking 与附件引用不属于
+ * 正文纯文本：前者有专属展示/回放通道，后者由上下文投影器按需渲染。
+ */
+export function partsToPlainText(parts: readonly MessageContentPart[] | null | undefined): string {
+  if (!Array.isArray(parts)) return "";
+  return parts.map((part) => {
+    if (part.type === "text") return part.text;
+    if (part.type === "command_ref") return part.raw_text;
+    if (part.type === "command_result") return part.text;
+    return "";
+  }).join("");
+}
+
 export const StreamOutputPayloadSchema = z.object({
   phase: z.enum([
     "first_token",

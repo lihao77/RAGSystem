@@ -1,3 +1,4 @@
+import { partsToPlainText } from "@ragsystem/agent-protocol";
 import { MSG_TYPE } from "@ragsystem/backend-core/contracts/message-kinds.js";
 import { isSessionListVisibleMessage } from "@ragsystem/backend-core/contracts/session/session-list-projection.js";
 import type { MessageInfo } from "@ragsystem/backend-core/contracts/session/session.js";
@@ -20,6 +21,7 @@ export class SessionListProjector {
 
   projectInsertedMessage(message: MessageInfo): void {
     if (!isSessionListVisibleMessage(message)) return;
+    const text = partsToPlainText(message.content_parts);
     const hasEarlierVisible = Boolean(this.db.prepare(`
       SELECT 1 FROM messages m
       WHERE m.session_id=? AND m.seq < ? AND ${sessionListVisibleMessageSql("m")}
@@ -32,10 +34,10 @@ export class SessionListProjector {
         last_message=?, activity_at=?, unread_count=?
       WHERE session_id=?
     `).run(
-      hasEarlierVisible ? this.currentTitle(message.session_id) : message.content.trim().slice(0, 30),
+      hasEarlierVisible ? this.currentTitle(message.session_id) : text.trim().slice(0, 30),
       hasEarlierVisible ? 1 : 0,
-      message.content,
-      message.content,
+      text,
+      text,
       message.created_at,
       0,
       message.session_id,
@@ -45,15 +47,17 @@ export class SessionListProjector {
   rebuildSessionListProjection(sessionId: string): void {
     const session = this.getSession(sessionId);
     const first = this.db.prepare(`
-      SELECT content, created_at FROM messages m
+      SELECT content_parts, created_at FROM messages m
       WHERE m.session_id=? AND ${sessionListVisibleMessageSql("m")}
       ORDER BY m.seq ASC LIMIT 1
-    `).get(sessionId) as { content: string; created_at: string } | undefined;
+    `).get(sessionId) as { content_parts: string; created_at: string } | undefined;
     const last = this.db.prepare(`
-      SELECT content, created_at FROM messages m
+      SELECT content_parts, created_at FROM messages m
       WHERE m.session_id=? AND ${sessionListVisibleMessageSql("m")}
       ORDER BY m.seq DESC LIMIT 1
-    `).get(sessionId) as { content: string; created_at: string } | undefined;
+    `).get(sessionId) as { content_parts: string; created_at: string } | undefined;
+    const firstText = first ? partsToPlainText(JSON.parse(first.content_parts)) : "";
+    const lastText = last ? partsToPlainText(JSON.parse(last.content_parts)) : "";
     this.db.prepare(`
       INSERT INTO session_list_projection (
         session_id, tenant_id, owner_user_id, visibility, origin_type, origin_id,
@@ -69,8 +73,8 @@ export class SessionListProjector {
     `).run(
       session.session_id, session.tenant_id, session.owner_user_id, session.visibility,
       session.origin_type, session.origin_id, session.origin_channel, session.workspace_id,
-      first?.content.trim().slice(0, 30) ?? "", first?.content ?? "",
-      last?.content ?? "", last?.created_at ?? session.created_at,
+      firstText.trim().slice(0, 30), firstText,
+      lastText, last?.created_at ?? session.created_at,
       0,
     );
   }

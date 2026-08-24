@@ -7,7 +7,7 @@ export interface MigrationDatabase {
   prepare: import("node:sqlite").DatabaseSync["prepare"];
 }
 
-export const LATEST_SCHEMA_VERSION = 21;
+export const LATEST_SCHEMA_VERSION = 22;
 
 export function assertVersionsContiguous(migrations: readonly { version: number; name: string }[]): void {
   migrations.forEach((migration, index) => {
@@ -33,16 +33,14 @@ export function runMigrations(db: MigrationDatabase): void {
     assertCurrentSchema(db);
     return;
   }
-  if (current >= 1 && current <= 20) {
+  if (current >= 1 && current <= 21) {
     assertVersionOneSchema(db);
     runInTransaction(db, () => {
       if (current === 1) db.exec("ALTER TABLE runs ADD COLUMN terminal_reason TEXT");
       if (current <= 2) db.exec("ALTER TABLE workspaces ADD COLUMN removed_at TIMESTAMP");
       if (current <= 4) {
         db.exec("ALTER TABLE messages ADD COLUMN content_parts TEXT NOT NULL DEFAULT '[]'");
-        migrateCanonicalMessageContent(db);
       }
-      migrateCommandContent(db);
       if (current <= 7) migrateRunLifecycleIdentity(db);
       if (current <= 8) {
         db.exec(`
@@ -82,6 +80,14 @@ export function runMigrations(db: MigrationDatabase): void {
         // v21: resources 表退役（零读零写的遗留聚合根；执行总览已迁 runs 投影）。
         db.exec("DROP INDEX IF EXISTS idx_resources_session_run");
         db.exec("DROP TABLE IF EXISTS resources");
+      }
+      if (current <= 21) {
+        // v22: messages.content 列退役——裸文本一律从 content_parts 派生（partsToPlainText），
+        // 不再双写。未发布系统，旧数据不做 backfill。
+        const messageColumns = db.prepare("PRAGMA table_info(messages)").all() as unknown as Array<{ name: string }>;
+        if (messageColumns.some((column) => column.name === "content")) {
+          db.exec("ALTER TABLE messages DROP COLUMN content");
+        }
       }
       if (current <= 19) {
         // v20: run_steps/run_message_boundaries/step_resources 归档退役（执行视图由消息行合成）。
@@ -245,102 +251,6 @@ function migrateAgentMailboxKindCheck(db: MigrationDatabase): void {
   db.exec("DROP TABLE agent_mailbox_pre_v15");
 }
 
-function migrateCommandContent(db: MigrationDatabase): void {
-  const rows = db.prepare(`
-    SELECT seq,id,session_id,content,content_parts,metadata,thread_key
-    FROM messages ORDER BY seq
-  `).all() as unknown as Array<{
-    seq: number;
-    id: string;
-    session_id: string;
-    content: string;
-    content_parts: string;
-    metadata: string | null;
-    thread_key: string | null;
-  }>;
-  const update = db.prepare("UPDATE messages SET content_parts=?, metadata=? WHERE seq=?");
-  const latestInvocationByThread = new Map<string, string>();
-  for (const row of rows) {
-    const metadata = parseObject(row.metadata);
-    const messageType = metadata.msg_type;
-    const threadKey = `${row.session_id}\0${row.thread_key ?? "root"}`;
-    if (messageType === "command") {
-      const invocationId = `cmd_${row.id}`;
-      const name = stringValue(metadata.command) ?? commandName(row.content);
-      const args = commandArgs(row.content);
-      const expanded = stringValue(metadata.expanded_task);
-      const commandPart: MessageContentPart = {
-        type: "command_ref",
-        invocation_id: invocationId,
-        name,
-        args,
-        raw_text: row.content || `/${name}`,
-        resolution: metadata.command_mode === "prompt" && expanded
-          ? { kind: "prompt", agent_text: expanded, snapshot_id: `migration:${row.id}` }
-          : { kind: "system" },
-      };
-      const existing = parseContentParts(row.content_parts);
-      let removedSourceText = false;
-      const retained = existing.filter((part) => {
-        if (!removedSourceText && part.type === "text" && part.text === row.content) {
-          removedSourceText = true;
-          return false;
-        }
-        return true;
-      });
-      latestInvocationByThread.set(threadKey, invocationId);
-      cleanCommandMetadata(metadata);
-      update.run(JSON.stringify([commandPart, ...retained]), JSON.stringify(metadata), row.seq);
-      continue;
-    }
-    if (messageType === "command_result") {
-      const name = stringValue(metadata.command) ?? "unknown";
-      const error = stringValue(metadata.error);
-      const resultPart: MessageContentPart = {
-        type: "command_result",
-        invocation_id: latestInvocationByThread.get(threadKey) ?? `cmd_result_${row.id}`,
-        name,
-        success: metadata.success !== false,
-        text: row.content,
-        ...(error ? { error } : {}),
-      };
-      cleanCommandMetadata(metadata);
-      update.run(JSON.stringify([resultPart]), JSON.stringify(metadata), row.seq);
-    }
-  }
-}
-
-function parseContentParts(value: string): MessageContentPart[] {
-  try {
-    const parsed = MessageContentPartSchema.array().safeParse(JSON.parse(value));
-    return parsed.success ? parsed.data : [];
-  } catch {
-    return [];
-  }
-}
-
-function cleanCommandMetadata(metadata: Record<string, unknown>): void {
-  delete metadata.msg_type;
-  delete metadata.command;
-  delete metadata.command_mode;
-  delete metadata.expanded_task;
-  delete metadata.success;
-  delete metadata.error;
-}
-
-function commandName(content: string): string {
-  const match = /^\s*\/([^\s/]+)/.exec(content);
-  return match?.[1]?.toLowerCase() || "unknown";
-}
-
-function commandArgs(content: string): string {
-  return content.trim().replace(/^\/[^\s/]+\s*/, "").trim();
-}
-
-function stringValue(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
 function assertVersionOneSchema(db: MigrationDatabase): void {
   const columns = db.prepare("PRAGMA table_info(sessions)").all() as unknown as Array<{ name: string }>;
   const names = new Set(columns.map((column) => column.name));
@@ -379,6 +289,9 @@ function assertCurrentSchema(db: MigrationDatabase): void {
   }
   if (!messageColumns.some((column) => column.name === "provider_state")) {
     throw new Error("Conversation database is missing messages.provider_state");
+  }
+  if (messageColumns.some((column) => column.name === "content")) {
+    throw new Error("Conversation database contains obsolete messages.content column; text derives from content_parts");
   }
   const retiredContinuations = db.prepare(
     "SELECT name FROM sqlite_master WHERE type='table' AND name='provider_continuations'",
@@ -462,54 +375,6 @@ function migrateRunLifecycleIdentity(db: MigrationDatabase): void {
     CREATE INDEX IF NOT EXISTS idx_runs_session ON runs(session_id);
     CREATE INDEX IF NOT EXISTS idx_runs_session_thread_created ON runs(session_id, thread_key, created_at);
   `);
-}
-
-function migrateCanonicalMessageContent(db: MigrationDatabase): void {
-  const rows = db.prepare("SELECT seq, content, metadata FROM messages ORDER BY seq").all() as unknown as Array<{
-    seq: number;
-    content: string;
-    metadata: string | null;
-  }>;
-  const update = db.prepare("UPDATE messages SET content_parts=?, metadata=? WHERE seq=?");
-  for (const row of rows) {
-    const metadata = parseObject(row.metadata);
-    const extensions = Array.isArray(metadata.extensions) ? metadata.extensions : [];
-    const rich = extensions.find((extension) => isRecord(extension) && extension.kind === "rich_content");
-    let parts: MessageContentPart[] | null = null;
-    if (isRecord(rich) && isRecord(rich.data)) {
-      const parsed = MessageContentPartSchema.array().safeParse(rich.data.parts);
-      if (parsed.success) parts = parsed.data;
-    }
-    if (!parts) {
-      parts = row.content ? [{ type: "text", text: row.content }] : [];
-      const attachmentExtension = extensions.find((extension) => isRecord(extension) && extension.kind === "attachments");
-      if (isRecord(attachmentExtension) && isRecord(attachmentExtension.data) && Array.isArray(attachmentExtension.data.items)) {
-        for (const item of attachmentExtension.data.items) {
-          if (!isRecord(item)) continue;
-          const parsed = MessageContentPartSchema.safeParse({
-            type: "attachment_ref",
-            file_id: item.file_id,
-            original_name: item.original_name,
-            stored_name: item.stored_name,
-            mime: item.mime,
-            size: item.size,
-            kind: item.kind,
-            presentation: item.kind === "image" ? "inline" : "attachment",
-            ...(typeof item.file_path === "string" && item.file_path ? { file_path: item.file_path } : {}),
-            ...(item.file_path_space === "uploads" || item.file_path_space === "absolute"
-              ? { file_path_space: item.file_path_space }
-              : {}),
-          });
-          if (parsed.success) parts.push(parsed.data);
-        }
-      }
-    }
-    const retained = extensions.filter((extension) => !isRecord(extension)
-      || (extension.kind !== "rich_content" && extension.kind !== "attachments"));
-    if (retained.length > 0) metadata.extensions = retained;
-    else delete metadata.extensions;
-    update.run(JSON.stringify(parts), JSON.stringify(metadata), row.seq);
-  }
 }
 
 function parseObject(value: string | null): Record<string, unknown> {

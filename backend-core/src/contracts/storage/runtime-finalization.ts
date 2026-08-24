@@ -1,6 +1,7 @@
 import type { AddMessageInput } from "../conversation-store/index.js";
 import { MSG_TYPE } from "../message-kinds.js";
 import type { MessageInfo } from "../session/session.js";
+import { partsToPlainText } from "@ragsystem/agent-protocol";
 import type { AssistantContentPart, Envelope } from "@ragsystem/agent-protocol";
 import type { RuntimeRecordEnvelopeInput } from "./runtime-storage.js";
 
@@ -67,7 +68,6 @@ export function buildTerminalAssistantMessage(input: {
     messageId: input.messageId?.trim() || `${input.runId}:terminal`,
     sessionId: input.sessionId,
     role: "assistant",
-    content: contentParts.map((part) => part.type === "text" ? part.text : "").join(""),
     contentParts,
     threadKey: input.threadKey,
     childAgentId: input.childAgentId ?? null,
@@ -137,13 +137,12 @@ export function buildTerminalToolMessages(
     for (const toolCall of message.tool_calls ?? []) {
       if (answered.has(toolCall.id)) continue;
       answered.add(toolCall.id);
-      const content = `${summary}：${reason}`;
+      const text = `${summary}：${reason}`;
       result.push({
         messageId: `${input.runId}:tool:${toolCall.id}`,
         sessionId: input.sessionId,
         role: "tool",
-        content,
-        contentParts: [{ type: "text", text: content }],
+        contentParts: [{ type: "text", text }],
         toolCallId: toolCall.id,
         name: toolCall.function.name,
         threadKey: input.threadKey,
@@ -194,7 +193,7 @@ export function buildRunTerminalRecords(input: {
       ...boundary,
       payload: {
         phase: "final",
-        content: finalMessage.content,
+        content: partsToPlainText(finalMessage.content_parts),
         content_parts: toAssistantContentParts(finalMessage),
         ...lineage,
       },
@@ -236,7 +235,7 @@ export function buildRunTerminalRecords(input: {
           phase: "end",
           ok: false,
           status: toolStatus,
-          observation: message.content,
+          observation: partsToPlainText(message.content_parts),
           summary: toolSummary,
           lineage: { parent_call_id: run.agentCallId },
         },
@@ -254,7 +253,7 @@ export function buildRunTerminalRecords(input: {
     payload: {
       phase: "end",
       display_name: run.agentDisplayName,
-      result: (finalMessage?.content ?? reason ?? "").slice(0, 500),
+      result: (finalMessage ? partsToPlainText(finalMessage.content_parts) : (reason ?? "")).slice(0, 500),
       success: status === "completed",
       status: agentStatus,
       ...lineage,

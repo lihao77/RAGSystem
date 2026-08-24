@@ -49,15 +49,15 @@ export class MessageOps {
     if (!session) throw new Error(`Cannot add message to missing session: ${input.sessionId}`);
     this.db
       .prepare(`
-        INSERT INTO messages (id, session_id, role, content, content_parts, metadata, thread_key, child_agent_id, provider_state)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO messages (id, session_id, role, content_parts, metadata, thread_key, child_agent_id, provider_state)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `)
-      .run(messageId, input.sessionId, input.role, input.content, stringifyJson(contentParts), stringifyJson(persistedMetadata), threadKey, childAgentId, input.providerState ? stringifyJson(input.providerState) : null);
+      .run(messageId, input.sessionId, input.role, stringifyJson(contentParts), stringifyJson(persistedMetadata), threadKey, childAgentId, input.providerState ? stringifyJson(input.providerState) : null);
     this.db.prepare("UPDATE sessions SET updated_at=CURRENT_TIMESTAMP WHERE session_id=?").run(input.sessionId);
 
     const row = this.db
       .prepare(`
-        SELECT seq, id, role, content, content_parts, metadata, thread_key, child_agent_id, created_at, provider_state
+        SELECT seq, id, role, content_parts, metadata, thread_key, child_agent_id, created_at, provider_state
         FROM messages
         WHERE id=?
       `)
@@ -71,7 +71,6 @@ export class MessageOps {
       id: row.id,
       session_id: input.sessionId,
       role: row.role,
-      content: row.content,
       content_parts: contentParts,
       metadata: persistedMetadata,
       thread_key: row.thread_key ?? "root",
@@ -101,7 +100,6 @@ export class MessageOps {
     const messageInput: {
       sessionId: string;
       role: MessageInfo["role"];
-      content: string;
       contentParts: import("@ragsystem/agent-protocol").MessageContentPart[];
       metadata: Record<string, unknown>;
       threadKey?: string;
@@ -109,7 +107,6 @@ export class MessageOps {
     } = {
       sessionId: input.sessionId,
       role: "assistant",
-      content: input.summaryContent,
       contentParts: [{ type: "text", text: input.summaryContent }],
       metadata,
       childAgentId: input.childAgentId ?? null,
@@ -127,7 +124,7 @@ export class MessageOps {
       .get(sessionId, resolvedThreadKey, resolvedThreadKey) as { cnt: number };
     const rows = this.db
       .prepare(`
-        SELECT seq, id, session_id, role, content, content_parts, metadata, thread_key, child_agent_id, created_at, provider_state
+        SELECT seq, id, session_id, role, content_parts, metadata, thread_key, child_agent_id, created_at, provider_state
         FROM messages
         WHERE session_id=? AND (? IS NULL OR thread_key=?)
         ORDER BY seq DESC
@@ -165,7 +162,7 @@ export class MessageOps {
       .prepare(`SELECT COUNT(1) AS cnt FROM messages WHERE ${where}`)
       .get(sessionId, resolvedThreadKey) as { cnt: number };
     const rows = this.db
-      .prepare(`SELECT seq, id, session_id, role, content, content_parts, metadata, thread_key, child_agent_id, created_at, provider_state
+      .prepare(`SELECT seq, id, session_id, role, content_parts, metadata, thread_key, child_agent_id, created_at, provider_state
         FROM messages WHERE ${where} ORDER BY seq DESC LIMIT ? OFFSET ?`)
       .all(sessionId, resolvedThreadKey, limit, offset) as unknown as MessageRow[];
     const items = rows.map(rowToMessage).reverse();
@@ -175,7 +172,7 @@ export class MessageOps {
   getMessageBySeq(sessionId: string, seq: number): MessageInfo | null {
     const row = this.db
       .prepare(`
-        SELECT seq, id, session_id, role, content, content_parts, metadata, thread_key, child_agent_id, created_at, provider_state
+        SELECT seq, id, session_id, role, content_parts, metadata, thread_key, child_agent_id, created_at, provider_state
         FROM messages
         WHERE session_id=? AND seq=?
       `)
@@ -186,7 +183,7 @@ export class MessageOps {
   getMessageById(sessionId: string, messageId: string): MessageInfo | null {
     const row = this.db
       .prepare(`
-        SELECT seq, id, session_id, role, content, content_parts, metadata, thread_key, child_agent_id, created_at, provider_state
+        SELECT seq, id, session_id, role, content_parts, metadata, thread_key, child_agent_id, created_at, provider_state
         FROM messages
         WHERE session_id=? AND id=?
       `)
@@ -197,7 +194,7 @@ export class MessageOps {
   getFirstMessageAfterSeq(sessionId: string, seq: number): MessageInfo | null {
     const row = this.db
       .prepare(`
-        SELECT seq, id, session_id, role, content, content_parts, metadata, thread_key, child_agent_id, created_at, provider_state
+        SELECT seq, id, session_id, role, content_parts, metadata, thread_key, child_agent_id, created_at, provider_state
         FROM messages
         WHERE session_id=? AND seq>?
         ORDER BY seq ASC
@@ -210,7 +207,7 @@ export class MessageOps {
   listMessagesAfterSeq(sessionId: string, seq: number, limit = 20): MessageInfo[] {
     const rows = this.db
       .prepare(`
-        SELECT seq, id, session_id, role, content, content_parts, metadata, thread_key, child_agent_id, created_at, provider_state
+        SELECT seq, id, session_id, role, content_parts, metadata, thread_key, child_agent_id, created_at, provider_state
         FROM messages
         WHERE session_id=? AND seq>?
         ORDER BY seq ASC
@@ -223,7 +220,7 @@ export class MessageOps {
   listMessagesBeforeOrAtSeq(sessionId: string, seq: number, limit = 20): MessageInfo[] {
     const rows = this.db
       .prepare(`
-        SELECT seq, id, session_id, role, content, content_parts, metadata, thread_key, child_agent_id, created_at, provider_state
+        SELECT seq, id, session_id, role, content_parts, metadata, thread_key, child_agent_id, created_at, provider_state
         FROM messages
         WHERE session_id=? AND seq<=?
         ORDER BY seq DESC
@@ -276,7 +273,6 @@ export class MessageOps {
 
   updateMessage(input: {
     messageId: string;
-    content?: string | null;
     contentParts?: import("@ragsystem/agent-protocol").MessageContentPart[] | null;
     metadata?: Record<string, unknown> | null;
     sessionId?: string | null;
@@ -287,7 +283,6 @@ export class MessageOps {
 
   updateMessageInTransaction(input: {
     messageId: string;
-    content?: string | null;
     contentParts?: import("@ragsystem/agent-protocol").MessageContentPart[] | null;
     metadata?: Record<string, unknown> | null;
     sessionId?: string | null;
@@ -295,10 +290,6 @@ export class MessageOps {
   }): boolean {
     const updates: string[] = [];
     const params: SqlInputValue[] = [];
-    if (input.content !== undefined && input.content !== null) {
-      updates.push("content=?");
-      params.push(input.content);
-    }
     if (input.contentParts !== undefined && input.contentParts !== null) {
       updates.push("content_parts=?");
       params.push(stringifyJson(input.contentParts));

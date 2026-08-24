@@ -89,7 +89,6 @@ const MessageToolCallSchema = z.object({
 export const AddMessageInputSchema = z.object({
   sessionId: z.string(),
   role: z.enum(["system", "user", "assistant", "tool"]),
-  content: z.string(),
   contentParts: z.array(MessageContentPartSchema),
   metadata: z.record(z.unknown()).optional(),
   toolCalls: z.array(MessageToolCallSchema).optional(),

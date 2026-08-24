@@ -4,6 +4,7 @@
  * 字段适配:backend MessageInfo 为 snake_case(tool_calls / tool_call_id),本文件引用相应调整;
  * 其余字段(role/content/metadata/seq/name)与 SDK 一致。核心逻辑零改动。
  */
+import { partsToPlainText } from "@ragsystem/agent-protocol";
 import type { ChatMessage } from "@ragsystem/agent-llm";
 import type { MessageInfo } from "../../../contracts/session/session.js";
 import { numberOrNull } from "./helpers.js";
@@ -95,7 +96,7 @@ export function messagesToConversation(messages: MessageInfo[]): { conversation:
     if (message.role === "tool" && message.tool_call_id && !seenToolUseIds.has(message.tool_call_id)) {
       continue;
     }
-    const entry: ChatMessage = { role: message.role, content: message.content };
+    const entry: ChatMessage = { role: message.role, content: partsToPlainText(message.content_parts) };
     if (message.role === "tool" && message.tool_call_id) {
       entry.tool_call_id = message.tool_call_id;
       if (message.name) {

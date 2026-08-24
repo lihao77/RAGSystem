@@ -91,7 +91,7 @@ export interface AsyncTerminalSalvage {
 
 /** Deployment-neutral kernel persister backed by a tenant-bound RuntimeStorage adapter. */
 export class AsyncKernelEventPersister {
-  private finalMessage: { id: string; seq: number; content: string } | null = null;
+  private finalMessage: { id: string; seq: number; contentParts: MessageContentPart[] } | null = null;
   private leaseHeartbeat: ReturnType<typeof setInterval> | null = null;
   private leaseLostError: Error | null = null;
   private leaseRenewal: Promise<void> | null = null;
@@ -265,7 +265,6 @@ export class AsyncKernelEventPersister {
           messageId: `${this.ctx.runId}:tool:${event.toolCallId}`,
           sessionId: this.ctx.sessionId,
           role: "tool",
-          content: event.observation,
           contentParts: [{ type: "text", text: event.observation }],
           threadKey: this.ctx.threadKey,
           childAgentId: this.ctx.childAgentId ?? null,
@@ -324,7 +323,7 @@ export class AsyncKernelEventPersister {
       });
 
       this.finalMessage = result.finalMessage
-        ? { id: result.finalMessage.id, seq: result.finalMessage.seq, content: result.finalMessage.content }
+        ? { id: result.finalMessage.id, seq: result.finalMessage.seq, contentParts: result.finalMessage.content_parts }
         : null;
       await this.clientEvents.deliver(result.records.map((record) => record.outbox));
       if (status === "completed" && result.finalMessage) {
@@ -336,7 +335,7 @@ export class AsyncKernelEventPersister {
     }
   }
 
-  async resolveFinalMessage(): Promise<{ id: string; seq: number; content: string } | null> {
+  async resolveFinalMessage(): Promise<{ id: string; seq: number; contentParts: MessageContentPart[] } | null> {
     return this.finalMessage;
   }
 
@@ -401,7 +400,6 @@ export class AsyncKernelEventPersister {
       messageId,
       sessionId: this.ctx.sessionId,
       role: "assistant",
-      content: text,
       contentParts: [...thinkingPart, { type: "text", text }],
       threadKey: this.ctx.threadKey,
       childAgentId: this.ctx.childAgentId ?? null,
@@ -472,7 +470,6 @@ export class AsyncKernelEventPersister {
         messageId: finalMessage.id?.trim() || `${this.ctx.runId}:final`,
         sessionId: this.ctx.sessionId,
         role: "assistant",
-        content: finalMessage.content,
         contentParts: [...finalThinkingPart, ...finalTextParts],
         threadKey: this.ctx.threadKey,
         childAgentId: this.ctx.childAgentId ?? null,

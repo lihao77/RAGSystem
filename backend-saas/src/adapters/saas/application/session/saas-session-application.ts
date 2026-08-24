@@ -279,7 +279,7 @@ export class SaaSSessionApplication implements SessionApplication, ExecutionSess
     };
   }
 
-  async updateUserMessage(input: { sessionId: string; messageId: string; content: string }): Promise<boolean> { if (!(await this.getSession(input.sessionId))) return false; return this.repository.updateMessage({ sessionId: input.sessionId, messageId: input.messageId, content: input.content, roleFilter: "user" }); }
+  async updateUserMessage(input: { sessionId: string; messageId: string; content: string }): Promise<boolean> { if (!(await this.getSession(input.sessionId))) return false; return this.repository.updateMessage({ sessionId: input.sessionId, messageId: input.messageId, contentParts: input.content ? [{ type: "text", text: input.content }] : [], roleFilter: "user" }); }
   async rollbackMessages(input: { sessionId: string; afterSeq?: number | null; afterMessageId?: string | null }): Promise<number> {
     if (!(await this.getSession(input.sessionId))) return 0;
     const fileHistory = this.fileHistory;

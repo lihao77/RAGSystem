@@ -128,7 +128,6 @@ export const BASELINE_SCHEMA_SQL = `
       id TEXT UNIQUE NOT NULL,
       session_id TEXT NOT NULL,
       role TEXT NOT NULL,
-      content TEXT NOT NULL,
       content_parts TEXT NOT NULL DEFAULT '[]',
       metadata TEXT,
       thread_key TEXT NOT NULL DEFAULT 'root',

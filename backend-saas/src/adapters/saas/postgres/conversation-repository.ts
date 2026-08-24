@@ -70,7 +70,6 @@ function message(row: Record<string, unknown>): MessageInfo {
     id: String(row.id),
     session_id: String(row.session_id),
     role: row.role as MessageInfo["role"],
-    content: String(row.content),
     content_parts: parsedContentParts.data,
     metadata,
     thread_key: String(row.thread_key ?? "root"),
@@ -238,8 +237,8 @@ export class PostgresConversationRepository implements AsyncConversationReposito
     const contentParts: MessageContentPart[] = normalized.contentParts;
     return this.executor.transaction(async (executor) => {
       const result = await executor.query(
-        "INSERT INTO conversation_messages(id,session_id,role,content,content_parts,metadata,thread_key,child_agent_id,provider_state) VALUES($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7,$8,$9::jsonb) RETURNING *",
-        [id, normalized.sessionId, normalized.role, normalized.content, JSON.stringify(contentParts), JSON.stringify(metadata), threadKey, normalized.childAgentId ?? null, normalized.providerState ? JSON.stringify(normalized.providerState) : null],
+        "INSERT INTO conversation_messages(id,session_id,role,content_parts,metadata,thread_key,child_agent_id,provider_state) VALUES($1,$2,$3,$4::jsonb,$5::jsonb,$6,$7,$8::jsonb) RETURNING *",
+        [id, normalized.sessionId, normalized.role, JSON.stringify(contentParts), JSON.stringify(metadata), threadKey, normalized.childAgentId ?? null, normalized.providerState ? JSON.stringify(normalized.providerState) : null],
       );
       await executor.query("UPDATE conversation_sessions SET updated_at=CURRENT_TIMESTAMP WHERE session_id=$1", [normalized.sessionId]);
       if (!result.rows[0]) throw new Error("message insert returned no row");
@@ -399,10 +398,9 @@ export class PostgresConversationRepository implements AsyncConversationReposito
     });
   }
 
-  async updateMessage(input: { messageId: string; content?: string | null; contentParts?: MessageContentPart[] | null; metadata?: Record<string, unknown> | null; sessionId?: string | null; roleFilter?: MessageInfo["role"] | null }): Promise<boolean> {
+  async updateMessage(input: { messageId: string; contentParts?: MessageContentPart[] | null; metadata?: Record<string, unknown> | null; sessionId?: string | null; roleFilter?: MessageInfo["role"] | null }): Promise<boolean> {
     const sets: string[] = [];
     const params: unknown[] = [];
-    if (input.content != null) { params.push(input.content); sets.push(`content=$${params.length}`); }
     if (input.contentParts != null) { params.push(JSON.stringify(input.contentParts)); sets.push(`content_parts=$${params.length}::jsonb`); }
     if (input.metadata != null) { params.push(JSON.stringify(input.metadata)); sets.push(`metadata=$${params.length}::jsonb`); }
     if (!sets.length) return false;
@@ -418,7 +416,6 @@ export class PostgresConversationRepository implements AsyncConversationReposito
     return this.addMessage({
       sessionId: input.sessionId,
       role: "assistant",
-      content: input.summaryContent,
       contentParts: [{ type: "text", text: input.summaryContent }],
       metadata: { ...(input.metadata ?? {}), ...(input.replacesUpToSeq == null ? {} : { replaces_up_to_seq: input.replacesUpToSeq }) },
       threadKey: input.threadKey,

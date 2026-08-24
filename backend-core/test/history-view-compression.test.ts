@@ -1,3 +1,4 @@
+import { partsToPlainText } from "@ragsystem/agent-protocol";
 import { describe, expect, it } from "vitest";
 
 import { messagesToConversation, resolveCompressionView } from "../src/services/agent/context/history-view.js";
@@ -12,8 +13,7 @@ function msg(role: MessageInfo["role"], extra: Partial<MessageInfo> = {}): Messa
     seq: seqCounter,
     session_id: "s",
     role,
-    content: `${role}-${seqCounter}`,
-    content_parts: [],
+    content_parts: [{ type: "text", text: `${role}-${seqCounter}` }],
     metadata: {},
     created_at: "",
     thread_key: "root",
@@ -29,7 +29,7 @@ describe("resolveCompressionView 摘要消息形态", () => {
       msg("user"),
       msg("assistant"),
       msg("assistant", {
-        content: "本次会话从之前的对话继续，以下是该对话早期内容的摘要。摘要之后是最近未压缩的原始对话，与摘要内容不重叠。\n\nSummary:\n...",
+        content_parts: [{ type: "text", text: "本次会话从之前的对话继续，以下是该对话早期内容的摘要。摘要之后是最近未压缩的原始对话，与摘要内容不重叠。\n\nSummary:\n..." }],
         metadata: { msg_type: MSG_TYPE.CONTEXT_COMPRESSION_SUMMARY, replaces_up_to_seq: 2 },
       }),
       msg("user"),
@@ -39,7 +39,7 @@ describe("resolveCompressionView 摘要消息形态", () => {
     expect(view).toHaveLength(3);
     expect(view[0]?.role).toBe("user");
     expect(view[0]?.metadata.msg_type).toBe(MSG_TYPE.CONTEXT_COMPRESSION_SUMMARY);
-    expect(view[0]?.content).toContain("摘要");
+    expect(partsToPlainText(view[0]!.content_parts)).toContain("摘要");
     expect(view[1]?.seq).toBe(4);
     expect(view[2]?.seq).toBe(5);
     expect(messagesToConversation(view).conversation.map((m) => m.role)).toEqual(["user", "user", "assistant"]);

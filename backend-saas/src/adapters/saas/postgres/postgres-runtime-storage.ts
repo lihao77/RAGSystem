@@ -1738,7 +1738,6 @@ function assertMessageIdentity(existing: MessageInfo, expected: AddMessageInput,
   const expectedThread = expected.threadKey?.trim() || "root";
   const equal = existing.session_id === expected.sessionId
     && existing.role === expected.role
-    && existing.content === expected.content
     && jsonEqual(existing.content_parts, expected.contentParts)
     && existing.thread_key === expectedThread
     && existing.child_agent_id === (expected.childAgentId ?? null)

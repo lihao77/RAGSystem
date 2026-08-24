@@ -87,7 +87,7 @@ export interface ExecutionEventPersister {
       round?: number;
     } | null,
   ): Promise<{ readyResumeInteractionIds: string[] }>;
-  resolveFinalMessage(): Promise<{ id: string; seq: number; content: string } | null>;
+  resolveFinalMessage(): Promise<{ id: string; seq: number; contentParts: MessageContentPart[] } | null>;
 }
 
 export interface DurableExecutionConversationPort {
@@ -99,7 +99,6 @@ export interface DurableExecutionConversationPort {
     sessionId: string;
     messageId?: string;
     role: MessageInfo["role"];
-    content: string;
     contentParts: MessageContentPart[];
     metadata?: Record<string, unknown>;
     threadKey?: string;

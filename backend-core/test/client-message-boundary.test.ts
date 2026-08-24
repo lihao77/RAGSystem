@@ -9,7 +9,6 @@ const messageWithProviderState = {
   id: "run-1:intent:1",
   session_id: "session-1",
   role: "assistant",
-  content: "正文",
   content_parts: [{ type: "text", text: "正文" }],
   metadata: { msg_type: "intent" },
   thread_key: "root",
