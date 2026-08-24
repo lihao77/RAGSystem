@@ -145,6 +145,20 @@ describe("AguiTranslator text streaming", () => {
       value: { phase: "reasoning_complete", content: "think twice" },
     })]);
   });
+
+  it("passes in-flight stream snapshots through as RAGSystem CUSTOM events", () => {
+    const result = translator().translate({
+      type: "stream_output",
+      session_id: "thread-1",
+      run_id: "internal-1",
+      payload: { phase: "snapshot", round: 1, reasoning: "半截思考", reasoning_complete: true, content: "半截正文" },
+    } as Envelope);
+    expect(result.events).toEqual([expect.objectContaining({
+      type: "CUSTOM",
+      name: "stream_output",
+      value: { phase: "snapshot", round: 1, reasoning: "半截思考", reasoning_complete: true, content: "半截正文" },
+    })]);
+  });
 });
 
 

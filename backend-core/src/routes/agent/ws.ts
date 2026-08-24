@@ -313,6 +313,23 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<SessionWebSocketR
           sendReconnect("end", events.length, durableReplay.runId, "durable_outbox");
         }
 
+        // 在飞轮的半截文本不在 durable 回放里（delta 走 ephemeral）：让活跃 run 各自在
+        // 自己的串行事件流中带内发一帧全量快照。快照帧落在 live buffer 尾部，随后随合流
+        // 按到达序覆盖式落位——其流内位置即覆盖点，无需与回放帧比序。
+        // （runtimeSnapshot 由闭包赋值，CFA 在此已收窄死；用断言恢复声明类型。）
+        const activeSnapshot = runtimeSnapshot as SessionRuntimePayload | null;
+        const snapshotRunIds = new Set<string>(activeReplay?.runIds ?? []);
+        if (snapshotRunIds.size === 0 && activeSnapshot?.active_run) {
+          // 游标重连（非 history 快照）不做 active replay，但子 run 的在飞文本同样需要取像。
+          const allRuns = await executionRead.listRuns(sessionId, 5000);
+          for (const treeRunId of expandRunTree(allRuns, activeSnapshot.active_run.run_id)) {
+            snapshotRunIds.add(treeRunId);
+          }
+        }
+        for (const snapshotRunId of snapshotRunIds) {
+          await container.agentExecution.emitRunStreamSnapshot(snapshotRunId);
+        }
+
         // subscribe 必须先于 durable 查询，避免查询窗口丢 live；但 replay 完成前不能直接发送
         // 高 seq live，否则客户端 cursor 会把随后较低 seq 的 replay 当成旧事件丢弃。
         // 首次连接不回放历史 outbox，但必须把 cursor 校准到当前 durable 水位。
@@ -514,21 +531,11 @@ export function resolveSessionReplayPlan(
   };
 }
 
-async function buildActiveRunReplay(
-  reads: import("../../contracts/execution/execution-read-application.js").ExecutionReadApplication,
-  sessionId: string,
-  snapshot: SessionRuntimePayload,
-): Promise<{ runId: string; events: Envelope[] } | null> {
-  if (!sessionLoadStrategyRestoresActiveRun(snapshot.load_strategy)
-    || !snapshot.active_run) {
-    return null;
-  }
-
-  const runId = snapshot.active_run.run_id;
-  const startedAtMs = timestampToMilliseconds(snapshot.active_run.started_at);
-  // active run 树：root + 递归子孙 run。重放要含子 agent 事件，工作栏才看得到子 agent 步骤。
-  const allRuns = await reads.listRuns(sessionId, 5000);
-  const runIdSet = new Set<string>([runId]);
+function expandRunTree(
+  allRuns: readonly { run_id: string; parent_run_id: string | null }[],
+  rootRunId: string,
+): Set<string> {
+  const runIdSet = new Set<string>([rootRunId]);
   for (let changed = true; changed; ) {
     changed = false;
     for (const r of allRuns) {
@@ -538,6 +545,24 @@ async function buildActiveRunReplay(
       }
     }
   }
+  return runIdSet;
+}
+
+async function buildActiveRunReplay(
+  reads: import("../../contracts/execution/execution-read-application.js").ExecutionReadApplication,
+  sessionId: string,
+  snapshot: SessionRuntimePayload,
+): Promise<{ runId: string; runIds: string[]; events: Envelope[] } | null> {
+  if (!sessionLoadStrategyRestoresActiveRun(snapshot.load_strategy)
+    || !snapshot.active_run) {
+    return null;
+  }
+
+  const runId = snapshot.active_run.run_id;
+  const startedAtMs = timestampToMilliseconds(snapshot.active_run.started_at);
+  // active run 树：root + 递归子孙 run。重放要含子 agent 事件，工作栏才看得到子 agent 步骤。
+  const allRuns = await reads.listRuns(sessionId, 5000);
+  const runIdSet = expandRunTree(allRuns, runId);
   const projector = new EnvelopeProjector();
   const events: Envelope[] = [];
   let cursor = 0;
@@ -561,7 +586,7 @@ async function buildActiveRunReplay(
     cursor = nextCursor;
   }
 
-  return { runId, events };
+  return { runId, runIds: [...runIdSet], events };
 }
 
 function parseSeqCursor(value: string | undefined): number | null {

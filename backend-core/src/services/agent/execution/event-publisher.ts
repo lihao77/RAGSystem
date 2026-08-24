@@ -96,6 +96,18 @@ export class AgentExecutionEventPublisher {
   }
 
   /**
+   * Ephemeral journal path: 直发实时总线，不落 outbox（流式增量/在飞轮快照等展示帧）。
+   * 与 durable 帧的相对顺序由调用方的 journal 串行化保证；部署无实时通道时降级 durable 兜底。
+   */
+  publishEphemeralEnvelope(envelope: Envelope): Promise<void> {
+    const sessionId = typeof envelope.session_id === "string" ? envelope.session_id : "";
+    if (this.clientEvents.publishEphemeral) {
+      return this.clientEvents.publishEphemeral(sessionId, envelope);
+    }
+    return this.commit(sessionId, envelope);
+  }
+
+  /**
    * 推 delegate_call（委托执行指令）：落 outbox + realtime fanout（经统一投递路径，符合 outbox 架构契约）。
    * ws.ts 回放过滤 delegate_call（委托实时双向，重连时 in-flight 已失效，不回放）。
    * 由委托壳 Tool.call 在 gate 通过后调用，驱动宿主执行；与 tool_call（纯投影通知）分离。

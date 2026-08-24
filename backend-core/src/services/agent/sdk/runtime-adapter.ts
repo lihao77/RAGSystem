@@ -40,6 +40,7 @@ import type { SessionFileLookupPort } from "../../../contracts/session/session-f
 import { resolveResumeBoundaryMessageId, resolveResumeToolResults, resolveRunStartRound } from "./run-round.js";
 import { terminalReason } from "./terminal-reason.js";
 import type { ExecutionEnvironmentCapability } from "../../../contracts/execution/execution-environment.js";
+import type { StreamSnapshotRegistry } from "../execution/status-tracker.js";
 
 export interface SdkRuntimeAdapterDeps {
   storage: ExecutionStorage;
@@ -63,6 +64,8 @@ export interface SdkRuntimeAdapterDeps {
   hostToolRegistry: HostToolRegistry;
   /** 委托工具调用等待器（转发壳 Tool.call 注册等待 + 前端 tool_result 回传 resolve）。 */
   delegationPending: DelegationPendingService;
+  /** run 控制面注册表：流式快照取像器的 per-run 注册/注销（重连/切会话恢复用）；缺席则快照能力关闭。 */
+  streamSnapshots?: StreamSnapshotRegistry;
   /** 消费端 hook 注册回调（可选）；透传给 createRuntime，让 backend 注册 tool.before/after、round.before 等 handler。 */
   hooks?: (registry: HookRegistry) => void;
   /** backend 压缩服务（run 内 round.before 触发 + /compact 共用）；A3 压缩外移。 */
@@ -496,6 +499,16 @@ export async function executeRunWithSdk(
       partialRound.content = "";
       return;
     }
+    if (event.type === "intent_complete") {
+      // 本轮思考与正文均已随 durable 检查点毕业（reasoning_complete 先行封口、
+      // intent_complete 带全文、assistant_intermediate 行已落库）：清空在飞累加。
+      // 工具执行窗口内的重连快照不再携带已毕业文本（否则前端会投出幻影新轮），
+      // 中断 salvage 也不再重复打捞已持久化的整轮内容。
+      partialRound.reasoning = "";
+      partialRound.reasoningComplete = false;
+      partialRound.content = "";
+      return;
+    }
     if (event.type === "reasoning_delta") {
       partialRound.reasoning += event.content;
       return;
@@ -519,11 +532,48 @@ export async function executeRunWithSdk(
       round: partialRound.round,
     };
   };
+  // run 控制面取像：在 journal 串行流内读 partialRound 并发一帧全量快照（ephemeral）。
+  // 必须在 journal 任务内读值——帧的流内位置即覆盖点：之前的 delta 已含于快照，
+  // 之后的 delta 继续追加，无需帧序号。重连/切会话恢复由 status-tracker 注册表触发。
+  const streamLineagePayload = (): { lineage?: { parent_call_id: string } } =>
+    wireCtx.parentCallId ? { lineage: { parent_call_id: wireCtx.parentCallId } } : {};
+  const emitStreamSnapshot = (): Promise<void> => journal.submit(async () => {
+    const reasoning = partialRound.reasoning;
+    const content = partialRound.content;
+    if (!reasoning.trim() && !content.trim()) return;
+    try {
+      await deps.eventPublisher.publishEphemeralEnvelope({
+        type: "stream_output",
+        session_id: wireCtx.sessionId,
+        run_id: wireCtx.runId,
+        call_id: wireCtx.rootCallId,
+        agent_id: wireCtx.agentId,
+        ...(wireCtx.boundaryMessageId ? { boundary_message_id: wireCtx.boundaryMessageId } : {}),
+        payload: {
+          phase: "snapshot",
+          round: partialRound.round,
+          reasoning,
+          reasoning_complete: partialRound.reasoningComplete,
+          content,
+          ...streamLineagePayload(),
+        },
+      });
+    } catch {
+      // best-effort 帧：发布失败绝不进入 journal 失败闩——一次取像瞬时报错不能杀死整个 run。
+    }
+  });
+  const unregisterStreamSnapshot = (): void => {
+    deps.streamSnapshots?.unregisterStreamSnapshot(input.runId, emitStreamSnapshot);
+  };
   const commitKernelEvent = async (event: KernelEvent): Promise<void> => {
     trackPartialRound(event);
     await persister.persist(event);
+    // 流式增量帧走 ephemeral（不落 outbox）：必然被 intent/reasoning complete 检查点或
+    // 快照帧覆盖。检查点与结构事件保持 durable，重放语义不变。顺序由 journal 串行化保证。
+    const ephemeral = event.type === "output_delta" || event.type === "reasoning_delta";
     for (const envelope of translateKernelEvent(event, wireCtx)) {
-      await deps.eventPublisher.commitEnvelope(envelope);
+      if (ephemeral) await deps.eventPublisher.publishEphemeralEnvelope(envelope);
+      else await deps.eventPublisher.commitEnvelope(envelope);
     }
     if (event.type === "tool_call") {
       const delegateCall = orderedDelegateCalls.markToolCallPublished(event.toolCallId);
@@ -535,6 +585,9 @@ export async function executeRunWithSdk(
     input.onStartDisposition?.(startDisposition);
     return { content: "", success: true, followup: startDisposition, tokenUsage: { inputTokens: 0, outputTokens: 0 }, toolCalls: {} };
   }
+  // startRun 尘埃落定后才注册取像器：此前的 startRun 抛错/followup 早退不产生
+  // 快照需求，也不向注册表泄漏 emitter。之后所有退出路径由 catch/尾部的 finally 收口。
+  deps.streamSnapshots?.registerStreamSnapshot(input.runId, emitStreamSnapshot);
 
   let runtime: ReturnType<typeof createRuntime> | null = null;
   let consumeEvents: Promise<void> | null = null;
@@ -918,6 +971,7 @@ export async function executeRunWithSdk(
   } catch (error) {
     await consumeEvents?.catch(() => undefined);
     runtime?.close();
+    try {
     if (error instanceof RecoverableInterrupt) {
       const finalized = await journal.recover(() => persister.finalize("suspended", null, error));
       if (isInteractionRoot) {
@@ -965,25 +1019,35 @@ export async function executeRunWithSdk(
       tokenUsage,
       toolCalls,
     };
+    } finally {
+      unregisterStreamSnapshot();
+    }
   }
 
-  if (!result) throw new Error("SDK run completed without a result");
+  if (!result) {
+    unregisterStreamSnapshot();
+    throw new Error("SDK run completed without a result");
+  }
   runtime?.close();
 
   // completed：终态合一落库（最终 assistant message + Envelope 关联 + updateRunStatus）。
-  const finalized = await journal.submit(() => persister.finalize("completed", {
-    content: result.content,
-    contentParts: result.contentParts,
-    ...(result.providerContinuation ? { providerContinuation: result.providerContinuation } : {}),
-    ...(result.reasoning ? { reasoning: result.reasoning } : {}),
-  }));
-  if (isInteractionRoot) {
-    await deps.pendingInteractions.onRootFinalized(
-      input.sessionId,
-      interactionRootRunId,
-      "completed",
-      finalized.readyResumeInteractionIds,
-    );
+  try {
+    const finalized = await journal.submit(() => persister.finalize("completed", {
+      content: result.content,
+      contentParts: result.contentParts,
+      ...(result.providerContinuation ? { providerContinuation: result.providerContinuation } : {}),
+      ...(result.reasoning ? { reasoning: result.reasoning } : {}),
+    }));
+    if (isInteractionRoot) {
+      await deps.pendingInteractions.onRootFinalized(
+        input.sessionId,
+        interactionRootRunId,
+        "completed",
+        finalized.readyResumeInteractionIds,
+      );
+    }
+  } finally {
+    unregisterStreamSnapshot();
   }
   return {
     content: result.content,

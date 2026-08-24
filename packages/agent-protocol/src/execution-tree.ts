@@ -182,6 +182,43 @@ function applyReasoningStream(state: ExecutionTreeState, env: Envelope, payload:
 }
 
 /**
+ * stream_output(snapshot)：在飞轮的全量取像（重连/切会话恢复用）。与 delta 的"追加"对偶——
+ * 覆盖式替换目标轮的思考与正文通道。快照帧由 run 的串行事件流带内发出，
+ * 流内位置即覆盖点：之前的 delta 已含于快照，之后的 delta 继续追加。
+ * 思考与正文都按 payload.round 落位（不用 ensureActiveRound）：迟到/陈旧的快照写回
+ * 已完成轮——展示层 intent 优先于 text，不产生幻影新轮。
+ */
+function applySnapshotStream(state: ExecutionTreeState, env: Envelope, payload: Record<string, unknown>): void {
+  const agent = routeStreamAgent(state, env);
+  const round = asNumber(payload.round) ?? latestRound(agent);
+  const r = ensureRound(agent, round);
+  const reasoning = asString(payload.reasoning);
+  if (reasoning) {
+    r.reasoning = reasoning;
+    if (payload.reasoning_complete === true) r.reasoningComplete = true;
+  }
+  const content = asString(payload.content);
+  if (!content || r.textComplete) return;
+  r.text = content;
+  // agent.output 是跨轮累加通道（delta 语义：每轮全文 = 该轮 intent）：快照按
+  // "已完成轮 intent 之和 + 当轮全文"重建，保持 result_summary 的跨轮不变量。
+  const priorOutput = agent.rounds
+    .filter((item) => item.round !== r.round && item.intentComplete)
+    .map((item) => item.intent)
+    .join("");
+  agent.output = priorOutput + content;
+  // partialRound 是多 part 流的扁平文本累加：快照以单 text part 重建（content 已含
+  // 全部文本增量），丢弃其余 text part 防重复，保留 file_ref 等非文本 part。
+  // 注意 textParts 与 outputParts 可能别名同一数组，Set 去重。
+  const targets = new Set([r.textParts, agent.outputParts].filter((t) => Array.isArray(t)));
+  for (const target of targets) {
+    const nonText = target.filter((part) => part.type !== "text");
+    target.length = 0;
+    target.push({ type: "text", text: content }, ...nonText);
+  }
+}
+
+/**
  * stream_output(delta/part_added/final)：输出正文统一落进当前活跃轮的 text 通道
  * （无标签化：说明与最终答案同构，面板按轮渲染）。agent.output 同步保留，
  * 供 child agent_call 的 result_summary 消费。
@@ -447,6 +484,8 @@ export function applyEnvelope(state: ExecutionTreeState, env: Envelope): void {
         applyIntentStream(state, env, payload);
       } else if (phase === "reasoning_delta" || phase === "reasoning_complete") {
         applyReasoningStream(state, env, payload);
+      } else if (phase === "snapshot") {
+        applySnapshotStream(state, env, payload);
       } else if (phase === "delta" || phase === "part_added" || phase === "final") {
         applyOutputStream(state, env, payload);
       }

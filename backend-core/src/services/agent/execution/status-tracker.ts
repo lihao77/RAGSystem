@@ -14,11 +14,47 @@ export interface ExecutionHandle {
   promise: Promise<unknown>;
 }
 
+/**
+ * run 控制面取像器：把该 run 当前在飞轮的累计流式文本作为一帧带内快照
+ * 发进它自己的事件流（帧的流内位置即覆盖点）。由 runtime-adapter 在 run 存活期注册。
+ */
+export type StreamSnapshotEmitter = () => Promise<void>;
+
+/** runtime-adapter 侧可见的注册面；statusTracker 同时暴露触发面给重连处理器。 */
+export interface StreamSnapshotRegistry {
+  registerStreamSnapshot(runId: string, emit: StreamSnapshotEmitter): void;
+  unregisterStreamSnapshot(runId: string, emit: StreamSnapshotEmitter): void;
+}
+
 export class AgentExecutionStatusTracker {
   private readonly handlesByTask = new Map<string, ExecutionHandle>();
   private readonly taskBySession = new Map<string, string>();
   private readonly controllersByRun = new Map<string, AbortController>();
+  private readonly streamSnapshotEmitters = new Map<string, StreamSnapshotEmitter>();
   private readonly statusHistory = new Map<string, ExecutionTaskStatus>();
+
+  registerStreamSnapshot(runId: string, emit: StreamSnapshotEmitter): void {
+    if (!runId) return;
+    this.streamSnapshotEmitters.set(runId, emit);
+  }
+
+  /** 身份校验注销：晚到的旧 emitter 不得清掉同 runId 的新注册（resume 复用 runId）。 */
+  unregisterStreamSnapshot(runId: string, emit: StreamSnapshotEmitter): void {
+    if (this.streamSnapshotEmitters.get(runId) === emit) this.streamSnapshotEmitters.delete(runId);
+  }
+
+  /**
+   * 重连取像触发：run 不在本进程活跃（或已结束）时静默 no-op。
+   * emitter 内部异常（如 run 的 journal 已中毒）在此吞掉——快照是 best-effort 增强，
+   * 失败只降级为检查点粒度恢复，绝不得掐断重连握手。
+   */
+  async emitStreamSnapshot(runId: string): Promise<void> {
+    try {
+      await this.streamSnapshotEmitters.get(runId)?.();
+    } catch {
+      // best-effort by contract
+    }
+  }
 
   registerRun(runId: string, abortController: AbortController): void {
     if (!runId) return;

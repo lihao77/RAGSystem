@@ -96,6 +96,7 @@ function deps(
   const eventPublisher = {
     publishEnvelope: vi.fn(),
     commitEnvelope: vi.fn(async () => undefined),
+    publishEphemeralEnvelope: vi.fn(async () => undefined),
     publishDelegateCall: vi.fn(),
     commitDelegateCall: vi.fn(async () => undefined),
     publishAgentMessage: vi.fn(),
@@ -859,5 +860,161 @@ describe("executeRunWithSdk terminal convergence", () => {
     expect(result.content).toBe("event persistence failed");
     expect(finalize).toHaveBeenCalledWith("failed", null, persistError, null);
     expect(close).toHaveBeenCalledOnce();
+  });
+
+  it("流式 delta 走 ephemeral 不落 outbox；快照帧带内携带当前轮全文且随 run 结束注销", async () => {
+    runtimeMock.createRuntime.mockReset();
+    const registry = new Map<string, () => Promise<void>>();
+    const startRun = vi.fn(async () => ({ kind: "started", run: {} }));
+    const persist = vi.fn(async () => undefined);
+    const finalize = vi.fn(async () => ({ finalMessage: null, records: [], readyResumeInteractionIds: [] }));
+    const base = deps(finalize, startRun, persist);
+    base.streamSnapshots = {
+      registerStreamSnapshot: (runId: string, emit: () => Promise<void>) => { registry.set(runId, emit); },
+      unregisterStreamSnapshot: (runId: string, emit: () => Promise<void>) => {
+        if (registry.get(runId) === emit) registry.delete(runId);
+      },
+    };
+    const ephemeralPhases: string[] = [];
+    const durablePhases: string[] = [];
+    let snapshot: any = null;
+    (base.eventPublisher as any).publishEphemeralEnvelope = vi.fn(async (envelope: any) => {
+      ephemeralPhases.push(envelope.payload?.phase);
+      if (envelope.payload?.phase === "snapshot") {
+        snapshot = envelope;
+        return;
+      }
+      // 流式进行中触发一次带内取像（不 await——快照任务排进 journal 尾部，重入等待会自锁）。
+      if (envelope.payload?.phase === "delta" && envelope.payload?.content === "续写") {
+        void registry.get("run-1")?.();
+      }
+    });
+    (base.eventPublisher as any).commitEnvelope = vi.fn(async (envelope: any) => {
+      durablePhases.push(envelope.payload?.phase ?? envelope.type);
+    });
+    runtimeMock.createRuntime.mockImplementation((options: any) => ({
+      run: () => {
+        const events = [
+          { type: "model_request", round: 0 },
+          { type: "reasoning_delta", content: "思考", round: 0 },
+          { type: "reasoning_delta", content: "片段", round: 0 },
+          { type: "reasoning_complete", content: "思考片段", round: 0 },
+          { type: "output_delta", content: "正文", partIndex: 0 },
+          { type: "output_delta", content: "续写", partIndex: 0 },
+        ];
+        for (const event of events) options.onEvent(event);
+        return {
+          runId: "run-1",
+          events: (async function* () { yield* events; })(),
+          result: Promise.resolve({ content: "正文续写", contentParts: [{ type: "text", text: "正文续写" }], finishReason: "stop", metadata: {} }),
+        };
+      },
+      close: vi.fn(),
+    }));
+
+    const result = await executeRunWithSdk(base, input());
+
+    expect(result.success).toBe(true);
+    // delta 帧全部走 ephemeral；durable 侧只剩检查点/结构事件。
+    expect(ephemeralPhases).toEqual(["reasoning_delta", "reasoning_delta", "delta", "delta", "snapshot"]);
+    expect(durablePhases).not.toContain("delta");
+    expect(durablePhases).not.toContain("reasoning_delta");
+    expect(durablePhases).toContain("reasoning_complete");
+    // 快照携带触发时刻的当前轮全文（覆盖语义的数据源），且落在最后一个 delta 之后。
+    expect(snapshot.payload).toMatchObject({
+      phase: "snapshot",
+      round: 0,
+      reasoning: "思考片段",
+      reasoning_complete: true,
+      content: "正文续写",
+    });
+    expect(snapshot.session_id).toBe("session-1");
+    expect(snapshot.run_id).toBe("run-1");
+    // run 结束后 emitter 已注销，注册表不泄漏。
+    expect(registry.has("run-1")).toBe(false);
+  });
+
+  it("intent_complete 毕业后触发快照不再发帧（工具执行窗口无陈旧文本）", async () => {
+    runtimeMock.createRuntime.mockReset();
+    const registry = new Map<string, () => Promise<void>>();
+    const startRun = vi.fn(async () => ({ kind: "started", run: {} }));
+    const persist = vi.fn(async () => undefined);
+    const finalize = vi.fn(async () => ({ finalMessage: null, records: [], readyResumeInteractionIds: [] }));
+    const base = deps(finalize, startRun, persist);
+    base.streamSnapshots = {
+      registerStreamSnapshot: (runId: string, emit: () => Promise<void>) => { registry.set(runId, emit); },
+      unregisterStreamSnapshot: (runId: string, emit: () => Promise<void>) => {
+        if (registry.get(runId) === emit) registry.delete(runId);
+      },
+    };
+    const ephemeralPhases: string[] = [];
+    (base.eventPublisher as any).publishEphemeralEnvelope = vi.fn(async (envelope: any) => {
+      ephemeralPhases.push(envelope.payload?.phase);
+    });
+    (base.eventPublisher as any).commitEnvelope = vi.fn(async (envelope: any) => {
+      // intent_complete（durable 检查点）提交后触发取像——该轮已毕业，快照应为空帧。
+      if (envelope.payload?.phase === "intent_complete") void registry.get("run-1")?.();
+    });
+    runtimeMock.createRuntime.mockImplementation((options: any) => ({
+      run: () => {
+        const events = [
+          { type: "model_request", round: 0 },
+          { type: "output_delta", content: "正文", partIndex: 0 },
+          { type: "intent_complete", content: "正文", round: 0 },
+        ];
+        for (const event of events) options.onEvent(event);
+        return {
+          runId: "run-1",
+          events: (async function* () { yield* events; })(),
+          result: Promise.resolve({ content: "正文", contentParts: [{ type: "text", text: "正文" }], finishReason: "stop", metadata: {} }),
+        };
+      },
+      close: vi.fn(),
+    }));
+
+    const result = await executeRunWithSdk(base, input());
+
+    expect(result.success).toBe(true);
+    expect(ephemeralPhases).toEqual(["delta"]);
+  });
+
+  it("快照发布失败不毒化 journal，run 照常完成", async () => {
+    runtimeMock.createRuntime.mockReset();
+    const registry = new Map<string, () => Promise<void>>();
+    const startRun = vi.fn(async () => ({ kind: "started", run: {} }));
+    const persist = vi.fn(async () => undefined);
+    const finalize = vi.fn(async () => ({ finalMessage: null, records: [], readyResumeInteractionIds: [] }));
+    const base = deps(finalize, startRun, persist);
+    base.streamSnapshots = {
+      registerStreamSnapshot: (runId: string, emit: () => Promise<void>) => { registry.set(runId, emit); },
+      unregisterStreamSnapshot: (runId: string, emit: () => Promise<void>) => {
+        if (registry.get(runId) === emit) registry.delete(runId);
+      },
+    };
+    (base.eventPublisher as any).publishEphemeralEnvelope = vi.fn(async (envelope: any) => {
+      if (envelope.payload?.phase === "snapshot") throw new Error("bus exploded");
+      if (envelope.payload?.phase === "delta") void registry.get("run-1")?.();
+    });
+    runtimeMock.createRuntime.mockImplementation((options: any) => ({
+      run: () => {
+        const events = [
+          { type: "model_request", round: 0 },
+          { type: "output_delta", content: "正文", partIndex: 0 },
+        ];
+        for (const event of events) options.onEvent(event);
+        return {
+          runId: "run-1",
+          events: (async function* () { yield* events; })(),
+          result: Promise.resolve({ content: "正文", contentParts: [{ type: "text", text: "正文" }], finishReason: "stop", metadata: {} }),
+        };
+      },
+      close: vi.fn(),
+    }));
+
+    const result = await executeRunWithSdk(base, input());
+
+    // 快照帧发布失败被吞在 journal 任务内：不进入失败闩，终局照常 finalize。
+    expect(result.success).toBe(true);
+    expect(finalize).toHaveBeenCalledWith("completed", expect.objectContaining({ content: "正文" }));
   });
 });

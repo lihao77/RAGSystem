@@ -531,6 +531,7 @@ export class AgentRunEngine {
           pendingInteractions: this.pendingInteractions,
           hostToolRegistry: this.hostToolRegistry,
           delegationPending: this.delegationPending,
+          streamSnapshots: this.statusTracker,
           ...(this.hooks ? { hooks: this.hooks } : {}),
           ...(this.compressionService ? { compressionService: this.compressionService } : {}),
           sessionFiles: this.sessionFiles,

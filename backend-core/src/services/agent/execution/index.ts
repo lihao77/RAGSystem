@@ -73,6 +73,11 @@ export interface AgentExecutionServiceApi {
   completeAgentMailboxContinuation(input: AgentMailboxContinuationCompletionInput): Promise<void>;
   stopSession(sessionId: string): Promise<boolean>;
   cancelRun(runId: string, reason?: string): "aborted" | "already_aborted" | "no_active_run";
+  /**
+   * run 控制面：触发该 run 在自己的事件流中带内发出一帧流式快照（在飞轮全文取像）。
+   * 供 WS/agui 重连与切会话恢复在 durable 回放后调用；run 不活跃时静默 no-op。
+   */
+  emitRunStreamSnapshot(runId: string): Promise<void>;
   getSessionExecutionDiagnostics(sessionId: string): ScopedExecutionDiagnostics;
   getTaskStatus(taskId: string): ScopedTaskStatus;
   getTaskExecutionDiagnostics(taskId: string): ScopedExecutionDiagnostics;
@@ -220,5 +225,6 @@ export function createAgentExecutionService(
     ...query,
     invocationService,
     cancelRun: (runId: string, reason?: string) => statusTracker.cancelRun(runId, reason),
+    emitRunStreamSnapshot: (runId: string) => statusTracker.emitStreamSnapshot(runId),
   };
 }

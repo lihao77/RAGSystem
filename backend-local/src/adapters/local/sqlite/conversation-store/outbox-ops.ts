@@ -351,12 +351,17 @@ export class OutboxOps {
 
   deleteDeliveredOutbox(input: DeleteDeliveredOutboxInput): number {
     const limit = normalizeLimit(input.limit, 100, 10_000);
+    // delivered 行同时是重连/attach 的回放源：非终态 run（running/suspended）的行
+    // 必须活到 run 终结之后，否则长 run 中途 attach 会静默丢失早期执行树。
     const ids = this.db
       .prepare(`
         SELECT id
         FROM event_outbox
         WHERE status='delivered'
           AND COALESCE(delivered_at, created_at) < ?
+          AND (run_id IS NULL OR run_id NOT IN (
+            SELECT run_id FROM runs WHERE status IN ('running', 'suspended')
+          ))
         ORDER BY id ASC
         LIMIT ?
       `)

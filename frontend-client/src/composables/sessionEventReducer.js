@@ -230,6 +230,12 @@ export function createSessionEventReducer({
         runtime.markModelStreaming(event);
         syncLlmRetryState();
         deps.applyEnvelopeToMessage(currentMsg, event);
+      } else if (phase === 'snapshot') {
+        // 在飞轮全量取像（重连/切会话恢复）：执行树内覆盖式替换当前轮累积文本。
+        // 标记用瘦身副本——快照 payload 携带全文，不原样进 runningModelCalls 响应式条目。
+        runtime.markModelStreaming({ ...event, payload: { phase } });
+        syncLlmRetryState();
+        deps.applyEnvelopeToMessage(currentMsg, event);
       }
     } else if (eventType === 'tool_call') {
       deps.applyEnvelopeToMessage(currentMsg, event);

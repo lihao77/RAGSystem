@@ -406,6 +406,8 @@ export const StreamOutputPayloadSchema = z.object({
     "intent_complete",
     "reasoning_delta",
     "reasoning_complete",
+    // 在飞轮全量取像：重连/切会话时由 run 控制面发出，替换（非追加）当前轮累积文本。
+    "snapshot",
   ]),
   content: z.string().optional(),
   part_index: z.number().int().nonnegative().optional(),
@@ -414,6 +416,9 @@ export const StreamOutputPayloadSchema = z.object({
   content_parts: z.array(AssistantContentPartSchema).optional(),
   elapsed_ms: z.number().nonnegative().optional(),
   round: z.number().int().nonnegative().optional(),
+  /** snapshot 相位载荷：当前轮已流出的思考全文与封口标志。 */
+  reasoning: z.string().optional(),
+  reasoning_complete: z.boolean().optional(),
   /** 当前 agent 的父调用；子 agent 输出据此归入父执行树，而不是 root 文本流。 */
   lineage: z.object({ parent_call_id: z.string().optional() }).optional(),
 });

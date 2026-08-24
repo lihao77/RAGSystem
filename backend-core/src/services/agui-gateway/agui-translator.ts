@@ -200,6 +200,9 @@ export class AguiTranslator {
       // Model thinking blocks ride the same CUSTOM passthrough as part_added;
       // the REASONING_MESSAGE channel stays bound to <intent> action notes.
       events.push({ type: "CUSTOM", ...this.base(), name: "stream_output", value: payload });
+    } else if (phase === "snapshot") {
+      // 在飞轮全量取像（重连恢复）：CUSTOM 透传，客户端按替换语义落位。
+      events.push({ type: "CUSTOM", ...this.base(), name: "stream_output", value: payload });
     }
     return events;
   }

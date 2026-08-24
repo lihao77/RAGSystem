@@ -249,6 +249,10 @@ export class AguiGateway {
         processEnvelope(env);
         if (done) return;
       }
+      // 在飞轮的半截文本不在 durable 回放里（delta 走 ephemeral）：触发 run 在自己的
+      // 串行事件流中带内发一帧全量快照，落进 buffer 尾部，随后按到达序覆盖式落位。
+      await this.container.agentExecution.emitRunStreamSnapshot(internalRunId);
+      if (done) return;
       buffered.sort(compareEnvelopeSeq).forEach(processEnvelope);
       buffered.length = 0;
       replaying = false;

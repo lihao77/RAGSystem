@@ -215,8 +215,17 @@ export class PostgresOutboxRepository implements AsyncOutboxStore {
   }
 
   async deleteDeliveredOutbox(tenantId: string, input: DeleteDeliveredOutboxInput): Promise<number> {
+    // delivered 行同时是重连/attach 的回放源：非终态 run（running/suspended）的行必须
+    // 活到 run 终结之后，否则长 run 中途 attach 会静默丢失早期执行树。
     const result = await this.executor.query(
-      "WITH picked AS (SELECT id FROM event_outbox WHERE tenant_id=$1 AND status='delivered' AND COALESCE(delivered_at,created_at)<$2::timestamptz ORDER BY id LIMIT $3) DELETE FROM event_outbox e USING picked WHERE e.id=picked.id",
+      `WITH picked AS (
+         SELECT id FROM event_outbox
+         WHERE tenant_id=$1 AND status='delivered' AND COALESCE(delivered_at,created_at)<$2::timestamptz
+           AND (run_id IS NULL OR run_id NOT IN (
+             SELECT run_id FROM saas_runs WHERE tenant_id=$1 AND status IN ('running','suspended')
+           ))
+         ORDER BY id LIMIT $3
+       ) DELETE FROM event_outbox e USING picked WHERE e.id=picked.id`,
       [tenantId, input.before, Math.max(1, Math.min(10_000, Math.trunc(input.limit ?? 1000)))],
     );
     return Number(result.rowCount ?? 0);

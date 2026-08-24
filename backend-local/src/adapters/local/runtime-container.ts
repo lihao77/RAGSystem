@@ -47,6 +47,11 @@ import { LocalSessionHistoryAdapter } from "./local-session-history-adapter.js";
 import { LocalAgentMailboxStoreAdapter } from "./local-agent-mailbox-store-adapter.js";
 
 /** Create the filesystem, SQLite, and host-tool backed runtime used by local deployments. */
+
+/** delivered outbox 行保留窗口：覆盖 stale-cursor 重连的人类时间尺度（睡眠/隔夜）。 */
+const OUTBOX_DELIVERED_RETENTION_MS = 24 * 60 * 60_000;
+/** GC 节奏：低频批量清理，与投递路径解耦。 */
+const OUTBOX_GC_INTERVAL_MS = 60_000;
 export async function createLocalRuntimeContainer(options: LocalRuntimeContainerOptions): Promise<LocalRuntimeContainer> {
   const dataRoot = path.resolve(options.dataRoot ?? path.join(os.homedir(), ".ragsystem"));
   const conversationStore = createConversationStore({ dbPath: options.dbPath, dataRoot });
@@ -85,6 +90,19 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
   if (options.startOutboxDispatcher ?? true) {
     outboxDispatcher.start(options.outboxDispatcherIntervalMs);
   }
+  // delivered outbox 行自动 GC：保留窗口覆盖 stale-cursor 重连；非终态 run 的行由
+  // deleteDeliveredOutbox 谓词排除（它们是活跃 run 的 attach 回放源）。无清理会无限膨胀。
+  const outboxGcTimer = setInterval(() => {
+    try {
+      conversationStore.deleteDeliveredOutbox({
+        before: new Date(Date.now() - OUTBOX_DELIVERED_RETENTION_MS).toISOString(),
+        limit: 10_000,
+      });
+    } catch {
+      // GC 是运维性任务，失败留待下一轮。
+    }
+  }, OUTBOX_GC_INTERVAL_MS);
+  outboxGcTimer.unref?.();
   const clientEvents = options.clientEventsFactory?.(options.tenantId, realtimeEvents, runtimeStorage)
     ?? localClientEvents;
   const modelAdapter = new ModelAdapterService({
@@ -206,6 +224,7 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
     closeInfrastructure: () => {
       backgroundTasks.dispose();
       transientResources.stopPruning();
+      clearInterval(outboxGcTimer);
       outboxDispatcher.stop();
       pluginRuntime?.dispose();
       fileIndex.close();

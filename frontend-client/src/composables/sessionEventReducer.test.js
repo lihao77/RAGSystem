@@ -116,6 +116,26 @@ test('SessionEventReducer deterministically applies stream delta and final compe
   assert.equal(calls.cached, 1);
 });
 
+test('SessionEventReducer routes snapshot frames to the execution projection, never the message slot', () => {
+  const applied = [];
+  const { reducer, messages, calls } = buildReducer({
+    depOverrides: { applyEnvelopeToMessage: (_msg, event) => applied.push(event) },
+  });
+  const currentMessage = { content: '', content_parts: [], metadata: {}, status: [], finished: false };
+  messages.value.push(currentMessage);
+
+  reducer({
+    type: 'stream_output',
+    payload: { phase: 'snapshot', round: 0, reasoning: '半截思考', reasoning_complete: true, content: '半截正文' },
+  }, currentMessage, 'session-1');
+
+  // 快照只进执行树（覆盖语义在 execution-tree 投影内），消息槽与增量计数都不动。
+  assert.equal(applied.length, 1);
+  assert.equal(applied[0].payload.phase, 'snapshot');
+  assert.equal(currentMessage.content, '');
+  assert.deepEqual(calls.chunks, []);
+});
+
 test('SessionEventReducer deterministically lands the final message row and leaves streaming text to the tree', () => {
   const { reducer, messages, calls, deps } = buildReducer();
   const projected = [];

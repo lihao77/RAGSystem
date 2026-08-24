@@ -187,6 +187,27 @@ export async function createSaaSConversationRuntime(
       void recoverExpiredRunLeases().catch(() => undefined);
     }, 20_000);
     runLeaseRecoveryTimer.unref?.();
+    // delivered outbox 行自动 GC。保留 24h 覆盖 stale-cursor 重连的人类时间尺度；
+    // 非终态 run 的行由 deleteDeliveredOutbox 的谓词排除（回放源活到 run 终结之后）。
+    let outboxGcRunning = false;
+    const outboxGcTimer = setInterval(() => {
+      if (outboxGcRunning) return;
+      outboxGcRunning = true;
+      void (async () => {
+        const tenants = await executor.query<{ tenant_id: string }>(
+          `SELECT DISTINCT tenant_id FROM event_outbox
+           WHERE status='delivered' AND COALESCE(delivered_at, created_at) < CURRENT_TIMESTAMP - INTERVAL '24 hours'
+           LIMIT 200`,
+        );
+        for (const row of tenants.rows) {
+          await outbox.deleteDeliveredOutbox(row.tenant_id, {
+            before: new Date(Date.now() - 24 * 60 * 60_000).toISOString(),
+            limit: 10_000,
+          });
+        }
+      })().catch(() => undefined).finally(() => { outboxGcRunning = false; });
+    }, 60_000);
+    outboxGcTimer.unref?.();
     const pendingInteractions = new PostgresPendingInteractionRepository(executor);
     const providers = new PostgresProviderRepository(executor, options.secretResolver);
     const backgroundTasks = new PostgresBackgroundTaskRepository(executor);
@@ -243,6 +264,7 @@ export async function createSaaSConversationRuntime(
       close: () => {
         closePromise ??= (async () => {
           clearInterval(runLeaseRecoveryTimer);
+          clearInterval(outboxGcTimer);
           sharedOutboxDispatcher.stop();
           await realtimeRelay.close();
           if (ownsRealtimeListenerPool) await realtimeListenerPool.end();

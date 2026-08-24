@@ -95,6 +95,8 @@ export class AsyncKernelEventPersister {
   private leaseHeartbeat: ReturnType<typeof setInterval> | null = null;
   private leaseLostError: Error | null = null;
   private leaseRenewal: Promise<void> | null = null;
+  /** 连续续期异常计数：瞬时不置闩，连续失败（≈40s，仍在 TTL 60s 余量内）才判定丢租。 */
+  private leaseRenewalFailures = 0;
   /**
    * 当前 run 段的 boundary 用户消息 id：行落库（boundary_message_id）与 wire 翻译共用。
    * 初始 = 首条用户消息；认领插嘴（commitRunInput）后翻转——之后所有行归属插嘴段。
@@ -254,7 +256,9 @@ export class AsyncKernelEventPersister {
   }
 
   async persist(event: KernelEvent): Promise<void> {
-    await this.ensureRunLease();
+    // 租约续期由 20s 心跳与终局 ensureRunLease 承担；逐事件续期会让 SaaS 每个流式
+    // 事件多一次 DB 写。这里只做失败闩的零成本检查——心跳一旦判定丢租约，下一事件即失败。
+    this.throwIfLeaseLost();
     if (event.type === "tool_result") {
       const toolMedia = Array.isArray(event.metadata.tool_result_media)
         ? event.metadata.tool_result_media
@@ -364,8 +368,12 @@ export class AsyncKernelEventPersister {
 
   private async ensureRunLease(): Promise<void> {
     if (!this.storage.operations.renewRunLease) return;
-    if (this.leaseLostError) throw this.leaseLostError;
+    this.throwIfLeaseLost();
     await this.renewRunLease();
+    this.throwIfLeaseLost();
+  }
+
+  private throwIfLeaseLost(): void {
     if (this.leaseLostError) throw this.leaseLostError;
   }
 
@@ -373,13 +381,26 @@ export class AsyncKernelEventPersister {
     if (!this.storage.operations.renewRunLease) return;
     if (this.leaseRenewal) return this.leaseRenewal;
     this.leaseRenewal = (async () => {
-      const result = await this.storage.operations.renewRunLease!({
-        sessionId: this.ctx.sessionId,
-        rootRunId: this.leaseRunId(),
-      });
-      if (!result.renewed) {
-        this.stopLeaseHeartbeat();
-        this.leaseLostError = new Error(`run lease was lost: ${this.leaseRunId()}`);
+      try {
+        const result = await this.storage.operations.renewRunLease!({
+          sessionId: this.ctx.sessionId,
+          rootRunId: this.leaseRunId(),
+        });
+        this.leaseRenewalFailures = 0;
+        if (!result.renewed) {
+          this.stopLeaseHeartbeat();
+          this.leaseLostError = new Error(`run lease was lost: ${this.leaseRunId()}`);
+        }
+      } catch (error) {
+        // 续期抛错（网络分区/池耗尽）不等于丢租，但连续失败说明租约实际已无法维持——
+        // 置闩让后续事件 fail-fast，把脑裂窗口收束到一个心跳周期内。
+        this.leaseRenewalFailures += 1;
+        if (this.leaseRenewalFailures >= 2) {
+          this.stopLeaseHeartbeat();
+          this.leaseLostError = error instanceof Error
+            ? error
+            : new Error(`run lease renewal failed: ${this.leaseRunId()}`);
+        }
       }
     })();
     try {

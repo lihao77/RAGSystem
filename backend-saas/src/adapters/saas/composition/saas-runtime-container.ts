@@ -61,7 +61,10 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
     dispatchRows: (rows) => outboxDispatcher.dispatchRows(rows),
     dispatchPendingRows: (rows) => outboxDispatcher.dispatchPendingRows(rows),
     // ephemeral 帧：仅本进程扇出（跨实例广播依赖 outbox+NOTIFY，ephemeral 不落库故为 best-effort，
-    // 只有连到执行实例的客户端能收到——进度类帧可接受；需要可靠送达请用 durable）。
+    // 只有连到执行实例的客户端能收到）。
+    // 注意：流式 delta 与重连快照帧走此通道（runtime-adapter commitKernelEvent/emitStreamSnapshot），
+    // 因此 SaaS 多实例部署要求会话亲和（WS 连接须落在 lease owner 实例上），否则流式增量
+    // 与在飞轮快照对该连接不可见——durable 检查点/终态帧不受此限（经 relay 跨实例可达）。
     dispatchEphemeral: (sessionId, event) => {
       realtimeEvents.publish(sessionId, event);
       return Promise.resolve();
