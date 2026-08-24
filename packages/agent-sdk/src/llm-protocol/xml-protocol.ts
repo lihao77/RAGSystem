@@ -336,6 +336,20 @@ export class XmlProtocol implements Protocol {
     let error: string | null = null;
     const toolCalls: ParsedToolCall[] = [];
     let reasoning = "";
+    // 正文（含工具调用 XML）chunk 一出现，思考阶段事实上结束（provider 的 reasoning
+    // 严格先于 content）：立即封口 reasoning_complete，不等整条流跑完——否则正文流式
+    // 期间前端思考块一直停在"思考中"。流结束后的兜底 emit 用 reasoningClosed 去重。
+    let reasoningClosed = false;
+    const closeReasoning = () => {
+      if (reasoningClosed || !reasoning) return;
+      reasoningClosed = true;
+      this.deps.events.emit({
+        type: "reasoning_complete",
+        agentName,
+        content: reasoning,
+        round,
+      });
+    };
 
     const result = await stream(request, async (chunk) => {
       throwIfAborted(signal, "Agent run aborted");
@@ -355,6 +369,9 @@ export class XmlProtocol implements Protocol {
           content: chunk.reasoning,
           round,
         });
+      }
+      if (chunk.content) {
+        closeReasoning();
       }
       if (!chunk.content || toolCallsClosed) {
         return toolCallsClosed ? { stop: true } : undefined;
@@ -388,7 +405,7 @@ export class XmlProtocol implements Protocol {
       return undefined;
     });
     throwIfAborted(signal, "Agent run aborted");
-    if (reasoning) {
+    if (reasoning && !reasoningClosed) {
       this.deps.events.emit({
         type: "reasoning_complete",
         agentName,

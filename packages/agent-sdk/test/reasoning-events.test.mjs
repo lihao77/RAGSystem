@@ -68,6 +68,12 @@ test("XmlProtocol 流式透传 reasoning 增量并发出 reasoning_complete", as
   const firstTokenIndex = sink.events.findIndex((e) => e.type === "first_token");
   assert.ok(firstTokenIndex >= 0);
   assert.equal(sink.events[firstTokenIndex + 1]?.type, "reasoning_delta");
+  // 正文开始即封口思考：reasoning_complete 必须早于任何正文事件，
+  // 不能拖到整条流结束（否则正文流式期间前端思考块一直"思考中"）。
+  const completeIndex = sink.events.findIndex((e) => e.type === "reasoning_complete");
+  const firstContentIndex = sink.events.findIndex((e) => e.type === "output_delta" || e.type === "intent_complete");
+  assert.ok(firstContentIndex >= 0);
+  assert.ok(completeIndex < firstContentIndex);
 });
 
 test("NativeHybridProtocol 流式透传 reasoning 增量并发出 reasoning_complete", async () => {
@@ -94,7 +100,35 @@ test("NativeHybridProtocol 流式透传 reasoning 增量并发出 reasoning_comp
   const complete = sink.events.filter((e) => e.type === "reasoning_complete");
   assert.equal(complete.length, 1);
   assert.equal(complete[0].content, "ponder deep");
-  // 无 reasoning 时不应发出任何 reasoning 事件（由下一个用例覆盖的负向路径在 provider 层保证）。
+  // 正文开始即封口思考：reasoning_complete 必须早于任何正文事件。
+  const completeIndex = sink.events.findIndex((e) => e.type === "reasoning_complete");
+  const firstContentIndex = sink.events.findIndex((e) => e.type === "output_delta" || e.type === "intent_complete");
+  assert.ok(firstContentIndex >= 0);
+  assert.ok(completeIndex < firstContentIndex);
+});
+
+test("NativeHybridProtocol 工具调用 chunk 到达即封口思考", async () => {
+  const sink = collectingSink();
+  const toolCall = { id: "c1", type: "function", function: { name: "noop", arguments: "{}" } };
+  const protocol = new NativeHybridProtocol({
+    llm: fakeLlm(
+      [
+        { content: "", reasoning: "ponder" },
+        { content: "", toolCalls: [toolCall] },
+      ],
+      { content: "", toolCalls: [toolCall], reasoning: "ponder", finishReason: "tool_calls" },
+    ),
+    events: sink,
+    getTools: getNoTools,
+  });
+  const ctx = KernelContext.create(fakeSession());
+  const outcome = await protocol.invoke(ctx, 0);
+
+  assert.equal(outcome.kind, "tool_calls");
+  const complete = sink.events.filter((e) => e.type === "reasoning_complete");
+  assert.equal(complete.length, 1);
+  // 全程无正文 chunk：封口由工具调用 chunk 触发，兜底 emit 不重复发。
+  assert.equal(sink.events.some((e) => e.type === "output_delta"), false);
 });
 
 test("NativeHybridProtocol 无 reasoning 时不发 reasoning 事件", async () => {
