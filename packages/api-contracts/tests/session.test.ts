@@ -7,7 +7,6 @@ import {
   SessionListFacetsResponseSchema,
   SessionListResponseSchema,
   SessionMessageListResponseSchema,
-  SessionMessageRunStepsResponseSchema,
   SessionParticipantRunListResponseSchema,
   SessionParticipantRunStepsResponseSchema,
   SessionPermissionResponseSchema,
@@ -126,27 +125,6 @@ describe("Session REST contracts", () => {
       message: "ok",
       data: { items: [message], total: 1, limit: 20, offset: 0, has_more: false, outbox_watermark: 12 },
     }).data.items[0]?.id).toBe("message-1");
-
-    expect(SessionMessageRunStepsResponseSchema.parse({
-      success: true,
-      message: "ok",
-      data: {
-        message_id: message.id,
-        items: [{
-          type: "stream_output",
-          protocol_version: "1.0",
-          session_id: detail.session_id,
-          run_id: "run-1",
-          call_id: "model-call-1",
-          agent_id: "agent",
-          payload: { phase: "final", content: "done" },
-        }],
-        total: 1,
-        limit: 500,
-        offset: 0,
-        has_more: false,
-      },
-    }).data.items[0]?.type).toBe("stream_output");
 
     expect(SessionParticipantRunStepsResponseSchema.parse({
       success: true,

@@ -19,7 +19,6 @@ export const RUNS_SCHEMA_SQL = `
       parent_call_id TEXT,
       final_message_id TEXT,
       child_agent_id TEXT,
-      next_step_order INTEGER NOT NULL DEFAULT 1,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
@@ -169,56 +168,7 @@ export const BASELINE_SCHEMA_SQL = `
     CREATE INDEX idx_session_list_origin_activity ON session_list_projection(tenant_id, origin_type, origin_id, activity_at DESC, session_id DESC);
     CREATE INDEX idx_session_list_workspace_activity ON session_list_projection(tenant_id, workspace_id, activity_at DESC, session_id DESC);
 
-    CREATE TABLE IF NOT EXISTS run_steps (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      run_id TEXT NOT NULL,
-      event_id TEXT,
-      session_id TEXT NOT NULL,
-      step_order INTEGER NOT NULL,
-      step_type TEXT NOT NULL,
-      payload TEXT NOT NULL,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS run_message_boundaries (
-      session_id TEXT NOT NULL,
-      run_id TEXT NOT NULL,
-      message_id TEXT NOT NULL,
-      start_after_step_order INTEGER NOT NULL,
-      boundary_step_order INTEGER,
-      boundary_kind TEXT NOT NULL CHECK(boundary_kind IN ('carrier', 'terminal')),
-      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY(session_id, run_id, message_id),
-      FOREIGN KEY(run_id) REFERENCES runs(run_id) ON DELETE CASCADE,
-      FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
-    );
-
     ${RUNS_SCHEMA_SQL}
-
-    CREATE TABLE IF NOT EXISTS resources (
-      resource_id TEXT PRIMARY KEY,
-      session_id TEXT NOT NULL,
-      run_id TEXT,
-      step_id INTEGER,
-      message_id TEXT,
-      resource_type TEXT NOT NULL,
-      sub_type TEXT,
-      title TEXT,
-      path TEXT NOT NULL,
-      source_tool TEXT,
-      scope TEXT NOT NULL DEFAULT 'transient',
-      metadata TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS step_resources (
-      step_id INTEGER NOT NULL,
-      resource_id TEXT NOT NULL,
-      session_id TEXT NOT NULL,
-      run_id TEXT,
-      PRIMARY KEY(step_id, resource_id)
-    );
 
     CREATE TABLE IF NOT EXISTS child_agents (
       child_agent_id TEXT PRIMARY KEY,
@@ -268,14 +218,8 @@ export const BASELINE_SCHEMA_SQL = `
 
     ${AGENT_MAILBOX_SCHEMA_SQL}
 
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_run_steps_session_run_order ON run_steps(session_id, run_id, step_order);
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_run_steps_event_id ON run_steps(event_id) WHERE event_id IS NOT NULL;
-    CREATE INDEX IF NOT EXISTS idx_run_steps_session_type_id ON run_steps(session_id, step_type, id DESC);
-    CREATE INDEX IF NOT EXISTS idx_run_message_boundaries_order
-      ON run_message_boundaries(session_id, run_id, start_after_step_order);
     CREATE INDEX IF NOT EXISTS idx_runs_session ON runs(session_id);
     CREATE INDEX IF NOT EXISTS idx_runs_session_thread_created ON runs(session_id, thread_key, created_at);
-    CREATE INDEX IF NOT EXISTS idx_resources_session_run ON resources(session_id, run_id);
     CREATE INDEX IF NOT EXISTS idx_child_agents_session_created ON child_agents(session_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_child_agents_session_agent ON child_agents(session_id, agent_name, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_child_agents_session_thread ON child_agents(session_id, thread_key);

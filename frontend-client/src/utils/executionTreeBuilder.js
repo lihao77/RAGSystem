@@ -140,6 +140,8 @@ export function getAgentOperationTitle(node) {
 
 /**
  * 构建一个 agent 的子节点：rounds → thought(intent) + tool_call/agent_call；未消费 children → agent_call。
+ * 轮次保持隐式（不造"轮次 N"行，归属靠思考节点 + injection 位置体现）。
+ * 树只承载过程——最终答案由消息槽 assistant 行渲染，不在树内重复建节点。
  * consumedChildIds 追踪当前 agent.children 的消费（避免 agent 合并后重复出现）。
  */
 function buildAgentChildren(agent, consumedChildIds, injections = []) {
@@ -166,9 +168,9 @@ function buildAgentChildren(agent, consumedChildIds, injections = []) {
       }
     }
 
-    // 有 intent 的 round 包 thought(显示思考内容,每个思考自然标识一个 round 的开始);无 intent 的工具直接平级,
-    // 不为无 intent 的 round 造空 thought 节点。不显示"轮次 N"号(round 归属靠思考节点 + injection 位置体现)。
-    // 模型思维链(reasoning)在 intent 之前到达,作为独立可折叠节点放在 thought 前(仅展示,不进模型上下文)。
+    // 轮文本节点：说明（intent）与最终答案（text）同构——统一在面板按轮渲染，
+    // 无标签化后不区分"气泡正文/过程正文"。无文本的工具轮不造空节点。
+    // 模型思维链(reasoning)在文本之前到达,作为独立可折叠节点放在文本前(仅展示,不进模型上下文)。
     if (round.reasoning) {
       children.push({
         type: 'reasoning',
@@ -181,16 +183,17 @@ function buildAgentChildren(agent, consumedChildIds, injections = []) {
         children: [],
       });
     }
-    const hasIntent = Boolean(round.intent);
-    if (hasIntent) {
+    const roundText = round.intent || round.text || '';
+    if (roundText) {
       children.push({
         type: 'thought',
         agent: agent.agentId,
         agent_display_name: agent.displayName || agent.agentId,
         round: round.round,
-        intent: round.intent || '',
-        intent_complete: round.intentComplete !== false,
-        status: round.intentComplete === false || round.toolCalls?.some(t => t.status === 'running')
+        intent: roundText,
+        text_parts: round.textParts?.length ? round.textParts : undefined,
+        intent_complete: round.intentComplete === true || round.textComplete === true,
+        status: (round.intentComplete !== true && round.textComplete !== true) || round.toolCalls?.some(t => t.status === 'running')
           ? 'running'
           : 'success',
         children: roundChildren,

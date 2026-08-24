@@ -18,15 +18,19 @@ test('消息项按正文、操作按钮、执行步骤排列，正文组件不�
   assert.equal(source.includes('aria-live="polite"'), true);
 });
 
-test('执行步骤中的 intent 使用 final 相同的 Markdown 渲染，并在 final 后自动折叠', async () => {
+test('执行步骤中的 intent 使用 final 相同的 Markdown 渲染，运行结束自动收起过程区', async () => {
   const source = await readFile(new URL('./chat/AssistantExecutionSteps.vue', import.meta.url), 'utf8');
   const nodeSource = await readFile(new URL('./chat/AssistantExecutionNode.vue', import.meta.url), 'utf8');
 
   assert.equal(source.includes('<AssistantExecutionNode'), true);
   assert.equal(nodeSource.includes(':content="node.intent || \'\'"'), true);
   assert.equal(nodeSource.includes('class="assistant-step-intent"'), true);
-  assert.equal(source.includes('watch(finalVisible'), true);
-  assert.equal(source.includes('expanded.value = false'), true);
+  // 运行开始展开过程、结束收起（答案由下方 assistant 消息槽呈现）；用户手动展开仍可用。
+  assert.equal(source.includes('watch(running'), true);
+  assert.equal(source.includes('expanded.value = isRunning'), true);
+  // 树只承载过程：不建答案节点，答案由消息槽 assistant 行渲染，避免双路径。
+  assert.equal(source.includes('answerNode'), false);
+  assert.equal(nodeSource.includes("node.type === 'answer'"), false);
   assert.equal(source.includes('ensureExecutionStepsLoaded'), true);
 });
 

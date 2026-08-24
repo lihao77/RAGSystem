@@ -1,14 +1,13 @@
 /**
- * Native Hybrid 协议实现（迁自 backend-ts native-hybrid-protocol.ts）。
+ * Native Hybrid 协议实现（无标签化：轮次判据唯一化为 tool_calls 有无）。
  *
- * 混合形态：工具调用走厂商原生 FC（结构化 chunk.toolCalls），content 走 StreamingRuntimeXmlParser
- * 解析 <intent>/<final_answer>，补齐 XmlProtocol 才有的 intent 事件链。
+ * 混合形态：工具调用走厂商原生 FC（结构化 chunk.toolCalls），content 是裸文本
+ * （StreamingRuntimeXmlParser 剥离旧 <intent>/<final_answer> 标签后边流边 emit output_delta）。
+ * 轮次性质在流结束判定——有 toolCalls 即工具轮（裸文本是动作说明，派生 intent_complete
+ * 归过程树）；纯文本即最终回答。与 XmlProtocol 的解析判定完全一致，仅工具通道不同。
  * - buildRequestShell 保留 native tools：写入 request.tools（toChatToolDefinition）+ toolChoice:"auto"。
  * - renderObservations 产 role:"tool" 消息（每工具一条，tool_call_id 关联）。
  * - 无协议修复重试：native 工具是结构化输出不存在"标签没闭合"。
- *
- * content 弱约束 fallback：模型未用任何协议标签、直接吐纯文本时，缓存原始 delta，流末补发为
- * output_delta 并当 final_answer。
  *
  * 与 backend-ts 差异（同 XmlProtocol）：LlmClient/LlmRequest、readTierParams、扁平 KernelEvent。
  * visibleTools 来源从 session.toolExecutor 改为 deps.getTools()（SDK 工具端口尚未接入，默认空）。
@@ -105,7 +104,7 @@ export class NativeHybridProtocol implements Protocol {
     return this.toModelMessages(enriched);
   }
 
-  /** 流式 invoke：content 走 XML 解析（intent/final_answer 逐字 emit），toolCalls 走 FC 结构化字段。 */
+  /** 流式 invoke：content 裸文本边流边 emit output_delta，toolCalls 走 FC 结构化字段。 */
   private async invokeStreaming(
     ctx: KernelContext,
     baseRequest: LlmRequest,
@@ -120,9 +119,6 @@ export class NativeHybridProtocol implements Protocol {
     const contentParser = new StreamingAssistantContentParser();
     let firstChunkSeen = false;
     const providerStartedAt = Date.now();
-    let intent = "";
-    let protocolTagSeen = false;
-    const pendingFallbackDeltas: string[] = [];
     const toolCalls: ChatToolCall[] = [];
     let reasoning = "";
 
@@ -146,24 +142,9 @@ export class NativeHybridProtocol implements Protocol {
         firstChunkSeen = true;
         this.deps.events.emit({ type: "first_token", agentName, elapsedMs: Date.now() - providerStartedAt });
       }
-      const events = parser.feed(chunk.content);
-      for (const event of events) {
+      for (const event of parser.feed(chunk.content)) {
         if (event.type === "fallback") {
-          pendingFallbackDeltas.push(event.content);
-          continue;
-        }
-        if (event.type === "tag_open") {
-          protocolTagSeen = true;
-        }
-        if (event.type === "content" && event.tag === "intent") {
-          intent += event.content;
-          this.deps.events.emit({ type: "intent_delta", agentName, content: event.content, round });
-        }
-        if (event.type === "content" && event.tag === "final_answer") {
           emitAssistantContentEvents(this.deps.events, agentName, contentParser.feed(event.content));
-        }
-        if (event.type === "tag_close" && event.tag === "intent") {
-          this.deps.events.emit({ type: "intent_complete", agentName, content: intent, round });
         }
       }
       return undefined;
@@ -179,37 +160,33 @@ export class NativeHybridProtocol implements Protocol {
       throw new RuntimeAbortError("LLM stream interrupted");
     }
 
-    const sawProtocolTag = Boolean(
-      parser.getTagContent("intent").trim() || parser.getTagContent("final_answer").trim(),
-    );
-    // 裸文本兜底：全程未出现协议标签时，身份由本轮结局决定——
-    // 后续有工具调用 → 动作说明 intent；没有 → 最终答案 final。
-    const fallbackText = pendingFallbackDeltas.join("");
-    if (fallbackText.trim() && !sawProtocolTag) {
-      if (toolCalls.length > 0) {
-        this.deps.events.emit({ type: "intent_delta", agentName, content: fallbackText, round });
-        this.deps.events.emit({ type: "intent_complete", agentName, content: fallbackText, round });
-      } else {
-        emitAssistantContentEvents(this.deps.events, agentName, contentParser.feed(fallbackText));
+    // 流结束：冲刷解析器扣留的尾部缓冲（裸正文身份由本轮结局决定——
+    // 有工具调用 → 动作说明 intent；没有 → 最终答案 final）。
+    for (const event of parser.finish()) {
+      if (event.type === "fallback") {
+        emitAssistantContentEvents(this.deps.events, agentName, contentParser.feed(event.content));
       }
     }
 
     if (toolCalls.length > 0) {
+      const noteText = contentParser.getFallbackContent();
+      if (noteText.trim()) {
+        this.deps.events.emit({ type: "intent_complete", agentName, content: noteText, round });
+      }
       const calls: KernelToolCall[] = toolCalls.map((tc, index) => ({
         index,
         callId: tc.id ?? randomUUID(),
         toolName: tc.function.name,
         arguments: safeParseArguments(tc.function.arguments),
       }));
-      const intentContent = parser.getTagContent("intent") || fallbackText;
       const assistantMessage: ChatMessage = {
         role: "assistant",
-        content: intentContent,
+        content: noteText,
         tool_calls: toolCalls,
         ...(result.reasoningBlocks?.length ? { reasoning_blocks: result.reasoningBlocks } : {}),
         ...(result.providerContinuation ? { provider_continuation: result.providerContinuation } : {}),
       };
-      return { kind: "tool_calls", calls, assistantMessage, finishReason: result.finishReason ?? null, usage: result.usage };
+      return { kind: "tool_calls", calls, assistantMessage, finishReason: result.finishReason ?? null, usage: result.usage, ...(reasoningText ? { reasoning: reasoningText } : {}) };
     }
 
     emitAssistantContentEvents(this.deps.events, agentName, contentParser.finish());
@@ -219,6 +196,7 @@ export class NativeHybridProtocol implements Protocol {
       kind: "final",
       finalAnswer: fallbackContent || rawContent,
       contentParts: contentParser.getParts(),
+      ...(reasoningText ? { reasoning: reasoningText } : {}),
       // final 轮的思考 continuation 也要随消息携带：跨 run 回放要求最终轮数据不丢。
       assistantMessage: {
         role: "assistant",
@@ -231,7 +209,7 @@ export class NativeHybridProtocol implements Protocol {
     };
   }
 
-  /** 非流式 invoke：complete 拿完整响应后整体 XML 解析。content 弱约束：解析出 <final_answer> 用之，否则原始 content 兜底。 */
+  /** 非流式 invoke：complete 拿完整响应后整体解析。裸文本（旧标签已剥离）按 toolCalls 有无定身份。 */
   private async invokeNonStreaming(ctx: KernelContext, request: LlmRequest, round: number): Promise<KernelOutcome> {
     const signal = ctx.session.signal;
     throwIfAborted(signal, "Agent run aborted");
@@ -243,12 +221,8 @@ export class NativeHybridProtocol implements Protocol {
 
     const parser = new StreamingRuntimeXmlParser();
     parser.feed(result.content || "");
-    const finalAnswer = parser.getTagContent("final_answer");
-    const taggedIntent = parser.getTagContent("intent");
-    const sawProtocolTag = Boolean(taggedIntent.trim() || finalAnswer.trim());
-    // 裸文本兜底（与流式一致）：全程无标签时，配工具调用的裸文本归 intent
-    const fallbackText = sawProtocolTag ? "" : (result.content || "").trim();
-    const content = finalAnswer.trim() ? finalAnswer : result.content || "";
+    parser.finish();
+    const text = parser.getFallbackText() || (result.content || "").trim();
 
     if (result.toolCalls && result.toolCalls.length > 0) {
       const calls: KernelToolCall[] = result.toolCalls.map((tc, index) => ({
@@ -260,9 +234,10 @@ export class NativeHybridProtocol implements Protocol {
       return {
         kind: "tool_calls",
         calls,
+        ...(result.reasoning ? { reasoning: result.reasoning } : {}),
         assistantMessage: {
           role: "assistant",
-          content: taggedIntent || fallbackText,
+          content: text,
           tool_calls: result.toolCalls,
           ...(result.reasoningBlocks?.length ? { reasoning_blocks: result.reasoningBlocks } : {}),
           ...(result.providerContinuation ? { provider_continuation: result.providerContinuation } : {}),
@@ -272,11 +247,12 @@ export class NativeHybridProtocol implements Protocol {
       };
     }
 
-    const parsedContent = parseAssistantContent(content);
+    const parsedContent = parseAssistantContent(text);
     return {
       kind: "final",
       finalAnswer: parsedContent.content,
       contentParts: parsedContent.parts,
+      ...(result.reasoning ? { reasoning: result.reasoning } : {}),
       // 同流式路径：final 轮的思考 continuation 随消息携带。
       assistantMessage: {
         role: "assistant",

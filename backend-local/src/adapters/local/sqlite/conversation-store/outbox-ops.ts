@@ -456,7 +456,8 @@ export class OutboxOps {
     return row ?? null;
   }
 
-  private loadOutboxRowByEventId(eventId: string): OutboxRow | null {
+  /** attach 幂等检查用（事件是否已入 outbox）。 */
+  loadOutboxRowByEventId(eventId: string): OutboxRow | null {
     const row = this.db
       .prepare(`SELECT ${OUTBOX_SELECT_COLUMNS} FROM event_outbox WHERE event_id=?`)
       .get(eventId) as OutboxRow | undefined;

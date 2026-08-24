@@ -191,18 +191,18 @@ const cacheDetailText = computed(() => {
 });
 
 function msgLabel(msg) {
-  // 区分语义角色：中间轮（工具调用 intent / 工具结果 observation）显式标记，便于调试时分清
-  // final answer / 用户消息 / 中间轮次。msg_type 来自存储语义，渲染后保留。
+  // 区分语义角色：中间轮（工具调用轮 / 工具结果 observation）显式标记，便于调试时分清
+  // final answer / 用户消息 / 中间轮次。round 行按 tool_calls 有无判别（统一类型）。
   if (msg.msg_type === 'observation') return 'Tool Result';
-  if (msg.msg_type === 'intent') return 'Tool Call';
+  if (msg.msg_type === 'intent' || (msg.msg_type === 'round' && msg.tool_calls?.length)) return 'Tool Call';
   if (msg.role === 'assistant') return 'Final Answer';
   return msg.role;
 }
 
 function msgClass(msg) {
-  // 中间轮（intent/observation）用虚线样式与 final/user 实线区分。
+  // 中间轮（工具轮/observation）用虚线样式与 final/user 实线区分。
   if (msg.msg_type === 'observation') return 'react-observation';
-  if (msg.msg_type === 'intent') return 'react-thought';
+  if (msg.msg_type === 'intent' || (msg.msg_type === 'round' && msg.tool_calls?.length)) return 'react-thought';
   return 'role-' + msg.role;
 }
 

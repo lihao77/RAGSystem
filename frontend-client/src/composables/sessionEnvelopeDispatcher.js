@@ -249,6 +249,19 @@ export function createSessionEnvelopeDispatcher({
       target = message;
     }
     applyMessageSaved(target, eventData, sessionId);
+    // 插嘴被同 run 认领：更早的同 run 边界面板让出“运行中”——认领后本 run 的
+    // 事件（含 agent_ended）路由到新边界面板，旧面板的根 agent 会永远停在
+    // running，把已完成的工具详情也渲染成“执行中”。
+    if (eventData.run_id) {
+      // 按消息 id 排除认领行本身：applyMessageSaved 触发的 reorder 可能换掉列表内
+      // 的行对象，引用比较不可靠。
+      const claimedId = target?.id ?? null;
+      for (const message of messages.value) {
+        if (message?.role === 'user' && message.id !== claimedId && getMessageRunId(message) === eventData.run_id) {
+          message.execution_superseded = true;
+        }
+      }
+    }
     flushBoundaryEvents(eventData.run_id);
     finishRequest(requestId);
     deps.updateRecentSession(sessionId, target.content, new Date().toISOString());

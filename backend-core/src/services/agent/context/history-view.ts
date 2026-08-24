@@ -32,8 +32,10 @@ export function filterHistoryMessages(messages: MessageInfo[]): MessageInfo[] {
       return false;
     }
     const metadata = message.metadata ?? {};
+    // 零正文纯思考轮（如 length 截断在思考段）也保留：provider_state 承载该轮思考的跨 run
+    // 回放价值，滤掉等于白白丢弃；正文为空不影响各协议的回放 wire 形态。
     if (!hasAgentVisibleMessageContent(message.content_parts, message.role)
-      && !(message.role === "assistant" && message.tool_calls?.length)) {
+      && !(message.role === "assistant" && (message.tool_calls?.length || message.provider_state))) {
       return false;
     }
     if (metadata.display_only) {

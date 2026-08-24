@@ -228,28 +228,17 @@ export function useMessageExecution(deps) {
       if (!deps.chatSdkClient) throw new Error('Chat SDK 未初始化');
       const sessionId = deps.currentSessionId.value;
       const messageParticipantId = participantIdFromMessage(msg);
-      const envelopes = [];
-      let offset = 0;
-      let hasMore = false;
-      do {
-        const result = await deps.chatSdkClient.getMessageRunSteps(
-          sessionId,
-          msg.id,
-          {
-            limit: 500,
-            offset,
-            ...(messageParticipantId && messageParticipantId !== 'root'
-              ? { participantId: messageParticipantId }
-              : {}),
-          },
-        );
-        if (deps.currentSessionId.value !== sessionId) return;
-        const payload = result?.data || result;
-        const pageItems = Array.isArray(payload?.items) ? payload.items : [];
-        envelopes.push(...pageItems);
-        offset += pageItems.length;
-        hasMore = Boolean(payload?.has_more) && pageItems.length > 0;
-      } while (hasMore);
+      // 执行视图来自消息行合成（思考=thinking part 一等内容），不再分页回放 run-steps 归档。
+      const result = await deps.chatSdkClient.getMessageExecution(
+        sessionId,
+        msg.id,
+        (messageParticipantId && messageParticipantId !== 'root')
+          ? { participantId: messageParticipantId }
+          : {},
+      );
+      if (deps.currentSessionId.value !== sessionId) return;
+      const payload = result?.data || result;
+      const envelopes = Array.isArray(payload?.items) ? payload.items : [];
       const state = createExecutionTreeState();
       for (const env of envelopes) applyEnvelope(state, projectEnvelopeForMessage(msg, env));
       msg.executionTree = getExecutionTree(state);

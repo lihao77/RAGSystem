@@ -56,7 +56,6 @@ import type {
   OutboxRow,
   PendingInteractionRecord,
   RunInfo,
-  RunStepRecord,
 } from "@ragsystem/backend-core/contracts/conversation-store/index.js";
 import { toSessionIdentity, type MessageInfo } from "@ragsystem/backend-core/contracts/session/session.js";
 import {
@@ -105,10 +104,6 @@ function createTransactionFacade(
       terminalReason,
     ),
     getRun: (sessionId, runId) => runRepository.getRun(tenantId, sessionId, runId),
-    ensureInitialRunMessageBoundary: (sessionId, runId, messageId) => (
-      runRepository.ensureInitialRunMessageBoundary(tenantId, sessionId, runId, messageId)
-    ),
-    addRunStep: (input) => runRepository.addRunStep({ ...input, tenantId }),
   };
 
   const outbox: RuntimeOutboxStorage = {
@@ -422,13 +417,6 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
         ? await getOrCreateMessage(transactionExecutor, tx, input.initialMessage, "initial message")
         : null;
       const run = existingRun ? toCreatedRun(existingRun) : await tx.runs.createRun(input.run);
-      if (initialMessage) {
-        await tx.runs.ensureInitialRunMessageBoundary(
-          input.session.sessionId,
-          input.run.runId,
-          initialMessage.id,
-        );
-      }
       if (!existingRun && input.participantRun) {
         const participantUpdated = await tx.participants.updateChildAgentLastRun({
           sessionId: input.session.sessionId,
@@ -524,13 +512,6 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
           );
       const run = existingRun ? toCreatedRun(existingRun) : await tx.runs.createRun(input.run);
       await this.claimRootRunLease(transactionExecutor, input.session.sessionId, input.run.runId);
-      if (initialMessage) {
-        await tx.runs.ensureInitialRunMessageBoundary(
-          input.session.sessionId,
-          input.run.runId,
-          initialMessage.id,
-        );
-      }
       if (input.sessionMaintenanceToken) {
         await transactionExecutor.query(
           `UPDATE conversation_sessions
@@ -1191,21 +1172,16 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
           return { attached: false, record: null };
         }
         await lockAdvisoryKey(transactionExecutor, `event:${this.tenantId}:${normalized.outbox.eventId}`);
-        const existingStep = await findEventStep(
-          transactionExecutor,
-          this.tenantId,
-          normalized.outbox.eventId,
-        );
         const existingOutbox = await findEventOutbox(
           transactionExecutor,
           this.tenantId,
           normalized.outbox.eventId,
         );
-        if (!existingStep || !existingOutbox) return { attached: false, record: null };
-        assertExistingRecord(normalized, existingStep, existingOutbox);
+        if (!existingOutbox) return { attached: false, record: null };
+        assertExistingRecord(normalized, existingOutbox);
         return {
           attached: true,
-          record: { step: existingStep.record, outbox: existingOutbox },
+          record: { outbox: existingOutbox },
         };
       }
       for (const batchId of [...new Set(claimed.map((item) => item.batch_id))].sort()) {
@@ -1523,6 +1499,7 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
             agentName: scopedRun.agent_name ?? scopedRun.agent_display_name,
             terminalStatus: runStatus,
             reason: runReason ?? "未提供终止原因",
+            ...(isRequestedRun && input.boundaryMessageId ? { boundaryMessageId: input.boundaryMessageId } : {}),
           })) {
             closedToolMessages.push(await getOrCreateMessage(transactionExecutor, tx, message, "terminal tool message"));
           }
@@ -1559,6 +1536,7 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
           },
           status: runStatus,
           ...(runReason ? { reason: runReason } : {}),
+          ...(isRequestedRun && input.boundaryMessageId ? { boundaryMessageId: input.boundaryMessageId } : {}),
           finalMessage,
           closedToolMessages,
         })) {
@@ -1584,18 +1562,13 @@ async function recordEnvelope(
   tenantId: TenantId,
   input: RuntimeRecordEnvelopeInput,
 ): Promise<RuntimeRecordEnvelopeResult> {
-  const eventId = input.outbox.eventId.trim();
-  const existingStep = await findEventStep(executor, tenantId, eventId);
-  const existingOutbox = await findEventOutbox(executor, tenantId, eventId);
-  if (existingStep || existingOutbox) {
-    assertExistingRecord(input, existingStep, existingOutbox);
-    return { step: existingStep?.record ?? null, outbox: existingOutbox! };
+  const existingOutbox = await findEventOutbox(executor, tenantId, input.outbox.eventId);
+  if (existingOutbox) {
+    assertExistingRecord(input, existingOutbox);
+    return { outbox: existingOutbox };
   }
-  const step = input.step
-    ? await tx.runs.addRunStep({ ...input.step, eventId } as Parameters<RuntimeRunStorage["addRunStep"]>[0])
-    : null;
   const outbox = await tx.outbox.appendOutbox(input.outbox);
-  return { step, outbox };
+  return { outbox };
 }
 
 function assertRecordScope(
@@ -1607,23 +1580,12 @@ function assertRecordScope(
   if (expectedRunId && input.outbox.runId !== expectedRunId) {
     throw new Error(`terminal outbox run mismatch: expected ${expectedRunId}, received ${String(input.outbox.runId)}`);
   }
-  if (!input.step) return;
-  assertSessionId(input.step.sessionId, expectedSessionId ?? input.outbox.sessionId, "run step");
-  if (input.outbox.runId !== input.step.runId) {
-    throw new Error(`execution record run mismatch: step ${input.step.runId}, outbox ${String(input.outbox.runId)}`);
-  }
 }
 
 function assertSessionId(actual: string, expected: string, subject: string): void {
   if (actual !== expected) {
     throw new Error(`${subject} session mismatch: expected ${expected}, received ${actual}`);
   }
-}
-
-interface ExistingEventStep {
-  record: RunStepRecord;
-  sessionId: string;
-  payload: Record<string, unknown>;
 }
 
 async function lockAdvisoryKey(executor: PostgresExecutor, key: string): Promise<void> {
@@ -1789,31 +1751,6 @@ function assertMessageIdentity(existing: MessageInfo, expected: AddMessageInput,
   if (!equal) throw new Error(`${subject} immutable fields conflict: ${existing.id}`);
 }
 
-async function findEventStep(
-  executor: PostgresExecutor,
-  tenantId: TenantId,
-  eventId: string,
-): Promise<ExistingEventStep | null> {
-  const result = await executor.query<Record<string, unknown>>(
-    `SELECT id, session_id, run_id, event_id, step_order, step_type, payload
-     FROM saas_run_steps WHERE tenant_id=$1 AND event_id=$2 FOR UPDATE`,
-    [tenantId, eventId],
-  );
-  const row = result.rows[0];
-  if (!row) return null;
-  return {
-    record: {
-      id: Number(row.id),
-      run_id: String(row.run_id),
-      event_id: String(row.event_id),
-      step_order: Number(row.step_order),
-      step_type: String(row.step_type),
-    },
-    sessionId: String(row.session_id),
-    payload: jsonObject(row.payload),
-  };
-}
-
 async function findEventOutbox(
   executor: PostgresExecutor,
   tenantId: TenantId,
@@ -1832,37 +1769,17 @@ async function findEventOutbox(
 
 function assertExistingRecord(
   expected: RuntimeRecordEnvelopeInput,
-  step: ExistingEventStep | null,
-  outbox: OutboxRow | null,
+  outbox: OutboxRow,
 ): void {
-  const compatibleLegacyStream = !expected.step && Boolean(step)
-    && isLegacyUnarchivedStreamStep(step?.payload ?? {});
-  if (!outbox || (Boolean(step) !== Boolean(expected.step) && !compatibleLegacyStream)) {
-    throw new Error(`incomplete execution event record: ${expected.outbox.eventId}`);
-  }
   const outboxMatches = outbox.session_id === expected.outbox.sessionId
     && outbox.run_id === (expected.outbox.runId ?? null)
     && outbox.event_type === expected.outbox.eventType
     && outbox.aggregate_type === expected.outbox.aggregateType
     && outbox.aggregate_id === expected.outbox.aggregateId
     && jsonEqual(jsonObject(outbox.payload), expected.outbox.payload);
-  const stepMatches = !step || !expected.step || (
-    step.sessionId === expected.step.sessionId
-    && step.record.run_id === expected.step.runId
-    && step.record.step_type === expected.step.stepType
-    && jsonEqual(step.payload, expected.step.payload)
-  );
-  if (!outboxMatches || !stepMatches) {
+  if (!outboxMatches) {
     throw new Error(`execution event idempotency conflict: ${expected.outbox.eventId}`);
   }
-}
-
-function isLegacyUnarchivedStreamStep(payload: Record<string, unknown>): boolean {
-  if (payload.type !== "stream_output") return false;
-  const inner = payload.payload;
-  if (!inner || typeof inner !== "object" || Array.isArray(inner)) return true;
-  const phase = (inner as Record<string, unknown>).phase;
-  return phase !== "intent_complete" && phase !== "reasoning_complete";
 }
 
 function assertEventId(eventId: string): void {

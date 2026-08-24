@@ -54,9 +54,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 /**
  * 返回同一 durable run 下一次应该使用的 0-based round。
  *
- * intent 消息把逻辑轮次以 1-based metadata.round 持久化，因此最大值正好等于
- * 下一次 SDK 调用的 startRound。只认当前 run 的 intent，避免同一 thread 中其他
- * root/child run 或终态消息污染轮次。
+ * 工具轮 assistant 行把逻辑轮次以 1-based metadata.round 持久化，因此最大值正好
+ * 等于下一次 SDK 调用的 startRound。最终轮行（ROUND 无 tool_calls）不写 round 字段，
+ * 由 round 校验自然跳过。只认当前 run 的轮次行（ROUND 及旧值 INTENT），避免同一
+ * thread 中其他 root/child run 或终态消息污染轮次。
  */
 export function resolveRunStartRound(
   messages: readonly (DurableRoundMessage | null)[],
@@ -66,10 +67,36 @@ export function resolveRunStartRound(
   for (const message of messages) {
     if (!message) continue;
     const metadata = message.metadata;
-    if (metadata.run_id !== runId || metadata.msg_type !== MSG_TYPE.INTENT) continue;
+    if (metadata.run_id !== runId) continue;
+    if (metadata.msg_type !== MSG_TYPE.ROUND) continue;
     const round = metadata.round;
     if (typeof round !== "number" || !Number.isSafeInteger(round) || round < 1) continue;
     startRound = Math.max(startRound, round);
   }
   return startRound;
+}
+
+interface BoundaryCandidateMessage {
+  id: string;
+  role: string;
+  metadata: Record<string, unknown>;
+}
+
+/**
+ * 恢复运行（suspend→resume / 重启续跑）时重建 boundary：取该 run 已认领的
+ * 最新用户行（含插嘴）。新 persister 没有 initialMessage，不补则后续行落库
+ * 无 boundary 盖章、wire 工具信封退回位置路由（插嘴场景 call/result 可能拆散）。
+ */
+export function resolveResumeBoundaryMessageId(
+  messages: readonly (BoundaryCandidateMessage | null)[],
+  runId: string,
+): string | null {
+  let boundary: string | null = null;
+  for (const message of messages) {
+    if (!message || message.role !== "user") continue;
+    const metadata = message.metadata;
+    const owned = metadata.run_id === runId || metadata.consumed_by_run_id === runId;
+    if (owned && message.id) boundary = message.id;
+  }
+  return boundary;
 }

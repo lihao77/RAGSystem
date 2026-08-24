@@ -202,6 +202,7 @@ export class AgentKernel {
             agentName,
             round,
             message: outcome.assistantMessage,
+            ...(outcome.reasoning ? { reasoning: outcome.reasoning } : {}),
           });
           // 工具执行前把 assistant 消息落回工作副本。
           ctx.appendAssistant(outcome.assistantMessage);
@@ -218,6 +219,7 @@ export class AgentKernel {
           outcome.kind === "final" ? (outcome.contentParts ?? [{ type: "text", text: outcome.finalAnswer ?? "" }]) : [],
           outcome.finishReason,
           outcome.kind === "final" ? outcome.assistantMessage.provider_continuation : undefined,
+          outcome.kind === "final" ? outcome.reasoning : undefined,
         );
         break;
       }

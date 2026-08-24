@@ -7,7 +7,7 @@ export interface MigrationDatabase {
   prepare: import("node:sqlite").DatabaseSync["prepare"];
 }
 
-export const LATEST_SCHEMA_VERSION = 19;
+export const LATEST_SCHEMA_VERSION = 21;
 
 export function assertVersionsContiguous(migrations: readonly { version: number; name: string }[]): void {
   migrations.forEach((migration, index) => {
@@ -33,7 +33,7 @@ export function runMigrations(db: MigrationDatabase): void {
     assertCurrentSchema(db);
     return;
   }
-  if (current >= 1 && current <= 18) {
+  if (current >= 1 && current <= 20) {
     assertVersionOneSchema(db);
     runInTransaction(db, () => {
       if (current === 1) db.exec("ALTER TABLE runs ADD COLUMN terminal_reason TEXT");
@@ -68,15 +68,6 @@ export function runMigrations(db: MigrationDatabase): void {
         }
         db.exec("ALTER TABLE sessions ADD COLUMN team_snapshot TEXT NOT NULL");
       }
-      if (current <= 15) {
-        ensureRunStepOrderingAndBoundaries(db);
-        backfillLegacyRunStepBoundaries(db);
-        db.exec("DROP INDEX IF EXISTS idx_run_steps_message_id");
-        const runStepColumns = db.prepare("PRAGMA table_info(run_steps)").all() as unknown as Array<{ name: string }>;
-        if (runStepColumns.some((column) => column.name === "message_id")) {
-          db.exec("ALTER TABLE run_steps DROP COLUMN message_id");
-        }
-      }
       if (current <= 18) {
         // v19: continuation 状态合并进消息行（provider_state），独立表退役。
         // 旧表不做 backfill——旧记录无 provider/model 印章，门控必然丢弃，等价 drop。
@@ -87,8 +78,27 @@ export function runMigrations(db: MigrationDatabase): void {
         db.exec("DROP TABLE IF EXISTS provider_continuations");
         db.exec("DROP INDEX IF EXISTS idx_provider_continuations_session_thread");
       }
-      ensureRunStepOrderingAndBoundaries(db);
-      backfillCanonicalRunMessageBoundaries(db);
+      if (current <= 20) {
+        // v21: resources 表退役（零读零写的遗留聚合根；执行总览已迁 runs 投影）。
+        db.exec("DROP INDEX IF EXISTS idx_resources_session_run");
+        db.exec("DROP TABLE IF EXISTS resources");
+      }
+      if (current <= 19) {
+        // v20: run_steps/run_message_boundaries/step_resources 归档退役（执行视图由消息行合成）。
+        // 旧数据不做迁移——唯一读方（run_engine 结果重建）已改读 runs.terminal_reason。
+        db.exec("DROP INDEX IF EXISTS idx_run_steps_session_run_order");
+        db.exec("DROP INDEX IF EXISTS idx_run_steps_event_id");
+        db.exec("DROP INDEX IF EXISTS idx_run_steps_session_type_id");
+        db.exec("DROP INDEX IF EXISTS idx_run_message_boundaries_order");
+        db.exec("DROP TABLE IF EXISTS step_resources");
+        db.exec("DROP TABLE IF EXISTS run_message_boundaries");
+        db.exec("DROP TABLE IF EXISTS run_steps");
+        // next_step_order 由旧 v15 迁移按需补列，老种子库可能从未有过——守卫式删除。
+        const runColumns = db.prepare("PRAGMA table_info(runs)").all() as unknown as Array<{ name: string }>;
+        if (runColumns.some((column) => column.name === "next_step_order")) {
+          db.exec("ALTER TABLE runs DROP COLUMN next_step_order");
+        }
+      }
       db.exec(`PRAGMA user_version = ${LATEST_SCHEMA_VERSION}`);
     });
     assertCurrentSchema(db);
@@ -123,85 +133,6 @@ function ensureAgentMailboxInputColumns(db: MigrationDatabase): void {
   if (!names.has("sent_at")) {
     db.exec("ALTER TABLE agent_mailbox ADD COLUMN sent_at TEXT");
   }
-}
-
-function ensureRunStepOrderingAndBoundaries(db: MigrationDatabase): void {
-  const runColumns = db.prepare("PRAGMA table_info(runs)").all() as unknown as Array<{ name: string }>;
-  if (!runColumns.some((column) => column.name === "next_step_order")) {
-    db.exec("ALTER TABLE runs ADD COLUMN next_step_order INTEGER NOT NULL DEFAULT 1");
-  }
-  db.exec(`
-    UPDATE runs
-    SET next_step_order=COALESCE((
-      SELECT MAX(step.step_order)+1
-      FROM run_steps AS step
-      WHERE step.session_id=runs.session_id AND step.run_id=runs.run_id
-    ), 1);
-    CREATE TABLE IF NOT EXISTS run_message_boundaries (
-      session_id TEXT NOT NULL,
-      run_id TEXT NOT NULL,
-      message_id TEXT NOT NULL,
-      start_after_step_order INTEGER NOT NULL,
-      boundary_step_order INTEGER,
-      boundary_kind TEXT NOT NULL CHECK(boundary_kind IN ('carrier', 'terminal')),
-      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY(session_id, run_id, message_id),
-      FOREIGN KEY(run_id) REFERENCES runs(run_id) ON DELETE CASCADE,
-      FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
-    );
-    DROP INDEX IF EXISTS idx_run_steps_session_run;
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_run_steps_session_run_order
-      ON run_steps(session_id, run_id, step_order);
-    CREATE INDEX IF NOT EXISTS idx_run_message_boundaries_order
-      ON run_message_boundaries(session_id, run_id, start_after_step_order);
-  `);
-}
-
-function backfillLegacyRunStepBoundaries(db: MigrationDatabase): void {
-  const columns = db.prepare("PRAGMA table_info(run_steps)").all() as unknown as Array<{ name: string }>;
-  if (!columns.some((column) => column.name === "message_id")) return;
-  db.exec(`
-    INSERT OR IGNORE INTO run_message_boundaries (
-      session_id, run_id, message_id,
-      start_after_step_order, boundary_step_order, boundary_kind
-    )
-    SELECT step.session_id, step.run_id, step.message_id,
-           MAX(0, MIN(step.step_order) - 1), NULL, 'carrier'
-    FROM run_steps AS step
-    JOIN messages AS message
-      ON message.session_id=step.session_id AND message.id=step.message_id
-    JOIN runs AS run
-      ON run.session_id=step.session_id AND run.run_id=step.run_id
-    WHERE step.message_id IS NOT NULL AND trim(step.message_id)<>''
-    GROUP BY step.session_id, step.run_id, step.message_id;
-  `);
-}
-
-function backfillCanonicalRunMessageBoundaries(db: MigrationDatabase): void {
-  db.exec(`
-    INSERT OR IGNORE INTO run_message_boundaries (
-      session_id, run_id, message_id,
-      start_after_step_order, boundary_step_order, boundary_kind
-    )
-    SELECT run.session_id, run.run_id, message.id,
-           0, NULL, 'carrier'
-    FROM runs AS run
-    JOIN messages AS message
-      ON message.session_id=run.session_id
-      AND message.seq=(
-        SELECT MIN(candidate.seq)
-        FROM messages AS candidate
-        WHERE candidate.session_id=run.session_id
-          AND COALESCE(
-            NULLIF(json_extract(candidate.metadata, '$.consumed_by_run_id'), ''),
-            NULLIF(json_extract(candidate.metadata, '$.run_id'), '')
-          )=run.run_id
-      )
-    WHERE NOT EXISTS (
-      SELECT 1 FROM run_message_boundaries AS boundary
-      WHERE boundary.session_id=run.session_id AND boundary.run_id=run.run_id
-    );
-  `);
 }
 
 function migratePendingUserMessagesToMailbox(db: MigrationDatabase): void {
@@ -433,9 +364,6 @@ function assertCurrentSchema(db: MigrationDatabase): void {
       throw new Error(`Conversation database is missing run lifecycle column ${name}`);
     }
   }
-  if (runColumns.find((column) => column.name === "next_step_order")?.notnull !== 1) {
-    throw new Error("Conversation database is missing required runs.next_step_order");
-  }
   for (const name of ["agent_call_id", "agent_display_name", "lease_root_run_id"]) {
     if (runColumns.find((column) => column.name === name)?.notnull !== 1) {
       throw new Error(`Conversation database run lifecycle column ${name} must be NOT NULL`);
@@ -458,19 +386,11 @@ function assertCurrentSchema(db: MigrationDatabase): void {
   if (retiredContinuations) {
     throw new Error("Conversation database contains obsolete provider_continuations table");
   }
-  const runStepColumns = db.prepare("PRAGMA table_info(run_steps)").all() as unknown as Array<{ name: string }>;
-  if (runStepColumns.some((column) => column.name === "message_id")) {
-    throw new Error("Conversation database contains obsolete run_steps.message_id");
-  }
-  const boundaryColumns = db.prepare("PRAGMA table_info(run_message_boundaries)").all() as unknown as Array<{ name: string }>;
-  for (const name of ["session_id", "run_id", "message_id", "start_after_step_order", "boundary_step_order", "boundary_kind"]) {
-    if (!boundaryColumns.some((column) => column.name === name)) {
-      throw new Error(`Conversation database is missing run message boundary column ${name}`);
+  for (const retired of ["run_steps", "run_message_boundaries", "step_resources", "resources"]) {
+    const leftover = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(retired);
+    if (leftover) {
+      throw new Error(`Conversation database contains obsolete ${retired} table`);
     }
-  }
-  const runStepIndexes = db.prepare("PRAGMA index_list(run_steps)").all() as unknown as Array<{ name: string; unique: number }>;
-  if (!runStepIndexes.some((index) => index.name === "idx_run_steps_session_run_order" && index.unique === 1)) {
-    throw new Error("Conversation database is missing unique run step order index");
   }
   const mailboxColumns = db.prepare("PRAGMA table_info(agent_mailbox)").all() as unknown as Array<{ name: string }>;
   for (const name of [

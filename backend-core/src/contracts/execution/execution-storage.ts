@@ -7,7 +7,6 @@ import type {
   RuntimeCommitRunInputInput,
   RuntimeCommitRunInputResult,
 } from "../storage/runtime-storage.js";
-import type { RunStepInfo } from "../common.js";
 import type { Envelope } from "../events.js";
 import type { MessageInfo, SessionIdentity, SessionInfo } from "../session/session.js";
 import type { TenantId } from "../../identity/types.js";
@@ -65,7 +64,29 @@ export interface ExecutionRunPersistenceContext {
 export interface ExecutionEventPersister {
   startRun(): Promise<ExecutionStartDisposition>;
   persist(event: KernelEvent): Promise<void>;
-  finalize(status: "completed" | "failed" | "interrupted" | "suspended", finalMessage: { id?: string; content: string; contentParts?: AssistantContentPart[]; metadata?: Record<string, unknown> } | null, error?: unknown): Promise<{ readyResumeInteractionIds: string[] }>;
+  /** 认领插嘴后翻转 run 段归属：后续行落库与终局记录盖新 boundary。 */
+  setBoundaryMessageId?(id: string | null): void;
+  finalize(
+    status: "completed" | "failed" | "interrupted" | "suspended",
+    finalMessage: {
+      id?: string;
+      content: string;
+      contentParts?: AssistantContentPart[];
+      metadata?: Record<string, unknown>;
+      /** final 轮思考全文；落库为消息行 thinking part。 */
+      reasoning?: string;
+      /** final 轮思考 continuation；落库为 provider_state 供跨 run 回放。 */
+      providerContinuation?: import("@ragsystem/agent-llm").ChatMessage["provider_continuation"];
+    } | null,
+    error?: unknown,
+    /** 中断/失败时当前轮 salvage（思考全文/半截正文）；terminal 消息一等保留。 */
+    salvage?: {
+      reasoning?: string;
+      reasoningComplete?: boolean;
+      content?: string;
+      round?: number;
+    } | null,
+  ): Promise<{ readyResumeInteractionIds: string[] }>;
   resolveFinalMessage(): Promise<{ id: string; seq: number; content: string } | null>;
 }
 
@@ -88,18 +109,10 @@ export interface DurableExecutionConversationPort {
   insertCompressionMessage(input: { sessionId: string; summaryContent: string; replacesUpToSeq?: number | null; threadKey?: string; childAgentId?: string | null; metadata?: Record<string, unknown> }): Promise<MessageInfo>;
 }
 
-export interface ExecutionRunStepQuery {
-  runId?: string | null;
-  sessionId?: string | null;
-  limit?: number;
-  offset?: number;
-}
-
 export interface ExecutionResultReader {
   getRun(sessionId: string, runId: string): Promise<RunInfo | null>;
   listRuns(sessionId: string, limit?: number, offset?: number): Promise<{ items: RunInfo[]; total: number }>;
   getMessageById(sessionId: string, messageId: string): Promise<MessageInfo | null>;
-  listRunSteps(input: ExecutionRunStepQuery): Promise<RunStepInfo[]>;
 }
 
 export interface DurableExecutionClientEventPort {

@@ -7,7 +7,7 @@ import type {
   SessionListFacetsResponse,
   SessionListResponse,
   SessionMessageListResponse,
-  SessionMessageRunStepsResponse,
+  SessionMessageExecutionResponse,
   SessionParticipantListResponse,
   SessionParticipantRunListResponse,
   SessionParticipantRunStepsResponse,
@@ -318,17 +318,14 @@ export class RagChatClient {
     });
   }
 
-  async getMessageRunSteps(sessionId: string, messageId: string, options: ListMessagesOptions = {}): Promise<SessionMessageRunStepsResponse> {
-    const query = new URLSearchParams({
-      limit: String(options.limit ?? 500),
-      offset: String(options.offset ?? 0),
-    });
+  /** 执行视图（消息行合成）：思考/工具/意图来自消息表，替代 run-steps 归档回放。 */
+  async getMessageExecution(sessionId: string, messageId: string, options: ListMessagesOptions = {}): Promise<SessionMessageExecutionResponse> {
+    const query = new URLSearchParams();
     if (options.participantId) query.set("participant_id", options.participantId);
-    return this.request<SessionMessageRunStepsResponse>("getMessageRunSteps", {
+    return this.request<SessionMessageExecutionResponse>("getMessageExecution", {
       context: { sessionId, messageId }, query, ...(options.signal ? { signal: options.signal } : {}),
     });
   }
-
   async listFiles(sessionId: string): Promise<unknown> {
     return this.request("listFiles", { context: { sessionId } });
   }
@@ -727,7 +724,7 @@ function defaultEndpoint(name: RagChatEndpointName, context: Record<string, unkn
     case "listSessionParticipantRuns": return `/api/agent/sessions/${sessionId}/participants/${encodeURIComponent(String(context.participantId ?? ""))}/runs`;
     case "getParticipantRunSteps": return `/api/agent/sessions/${sessionId}/participants/${encodeURIComponent(String(context.participantId ?? ""))}/runs/${encodeURIComponent(String(context.runId ?? ""))}/steps`;
     case "listMessages": return `/api/agent/sessions/${sessionId}/messages`;
-    case "getMessageRunSteps": return `/api/agent/sessions/${sessionId}/messages/${encodeURIComponent(String(context.messageId ?? ""))}/run-steps`;
+    case "getMessageExecution": return `/api/agent/sessions/${sessionId}/messages/${encodeURIComponent(String(context.messageId ?? ""))}/execution`;
     case "listFiles": return `/api/agent/sessions/${sessionId}/files`;
     case "uploadFiles": return `/api/agent/sessions/${sessionId}/files/upload`;
     case "validateFiles": return `/api/agent/sessions/${sessionId}/files/validate`;

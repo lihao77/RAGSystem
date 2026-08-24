@@ -12,20 +12,44 @@ import {
 } from "@ragsystem/agent-sdk";
 
 import { MSG_TYPE } from "../src/contracts/message-kinds.js";
-import { resolveResumeToolResults, resolveRunStartRound } from "../src/services/agent/sdk/run-round.js";
+import { resolveResumeBoundaryMessageId, resolveResumeToolResults, resolveRunStartRound } from "../src/services/agent/sdk/run-round.js";
 
 describe("durable run round continuation", () => {
+  it("恢复运行时从该 run 已认领的最新用户行重建 boundary（含插嘴）", () => {
+    const messages = [
+      { id: "u1", role: "user", metadata: { run_id: "run-1", consumed_by_run_id: "run-1" } },
+      { id: "other-user", role: "user", metadata: { run_id: "run-2" } },
+      { id: "u2", role: "user", metadata: { run_id: "run-1", consumed_by_run_id: "run-1", execution_kind: "session_followup" } },
+      { id: "run-1:intent:0", role: "assistant", metadata: { run_id: "run-1", msg_type: MSG_TYPE.ROUND, round: 1 } },
+    ];
+    expect(resolveResumeBoundaryMessageId(messages, "run-1")).toBe("u2");
+    expect(resolveResumeBoundaryMessageId(messages, "run-2")).toBe("other-user");
+    expect(resolveResumeBoundaryMessageId(messages, "run-3")).toBeNull();
+  });
+
   it("从当前 run 已持久化的 intent 计算下一逻辑轮次", () => {
     const messages = [
-      { metadata: { run_id: "run-1", msg_type: MSG_TYPE.INTENT, round: 1 } },
-      { metadata: { run_id: "run-other", msg_type: MSG_TYPE.INTENT, round: 9 } },
+      { metadata: { run_id: "run-1", msg_type: MSG_TYPE.ROUND, round: 1 } },
+      { metadata: { run_id: "run-other", msg_type: MSG_TYPE.ROUND, round: 9 } },
       { metadata: { run_id: "run-1", msg_type: MSG_TYPE.OBSERVATION, round: 7 } },
       null,
-      { metadata: { run_id: "run-1", msg_type: MSG_TYPE.INTENT, round: 3 } },
+      { metadata: { run_id: "run-1", msg_type: MSG_TYPE.ROUND, round: 3 } },
     ];
 
     expect(resolveRunStartRound(messages, "run-1")).toBe(3);
     expect(resolveRunStartRound(messages, "missing")).toBe(0);
+  });
+
+  it("统一 round 类型与旧 intent 同读；无 round 字段的最终轮行不污染轮次", () => {
+    const messages = [
+      { metadata: { run_id: "run-1", msg_type: MSG_TYPE.ROUND, round: 2 } },
+      { metadata: { run_id: "run-1", msg_type: MSG_TYPE.ROUND, round: 1 } },
+      // 最终轮行（ROUND 无 tool_calls）不写 round 字段，应被跳过。
+      { metadata: { run_id: "run-1", msg_type: MSG_TYPE.ROUND } },
+      { metadata: { run_id: "run-1", msg_type: MSG_TYPE.RUN_TERMINAL } },
+    ];
+
+    expect(resolveRunStartRound(messages, "run-1")).toBe(2);
   });
 
   it("只恢复上一逻辑轮次中当前 run 的 durable 工具结果", () => {

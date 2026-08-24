@@ -1,18 +1,19 @@
 /**
- * XML 内容协议实现（迁自 backend-ts xml-protocol.ts）。
+ * XML 内容协议实现（无标签化：轮次判据唯一化为 tool_calls 有无）。
  *
- * 唯一协议：模型输出 <intent>/<tool_calls>/<final_answer> XML 阶段标签，SDK 边流边解析。
- * 工具调用不走厂商 FC——模型在文本里输出 <tool_calls>，由 StreamingRuntimeXmlParser +
- * parseRuntimeToolCallsXml 解析。协议说明 + tool_manifest 注入 system message。
+ * 模型输出两种形态：裸正文（边流边 emit output_delta）与 <tool_calls> 块（唯一结构化标签，
+ * 由 StreamingRuntimeXmlParser + parseRuntimeToolCallsXml 解析）。轮次性质在流结束判定——
+ * 有 tool_calls 即工具轮（裸正文是动作说明，派生 intent_complete 归过程树）；纯文本即最终回答。
+ * 旧协议标签 <intent>/<final_answer>/<answer> 在解析层剥离（内容透传为裸正文），模型旧习惯不泄漏进答案。
  *
  * invoke 合并三层逻辑：
- * - runXmlStreamRound：边流边 XML 解析边发 delta（逐字 emit first_token/output_delta/intent_*）。
- * - 修复重试循环：解析失败（标签未闭合 / 无 tool_calls / 无 final_answer）追加 feedback 消息重试，
+ * - runXmlStreamRound：边流边解析边发 delta（逐字 emit first_token/output_delta/reasoning_*）。
+ * - 修复重试循环：解析失败（tool_calls 标签未闭合/参数解析失败 / 空响应）追加 feedback 消息重试，
  *   上限 MAX_PROTOCOL_REPAIR_ATTEMPTS=2，整轮在单次 invoke 内消化，不递增内核 round。
- * - 非流式兜底：LlmClient 无 stream 时走 complete，拿完整响应后整体 XML 解析。
+ * - 非流式兜底：LlmClient 无 stream 时走 complete，拿完整响应后整体解析。
  *
- * 事件 emit 铁律：onChunk 回调里逐字 emit（first_token / output_delta / intent_delta），
- * 严禁改成攒完整段再 emit——会从流式退化成整段炸出。
+ * 事件 emit 铁律：onChunk 回调里逐字 emit（first_token / output_delta），严禁改成攒完整段再
+ * emit——会从流式退化成整段炸出。intent_* 不再流式：intent_complete 在轮次判定为工具轮时派生。
  *
  * 与 backend-ts 差异：
  * - LlmChatClient/ChatCompletionRequest/ChatStreamChunkHandler -> LlmClient/LlmRequest/LlmStreamHandler。
@@ -122,7 +123,7 @@ export class XmlProtocol implements Protocol {
     return this.toModelMessages(enriched);
   }
 
-  /** 流式 invoke：边流边 XML 解析边发 delta + 协议修复重试。 */
+  /** 流式 invoke：边流边解析边发 delta + 协议修复重试。 */
   private async invokeStreaming(
     ctx: KernelContext,
     baseRequest: LlmRequest,
@@ -130,6 +131,7 @@ export class XmlProtocol implements Protocol {
     stream: (request: LlmRequest, onChunk: LlmStreamHandler) => Promise<{ content: string; reasoning?: string; finishReason?: string | null; usage?: TokenUsage }>,
   ): Promise<KernelOutcome> {
     const signal = ctx.session.signal;
+    const agentName = ctx.session.profile.agentName;
     let messages = [...baseRequest.messages];
 
     let protocolRepairAttempts = 0;
@@ -148,6 +150,8 @@ export class XmlProtocol implements Protocol {
       }
 
       if (roundResult.error) {
+        // 已流出的裸正文按动作说明定格进过程树（并给前端清气泡信号），再进修复重试。
+        this.emitRoundNote(agentName, round, roundResult.text);
         if (protocolRepairAttempts >= MAX_PROTOCOL_REPAIR_ATTEMPTS) {
           throw new Error(`XML protocol repair exceeded max attempts: ${roundResult.error}`);
         }
@@ -163,6 +167,7 @@ export class XmlProtocol implements Protocol {
       protocolRepairAttempts = 0;
 
       if (roundResult.toolCalls.length > 0) {
+        this.emitRoundNote(agentName, round, roundResult.text);
         const calls: KernelToolCall[] = roundResult.toolCalls.map((call, index) => ({
           index,
           callId: call.callId ?? randomUUID(),
@@ -176,37 +181,52 @@ export class XmlProtocol implements Protocol {
         }));
         const assistantMessage: ChatMessage = {
           role: "assistant",
-          content: roundResult.intent,
+          content: roundResult.text,
           tool_calls: toolCalls,
         };
-        return { kind: "tool_calls", calls, assistantMessage, finishReason: roundResult.finishReason, usage: roundResult.usage };
+        return {
+          kind: "tool_calls",
+          calls,
+          ...(roundResult.reasoning ? { reasoning: roundResult.reasoning } : {}),
+          assistantMessage,
+          finishReason: roundResult.finishReason,
+          usage: roundResult.usage,
+        };
       }
 
-      const content = roundResult.finalAnswer.trim() ? roundResult.finalAnswer : roundResult.fallbackAnswer;
-      if (content.trim()) {
+      if (roundResult.text.trim()) {
         return {
           kind: "final",
-          finalAnswer: content,
+          finalAnswer: roundResult.text,
           contentParts: roundResult.contentParts,
-          assistantMessage: { role: "assistant", content },
+          ...(roundResult.reasoning ? { reasoning: roundResult.reasoning } : {}),
+          assistantMessage: { role: "assistant", content: roundResult.text },
           finishReason: roundResult.finishReason,
           usage: roundResult.usage,
         };
       }
 
       if (protocolRepairAttempts >= MAX_PROTOCOL_REPAIR_ATTEMPTS) {
-        throw new Error("XML protocol repair exceeded max attempts: no final_answer or tool_calls found");
+        throw new Error("XML protocol repair exceeded max attempts: empty response");
       }
       protocolRepairAttempts += 1;
       messages = [
         ...messages,
         { role: "assistant", content: roundResult.rawContent },
-        renderProtocolFeedbackMessage("no final_answer or tool_calls found", protocolRepairAttempts, MAX_PROTOCOL_REPAIR_ATTEMPTS),
+        renderProtocolFeedbackMessage("empty response: no text and no tool_calls", protocolRepairAttempts, MAX_PROTOCOL_REPAIR_ATTEMPTS),
       ];
     }
   }
 
-  /** 非流式 invoke：complete 拿完整响应后整体 XML 解析。不做修复重试（非流式无增量解析）。 */
+  /** 工具轮的裸正文以派生 intent_complete 归档：过程树拿到动作说明，前端借同一信号清空消息气泡。 */
+  private emitRoundNote(agentName: string, round: number, text: string): void {
+    if (!text.trim()) {
+      return;
+    }
+    this.deps.events.emit({ type: "intent_complete", agentName, content: text, round });
+  }
+
+  /** 非流式 invoke：complete 拿完整响应后整体解析。不做修复重试（非流式无增量解析）。 */
   private async invokeNonStreaming(ctx: KernelContext, request: LlmRequest, round: number): Promise<KernelOutcome> {
     const signal = ctx.session.signal;
     throwIfAborted(signal, "Agent run aborted");
@@ -218,6 +238,7 @@ export class XmlProtocol implements Protocol {
 
     const parser = new StreamingRuntimeXmlParser();
     parser.feed(result.content, { stopAfterClosingTag: "tool_calls" });
+    parser.finish();
     const toolCallsXml = parser.getTagContent("tool_calls");
     if (toolCallsXml.trim()) {
       const parsed = parseRuntimeToolCallsXml(toolCallsXml);
@@ -236,18 +257,21 @@ export class XmlProtocol implements Protocol {
         return {
           kind: "tool_calls",
           calls,
-          assistantMessage: { role: "assistant", content: parser.getTagContent("intent"), tool_calls: toolCalls },
+          ...(result.reasoning ? { reasoning: result.reasoning } : {}),
+          assistantMessage: { role: "assistant", content: parser.getFallbackText(), tool_calls: toolCalls },
           finishReason: result.finishReason ?? null,
           usage: result.usage,
         };
       }
     }
-    const finalAnswer = parser.getTagContent("final_answer");
-    const parsedContent = parseAssistantContent(finalAnswer.trim() ? finalAnswer : result.content);
+    // 裸正文（旧标签已剥离）为最终回答；解析层无产出时退回原始 content 兜底。
+    const text = parser.getFallbackText() || result.content || "";
+    const parsedContent = parseAssistantContent(text);
     return {
       kind: "final",
       finalAnswer: parsedContent.content,
       contentParts: parsedContent.parts,
+      ...(result.reasoning ? { reasoning: result.reasoning } : {}),
       assistantMessage: { role: "assistant", content: parsedContent.content },
       finishReason: result.finishReason ?? null,
       usage: result.usage,
@@ -282,10 +306,8 @@ export class XmlProtocol implements Protocol {
   }
 
   /**
-   * 单轮流式解析（逐字迁 backend-ts runXmlStreamRound）。
-   *
+   * 单轮流式解析。裸正文边解析边 emit output_delta（实时通道）；</tool_calls> 闭合即停流。
    * onChunk 回调里所有 emit 经 this.deps.events.emit 发出（扁平 KernelEvent）。
-   * 边流边解析：解析出 final_answer 片段立即 emit output_delta（实时通道）。
    */
   private async runXmlStreamRound(
     ctx: KernelContext,
@@ -294,11 +316,10 @@ export class XmlProtocol implements Protocol {
     stream: (request: LlmRequest, onChunk: LlmStreamHandler) => Promise<{ content: string; reasoning?: string; finishReason?: string | null; usage?: TokenUsage }>,
   ): Promise<{
     rawContent: string;
-    intent: string;
-    finalAnswer: string;
+    text: string;
     contentParts: AssistantContentPart[];
-    fallbackAnswer: string;
     toolCalls: ParsedToolCall[];
+    reasoning: string;
     finishReason: string | null;
     error: string | null;
     usage: TokenUsage | undefined;
@@ -311,13 +332,8 @@ export class XmlProtocol implements Protocol {
     const contentParser = new StreamingAssistantContentParser();
     let firstChunkSeen = false;
     const providerStartedAt = Date.now();
-    let intent = "";
     let toolCallsClosed = false;
-    let finalAnswerStarted = false;
-    let ignoredToolCallsAfterFinal = false;
     let error: string | null = null;
-    let protocolTagSeen = false;
-    const pendingFallbackDeltas: string[] = [];
     const toolCalls: ParsedToolCall[] = [];
     let reasoning = "";
 
@@ -354,39 +370,10 @@ export class XmlProtocol implements Protocol {
       const events = parser.feed(chunk.content, { stopAfterClosingTag: "tool_calls" });
       for (const event of events) {
         if (event.type === "fallback") {
-          pendingFallbackDeltas.push(event.content);
+          emitAssistantContentEvents(this.deps.events, agentName, contentParser.feed(event.content));
           continue;
         }
-        if (event.type === "tag_open") {
-          protocolTagSeen = true;
-        }
-        if (event.type === "tag_open" && event.tag === "final_answer") {
-          finalAnswerStarted = true;
-        }
-        if (event.type === "tag_open" && event.tag === "tool_calls" && finalAnswerStarted) {
-          ignoredToolCallsAfterFinal = true;
-        }
-        if (event.type === "content" && event.tag === "intent") {
-          intent += event.content;
-          this.deps.events.emit({
-            type: "intent_delta",
-            agentName,
-            content: event.content,
-            round,
-          });
-        }
-        if (event.type === "content" && event.tag === "final_answer" && !toolCallsClosed) {
-          emitAssistantContentEvents(this.deps.events, agentName, contentParser.feed(event.content));
-        }
-        if (event.type === "tag_close" && event.tag === "intent") {
-          this.deps.events.emit({
-            type: "intent_complete",
-            agentName,
-            content: intent,
-            round,
-          });
-        }
-        if (event.type === "tag_close" && event.tag === "tool_calls" && !ignoredToolCallsAfterFinal) {
+        if (event.type === "tag_close" && event.tag === "tool_calls") {
           toolCallsClosed = true;
           const parsed = parseRuntimeToolCallsXml(parser.getTagContent("tool_calls"));
           if (parsed.error) {
@@ -410,29 +397,24 @@ export class XmlProtocol implements Protocol {
       });
     }
 
+    // 流结束：冲刷解析器扣留的尾部缓冲，正文走完内容解析器。
+    for (const event of parser.finish()) {
+      if (event.type === "fallback") {
+        emitAssistantContentEvents(this.deps.events, agentName, contentParser.feed(event.content));
+      }
+    }
+    emitAssistantContentEvents(this.deps.events, agentName, contentParser.finish());
+
     const rawContent = parser.getFullResponse() || result.content;
     if (parser.currentState !== null && !error) {
       error = `unclosed <${parser.currentState}> tag`;
     }
-    const sawProtocolTag = Boolean(
-      parser.getTagContent("intent").trim() ||
-        parser.getTagContent("tool_calls").trim() ||
-        parser.getTagContent("final_answer").trim(),
-    );
-    if (!sawProtocolTag) {
-      for (const content of pendingFallbackDeltas) {
-        emitAssistantContentEvents(this.deps.events, agentName, contentParser.feed(content));
-      }
-    }
-    emitAssistantContentEvents(this.deps.events, agentName, contentParser.finish());
-    const fallbackAnswer = sawProtocolTag ? "" : contentParser.getFallbackContent();
     return {
       rawContent,
-      intent: parser.getTagContent("intent"),
-      finalAnswer: contentParser.getFallbackContent(),
+      text: contentParser.getFallbackContent(),
       contentParts: contentParser.getParts(),
-      fallbackAnswer,
       toolCalls,
+      reasoning: reasoning || result.reasoning || "",
       finishReason: result.finishReason ?? null,
       error,
       usage: result.usage,

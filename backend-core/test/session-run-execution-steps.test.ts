@@ -1,9 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { AgentSessionRepositoryPort } from "../src/contracts/session/agent-session-repository.js";
-import type { RunStepInfo } from "../src/contracts/common.js";
 import { AgentSessionApplication } from "../src/services/sessions/index.js";
-import { EXECUTION_ENVELOPE_STEP_TYPE } from "../src/services/runtime/event-outbox/execution-envelope-archive.js";
 
 function run(runId: string, overrides: Partial<{
   status: string;
@@ -29,25 +27,6 @@ function run(runId: string, overrides: Partial<{
   };
 }
 
-function executionStep(runId: string, callId: string, order: number): RunStepInfo {
-  return {
-    id: order,
-    run_id: runId,
-    event_id: `${runId}:${order}`,
-    session_id: "session-1",
-    step_order: order,
-    step_type: EXECUTION_ENVELOPE_STEP_TYPE,
-    payload: {
-      type: "agent_started",
-      session_id: "session-1",
-      run_id: runId,
-      call_id: callId,
-      agent_id: "worker",
-      payload: { phase: "start" },
-    },
-    created_at: `2026-08-09T00:00:0${order}.000Z`,
-  };
-}
 
 function boundaryStep(runId: string, messageId: string, order: number): RunStepInfo {
   return {
@@ -134,23 +113,26 @@ describe("AgentSessionApplication participant Run steps", () => {
     expect(repository.listParticipantRuns).toHaveBeenCalledWith("session-1", "child-1", 1, 1);
   });
 
-  it("lists only the selected Run and paginates its execution envelopes", async () => {
-    const steps = new Map([
-      ["child-run", [executionStep("child-run", "child-call", 1)]],
-      ["grandchild-run", [executionStep("grandchild-run", "grandchild-call", 2)]],
-    ]);
-    const listRunSteps = vi.fn(async ({ runId }: { runId?: string | null }) => steps.get(runId || "") || []);
+  it("synthesizes the participant Run's execution view from its thread message rows and paginates", async () => {
+    // 同源改造：participant 执行视图来自消息行合成，不再读 run_steps 归档。
+    const threadRows = [
+      {
+        id: "child-run:intent:0", seq: 2, role: "assistant", content: "查一下",
+        content_parts: [{ type: "thinking", text: "需要工具", round: 1, complete: true }],
+        metadata: { run_id: "child-run", msg_type: "intent", round: 1, agent_name: "child" },
+        tool_calls: [{ id: "call-1", type: "function", function: { name: "read", arguments: "{}" } }],
+      },
+      {
+        id: "child-run:tool:call-1", seq: 3, role: "tool", content: "data",
+        content_parts: [], metadata: { run_id: "child-run", msg_type: "observation" },
+        tool_call_id: "call-1", name: "read",
+      },
+    ];
+    const listMessages = vi.fn(async () => ({ items: threadRows, total: 2 }));
     const childRun = run("child-run", { parent_run_id: "root-run" });
     const repository = {
       getRun: vi.fn(async () => childRun),
-      listRuns: vi.fn(async () => ({
-        items: [
-          childRun,
-          run("grandchild-run", { parent_run_id: "child-run", child_agent_id: "child-2", thread_key: "child:child-2", created_at: "2026-08-09T00:00:02.000Z" }),
-        ],
-        total: 2,
-      })),
-      listRunSteps,
+      listMessages,
     } as unknown as AgentSessionRepositoryPort;
     const sessions = new AgentSessionApplication(repository);
 
@@ -158,13 +140,17 @@ describe("AgentSessionApplication participant Run steps", () => {
       sessionId: "session-1",
       participantId: "child-1",
       runId: "child-run",
-      limit: 1,
-      offset: 1,
+      limit: 2,
+      offset: 2,
     });
 
-    expect(result).toMatchObject({ run_id: "child-run", total: 1, limit: 1, offset: 1, has_more: false });
-    expect(result.items).toEqual([]);
-    expect(listRunSteps.mock.calls.map(([input]) => input.runId)).toEqual(["child-run"]);
+    // 合成 5 条（reasoning_complete + intent_complete + tool_call + tool_result + agent_ended 终态收口）
+    // → limit 2 offset 2 切到 [tool_call, tool_result]，还有剩余（has_more）
+    expect(result.run_id).toBe("child-run");
+    expect(result.total).toBe(5);
+    expect(result.items.map((item) => item.type)).toEqual(["tool_call", "tool_result"]);
+    expect(result.has_more).toBe(true);
+    expect(listMessages).toHaveBeenCalledWith("session-1", 10_000, 0, "child:child-1");
   });
 
   it("rejects a Run owned by another participant", async () => {
@@ -180,61 +166,154 @@ describe("AgentSessionApplication participant Run steps", () => {
     })).rejects.toThrow("Run 不存在: other-run");
   });
 
-  it("slices a Run from each visible message to the next message boundary", async () => {
+  it("serves the same synthesized execution view for every message of a Run", async () => {
+    // 同源改造：同一 run 的任意消息问出的执行视图一致（整 run 合成）；
+    // 无 run_id 的消息返回空。
     const messages = [
       { id: "initial", role: "user", metadata: { run_id: "root-run", consumed_by_run_id: "root-run" }, thread_key: "root", child_agent_id: null, seq: 1 },
-      { id: "followup-1", role: "user", metadata: { run_id: "root-run", consumed_by_run_id: "root-run", source: "running_session" }, thread_key: "root", child_agent_id: null, seq: 2 },
-      { id: "agent-1", role: "user", metadata: { run_id: "root-run", consumed_by_run_id: "root-run", agent_message: true }, thread_key: "root", child_agent_id: null, seq: 3 },
       { id: "assistant", role: "assistant", metadata: { run_id: "root-run" }, thread_key: "root", child_agent_id: null, seq: 4 },
+      { id: "standalone", role: "user", metadata: {}, thread_key: "root", child_agent_id: null, seq: 5 },
     ];
-    const steps = [
-      executionStep("root-run", "call-1", 1),
-      executionStep("root-run", "call-2", 2),
-      boundaryStep("root-run", "followup-1", 3),
-      executionStep("root-run", "call-3", 4),
-      boundaryStep("root-run", "agent-1", 5),
-      executionStep("root-run", "call-4", 6),
-      assistantBoundaryStep("root-run", "assistant", 7),
+    const threadRows = [
+      { id: "initial", seq: 1, role: "user", content: "任务", content_parts: [], metadata: { run_id: "root-run" }, tool_calls: [] },
+      {
+        id: "root-run:intent:0", seq: 2, role: "assistant", content: "我来看看",
+        content_parts: [], metadata: { run_id: "root-run", msg_type: "round", round: 1, agent_name: "agent" },
+        tool_calls: [{ id: "call-1", type: "function", function: { name: "read", arguments: "{}" } }],
+      },
+      {
+        id: "root-run:tool:call-1", seq: 3, role: "tool", content: "data",
+        content_parts: [], metadata: { run_id: "root-run", msg_type: "observation" },
+        tool_call_id: "call-1", name: "read",
+      },
     ];
-    const segments = new Map<string, RunStepInfo[]>([
-      ["initial", steps.slice(0, 2)],
-      ["followup-1", steps.slice(3, 4)],
-      ["agent-1", steps.slice(5, 6)],
-      ["assistant", []],
-    ]);
-    const listMessageRunSteps = vi.fn(async ({
-      messageId,
-      offset,
-      limit,
-    }: { messageId: string; offset: number; limit: number }) => {
-      const items = segments.get(messageId) ?? [];
-      return { items: items.slice(offset, offset + limit), total: items.length };
-    });
     const repository = {
       getMessageById: vi.fn(async (_sessionId: string, messageId: string) => (
         messages.find((message) => message.id === messageId) ?? null
       )),
-      listMessageRunSteps,
+      listMessages: vi.fn(async () => ({ items: threadRows, total: 2 })),
     } as unknown as AgentSessionRepositoryPort;
     const sessions = new AgentSessionApplication(repository);
 
-    const initial = await sessions.listMessageRunSteps({ sessionId: "session-1", messageId: "initial", limit: 50 });
-    const followup = await sessions.listMessageRunSteps({ sessionId: "session-1", messageId: "followup-1", limit: 50 });
-    const agentMessage = await sessions.listMessageRunSteps({ sessionId: "session-1", messageId: "agent-1", limit: 50 });
-    const final = await sessions.listMessageRunSteps({ sessionId: "session-1", messageId: "assistant", limit: 50 });
+    const fromUser = await sessions.listMessageExecution({ sessionId: "session-1", messageId: "initial" });
+    const fromFinal = await sessions.listMessageExecution({ sessionId: "session-1", messageId: "assistant" });
+    const standalone = await sessions.listMessageExecution({ sessionId: "session-1", messageId: "standalone" });
 
-    expect(initial.items.map((item) => item.call_id)).toEqual(["call-1", "call-2"]);
-    expect(followup.items.map((item) => item.call_id)).toEqual(["call-3"]);
-    expect(agentMessage.items.map((item) => item.call_id)).toEqual(["call-4"]);
-    expect(final.items).toEqual([]);
-    expect(listMessageRunSteps).toHaveBeenCalledTimes(4);
-    expect(listMessageRunSteps).toHaveBeenCalledWith({
-      sessionId: "session-1",
-      runId: "root-run",
-      messageId: "followup-1",
-      limit: 50,
-      offset: 0,
-    });
+    expect(fromUser.items).toEqual(fromFinal.items);
+    expect(fromFinal.items.map((item) => [item.type, (item.payload as Record<string, unknown>).phase ?? null])).toEqual([
+      ["stream_output", "intent_complete"],
+      ["tool_call", "start"],
+      ["tool_result", "end"],
+      ["agent_ended", "end"],
+    ]);
+    expect(standalone.items).toEqual([]);
+  });
+
+  it("segments the execution view per boundary when an interjection was claimed mid-run", async () => {
+    // 插嘴被同 run 认领：消息表两条用户行共享 run_id，行上 boundary_message_id 盖章分段。
+    // 每个用户行的执行视图只含自己段内的轮次，不再整 run 复制。
+    const messages = [
+      { id: "u1", role: "user", metadata: { run_id: "root-run", consumed_by_run_id: "root-run" }, thread_key: "root", child_agent_id: null, seq: 1 },
+      { id: "u2", role: "user", metadata: { run_id: "root-run", consumed_by_run_id: "root-run", execution_kind: "session_followup", source: "running_session" }, thread_key: "root", child_agent_id: null, seq: 5 },
+    ];
+    const threadRows = [
+      { id: "u1", seq: 1, role: "user", content: "任务", content_parts: [], metadata: { run_id: "root-run" }, tool_calls: [] },
+      {
+        id: "root-run:intent:0", seq: 2, role: "assistant", content: "第一轮说明",
+        content_parts: [], metadata: { run_id: "root-run", msg_type: "round", round: 1, agent_name: "agent", boundary_message_id: "u1" },
+        tool_calls: [{ id: "call-1", type: "function", function: { name: "read", arguments: "{}" } }],
+      },
+      {
+        id: "root-run:tool:call-1", seq: 3, role: "tool", content: "data",
+        content_parts: [], metadata: { run_id: "root-run", msg_type: "observation", boundary_message_id: "u1" },
+        tool_call_id: "call-1", name: "read",
+      },
+      { id: "u2", seq: 5, role: "user", content: "插嘴", content_parts: [], metadata: { run_id: "root-run", execution_kind: "session_followup" }, tool_calls: [] },
+      {
+        id: "root-run:intent:1", seq: 6, role: "assistant", content: "插嘴后说明",
+        content_parts: [], metadata: { run_id: "root-run", msg_type: "round", round: 2, agent_name: "agent", boundary_message_id: "u2" },
+        tool_calls: [{ id: "call-2", type: "function", function: { name: "search", arguments: "{}" } }],
+      },
+      {
+        id: "root-run:tool:call-2", seq: 7, role: "tool", content: "hit",
+        content_parts: [], metadata: { run_id: "root-run", msg_type: "observation", boundary_message_id: "u2" },
+        tool_call_id: "call-2", name: "search",
+      },
+      {
+        id: "root-run:final", seq: 8, role: "assistant", content: "最终答案",
+        content_parts: [{ type: "thinking", text: "收尾", complete: true }, { type: "text", text: "最终答案" }],
+        metadata: { run_id: "root-run", msg_type: "round", agent_name: "agent", boundary_message_id: "u2" },
+        tool_calls: [],
+      },
+    ];
+    const repository = {
+      getMessageById: vi.fn(async (_sessionId: string, messageId: string) => (
+        messages.find((message) => message.id === messageId) ?? null
+      )),
+      listMessages: vi.fn(async () => ({ items: threadRows, total: threadRows.length })),
+    } as unknown as AgentSessionRepositoryPort;
+    const sessions = new AgentSessionApplication(repository);
+
+    const first = await sessions.listMessageExecution({ sessionId: "session-1", messageId: "u1" });
+    const second = await sessions.listMessageExecution({ sessionId: "session-1", messageId: "u2" });
+
+    const shape = (items: { type: string; payload: unknown }[]) =>
+      items.map((item) => [item.type, (item.payload as Record<string, unknown>).phase ?? null]);
+    expect(shape(first.items)).toEqual([
+      ["stream_output", "intent_complete"],
+      ["tool_call", "start"],
+      ["tool_result", "end"],
+      ["agent_ended", "end"],
+    ]);
+    expect(shape(second.items)).toEqual([
+      ["stream_output", "intent_complete"],
+      ["tool_call", "start"],
+      ["tool_result", "end"],
+      ["stream_output", "reasoning_complete"],
+      ["agent_ended", "end"],
+    ]);
+    // 段间不重复：两段各一个工具，合起来恰为全量。
+    const toolCalls = (items: { type: string; payload: unknown }[]) =>
+      items.filter((item) => item.type === "tool_call")
+        .map((item) => (item.payload as Record<string, unknown>).tool);
+    expect(toolCalls(first.items)).toEqual(["read"]);
+    expect(toolCalls(second.items)).toEqual(["search"]);
+  });
+
+  it("attributes unmarked legacy rows to the nearest preceding boundary by seq", async () => {
+    // 旧行（无 boundary_message_id 盖章）按 seq 归属最近前置用户行，分段语义不受影响。
+    const messages = [
+      { id: "u1", role: "user", metadata: { run_id: "root-run" }, thread_key: "root", child_agent_id: null, seq: 1 },
+      { id: "u2", role: "user", metadata: { run_id: "root-run", execution_kind: "session_followup" }, thread_key: "root", child_agent_id: null, seq: 4 },
+    ];
+    const threadRows = [
+      { id: "u1", seq: 1, role: "user", content: "任务", content_parts: [], metadata: { run_id: "root-run" }, tool_calls: [] },
+      {
+        id: "root-run:intent:0", seq: 2, role: "assistant", content: "第一轮",
+        content_parts: [], metadata: { run_id: "root-run", msg_type: "round", round: 1, agent_name: "agent" },
+        tool_calls: [{ id: "call-1", type: "function", function: { name: "read", arguments: "{}" } }],
+      },
+      { id: "u2", seq: 4, role: "user", content: "插嘴", content_parts: [], metadata: { run_id: "root-run" }, tool_calls: [] },
+      {
+        id: "root-run:final", seq: 5, role: "assistant", content: "答案",
+        content_parts: [{ type: "thinking", text: "思考", complete: true }, { type: "text", text: "答案" }],
+        metadata: { run_id: "root-run", msg_type: "round", agent_name: "agent" },
+        tool_calls: [],
+      },
+    ];
+    const repository = {
+      getMessageById: vi.fn(async (_sessionId: string, messageId: string) => (
+        messages.find((message) => message.id === messageId) ?? null
+      )),
+      listMessages: vi.fn(async () => ({ items: threadRows, total: threadRows.length })),
+    } as unknown as AgentSessionRepositoryPort;
+    const sessions = new AgentSessionApplication(repository);
+
+    const first = await sessions.listMessageExecution({ sessionId: "session-1", messageId: "u1" });
+    const second = await sessions.listMessageExecution({ sessionId: "session-1", messageId: "u2" });
+
+    expect(first.items.map((item) => item.type)).toEqual(["stream_output", "tool_call", "agent_ended"]);
+    expect(second.items.map((item) => item.type)).toEqual(["stream_output", "agent_ended"]);
   });
 
   it("delegates rollback truncation to the repository transaction", async () => {

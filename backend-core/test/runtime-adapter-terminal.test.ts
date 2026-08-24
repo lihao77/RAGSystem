@@ -833,7 +833,7 @@ describe("executeRunWithSdk terminal convergence", () => {
 
     expect(result.success).toBe(false);
     expect(result.content).toBe("start callback failed");
-    expect(finalize).toHaveBeenCalledWith("failed", null, error);
+    expect(finalize).toHaveBeenCalledWith("failed", null, error, null);
   });
 
   it("SDK result 成功但事件持久化失败时仍会落 failed 终态消息", async () => {
@@ -858,7 +858,7 @@ describe("executeRunWithSdk terminal convergence", () => {
 
     expect(result.success).toBe(false);
     expect(result.content).toBe("event persistence failed");
-    expect(finalize).toHaveBeenCalledWith("failed", null, persistError);
+    expect(finalize).toHaveBeenCalledWith("failed", null, persistError, null);
     expect(close).toHaveBeenCalledOnce();
   });
 });

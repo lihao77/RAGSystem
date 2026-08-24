@@ -11,6 +11,72 @@ describe("kernel event wire translation", () => {
     agentId: "agent",
   };
 
+  it("stamps the current boundary on tool envelopes so interjections cannot split call/result routing", () => {
+    // 插嘴认领后 boundary 翻转：工具 call/result 同 boundary 精确路由，
+    // 前端不再依赖消息列表位置回退（splice/重排会拆散配对 → 工具永远 running）。
+    const boundaryContext = { ...context, boundaryMessageId: "u2" };
+    const [toolCall] = translateKernelEvent({
+      type: "tool_call",
+      agentName: "agent",
+      toolCallId: "tool-1",
+      toolName: "read",
+      arguments: {},
+      round: 1,
+      order: 0,
+      roundIndex: 0,
+    }, boundaryContext);
+    expect(toolCall?.boundary_message_id).toBe("u2");
+
+    const [toolResult] = translateKernelEvent({
+      type: "tool_result",
+      agentName: "agent",
+      toolCallId: "tool-1",
+      toolName: "read",
+      success: true,
+      summary: "ok",
+      observation: "ok",
+      metadata: {},
+      referenceResult: {},
+      elapsedTime: 0,
+      round: 1,
+      order: 0,
+      roundIndex: 0,
+    }, boundaryContext);
+    expect(toolResult?.boundary_message_id).toBe("u2");
+
+    // 无 boundary（子线程/历史合成）时不带该字段，协议顶层可选。
+    const [plain] = translateKernelEvent({
+      type: "tool_call",
+      agentName: "agent",
+      toolCallId: "tool-2",
+      toolName: "read",
+      arguments: {},
+      round: 0,
+      order: 0,
+      roundIndex: 0,
+    }, context);
+    expect(plain).not.toHaveProperty("boundary_message_id");
+  });
+
+  it("maps terminal-closed tool results to interrupted status on the wire", () => {
+    const [event] = translateKernelEvent({
+      type: "tool_result",
+      agentName: "agent",
+      toolCallId: "tool-9",
+      toolName: "read",
+      success: false,
+      summary: "",
+      observation: "工具执行被中断",
+      metadata: { terminal_status: "interrupted" },
+      referenceResult: {},
+      elapsedTime: 0,
+      round: 0,
+      order: 0,
+      roundIndex: 0,
+    }, context);
+    expect(event?.payload).toMatchObject({ ok: false, status: "interrupted" });
+  });
+
   it("projects ordered text and file content parts", () => {
     expect(translateKernelEvent({
       type: "output_delta",

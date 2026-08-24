@@ -150,7 +150,7 @@ export class MessageOps {
     const rootClause = resolvedThreadKey === "root"
       ? `AND child_agent_id IS NULL
          AND COALESCE(json_extract(metadata, '$.conversation_scope'), '') != 'child'
-         AND COALESCE(json_extract(metadata, '$.msg_type'), '') NOT IN ('intent', 'observation')`
+         AND COALESCE(json_extract(metadata, '$.msg_type'), '') NOT IN ('observation')`
       : "";
     const where = `session_id=? AND thread_key=?
       AND role IN ('user', 'assistant', 'system')
@@ -263,82 +263,7 @@ export class MessageOps {
       if (rows.length === 0) {
         return 0;
       }
-      const truncations = this.db.prepare(`
-        SELECT boundary.run_id, MIN(boundary.boundary_step_order) AS from_step_order
-        FROM run_message_boundaries AS boundary
-        JOIN messages AS message
-          ON message.session_id=boundary.session_id AND message.id=boundary.message_id
-        WHERE message.session_id=? AND message.seq>?
-          AND boundary.boundary_step_order IS NOT NULL
-        GROUP BY boundary.run_id
-      `).all(sessionId, afterSeq) as Array<{ run_id: string; from_step_order: number }>;
-      const survivingRunIds = new Set((this.db.prepare(`
-        SELECT DISTINCT COALESCE(
-          NULLIF(json_extract(metadata, '$.consumed_by_run_id'), ''),
-          NULLIF(json_extract(metadata, '$.run_id'), '')
-        ) AS run_id
-        FROM messages
-        WHERE session_id=? AND seq<=?
-      `).all(sessionId, afterSeq) as Array<{ run_id: string | null }>)
-        .flatMap((row) => typeof row.run_id === "string" && row.run_id.trim() ? [row.run_id.trim()] : []));
-      const survivingBoundaryRunIds = new Set((this.db.prepare(`
-        SELECT DISTINCT boundary.run_id
-        FROM run_message_boundaries AS boundary
-        JOIN messages AS message
-          ON message.session_id=boundary.session_id AND message.id=boundary.message_id
-        WHERE message.session_id=? AND message.seq<=?
-      `).all(sessionId, afterSeq) as Array<{ run_id: string }>).map((row) => row.run_id));
-      const fullyDeletedRunIds = [...new Set([
-        ...truncations.map((row) => row.run_id),
-        ...rows.flatMap((row) => {
-        const metadata = parseJsonObject(row.metadata);
-        const runId = metadata.consumed_by_run_id ?? metadata.run_id;
-        return typeof runId === "string" && runId.trim() ? [runId.trim()] : [];
-        }),
-      ])].filter((runId) => !survivingRunIds.has(runId) && !survivingBoundaryRunIds.has(runId));
-      const fullyDeletedRunIdSet = new Set(fullyDeletedRunIds);
-
-      for (const truncation of truncations) {
-        if (fullyDeletedRunIdSet.has(truncation.run_id)) continue;
-        this.db.prepare(`
-          DELETE FROM run_message_boundaries
-          WHERE session_id=? AND run_id=?
-            AND (start_after_step_order>=? OR boundary_step_order>=?)
-        `).run(
-          sessionId,
-          truncation.run_id,
-          truncation.from_step_order,
-          truncation.from_step_order,
-        );
-        this.db.prepare(`
-          DELETE FROM step_resources
-          WHERE step_id IN (
-            SELECT id FROM run_steps
-            WHERE session_id=? AND run_id=? AND step_order>=?
-          )
-        `).run(sessionId, truncation.run_id, truncation.from_step_order);
-        this.db
-          .prepare("DELETE FROM run_steps WHERE session_id=? AND run_id=? AND step_order>=?")
-          .run(sessionId, truncation.run_id, truncation.from_step_order);
-      }
-      if (fullyDeletedRunIds.length > 0) {
-        const runPlaceholders = fullyDeletedRunIds.map(() => "?").join(",");
-        this.db.prepare(`
-          DELETE FROM run_message_boundaries
-          WHERE session_id=? AND run_id IN (${runPlaceholders})
-        `).run(sessionId, ...fullyDeletedRunIds);
-        this.db.prepare(`
-          DELETE FROM step_resources
-          WHERE step_id IN (
-            SELECT id FROM run_steps
-            WHERE session_id=? AND run_id IN (${runPlaceholders})
-          )
-        `).run(sessionId, ...fullyDeletedRunIds);
-        this.db.prepare(`
-          DELETE FROM run_steps
-          WHERE session_id=? AND run_id IN (${runPlaceholders})
-        `).run(sessionId, ...fullyDeletedRunIds);
-      }
+      // run_steps/boundaries 归档已退役：回滚只需清消息行与派生 child_agents。
       this.db.prepare("DELETE FROM messages WHERE session_id=? AND seq > ?").run(sessionId, afterSeq);
       this.db
         .prepare("DELETE FROM child_agents WHERE session_id=? AND created_seq IS NOT NULL AND created_seq > ?")

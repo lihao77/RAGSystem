@@ -5,7 +5,6 @@ import type { AgentExecuteResult, AgentRunStartResult, ExecutionTaskStatus } fro
 import type { ModelProviderConfig } from "../../../contracts/integrations/model-adapter.js";
 import type { ExecutionSessionPort } from "../../../contracts/session/session-application.js";
 import { RecoverableInterrupt, type HookRegistry } from "@ragsystem/agent-sdk";
-import { EnvelopeSchema } from "@ragsystem/agent-protocol";
 import type { BackgroundTaskService } from "../../runtime/background-task-service.js";
 import type { SessionNotificationQueue } from "../../runtime/session-notification-queue.js";
 import { executeRunWithSdk } from "../sdk/runtime-adapter.js";
@@ -31,12 +30,10 @@ import type { ThinkingLevel } from "@ragsystem/agent-llm";
 import type { PathAccessPolicy } from "../../../contracts/runtime/path-access-policy.js";
 import { AgentExecutionEventPublisher } from "./event-publisher.js";
 import {
-  asString,
   buildRunningExecutionStatus,
   renderBackgroundNotification,
 } from "./helpers.js";
 import { AgentExecutionStatusTracker } from "./status-tracker.js";
-import { EXECUTION_ENVELOPE_STEP_TYPE } from "../../runtime/event-outbox/execution-envelope-archive.js";
 import type { SessionFileLookupPort } from "../../../contracts/session/session-file-storage.js";
 import type { ExecutionEnvironmentCapability } from "../../../contracts/execution/execution-environment.js";
 import type { MessageContentPart } from "@ragsystem/agent-protocol";
@@ -44,12 +41,6 @@ import type { SystemConfigPort } from "../../../contracts/runtime/system-config.
 
 export interface AgentExecutionLogger {
   error(bindings: Record<string, unknown>, message: string): void;
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : {};
 }
 
 /**
@@ -387,24 +378,8 @@ export class AgentRunEngine {
     const finalMessage = run?.final_message_id
       ? await this.storage.resultReader.getMessageById(input.sessionId, run.final_message_id)
       : null;
-    const steps = await this.storage.resultReader.listRunSteps({
-      sessionId: input.sessionId,
-      runId: input.runId,
-      limit: 1000,
-    });
-    const envelopes = steps
-      .filter((step) => step.step_type === EXECUTION_ENVELOPE_STEP_TYPE)
-      .map((step) => EnvelopeSchema.parse(step.payload));
-    const toolCalls = envelopes
-      .filter((event) => event.type === "tool_result")
-      .map((event) => ({ call_id: event.call_id, agent_id: event.agent_id, ...asRecord(event.payload) }));
-    const lastAgentEnd = [...envelopes]
-      .reverse()
-      .find((event) => event.type === "agent_ended");
     const executionTime = numberOrNull(finalMessage?.metadata.execution_time);
-    const error = run?.status && run.status !== "completed"
-      ? asString(asRecord(lastAgentEnd?.payload).result)
-      : null;
+    // run 行自带 status/terminal_reason（updateRunStatus 落库），结果重建不再读 run_steps 归档。
     const metadata = {
       ...(finalMessage?.metadata ?? {}),
       run_id: input.runId,
@@ -419,12 +394,12 @@ export class AgentRunEngine {
       content_parts: finalMessage?.content_parts ?? [],
       agent_name: run?.agent_name ?? input.agentName,
       execution_time: executionTime,
-      tool_calls: toolCalls,
+      tool_calls: [],
       metadata,
       session_id: input.sessionId,
       run_id: input.runId,
       task_id: input.taskId,
-      error: run?.status === "completed" ? null : error ?? "任务执行失败",
+      error: run?.status === "completed" ? null : run?.terminal_reason ?? "任务执行失败",
     };
   }
 

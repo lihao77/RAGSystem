@@ -120,7 +120,7 @@ export const POSTGRES_CONVERSATION_MIGRATIONS: PostgresConversationMigration[] =
         AND metadata->>'react_intermediate' IS DISTINCT FROM 'true'
         AND metadata->>'visible_to_user' IS DISTINCT FROM 'false'
         AND metadata->>'conversation_scope' IS DISTINCT FROM 'child'
-        AND COALESCE(metadata->>'msg_type','') NOT IN ('intent','observation')
+        AND COALESCE(metadata->>'msg_type','') NOT IN ('observation')
       ORDER BY seq ASC
       LIMIT 1;
 
@@ -133,7 +133,7 @@ export const POSTGRES_CONVERSATION_MIGRATIONS: PostgresConversationMigration[] =
         AND metadata->>'react_intermediate' IS DISTINCT FROM 'true'
         AND metadata->>'visible_to_user' IS DISTINCT FROM 'false'
         AND metadata->>'conversation_scope' IS DISTINCT FROM 'child'
-        AND COALESCE(metadata->>'msg_type','') NOT IN ('intent','observation')
+        AND COALESCE(metadata->>'msg_type','') NOT IN ('observation')
       ORDER BY seq DESC
       LIMIT 1;
 

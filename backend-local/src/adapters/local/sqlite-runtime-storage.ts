@@ -393,23 +393,14 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
         let run: RuntimeStartRunResult["run"];
         if (existingRun) {
           assertRunScope(existingRun, input.run, this.tenantId);
-          if (input.initialMessage) {
-            const initialMessage = resolveDeterministicMessage(tx, input.initialMessage, "initial message");
-            tx.ensureInitialRunMessageBoundary(input.session.sessionId, input.run.runId, initialMessage.id);
-          }
           run = toCreatedRun(existingRun);
         } else {
           if (!input.initialMessage) {
             throw new Error(`new run requires an initial message: ${input.run.runId}`);
           }
           try {
-            const initialMessage = resolveDeterministicMessage(tx, input.initialMessage, "initial message");
+            resolveDeterministicMessage(tx, input.initialMessage, "initial message");
             run = tx.createRun(input.run);
-            tx.ensureInitialRunMessageBoundary(
-              input.session.sessionId,
-              input.run.runId,
-              initialMessage.id,
-            );
             if (input.participantRun) {
               const participantUpdated = tx.updateChildAgentLastRun({
                 sessionId: input.session.sessionId,
@@ -480,13 +471,6 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
           : resolveDeterministicMessage(tx, rootMailboxInitialMessage(input), "initial message");
         const run = existingRun ? toCreatedRun(existingRun) : tx.createRun(input.run);
         if (existingRun) assertRunScope(existingRun, input.run, this.tenantId);
-        if (initialMessage) {
-          tx.ensureInitialRunMessageBoundary(
-            input.session.sessionId,
-            input.run.runId,
-            initialMessage.id,
-          );
-        }
         if (maintenance?.token === input.sessionMaintenanceToken) {
           tx.updateSessionMetadata(input.session.sessionId, { runtime_maintenance: null });
         }
@@ -747,7 +731,7 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
         const alreadyAttached = batch.length > 0
           && batch.every((item) => item.root_run_id === input.rootRunId
             && (item.status === "resolved" || item.status === "consumed"));
-        const attachEventExists = tx.getRunStepByEventId(input.record.outbox.eventId) !== null;
+        const attachEventExists = tx.getOutboxRowByEventId(input.record.outbox.eventId) !== null;
         if (!alreadyAttached || rootRun?.status !== "running" || !attachEventExists) {
           return { attached: false, record: null };
         }
@@ -971,6 +955,7 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
               agentName: run.agent_name ?? run.agent_display_name,
               terminalStatus: runStatus,
               reason: runReason ?? "未提供终止原因",
+              ...(isRequestedRun && input.boundaryMessageId ? { boundaryMessageId: input.boundaryMessageId } : {}),
             })) {
               closedToolMessages.push(resolveDeterministicMessage(tx, message, "terminal tool message"));
             }
@@ -1002,6 +987,7 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
             },
             status: runStatus,
             ...(runReason ? { reason: runReason } : {}),
+            ...(isRequestedRun && input.boundaryMessageId ? { boundaryMessageId: input.boundaryMessageId } : {}),
             finalMessage,
             closedToolMessages,
           })) {
@@ -1074,33 +1060,8 @@ function recordEnvelope(
   input: RuntimeRecordEnvelopeInput,
 ): RuntimeRecordEnvelopeResult {
   if (!input.outbox.eventId?.trim()) throw new Error("execution outbox requires a stable eventId");
-  const existingStep = tx.getRunStepByEventId(input.outbox.eventId);
-  if (existingStep) {
-    // A terminal stream event may have been archived by an older build. Keep
-    // idempotent retries valid after the archive policy changes.
-    if (!input.step) {
-      if (!isLegacyUnarchivedStreamStep(existingStep.payload)) {
-        throw new Error(`incomplete execution event record: ${input.outbox.eventId}`);
-      }
-      return { step: existingStep, outbox: tx.appendOutbox(input.outbox) };
-    }
-    const conflicts = existingStep.session_id !== input.step.sessionId
-      || existingStep.run_id !== input.step.runId
-      || existingStep.step_type !== input.step.stepType
-      || !isDeepStrictEqual(existingStep.payload, input.step.payload);
-    if (conflicts) throw new Error(`run step eventId conflict: ${input.outbox.eventId}`);
-  }
-  const step = input.step ? tx.addRunStep({ ...input.step, eventId: input.outbox.eventId }) : null;
-  const outbox = tx.appendOutbox(input.outbox);
-  return { step, outbox };
-}
-
-function isLegacyUnarchivedStreamStep(payload: Record<string, unknown>): boolean {
-  if (payload.type !== "stream_output") return false;
-  const inner = payload.payload;
-  if (!inner || typeof inner !== "object" || Array.isArray(inner)) return true;
-  const phase = (inner as Record<string, unknown>).phase;
-  return phase !== "intent_complete" && phase !== "reasoning_complete";
+  // 幂等由 outbox 的 eventId 去重承担（assertIdempotentOutbox）；run_steps 归档已退役。
+  return { outbox: tx.appendOutbox(input.outbox) };
 }
 
 function assertRecordScope(
@@ -1112,13 +1073,6 @@ function assertRecordScope(
   if (expectedRunId && input.outbox.runId !== expectedRunId) {
     throw new Error(
       `terminal outbox run mismatch: expected ${expectedRunId}, received ${String(input.outbox.runId)}`,
-    );
-  }
-  if (!input.step) return;
-  assertSessionId(input.step.sessionId, expectedSessionId ?? input.outbox.sessionId, "run step");
-  if (input.outbox.runId !== input.step.runId) {
-    throw new Error(
-      `execution record run mismatch: step ${input.step.runId}, outbox ${String(input.outbox.runId)}`,
     );
   }
 }

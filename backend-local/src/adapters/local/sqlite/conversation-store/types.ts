@@ -60,17 +60,6 @@ export interface SessionListProjectionRow {
   unread_count: number;
 }
 
-export interface RunStepRow {
-  id: number;
-  run_id: string;
-  event_id?: string | null;
-  session_id: string;
-  step_order: number;
-  step_type: string;
-  payload: string | null;
-  created_at: string;
-}
-
 export interface RunRow {
   run_id: string;
   session_id: string;
@@ -95,17 +84,6 @@ export interface RunRow {
   updated_at: string;
 }
 
-export interface ResourceRow {
-  resource_id: string;
-  session_id: string;
-  run_id: string | null;
-  path: string;
-  resource_type: string;
-  sub_type: string | null;
-  title: string | null;
-  scope: string;
-  source_tool: string | null;
-}
 
 export interface ChildAgentRow {
   child_agent_id: string;

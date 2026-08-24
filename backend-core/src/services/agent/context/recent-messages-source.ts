@@ -122,8 +122,10 @@ function closeOrphanedToolCalls(conversation: ChatMessage[]): void {
  * pi 语义的思考回放（消息行内 provider_state，无事务概念）：
  * 1. 印章匹配（同 provider + model）：全历史逐条原样挂载——签名/加密块对该模型仍有效，厂商要求原样回传；
  *    已关闭事务（最终回答之后）的思考同样回放，跨 run 推理连续性依赖于此；
- * 2. 印章不匹配（跨模型）：带文本的思考降级为正文注入（<think> 包裹），redacted/加密无文本的丢弃——
- *    签名与加密块是模型私有的，跨模型回传无效，但思考文本本身对新模型可读。
+ * 2. 印章不匹配（跨模型），或行上没有 provider_state（terminal salvage 行——中断轮没有
+ *    有效续跑态；以及 toolCallIds 配对失败被丢弃状态的轮）：带文本的思考降级为正文注入
+ *    （<think> 包裹），redacted/加密无文本的丢弃——签名与加密块是模型私有的，跨模型回传
+ *    无效，但思考文本本身对新模型可读。没有这一支，中断前的盘算对下一轮不可见。
  */
 function restoreActiveProviderContinuation(
   conversation: ChatMessage[],
@@ -134,14 +136,21 @@ function restoreActiveProviderContinuation(
   if (!providerIdentity) return;
   const matchesStamp = (state: MessageProviderState): boolean =>
     state.provider_key === providerIdentity.providerKey && state.model === providerIdentity.model;
+  const degradeToText = (message: ChatMessage, original: MessageInfo | null | undefined): void => {
+    if (!original) return;
+    const thinking = readableThinkingText(original);
+    if (thinking.trim()) degradedThinking.push({ message, wrapped: `<think>\n${thinking}\n</think>` });
+  };
   for (let index = 0; index < conversation.length; index += 1) {
     const message = conversation[index];
     if (message?.role !== "assistant") continue;
     const original = originals[index];
-    if (!original?.provider_state) continue;
+    if (!original?.provider_state) {
+      degradeToText(message, original);
+      continue;
+    }
     if (!matchesStamp(original.provider_state)) {
-      const thinking = readableThinkingText(original.provider_state.state);
-      if (thinking.trim()) degradedThinking.push({ message, wrapped: `<think>\n${thinking}\n</think>` });
+      degradeToText(message, original);
       continue;
     }
     restoreMessageContinuation(message, original);
@@ -155,25 +164,12 @@ function restoreMessageContinuation(message: ChatMessage, original: MessageInfo)
   message.provider_continuation = state;
 }
 
-/** 各协议可读的思考文本；openai_responses 的 items 为加密负载，跨模型不可读。 */
-function readableThinkingText(state: MessageProviderState["state"]): string {
-  if (state.protocol === "anthropic_messages") {
-    return state.blocks
-      .filter((block) => block.type === "thinking")
-      .map((block) => block.thinking)
-      .join("");
-  }
-  if (state.protocol === "openai_chat") {
-    const reasoning = state.assistantFields.reasoning_content ?? state.assistantFields.reasoning;
-    return typeof reasoning === "string" ? reasoning : "";
-  }
-  if (state.protocol === "gemini_generate_content") {
-    return state.parts
-      .filter((part) => part.thought === true && typeof part.text === "string")
-      .map((part) => part.text)
-      .join("");
-  }
-  return "";
+/** 跨模型降级的思考文本：只读消息行 thinking part（一等内容，单一数据源无回退）；签名/加密块对其他模型无效，不解读。 */
+function readableThinkingText(original: MessageInfo): string {
+  return original.content_parts
+    .filter((part) => part.type === "thinking")
+    .map((part) => part.text)
+    .join("");
 }
 
 /** Tool media obeys transient TTL, so it must never reuse the attachment data-URL cache. */

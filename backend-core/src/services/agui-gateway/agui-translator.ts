@@ -152,8 +152,8 @@ export class AguiTranslator {
   private streamOutput(payload: Rec): AguiEvent[] {
     const phase = str(payload.phase);
     const content = str(payload.content) ?? "";
-    if (phase === "intent_delta" || phase === "intent_complete") {
-      return this.reasoningStream(phase, content);
+    if (phase === "intent_complete") {
+      return this.reasoningStream(content);
     }
     const events: AguiEvent[] = [];
     if (phase === "first_token") {
@@ -208,19 +208,18 @@ export class AguiTranslator {
     return { type: "TEXT_MESSAGE_CONTENT", ...this.base(), messageId: this.textMessageId ?? randomUUID(), delta };
   }
 
-  private reasoningStream(phase: string, content: string): AguiEvent[] {
+  private reasoningStream(content: string): AguiEvent[] {
+    // intent_delta 已退役：说明全文随 intent_complete 一次投递（无先行增量）。
     const events: AguiEvent[] = [];
     if (this.reasoningMessageId === null) {
       this.reasoningMessageId = randomUUID();
       events.push({ type: "REASONING_MESSAGE_START", ...this.base(), messageId: this.reasoningMessageId });
     }
-    if (phase === "intent_delta" && content) {
+    if (content) {
       events.push({ type: "REASONING_MESSAGE_CONTENT", ...this.base(), messageId: this.reasoningMessageId, delta: content });
     }
-    if (phase === "intent_complete") {
-      events.push({ type: "REASONING_MESSAGE_END", ...this.base(), messageId: this.reasoningMessageId });
-      this.reasoningMessageId = null;
-    }
+    events.push({ type: "REASONING_MESSAGE_END", ...this.base(), messageId: this.reasoningMessageId });
+    this.reasoningMessageId = null;
     return events;
   }
 

@@ -50,9 +50,9 @@ test('historical child execution loads by its real message boundary', async () =
     activeRun: { runId: 'root-run', rootCallId: 'root-call' },
     chatSdkClient: {
       on() { return () => {}; },
-      async getMessageRunSteps(sessionId, messageId, options) {
+      async getMessageExecution(sessionId, messageId, options) {
         calls.push({ sessionId, messageId, options });
-        return { data: { items: [childStarted()], has_more: false } };
+        return { data: { items: [childStarted()] } };
       },
     },
   });
@@ -62,7 +62,7 @@ test('historical child execution loads by its real message boundary', async () =
   assert.deepEqual(calls, [{
     sessionId: 'session-1',
     messageId: 'child-message',
-    options: { limit: 500, offset: 0, participantId: 'child-1' },
+    options: { participantId: 'child-1' },
   }]);
   assert.equal(message.executionTree.root.participantId, 'child-1');
   assert.equal(message.executionStepsLoaded, true);
@@ -92,9 +92,9 @@ test('root agent result uses its target thread instead of source child metadata'
     activeRun: { runId: 'root-run', rootCallId: 'root-call' },
     chatSdkClient: {
       on() { return () => {}; },
-      async getMessageRunSteps(sessionId, messageId, options) {
+      async getMessageExecution(sessionId, messageId, options) {
         calls.push({ sessionId, messageId, options });
-        return { data: { items: [], has_more: false } };
+        return { data: { items: [] } };
       },
     },
   });
@@ -104,7 +104,7 @@ test('root agent result uses its target thread instead of source child metadata'
   assert.deepEqual(calls, [{
     sessionId: 'session-1',
     messageId: 'child-run:terminal_result',
-    options: { limit: 500, offset: 0 },
+    options: {},
   }]);
 });
 
@@ -190,17 +190,16 @@ test('child projection removes only the external parent of its Run root', async 
     has_execution: true,
     executionTree: { root: null, steps: [] },
   };
-  const pages = [
-    [childStarted({
+  const envelopes = [
+    childStarted({
       payload: {
         phase: 'start',
         child_agent_id: 'child-1',
         lineage: { parent_call_id: 'root-call' },
       },
-    })],
-    [childToolCall()],
+    }),
+    childToolCall(),
   ];
-  let page = 0;
   const execution = useMessageExecution({
     currentSessionId: ref('session-1'),
     selectedParticipantId: ref('child-1'),
@@ -208,9 +207,8 @@ test('child projection removes only the external parent of its Run root', async 
     activeRun: { runId: 'root-run', rootCallId: 'root-call' },
     chatSdkClient: {
       on() { return () => {}; },
-      async getMessageRunSteps() {
-        const items = pages[page++];
-        return { data: { items, has_more: page < pages.length } };
+      async getMessageExecution() {
+        return { data: { items: envelopes } };
       },
     },
   });
@@ -236,7 +234,7 @@ test('child message boundary beginning at model_request does not create an exter
     participantMessages: ref({ 'child-1': [message] }),
     activeRun: { runId: 'root-run', rootCallId: 'root-call' },
     chatSdkClient: {
-      async getMessageRunSteps() {
+      async getMessageExecution() {
         return { data: { items: [
           {
             type: 'model_request',
@@ -252,7 +250,7 @@ test('child message boundary beginning at model_request does not create an exter
             agent_id: 'worker',
             payload: { phase: 'delta', content: '已收到停止指令', lineage: { parent_call_id: 'root-call' } },
           },
-        ], has_more: false } };
+        ] } };
       },
     },
   });

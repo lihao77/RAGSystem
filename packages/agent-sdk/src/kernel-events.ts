@@ -55,20 +55,15 @@ export interface OutputFileRefEvent {
   part: Extract<AssistantContentPart, { type: "file_ref" }>;
 }
 
-export interface IntentDeltaEvent {
-  type: "intent_delta";
-  agentName: string;
-  content: string;
-  round: number;
-}
-
+/**
+ * 轮次动作说明归档（派生）：工具轮的裸正文在轮末以本事件定格——过程树拿动作说明，
+ * 前端借同一信号把消息气泡清空（正文身份从 output 降级为 intent）。
+ */
 export interface IntentCompleteEvent {
   type: "intent_complete";
   agentName: string;
   content: string;
   round: number;
-  /** Host persistence uses the complete assistant message when available. */
-  assistantMessage?: ChatMessage;
 }
 
 /** 思考模型思维链增量（provider reasoning 流式透传；仅展示用，不进模型上下文）。 */
@@ -92,6 +87,8 @@ export interface AssistantIntermediateEvent {
   agentName: string;
   round: number;
   message: ChatMessage;
+  /** 本轮思考全文；persister 落库为该 INTENT 行的 thinking part。 */
+  reasoning?: string;
 }
 
 export interface ToolCallEvent {
@@ -166,7 +163,6 @@ export type KernelEvent =
   | FirstTokenEvent
   | OutputDeltaEvent
   | OutputFileRefEvent
-  | IntentDeltaEvent
   | IntentCompleteEvent
   | ReasoningDeltaEvent
   | ReasoningCompleteEvent

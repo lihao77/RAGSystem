@@ -5,7 +5,6 @@ import { MessageOps, DEFAULT_MESSAGE_LIST_LIMIT } from "./message-ops.js";
 import { RunOps } from "./run-ops.js";
 import { ChildAgentOps } from "./child-agent-ops.js";
 import { OutboxOps } from "./outbox-ops.js";
-import { ResourceOps } from "./resource-ops.js";
 import { MetricOps } from "./metric-ops.js";
 import { PendingInteractionOps } from "./pending-interaction-ops.js";
 import { WorkflowTaskOps } from "./workflow-task-ops.js";
@@ -35,7 +34,6 @@ export function createConversationStore(options: ConversationStoreOptions) {
   const runs = new RunOps(db);
   const childAgents = new ChildAgentOps(db);
   const outbox = new OutboxOps(db);
-  const resources = new ResourceOps(db, dataRoot, sessions, workspaces);
   const metrics = new MetricOps(db);
   const pendingInteractions = new PendingInteractionOps(db);
   const workflowTasks = new WorkflowTaskOps(db);
@@ -57,9 +55,6 @@ export function createConversationStore(options: ConversationStoreOptions) {
     listParticipantRuns: runs.listParticipantRuns.bind(runs),
     listActiveRootRuns: runs.listActiveRootRuns.bind(runs),
     getLatestTerminalRootRun: runs.getLatestTerminalRootRun.bind(runs),
-    getRunStepByEventId: runs.getRunStepByEventId.bind(runs),
-    ensureInitialRunMessageBoundary: runs.ensureInitialRunMessageBoundary.bind(runs),
-    addRunStep: runs.addRunStepInTransaction.bind(runs),
     updateRunStatus: runs.updateRunStatus.bind(runs),
     suspendPendingInteractions: pendingInteractions.suspendPendingInteractions.bind(pendingInteractions),
     createPendingInteraction: pendingInteractions.createPendingInteraction.bind(pendingInteractions),
@@ -74,6 +69,7 @@ export function createConversationStore(options: ConversationStoreOptions) {
     nextSessionSeq: outbox.nextSessionSeqInTransaction.bind(outbox),
     appendOutbox: outbox.appendOutboxInTransaction.bind(outbox),
     getSessionOutboxWatermark: outbox.getSessionOutboxWatermark.bind(outbox),
+    getOutboxRowByEventId: outbox.loadOutboxRowByEventId.bind(outbox),
     // 纯读、不开新事务（listMessages 仅 SELECT），事务内读消除 TOCTOU，故直接 bind 无需 InTransaction 变体。
     getRecentMessages: messages.getRecentMessages.bind(messages),
     enqueueAgentMailboxMessage: agentMailbox.enqueueInTransaction.bind(agentMailbox),
@@ -120,7 +116,7 @@ export function createConversationStore(options: ConversationStoreOptions) {
     deleteMessagesAfter: messages.deleteMessagesAfter.bind(messages),
     updateMessage: messages.updateMessage.bind(messages),
 
-    // run + run_steps
+    // run
     createRun: runs.createRun.bind(runs),
     updateRunStatus: runs.updateRunStatus.bind(runs),
     getRun: runs.getRun.bind(runs),
@@ -128,11 +124,6 @@ export function createConversationStore(options: ConversationStoreOptions) {
     listParticipantRuns: runs.listParticipantRuns.bind(runs),
     listActiveRootRuns: runs.listActiveRootRuns.bind(runs),
     getLatestTerminalRootRun: runs.getLatestTerminalRootRun.bind(runs),
-    ensureInitialRunMessageBoundary: runs.ensureInitialRunMessageBoundary.bind(runs),
-    addRunStep: runs.addRunStep.bind(runs),
-    getRunMessageBoundary: runs.getRunMessageBoundary.bind(runs),
-    listMessageRunSteps: runs.listMessageRunSteps.bind(runs),
-    listRunSteps: runs.listRunSteps.bind(runs),
 
     // child_agents
     createChildAgent: childAgents.createChildAgent.bind(childAgents),
@@ -186,10 +177,7 @@ export function createConversationStore(options: ConversationStoreOptions) {
     getOutboxStats: outbox.getOutboxStats.bind(outbox),
 
     // resource
-    getPersistedExecutionOverview: resources.getPersistedExecutionOverview.bind(resources),
-    registerResource: resources.registerResource.bind(resources),
-    listResources: resources.listResources.bind(resources),
-    attachResourceToStep: resources.attachResourceToStep.bind(resources),
+    getPersistedExecutionOverview: runs.getPersistedExecutionOverview.bind(runs),
 
     // metric(智能体性能监控:每次 agent run 的指标明细 + 按 agent 聚合)
     insertMetric: metrics.insertMetric.bind(metrics),

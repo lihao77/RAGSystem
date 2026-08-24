@@ -55,7 +55,7 @@ const initialMessage = (messageId, runId, threadKey, childAgentId = null) => ({
   childAgentId,
 });
 
-test("runtime start atomically creates a child Run and its real message boundary", async () => {
+test("runtime start atomically creates a child Run and its initial message", async () => {
   const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
   const runtime = new SqliteRuntimeStorage("tnt_test", store);
   try {
@@ -76,13 +76,6 @@ test("runtime start atomically creates a child Run and its real message boundary
     assert.equal(persisted?.child_agent_id, "child-1");
     assert.equal(store.getRun(sessionIdentity.sessionId, "child-run")?.parent_run_id, "root-run");
 
-    store.addRunStep({
-      sessionId: sessionIdentity.sessionId,
-      runId: "child-run",
-      eventId: "child-event-1",
-      stepType: "protocol.envelope.v1",
-      payload: { type: "agent_started", call_id: "child-call" },
-    });
     store.addMessage({
       sessionId: sessionIdentity.sessionId,
       messageId: "child-followup",
@@ -93,43 +86,6 @@ test("runtime start atomically creates a child Run and its real message boundary
       threadKey: "child:child-1",
       childAgentId: "child-1",
     });
-    store.addRunStep({
-      sessionId: sessionIdentity.sessionId,
-      runId: "child-run",
-      eventId: "child-boundary",
-      stepType: "protocol.envelope.v1",
-      payload: { type: "agent_message", call_id: "boundary" },
-      boundaryMessageId: "child-followup",
-      boundaryKind: "carrier",
-    });
-    store.addRunStep({
-      sessionId: sessionIdentity.sessionId,
-      runId: "child-run",
-      eventId: "child-event-2",
-      stepType: "protocol.envelope.v1",
-      payload: { type: "tool_call", call_id: "child-tool" },
-    });
-
-    assert.deepEqual(
-      store.listMessageRunSteps({
-        sessionId: sessionIdentity.sessionId,
-        runId: "child-run",
-        messageId: "child-message",
-        limit: 50,
-        offset: 0,
-      }).items.map(step => step.payload.call_id),
-      ["child-call"],
-    );
-    assert.deepEqual(
-      store.listMessageRunSteps({
-        sessionId: sessionIdentity.sessionId,
-        runId: "child-run",
-        messageId: "child-followup",
-        limit: 50,
-        offset: 0,
-      }).items.map(step => step.payload.call_id),
-      ["child-tool"],
-    );
 
     await assert.rejects(
       runtime.operations.startRun({
@@ -152,7 +108,7 @@ test("runtime start atomically creates a child Run and its real message boundary
   }
 });
 
-test("runtime atomically commits a mailbox input message, boundary, outbox, and ACK", async () => {
+test("runtime atomically commits a mailbox input message, outbox, and ACK", async () => {
   const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
   const runtime = new SqliteRuntimeStorage("tnt_test", store);
   try {
@@ -204,14 +160,6 @@ test("runtime atomically commits a mailbox input message, boundary, outbox, and 
         threadKey: "root",
       },
       record: {
-        step: {
-          sessionId: sessionIdentity.sessionId,
-          runId: "root-run",
-          stepType: "protocol.envelope.v1",
-          boundaryMessageId: "followup-atomic",
-          boundaryKind: "carrier",
-          payload: envelope,
-        },
         outbox: {
           sessionId: sessionIdentity.sessionId,
           runId: "root-run",
@@ -231,21 +179,16 @@ test("runtime atomically commits a mailbox input message, boundary, outbox, and 
     };
     const committed = await runtime.operations.commitRunInput(input);
     assert.equal(committed.mailboxAcked, true);
-    const [persistedStep] = store.listRunSteps({
-      sessionId: sessionIdentity.sessionId,
-      runId: "root-run",
-    });
-    assert.equal(persistedStep.payload.payload.seq, committed.message.seq);
+    // outbox 信封携带消息的 canonical 会话序号（同事务消息序列回填）。
     assert.equal(
       JSON.parse(committed.record.outbox.payload).client_event.payload.seq,
       committed.message.seq,
     );
     assert.equal((await store.agentMailbox.get(sessionIdentity.sessionId, "followup-atomic"))?.status, "acked");
-    assert.equal(store.getRunMessageBoundary(sessionIdentity.sessionId, "root-run", "followup-atomic"), 1);
 
+    // 幂等重试：outbox eventId 去重，不产生第二行。
     const retried = await runtime.operations.commitRunInput(input);
-    assert.equal(retried.record.step?.step_order, committed.record.step?.step_order);
-    assert.equal(store.listRunSteps({ sessionId: sessionIdentity.sessionId, runId: "root-run" }).length, 1);
+    assert.equal(retried.record.outbox.event_id, committed.record.outbox.event_id);
   } finally {
     store.close();
   }
@@ -297,7 +240,7 @@ test("runtime start publishes the initial message with its canonical conversatio
   }
 });
 
-test("presentation targets do not create duplicate durable message boundaries", async () => {
+test("recordEnvelope commits envelopes to the outbox without a step archive", async () => {
   const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
   const runtime = new SqliteRuntimeStorage("tnt_test", store);
   try {
@@ -306,6 +249,7 @@ test("presentation targets do not create duplicate durable message boundaries", 
       run: runInput("root-run", null, "root"),
       initialMessage: initialMessage("root-message", "root-run", "root"),
     });
+    const recorded = [];
     for (const [index, type] of ["agent_started", "model_request"].entries()) {
       const envelope = {
         type,
@@ -313,16 +257,9 @@ test("presentation targets do not create duplicate durable message boundaries", 
         run_id: "root-run",
         call_id: "root-run:call",
         agent_id: "assistant",
-        boundary_message_id: "root-message",
         payload: { phase: "start" },
       };
-      await runtime.operations.recordEnvelope({
-        step: {
-          sessionId: sessionIdentity.sessionId,
-          runId: "root-run",
-          stepType: "protocol.envelope.v1",
-          payload: envelope,
-        },
+      const result = await runtime.operations.recordEnvelope({
         outbox: {
           sessionId: sessionIdentity.sessionId,
           runId: "root-run",
@@ -333,24 +270,31 @@ test("presentation targets do not create duplicate durable message boundaries", 
           payload: { client_event: envelope },
         },
       });
+      recorded.push(result.outbox.event_id);
+      // run_steps 归档退役：记录只含 outbox 产物。
+      assert.equal("step" in result, false);
     }
+    assert.deepEqual(recorded, ["root-event-1", "root-event-2"]);
 
-    assert.deepEqual(
-      store.listMessageRunSteps({
+    // 幂等重放：同 eventId 返回已存在行，不重复投递。
+    const again = await runtime.operations.recordEnvelope({
+      outbox: {
         sessionId: sessionIdentity.sessionId,
         runId: "root-run",
-        messageId: "root-message",
-        limit: 50,
-        offset: 0,
-      }).items.map(step => step.payload.type),
-      ["agent_started", "model_request"],
-    );
+        eventId: "root-event-1",
+        eventType: "client.agent_started",
+        aggregateType: "run",
+        aggregateId: "root-run",
+        payload: { client_event: { type: "agent_started", session_id: sessionIdentity.sessionId, run_id: "root-run", call_id: "root-run:call", agent_id: "assistant", payload: { phase: "start" } } },
+      },
+    });
+    assert.equal(again.outbox.event_id, "root-event-1");
   } finally {
     store.close();
   }
 });
 
-test("rollback derives run-step truncation from every deleted message boundary", () => {
+test("rollback deletes messages after the anchor and keeps run rows intact", () => {
   const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
   try {
     const agents = { assistant: { agent_name: "assistant" } };
@@ -417,112 +361,14 @@ test("rollback derives run-step truncation from every deleted message boundary",
       leaseRootRunId: "root-run",
       threadKey: "root",
     });
-    store.ensureInitialRunMessageBoundary("session-1", "root-run", initial.id);
-    for (const [eventId, payload, boundaryMessageId, boundaryKind] of [
-      ["event-1", { type: "agent_started", call_id: "call-1" }],
-      ["event-2", { type: "agent_message", call_id: "boundary", payload: { message_id: "followup-1" } }, "followup-1", "carrier"],
-      ["event-3", { type: "tool_call", call_id: "call-2" }],
-      ["event-4", { type: "stream_output", message_id: "assistant-1", call_id: "final", payload: { phase: "final" } }, "assistant-1", "terminal"],
-      ["event-5", { type: "agent_ended", call_id: "root-call", payload: { phase: "end" } }],
-      ["event-6", { type: "run_ended", payload: { status: "completed" } }],
-    ]) {
-      store.addRunStep({
-        runId: "root-run",
-        sessionId: "session-1",
-        eventId,
-        stepType: "protocol.envelope.v1",
-        payload,
-        ...(boundaryMessageId ? { boundaryMessageId, boundaryKind } : {}),
-      });
-    }
-    assert.deepEqual(
-      store.listMessageRunSteps({ sessionId: "session-1", runId: "root-run", messageId: initial.id, limit: 50, offset: 0 })
-        .items.map(step => step.payload.call_id),
-      ["call-1"],
-    );
-    assert.deepEqual(
-      store.listMessageRunSteps({ sessionId: "session-1", runId: "root-run", messageId: "followup-1", limit: 50, offset: 0 })
-        .items.map(step => step.payload.type),
-      ["tool_call", "agent_ended", "run_ended"],
-    );
-    assert.equal(
-      store.listMessageRunSteps({ sessionId: "session-1", runId: "root-run", messageId: "assistant-1", limit: 50, offset: 0 }).total,
-      0,
-    );
     const deleted = store.deleteMessagesAfter("session-1", {
       afterSeq: initial.seq,
     });
 
     assert.equal(deleted, 3);
-    assert.deepEqual(store.listRunSteps({ sessionId: "session-1", runId: "root-run" }).map(step => step.step_order), [1]);
-    const next = store.addRunStep({
-      runId: "root-run",
-      sessionId: "session-1",
-      eventId: "event-7",
-      stepType: "protocol.envelope.v1",
-      payload: { type: "model_request", call_id: "call-3" },
-    });
-    assert.equal(next.step_order, 7);
-    assert.deepEqual(store.listRunSteps({ sessionId: "session-1", runId: "root-run" }).map(step => step.step_order), [1, 7]);
     assert.deepEqual(store.listMessages("session-1").items.map(message => message.id), [initial.id]);
-  } finally {
-    store.close();
-  }
-});
-
-test("one rollback truncates multiple surviving Runs at their earliest deleted boundary", () => {
-  const store = createConversationStore({ dbPath: ":memory:", dataRoot: process.cwd() });
-  try {
-    store.createSession({ ...sessionIdentity, tenantId: "tnt_test", permissionMode: null });
-    for (const [runId, threadKey, childAgentId] of [
-      ["root-run", "root", null],
-      ["child-run", "child:child-1", "child-1"],
-    ]) {
-      store.createRun({
-        runId, sessionId: sessionIdentity.sessionId, entrypoint: "agent_stream", status: "running",
-        taskSummary: runId, agentCallId: `${runId}:call`, lineageParentCallId: null,
-        agentDisplayName: "assistant", leaseRootRunId: runId, threadKey, childAgentId,
-      });
-      const initial = store.addMessage({
-        sessionId: sessionIdentity.sessionId, role: "user", content: `${runId}:initial`,
-        contentParts: [{ type: "text", text: `${runId}:initial` }],
-        metadata: { run_id: runId }, threadKey, childAgentId,
-      });
-      store.ensureInitialRunMessageBoundary(sessionIdentity.sessionId, runId, initial.id);
-      store.addRunStep({
-        sessionId: sessionIdentity.sessionId, runId, eventId: `${runId}:before`,
-        stepType: "protocol.envelope.v1", payload: { type: "agent_started", call_id: `${runId}:before` },
-      });
-    }
-    const anchor = store.getMessageById(sessionIdentity.sessionId, store.listMessages(sessionIdentity.sessionId).items[1].id);
-    assert.ok(anchor);
-    for (const [runId, threadKey, childAgentId] of [
-      ["root-run", "root", null],
-      ["child-run", "child:child-1", "child-1"],
-    ]) {
-      const followup = store.addMessage({
-        sessionId: sessionIdentity.sessionId, messageId: `${runId}:followup`, role: "user", content: "continue",
-        contentParts: [{ type: "text", text: "continue" }], metadata: { consumed_by_run_id: runId },
-        threadKey, childAgentId,
-      });
-      store.addRunStep({
-        sessionId: sessionIdentity.sessionId, runId, eventId: `${runId}:boundary`,
-        stepType: "protocol.envelope.v1", payload: { type: "agent_message", message_id: followup.id },
-        boundaryMessageId: followup.id, boundaryKind: "carrier",
-      });
-      store.addRunStep({
-        sessionId: sessionIdentity.sessionId, runId, eventId: `${runId}:after`,
-        stepType: "protocol.envelope.v1", payload: { type: "tool_call", call_id: `${runId}:after` },
-      });
-    }
-
-    assert.equal(store.deleteMessagesAfter(sessionIdentity.sessionId, { afterSeq: anchor.seq }), 2);
-    for (const runId of ["root-run", "child-run"]) {
-      assert.deepEqual(
-        store.listRunSteps({ sessionId: sessionIdentity.sessionId, runId }).map(step => step.payload.call_id),
-        [`${runId}:before`],
-      );
-    }
+    // run 行保留：执行视图/结果重建的数据源（runs.terminal_reason）不受回滚影响。
+    assert.equal(store.getRun("session-1", "root-run")?.status, "completed");
   } finally {
     store.close();
   }

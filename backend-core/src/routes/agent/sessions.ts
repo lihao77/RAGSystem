@@ -7,7 +7,7 @@ import {
   SessionListFacetsResponseSchema,
   SessionListResponseSchema,
   SessionMessageListResponseSchema,
-  SessionMessageRunStepsResponseSchema,
+  SessionMessageExecutionResponseSchema,
   SessionParticipantRunListResponseSchema,
   SessionParticipantRunStepsResponseSchema,
   SessionParticipantListResponseSchema,
@@ -353,23 +353,21 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
     }
   });
 
+  // 执行视图（消息行合成）：思考/工具/意图全部来自消息表，run_steps 归档不再是 UI 数据源。
   app.get<{ Params: MessageParams }>(
-    "/sessions/:sessionId/messages/:messageId/run-steps",
+    "/sessions/:sessionId/messages/:messageId/execution",
     async (request) => {
       const sessions = await resolveSessionApplication(options, request);
       await loadReadableSession(request, request.params.sessionId, sessions);
       try {
-        const query = request.query as { limit?: string; offset?: string; participant_id?: string };
+        const query = request.query as { participant_id?: string };
         const participant = await resolveSessionParticipant(request, request.params.sessionId, query.participant_id);
-        const input = {
+        const data = await sessions.listMessageExecution({
           sessionId: request.params.sessionId,
           messageId: request.params.messageId,
-          limit: clampInt(query.limit, 500, 1, 2000),
-          offset: clampInt(query.offset, 0, 0, Number.MAX_SAFE_INTEGER),
           threadKey: participant.thread_key,
-        };
-        const data = await sessions.listMessageRunSteps(input);
-        return validateResponse(SessionMessageRunStepsResponseSchema, ok(data, "获取执行步骤成功"));
+        });
+        return validateResponse(SessionMessageExecutionResponseSchema, ok(data, "获取执行视图成功"));
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         throw new HttpError(404, "not_found", message);

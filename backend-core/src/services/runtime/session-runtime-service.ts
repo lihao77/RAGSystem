@@ -146,7 +146,7 @@ function projectActiveRunActivity(facts: RuntimeSessionFacts): RuntimeActivity {
 
     if (event.type === "stream_output" && modelKey) {
       const phase = payload.phase;
-      if (phase === "first_token" || phase === "delta" || phase === "intent_delta" || phase === "intent_complete"
+      if (phase === "first_token" || phase === "delta" || phase === "intent_complete"
         || phase === "reasoning_delta" || phase === "reasoning_complete") {
         const current = models.get(modelKey);
         models.set(modelKey, current

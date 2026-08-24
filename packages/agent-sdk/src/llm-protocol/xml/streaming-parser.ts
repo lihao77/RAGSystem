@@ -1,11 +1,26 @@
 /**
- * 流式 XML 协议状态机（迁自 backend-ts，纯函数零外部依赖）。
+ * 流式协议状态机（无标签化改造：轮次判据唯一化为 tool_calls 有无）。
  *
- * 边流边解析模型输出的 <intent>/<tool_calls>/<final_answer> 阶段标签。
- * 增量 feed(chunk) 返回解析事件；支持 stopAfterClosingTag 提前截断（XML 模式读完
+ * 模型输出只有一种结构化标签：<tool_calls>（XML 模式工具调用的唯一表达）。
+ * 其余一切文本是裸内容——边流边作为 fallback 事件吐出（流式 output）。
+ * 旧协议标签 <intent>/<final_answer>/<answer> 仍被识别并剥离：内容按裸文本
+ * 透传、标签本身丢弃，模型旧习惯不会把标签泄漏进答案。
+ * 增量 feed(chunk) 返回解析事件；stopAfterClosingTag 提前截断（读完
  * </tool_calls> 即停，不浪费时间读后续）。
  */
-export type RuntimeXmlTag = "intent" | "tool_calls" | "final_answer";
+export type RuntimeXmlTag = "tool_calls";
+
+/** 被剥离的旧协议标签：内容透传为裸文本，标签丢弃。 */
+const LEGACY_TAG_ALIASES: Record<string, string> = {
+  intent: "intent",
+  final_answer: "final_answer",
+  answer: "final_answer",
+};
+
+const TAG_ALIASES: Record<string, RuntimeXmlTag> = {
+  tool_calls: "tool_calls",
+  tools: "tool_calls",
+};
 
 export type RuntimeXmlParseEvent =
   | { type: "tag_open" | "content" | "tag_close"; tag: RuntimeXmlTag; content: string }
@@ -15,23 +30,13 @@ export interface RuntimeXmlFeedOptions {
   stopAfterClosingTag?: RuntimeXmlTag | undefined;
 }
 
-const TAG_ALIASES: Record<string, RuntimeXmlTag> = {
-  intent: "intent",
-  tool_calls: "tool_calls",
-  tools: "tool_calls",
-  final_answer: "final_answer",
-  answer: "final_answer",
-};
-
 export class StreamingRuntimeXmlParser {
-  private state: RuntimeXmlTag | null = null;
+  private state: RuntimeXmlTag | "legacy" | null = null;
+  private legacyTag = "";
   private buffer = "";
   private fullResponse = "";
-  private readonly tagContents: Record<RuntimeXmlTag, string> = {
-    intent: "",
-    tool_calls: "",
-    final_answer: "",
-  };
+  private fallbackText = "";
+  private toolCallsContent = "";
 
   feed(chunk: string, options: RuntimeXmlFeedOptions = {}): RuntimeXmlParseEvent[] {
     if (!chunk) {
@@ -63,12 +68,31 @@ export class StreamingRuntimeXmlParser {
     return this.fullResponse;
   }
 
-  getTagContent(tag: RuntimeXmlTag): string {
-    return this.tagContents[tag];
+  /**
+   * 流结束：冲刷因疑似闭合标签而扣留的尾部缓冲。无标签化后所有正文都是 fallback，
+   * 不冲刷会丢掉最多 closeTag+2 字符的结尾（tool_calls 内未闭合属协议错误，不冲出）。
+   */
+  finish(): RuntimeXmlParseEvent[] {
+    const events: RuntimeXmlParseEvent[] = [];
+    if (this.state === null && this.buffer) {
+      this.emitFallback(events, this.buffer);
+      this.buffer = "";
+    }
+    return events;
   }
 
+  /** 全部裸文本（含旧标签内容；不含 tool_calls 块）。 */
+  getFallbackText(): string {
+    return this.fallbackText;
+  }
+
+  getTagContent(tag: RuntimeXmlTag): string {
+    return tag === "tool_calls" ? this.toolCallsContent : "";
+  }
+
+  /** 未闭合的结构化标签（用于协议修复判定）；旧标签不闭合不构成协议错误。 */
   get currentState(): RuntimeXmlTag | null {
-    return this.state;
+    return this.state === "tool_calls" ? "tool_calls" : null;
   }
 
   private scanForOpenTag(events: RuntimeXmlParseEvent[]): boolean {
@@ -76,11 +100,11 @@ export class StreamingRuntimeXmlParser {
     if (ltPos === -1) {
       const content = this.buffer;
       this.buffer = "";
-      if (content) events.push({ type: "fallback", content });
+      if (content) this.emitFallback(events, content);
       return Boolean(content);
     }
     if (ltPos > 0) {
-      events.push({ type: "fallback", content: this.buffer.slice(0, ltPos) });
+      this.emitFallback(events, this.buffer.slice(0, ltPos));
       this.buffer = this.buffer.slice(ltPos);
     }
 
@@ -92,16 +116,24 @@ export class StreamingRuntimeXmlParser {
     const rawTag = this.buffer.slice(1, gtPos).trim().toLowerCase();
     const tagName = rawTag.split(/\s+/, 1)[0] ?? "";
     const matchedTag = TAG_ALIASES[tagName];
-    if (!matchedTag) {
+    const legacyTag = LEGACY_TAG_ALIASES[tagName];
+    if (!matchedTag && !legacyTag) {
+      // 未知标签（含 <file_ref/> 等内容级标记）按原文透传，由内容解析层处理。
       const content = this.buffer.slice(0, gtPos + 1);
       this.buffer = this.buffer.slice(gtPos + 1);
-      events.push({ type: "fallback", content });
+      this.emitFallback(events, content);
       return true;
     }
 
     this.buffer = this.buffer.slice(gtPos + 1);
-    this.state = matchedTag;
-    events.push({ type: "tag_open", tag: matchedTag, content: "" });
+    if (matchedTag) {
+      this.state = matchedTag;
+      events.push({ type: "tag_open", tag: matchedTag, content: "" });
+    } else {
+      this.state = "legacy";
+      // 存原始标签名：闭合匹配用 </原标签>（<answer> 的闭合是 </answer>，不是映射值）。
+      this.legacyTag = tagName;
+    }
     return true;
   }
 
@@ -110,29 +142,25 @@ export class StreamingRuntimeXmlParser {
       return false;
     }
 
-    const closeMatch = this.findCloseTagMatch(this.state);
-    if (closeMatch) {
-      const [closePos, closeTag] = closeMatch;
+    const closeTag = this.state === "tool_calls" ? "</tool_calls>" : `</${this.legacyTag}>`;
+    const closePos = this.buffer.toLowerCase().indexOf(closeTag);
+    if (closePos !== -1) {
       const contentBefore = this.buffer.slice(0, closePos);
       if (contentBefore) {
-        this.tagContents[this.state] += contentBefore;
-        if (this.state === "intent" || this.state === "final_answer") {
-          events.push({ type: "content", tag: this.state, content: contentBefore });
-        }
+        this.accumulate(events, contentBefore);
       }
-      events.push({ type: "tag_close", tag: this.state, content: "" });
       this.buffer = this.buffer.slice(closePos + closeTag.length);
+      if (this.state === "tool_calls") {
+        events.push({ type: "tag_close", tag: "tool_calls", content: "" });
+      }
       this.state = null;
+      this.legacyTag = "";
       return true;
     }
 
-    const safeLength = this.findSafeContentLength();
+    const safeLength = this.findSafeContentLength(closeTag);
     if (safeLength > 0) {
-      const content = this.buffer.slice(0, safeLength);
-      this.tagContents[this.state] += content;
-      if (this.state === "intent" || this.state === "final_answer") {
-        events.push({ type: "content", tag: this.state, content });
-      }
+      this.accumulate(events, this.buffer.slice(0, safeLength));
       this.buffer = this.buffer.slice(safeLength);
       return true;
     }
@@ -140,23 +168,25 @@ export class StreamingRuntimeXmlParser {
     return false;
   }
 
-  private findCloseTagMatch(tag: RuntimeXmlTag): [number, string] | null {
-    const matches: Array<[number, string]> = [];
-    for (const closeTag of closeTagsForTag(tag)) {
-      const closePos = this.buffer.toLowerCase().indexOf(closeTag);
-      if (closePos !== -1) {
-        matches.push([closePos, closeTag]);
-      }
+  /** tool_calls 内容只累积（结构化解析走 parseRuntimeToolCallsXml）；裸/旧标签内容流式透出。 */
+  private accumulate(events: RuntimeXmlParseEvent[], content: string): void {
+    if (this.state === "tool_calls") {
+      this.toolCallsContent += content;
+      return;
     }
-    matches.sort((left, right) => left[0] - right[0]);
-    return matches[0] ?? null;
+    this.emitFallback(events, content);
   }
 
-  private findSafeContentLength(): number {
+  private emitFallback(events: RuntimeXmlParseEvent[], content: string): void {
+    this.fallbackText += content;
+    events.push({ type: "fallback", content });
+  }
+
+  private findSafeContentLength(closeTag: string): number {
     if (!this.buffer) {
       return 0;
     }
-    const maxCloseLength = 18;
+    const maxCloseLength = closeTag.length + 2;
     const checkStart = Math.max(0, this.buffer.length - maxCloseLength);
     const tail = this.buffer.slice(checkStart);
     const lastLt = tail.lastIndexOf("<");
@@ -165,27 +195,11 @@ export class StreamingRuntimeXmlParser {
     }
 
     const partial = tail.slice(lastLt).toLowerCase();
-    for (const closeTag of allCloseTags()) {
-      if (closeTag.startsWith(partial)) {
-        return checkStart + lastLt;
-      }
+    if (closeTag.startsWith(partial)) {
+      return checkStart + lastLt;
     }
     return this.buffer.length;
   }
-}
-
-function closeTagsForTag(tag: RuntimeXmlTag): string[] {
-  if (tag === "final_answer") {
-    return ["</final_answer>", "</answer>"];
-  }
-  if (tag === "tool_calls") {
-    return ["</tool_calls>", "</tools>"];
-  }
-  return ["</intent>"];
-}
-
-function allCloseTags(): string[] {
-  return ["</intent>", "</tool_calls>", "</tools>", "</final_answer>", "</answer>"];
 }
 
 function hasClosingEvent(events: RuntimeXmlParseEvent[], startIndex: number, tag: RuntimeXmlTag): boolean {

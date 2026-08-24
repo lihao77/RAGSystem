@@ -1,16 +1,13 @@
-import type { RunStepInfo } from "@ragsystem/backend-core/contracts/common.js";
 import { normalizeSessionTeamSnapshot, type MessageInfo, type SessionInfo, type SessionListProjection } from "@ragsystem/backend-core/contracts/session/session.js";
 import { parseMessageProviderState } from "@ragsystem/backend-core/contracts/conversation-store/chat-message-codec.js";
 import { parseJsonObject, sqliteTimestampToIso } from "./helpers.js";
 import { decodeChatFields } from "@ragsystem/backend-core/contracts/conversation-store/chat-message-codec.js";
 import { MessageContentPartSchema } from "@ragsystem/agent-protocol";
-import type { ChildAgentInfo, ResourceInfo, RunInfo } from "@ragsystem/backend-core/contracts/conversation-store/types.js";
+import type { ChildAgentInfo, RunInfo } from "@ragsystem/backend-core/contracts/conversation-store/types.js";
 import type {
   ChildAgentRow,
   MessageRow,
-  ResourceRow,
   RunRow,
-  RunStepRow,
   SessionListProjectionRow,
   SessionRow,
 } from "./types.js";
@@ -105,31 +102,3 @@ export function rowToRun(row: RunRow): RunInfo {
   };
 }
 
-export function rowToResource(row: ResourceRow): ResourceInfo {
-  return {
-    resource_id: row.resource_id,
-    session_id: row.session_id,
-    run_id: row.run_id,
-    path: row.path,
-    resource_type: row.resource_type,
-    sub_type: row.sub_type,
-    title: row.title,
-    scope: row.scope,
-    source_tool: row.source_tool,
-  };
-}
-
-export function rowToRunStep(row: RunStepRow, resourceRefs: Array<{ resource_id: string }> = []): RunStepInfo {
-  const payload = parseJsonObject(row.payload);
-  payload.resource_refs = resourceRefs;
-  return {
-    id: row.id,
-    run_id: row.run_id,
-    ...(row.event_id ? { event_id: row.event_id } : {}),
-    session_id: row.session_id,
-    step_order: row.step_order,
-    step_type: row.step_type,
-    payload,
-    created_at: row.created_at,
-  };
-}

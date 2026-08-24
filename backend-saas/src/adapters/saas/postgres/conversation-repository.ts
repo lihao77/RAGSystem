@@ -446,7 +446,7 @@ function visibleConversationMessageSql(alias = "", threadKeyParam = "$3"): strin
     AND (${threadKeyParam} <> 'root' OR (
       ${column("child_agent_id")} IS NULL
       AND ${metadata}->>'conversation_scope' IS DISTINCT FROM 'child'
-      AND COALESCE(${metadata}->>'msg_type','') NOT IN ('intent','observation')
+      AND COALESCE(${metadata}->>'msg_type','') NOT IN ('observation')
     ))`;
 }
 

@@ -29,6 +29,7 @@ function buildReducer({ depOverrides = {} } = {}) {
     markModelAttemptFailed: () => {},
     markModelAttemptCompleted: () => {},
     markLlmFirstToken: () => {},
+    markModelStreaming: () => {},
     markOutputChunk: (_event, content) => calls.chunks.push(content),
     markRecentSessionUpdated: () => {},
     markRootAgentStarted: () => {},
@@ -112,6 +113,65 @@ test('SessionEventReducer deterministically applies stream delta and final compe
   assert.equal(currentMessage.content, 'hello');
   assert.equal(currentMessage.finished, true);
   assert.deepEqual(calls.chunks, ['hel']);
+  assert.equal(calls.cached, 1);
+});
+
+test('SessionEventReducer deterministically lands the final message row and leaves streaming text to the tree', () => {
+  const { reducer, messages, calls, deps } = buildReducer();
+  const projected = [];
+  const original = deps;
+  void original;
+  const currentMessage = { content: '', content_parts: [], metadata: {}, status: [], finished: false };
+  messages.value.push(currentMessage);
+
+  // 统一渲染：流式正文只进执行树（envelope 投影），不写消息槽。
+  let projectedCount = 0;
+  const reducerWithProjection = createSessionEventReducer({
+    deps: {
+      isMasterEvent: () => true,
+      clearLlmRetryState: () => {},
+      setLlmRetryState: () => {},
+      findRunningExecutionAgentByAgentId: () => null,
+      applyEnvelopeToMessage: (_msg, event) => { projectedCount += 1; void event; },
+      cacheMessages: () => {},
+      scrollToBottom: () => {},
+    },
+    runtime: {
+      markModelRequestStarted: () => {},
+      markModelAttemptStarted: () => {},
+      markModelAttemptFailed: () => {},
+      markModelAttemptCompleted: () => {},
+      markLlmFirstToken: () => {},
+      markModelStreaming: () => {},
+      markOutputChunk: (_event, content) => { projected.push(content); },
+      markRecentSessionUpdated: () => {},
+      markRootAgentStarted: () => {},
+      markToolStarted: () => {},
+      markToolFinished: () => {},
+    },
+    activeRun: { assistantMsgIndex: 0, phase: 'processing', runningToolCalls: {}, runningModelCalls: {} },
+    messages,
+    isCompressing: { value: false },
+    contextUsage: { value: { used: 0, max: 0 } },
+    llmRetryState: { value: null },
+    handleApprovalRequired: () => {},
+    handleUserInputRequired: () => {},
+  });
+
+  reducerWithProjection({ type: 'stream_output', payload: { phase: 'delta', content: '查询资料中' } }, currentMessage, 'session-1');
+  assert.equal(currentMessage.content, '');
+  assert.ok(projectedCount >= 1);
+
+  // intent_complete 不再触碰消息槽（正文全程在树里，无身份切换）。
+  reducerWithProjection({ type: 'stream_output', payload: { phase: 'intent_complete', content: '查询资料中' } }, currentMessage, 'session-1');
+  assert.equal(currentMessage.content, '');
+  assert.deepEqual(currentMessage.content_parts, []);
+
+  // final：assistant 消息行落库投影（消息槽承接 landed 行）+ 树内定格。
+  reducer({ type: 'stream_output', payload: { phase: 'final', content: '总结完成' } }, currentMessage, 'session-1');
+  assert.equal(currentMessage.content, '总结完成');
+  assert.equal(currentMessage.finished, true);
+  assert.deepEqual(calls.chunks, []);
   assert.equal(calls.cached, 1);
 });
 

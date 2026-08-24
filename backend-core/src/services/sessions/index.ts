@@ -1,4 +1,3 @@
-import type { RunStepInfo } from "../../contracts/common.js";
 import { normalizeSessionMetadata, type CreateSessionRecordInput, type MessageInfo, type SessionInfo, type SessionListQuery, type SessionMessageListSnapshot, type SessionTeamSnapshotResolver } from "../../contracts/session/session.js";
 import type {
   AgentSessionRepositoryPort,
@@ -6,13 +5,13 @@ import type {
 } from "../../contracts/session/agent-session-repository.js";
 import type { SessionHistoryPort } from "../../contracts/session/session-history.js";
 import { EnvelopeSchema, type Envelope, type MessageContentPart } from "@ragsystem/agent-protocol";
-import { EXECUTION_ENVELOPE_STEP_TYPE } from "../runtime/event-outbox/execution-envelope-archive.js";
 import type { SessionResourceCleanup } from "../../contracts/session/session-resource-cleanup.js";
 import { assertSafeSessionId } from "../../contracts/session/session-id.js";
 import type { TenantId } from "../../identity/types.js";
 import type { PermissionMode } from "../../contracts/runtime/permissions.js";
 import type { ExecutionSessionPort, SessionParticipantRunSummary } from "../../contracts/session/session-application.js";
 import { isParticipantConversationMessageVisible } from "../../contracts/session/message-visibility.js";
+import { synthesizeExecutionEnvelopes } from "./execution-synthesis.js";
 
 export class AgentSessionApplication implements ExecutionSessionPort {
   constructor(
@@ -89,40 +88,61 @@ export class AgentSessionApplication implements ExecutionSessionPort {
     return data;
   }
 
-  async listMessageRunSteps(input: {
+  /**
+   * 拉取一个 run 的消息行并合成执行 envelope（threadKey 为该 run 所属线程）。
+   * boundaryMessageId 存在时按段分割：插嘴被同 run 认领后消息表有多个用户行，
+   * 每个用户行只回放自己段内的行（行上 boundary_message_id 盖章；无标记的
+   * 旧行/恢复路径行按 seq 归属最近的前置用户行），两个面板不再是全量复制。
+   */
+  private async synthesizeRunEnvelopes(
+    sessionId: string,
+    runId: string,
+    threadKey: string,
+    boundaryMessageId?: string,
+  ): Promise<Envelope[]> {
+    const thread = await this.repository.listMessages(sessionId, 10_000, 0, threadKey);
+    const runRows = thread.items
+      .filter((row) => row.metadata?.run_id === runId)
+      .sort((a, b) => a.seq - b.seq);
+    if (!boundaryMessageId) return synthesizeExecutionEnvelopes(runRows, { sessionId, runId });
+    const userRows = runRows.filter((row) => row.role === "user");
+    const segmentRows = runRows.filter((row) => {
+      const marker = row.metadata?.boundary_message_id;
+      if (typeof marker === "string" && marker) return marker === boundaryMessageId;
+      let owner: string | null = userRows[0]?.id ?? null;
+      for (const userRow of userRows) {
+        if (userRow.seq <= row.seq) owner = userRow.id;
+        else break;
+      }
+      return owner === boundaryMessageId;
+    });
+    return synthesizeExecutionEnvelopes(segmentRows, { sessionId, runId });
+  }
+
+  /**
+   * 执行视图（消息行合成）：从本 run 的 INTENT/OBSERVATION 行重建执行树 envelope 流。
+   * 思考来自行内 thinking part；数据源是消息表，不依赖 run_steps 归档。
+   */
+  async listMessageExecution(input: {
     sessionId: string;
     messageId: string;
-    limit?: number;
-    offset?: number;
     threadKey?: string | null;
-  }): Promise<{ message_id: string; items: Envelope[]; total: number; limit: number; offset: number; has_more: boolean }> {
+  }): Promise<{ message_id: string; items: Envelope[]; total: number }> {
     const threadKey = input.threadKey?.trim() || "root";
     const message = await this.repository.getMessageById(input.sessionId, input.messageId);
     if (!message || !isParticipantConversationMessageVisible(message, threadKey)) {
       throw new Error(`消息不存在: ${input.messageId}`);
     }
-    const limit = input.limit ?? 500;
-    const offset = input.offset ?? 0;
     const runId = executionRunId(message);
-    const page = runId
-      ? await this.repository.listMessageRunSteps({
-          sessionId: input.sessionId,
-          runId,
-          messageId: message.id,
-          limit,
-          offset,
-        })
-      : { items: [], total: 0 };
-    const envelopes = page.items.map((step) => parseArchivedEnvelope(step.payload));
-
-    return {
-      message_id: input.messageId,
-      items: envelopes,
-      total: page.total,
-      limit,
-      offset,
-      has_more: offset + envelopes.length < page.total,
-    };
+    if (!runId) return { message_id: input.messageId, items: [], total: 0 };
+    // 分段只对 user 边界行生效（每个用户行一个面板段）；assistant 行问的是整 run 视图。
+    const items = await this.synthesizeRunEnvelopes(
+      input.sessionId,
+      runId,
+      threadKey,
+      message.role === "user" ? message.id : undefined,
+    );
+    return { message_id: input.messageId, items, total: items.length };
   }
 
   async listParticipantRuns(input: {
@@ -168,7 +188,12 @@ export class AgentSessionApplication implements ExecutionSessionPort {
     if (!run || !this.isParticipantRun(run, input.participantId)) {
       throw new Error(`Run 不存在: ${input.runId}`);
     }
-    const envelopes = await this.collectRunExecutionEnvelopes(input.sessionId, input.runId);
+    // 同源改造：participant 执行视图同样来自该 run 所属线程的消息行合成。
+    const envelopes = await this.synthesizeRunEnvelopes(
+      input.sessionId,
+      input.runId,
+      run.thread_key || "root",
+    );
     return {
       run_id: input.runId,
       items: envelopes.slice(offset, offset + limit),
@@ -183,37 +208,6 @@ export class AgentSessionApplication implements ExecutionSessionPort {
     return participantId === "root"
       ? run.child_agent_id == null && run.thread_key === "root"
       : run.child_agent_id === participantId;
-  }
-
-  /**
-   * 读取单个 Run 的持久化 Envelope。父子 Run 的关系只用于运行时生命周期，
-   * 不参与会话执行过程展示。
-   */
-  private async collectRunExecutionEnvelopes(
-    sessionId: string,
-    runId: string,
-  ): Promise<Envelope[]> {
-    const steps = await this.listRunStepsAll({
-      runId,
-      sessionId,
-    });
-    const archived = steps
-      .filter((step) => step.step_type === EXECUTION_ENVELOPE_STEP_TYPE)
-      .map((step) => parseArchivedEnvelope(step.payload));
-    return archived;
-  }
-
-  private async listRunStepsAll(input: {
-    runId?: string | null;
-    sessionId?: string | null;
-  }): Promise<RunStepInfo[]> {
-    const pageSize = 500;
-    const steps: RunStepInfo[] = [];
-    for (let offset = 0; ; offset += pageSize) {
-      const page = await this.repository.listRunSteps({ ...input, limit: pageSize, offset });
-      steps.push(...page);
-      if (page.length < pageSize) return steps;
-    }
   }
 
   async addMessage(input: {
@@ -250,18 +244,6 @@ export class AgentSessionApplication implements ExecutionSessionPort {
       }
     }
     return message;
-  }
-
-  async getLastRunRound(sessionId: string, runId: string): Promise<number> {
-    return (await this.repository.listRunSteps({ sessionId, runId, limit: 1000 }))
-      .reduce((max, step) => {
-        if (step.step_type !== EXECUTION_ENVELOPE_STEP_TYPE) return max;
-        const payload = step.payload.payload;
-        const round = payload && typeof payload === "object" && !Array.isArray(payload)
-          ? (payload as Record<string, unknown>).round
-          : undefined;
-        return typeof round === "number" && round > max ? round : max;
-      }, 0);
   }
 
   async updateUserMessage(input: { sessionId: string; messageId: string; content: string }): Promise<boolean> {
@@ -321,9 +303,10 @@ export class AgentSessionApplication implements ExecutionSessionPort {
       }
       exportedMessages.push({
         ...message,
-        execution_events: await this.collectRunExecutionEnvelopes(
+        execution_events: await this.synthesizeRunEnvelopes(
           sessionId,
           String(message.metadata.run_id),
+          message.thread_key || "root",
         ),
       });
     }

@@ -1,4 +1,3 @@
-import type { RunStepInfo } from "../common.js";
 import type { MessageContentPart } from "@ragsystem/agent-protocol";
 import type {
   CreateSessionRecordInput,
@@ -75,18 +74,4 @@ export interface AgentSessionRepositoryPort {
   listRuns(sessionId: string, limit: number): Promise<{ items: AgentSessionRunRecord[]; total: number }>;
   listParticipantRuns(sessionId: string, participantId: string, limit: number, offset: number): Promise<{ items: AgentSessionRunRecord[]; total: number }>;
   getRun(sessionId: string, runId: string): Promise<AgentSessionRunRecord | null>;
-  getRunMessageBoundary(sessionId: string, runId: string, messageId: string): Promise<number | null>;
-  listMessageRunSteps(input: {
-    sessionId: string;
-    runId: string;
-    messageId: string;
-    limit: number;
-    offset: number;
-  }): Promise<{ items: RunStepInfo[]; total: number }>;
-  listRunSteps(input: {
-    runId?: string | null;
-    sessionId?: string | null;
-    limit?: number;
-    offset?: number;
-  }): Promise<RunStepInfo[]>;
 }

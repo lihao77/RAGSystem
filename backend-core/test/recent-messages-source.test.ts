@@ -32,7 +32,7 @@ describe("RecentMessagesContextSource", () => {
         message({
           id: `intent-${index + 1}`,
           seq: index * 2 + 1,
-          metadata: { msg_type: MSG_TYPE.INTENT },
+          metadata: { msg_type: MSG_TYPE.ROUND },
           tool_calls: [{
             id: callId,
             type: "function",
@@ -83,12 +83,18 @@ describe("RecentMessagesContextSource", () => {
   });
 
   /** 未关闭的两轮工具事务：user → A1(tool₁) → T1 → A2(tool₂) → T2。 */
-  function openTransactionHistory(states: Record<string, MessageProviderState | null> = {}): MessageInfo[] {
+  function openTransactionHistory(
+    states: Record<string, MessageProviderState | null> = {},
+    thinkingParts: Record<string, string> = {},
+  ): MessageInfo[] {
     const call = (id: string, seq: number) => message({
       id: `intent-${id}`,
       seq,
       role: "assistant",
-      metadata: { msg_type: MSG_TYPE.INTENT },
+      ...(thinkingParts[`intent-${id}`]
+        ? { content: "", content_parts: [{ type: "thinking" as const, text: thinkingParts[`intent-${id}`], round: Number(id), complete: true }] }
+        : {}),
+      metadata: { msg_type: MSG_TYPE.ROUND },
       tool_calls: [{
         id: `call-${id}`,
         type: "function" as const,
@@ -141,17 +147,34 @@ describe("RecentMessagesContextSource", () => {
 
   it("degrades cross-model rounds to <think> text instead of dropping or replaying signatures", async () => {
     // 事务由 kimi/k3 与 kimi/k3.5 混合签发，当前 run 是 kimi/k3（pi 语义）：
-    // 匹配轮原样回放；不匹配轮的签名对该模型无效，思考文本降级为 <think> 正文注入。
-    const conversation = await buildConversation(openTransactionHistory({
-      "intent-1": providerStateOf("call-1", "round one"),
-      "intent-2": providerStateOf("call-2", "round two", "kimi", "k3.5"),
-    }));
+    // 匹配轮原样回放；不匹配轮签名对该模型无效，thinking part 文本降级为 <think> 正文注入。
+    const conversation = await buildConversation(
+      openTransactionHistory(
+        {
+          "intent-1": providerStateOf("call-1", "round one"),
+          "intent-2": providerStateOf("call-2", "round two", "kimi", "k3.5"),
+        },
+        { "intent-1": "round one", "intent-2": "round two" },
+      ),
+    );
 
     const assistants = conversation.filter((entry) => entry.role === "assistant");
+    expect(assistants).toHaveLength(2);
     expect(assistants[0]!.provider_continuation).toEqual(providerStateOf("call-1", "round one").state);
     expect(assistants[1]!.provider_continuation).toBeUndefined();
     expect(JSON.stringify(assistants[1]!.content)).toContain("<think>");
     expect(JSON.stringify(assistants[1]!.content)).toContain("round two");
+  });
+
+  it("skips degrade injection when the mismatched round has no thinking part (single source, no provider_state fallback)", async () => {
+    // 跨模型轮只有 provider_state、没有 thinking part：不注入任何文本（思考文本单一数据源）。
+    const conversation = await buildConversation(openTransactionHistory({
+      "intent-1": providerStateOf("call-1", "round one", "kimi", "k3.5"),
+    }));
+
+    const assistants = conversation.filter((entry) => entry.role === "assistant");
+    expect(assistants[0]!.provider_continuation).toBeUndefined();
+    expect(JSON.stringify(conversation)).not.toContain("<think>");
   });
 
   it("restores stamped rounds independently; later rounds missing state do not block earlier ones", async () => {
@@ -162,6 +185,34 @@ describe("RecentMessagesContextSource", () => {
     const assistants = conversation.filter((entry) => entry.role === "assistant");
     expect(assistants[0]!.provider_continuation).toEqual(providerStateOf("call-1", "round one").state);
     expect(assistants[1]!.provider_continuation).toBeUndefined();
+  });
+
+  it("injects terminal salvage thinking as <think> when the interrupted round has no provider_state", async () => {
+    // 中断 run：工具轮正常回放；最终轮 salvage 思考落在 terminal 行——中断轮没有有效
+    // 续跑态（无 provider_state）。文本降级注入，下一轮模型才能看到中断前的盘算。
+    const history = [
+      ...openTransactionHistory({ "intent-1": providerStateOf("call-1", "round one") }),
+      message({
+        id: "terminal-1",
+        seq: 6,
+        role: "assistant",
+        content: "本次运行已中断，未生成最终答案。原因：用户主动停止运行",
+        content_parts: [
+          { type: "thinking" as const, text: "salvaged half-thinking", complete: false },
+          { type: "text", text: "本次运行已中断，未生成最终答案。原因：用户主动停止运行" },
+        ],
+        metadata: { msg_type: MSG_TYPE.RUN_TERMINAL, terminal_status: "interrupted", visible_to_user: true },
+      }),
+      message({ id: "user-2", seq: 7, role: "user", content: "你可以看到停止前的思考吗", content_parts: [{ type: "text", text: "你可以看到停止前的思考吗" }], metadata: {} }),
+    ];
+    const conversation = await buildConversation(history);
+
+    const assistants = conversation.filter((entry) => entry.role === "assistant");
+    expect(assistants[0]!.provider_continuation).toEqual(providerStateOf("call-1", "round one").state);
+    const terminal = assistants.at(-1)!;
+    expect(terminal.provider_continuation).toBeUndefined();
+    expect(JSON.stringify(terminal.content)).toContain("<think>");
+    expect(JSON.stringify(terminal.content)).toContain("salvaged half-thinking");
   });
 
   it("restores across closed transactions, including the text-only final round", async () => {
@@ -185,7 +236,7 @@ describe("RecentMessagesContextSource", () => {
         role: "assistant",
         content: "done",
         content_parts: [{ type: "text", text: "done" }],
-        metadata: { msg_type: MSG_TYPE.ASSISTANT_FINAL },
+        metadata: { msg_type: MSG_TYPE.ROUND },
         provider_state: finalState,
       }),
       message({ id: "user-2", seq: 7, role: "user", content: "next question", content_parts: [{ type: "text", text: "next question" }], metadata: {} }),
@@ -196,6 +247,43 @@ describe("RecentMessagesContextSource", () => {
     expect(assistants).toHaveLength(3);
     expect(assistants.every((entry) => entry.provider_continuation !== undefined)).toBe(true);
     expect(assistants[2]!.provider_continuation).toEqual(finalState.state);
+  });
+
+  it("keeps zero-content thinking-only rounds: restored on stamp match, degraded cross-model", async () => {
+    const emptyFinal: MessageProviderState = {
+      provider_key: "kimi",
+      model: "k3",
+      state: {
+        protocol: "anthropic_messages",
+        toolCallIds: [],
+        blocks: [{ type: "thinking", thinking: "thought without an answer", signature: "sig-empty" }],
+      },
+    };
+    const history = [
+      message({ id: "user-1", seq: 1, role: "user", content: "go", content_parts: [{ type: "text", text: "go" }], metadata: {} }),
+      // 零正文纯思考轮（如 length 截断在思考段）：无 content_parts、无 tool_calls，仅 provider_state
+      message({
+        id: "final-empty",
+        seq: 2,
+        role: "assistant",
+        content: "",
+        content_parts: [{ type: "thinking" as const, text: "thought without an answer", complete: false }],
+        metadata: { msg_type: MSG_TYPE.ROUND },
+        provider_state: emptyFinal,
+      }),
+      message({ id: "user-2", seq: 3, role: "user", content: "again", content_parts: [{ type: "text", text: "again" }], metadata: {} }),
+    ];
+
+    const matched = await buildConversation(history);
+    const matchedAssistant = matched.filter((entry) => entry.role === "assistant");
+    expect(matchedAssistant).toHaveLength(1);
+    expect(matchedAssistant[0]!.provider_continuation).toEqual(emptyFinal.state);
+
+    const crossModel = await buildConversation(history, { providerKey: "kimi", model: "k3.5" });
+    const degraded = crossModel.filter((entry) => entry.role === "assistant");
+    expect(degraded).toHaveLength(1);
+    expect(degraded[0]!.provider_continuation).toBeUndefined();
+    expect(JSON.stringify(degraded[0]!.content)).toContain("thought without an answer");
   });
 
   it("drops redacted-only reasoning on cross-model rounds without injecting text", async () => {
@@ -228,7 +316,7 @@ describe("RecentMessagesContextSource", () => {
       },
     };
     const conversation = await buildConversation(
-      openTransactionHistory({ "intent-1": chatState }),
+      openTransactionHistory({ "intent-1": chatState }, { "intent-1": "deepseek thought" }),
       { providerKey: "deepseek", model: "deepseek-v4-pro-preview" },
     );
 

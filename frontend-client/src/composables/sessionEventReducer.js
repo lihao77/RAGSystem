@@ -1,8 +1,6 @@
 // @ts-check
 
 import {
-  applyMessageContentPart,
-  applyMessageContentTextDelta,
   reconcileMessageContentParts,
 } from '../utils/messageContentParts.js';
 
@@ -207,33 +205,24 @@ export function createSessionEventReducer({
       } else if (phase === 'delta') {
         runtime.markOutputChunk(event, payload.content || '');
         syncLlmRetryState();
-        if (deps.isMasterEvent(event)) {
-          currentMsg.content += payload.content;
-          applyMessageContentTextDelta(currentMsg, payload.part_index, payload.content || '');
-        } else {
-          deps.applyEnvelopeToMessage(currentMsg, event);
-        }
+        // 正文统一进执行树（轮 text 通道流式渲染）；消息槽只承接 final 落地的消息行。
+        deps.applyEnvelopeToMessage(currentMsg, event);
       } else if (phase === 'part_added') {
         runtime.markOutputChunk(event, '');
         syncLlmRetryState();
-        if (deps.isMasterEvent(event)) {
-          applyMessageContentPart(currentMsg, payload.part_index, payload.part);
-        } else {
-          deps.applyEnvelopeToMessage(currentMsg, event);
-        }
+        deps.applyEnvelopeToMessage(currentMsg, event);
       } else if (phase === 'final') {
         runtime.markModelAttemptCompleted(event);
         syncLlmRetryState();
+        deps.applyEnvelopeToMessage(currentMsg, event);
         if (deps.isMasterEvent(event)) {
           if (typeof payload.content === 'string') currentMsg.content = payload.content;
           reconcileMessageContentParts(currentMsg, payload.content_parts);
           currentMsg.finished = true;
           runtime.markRecentSessionUpdated(sessionId, currentMsg);
           deps.cacheMessages(sessionId, messages.value);
-        } else {
-          deps.applyEnvelopeToMessage(currentMsg, event);
         }
-      } else if (phase === 'intent_delta' || phase === 'intent_complete') {
+      } else if (phase === 'intent_complete') {
         runtime.markModelStreaming(event);
         syncLlmRetryState();
         deps.applyEnvelopeToMessage(currentMsg, event);

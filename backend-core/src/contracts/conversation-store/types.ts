@@ -175,17 +175,6 @@ export interface UpdateChildAgentLastRunInput {
   expectedLastRunId?: string | null;
 }
 
-export const AddRunStepInputSchema = z.object({
-  sessionId: z.string(),
-  runId: z.string(),
-  eventId: z.string().trim().min(1).optional(),
-  stepType: z.string(),
-  payload: z.record(z.unknown()),
-  boundaryMessageId: z.string().trim().min(1).optional(),
-  boundaryKind: z.enum(["carrier", "terminal"]).optional(),
-});
-export type AddRunStepInput = z.infer<typeof AddRunStepInputSchema>;
-
 export const AppendOutboxInputSchema = z.object({
   sessionId: z.string(),
   runId: z.string().nullable().optional(),
@@ -279,13 +268,6 @@ export const ChildAgentInfoSchema = z.object({
 });
 export type ChildAgentInfo = z.infer<typeof ChildAgentInfoSchema>;
 
-export const ResourceInfoSchema = z.object({
-  resource_id: z.string(), session_id: z.string(), run_id: z.string().nullable(), path: z.string(),
-  resource_type: z.string(), sub_type: z.string().nullable(), title: z.string().nullable(), scope: z.string(),
-  source_tool: z.string().nullable(),
-});
-export type ResourceInfo = z.infer<typeof ResourceInfoSchema>;
-
 /** 单 agent 的聚合性能指标(对齐前端 AgentMonitor agent 卡片字段)。 */
 export const AgentMetricSummarySchema = z.object({
   agent_name: z.string(), total_calls: z.number(), success_count: z.number(), failure_count: z.number(),
@@ -309,16 +291,6 @@ export type HeatmapPoint = z.infer<typeof HeatmapPointSchema>;
 /** 每日活跃度点(GitHub 式日历热力图:date=YYYY-MM-DD)。稀疏,前端按 range 补全。 */
 export const DailyActivityPointSchema = z.object({ date: z.string(), calls: z.number() });
 export type DailyActivityPoint = z.infer<typeof DailyActivityPointSchema>;
-
-/** addRunStep 返回的精简记录（领域投影，非完整 run_step 物理行）。 */
-export const RunStepRecordSchema = z.object({
-  id: z.number(),
-  run_id: z.string(),
-  event_id: z.string().nullable(),
-  step_order: z.number(),
-  step_type: z.string(),
-});
-export type RunStepRecord = z.infer<typeof RunStepRecordSchema>;
 
 export const RetryOutboxResultSchema = z.object({ matched: z.number(), retried: z.number(), ids: z.array(z.number()) });
 export type RetryOutboxResult = z.infer<typeof RetryOutboxResultSchema>;

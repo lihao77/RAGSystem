@@ -173,15 +173,6 @@ export const SessionParticipantListDataSchema = z.object({
   total: z.number().int().nonnegative(),
 }).strict();
 
-export const SessionMessageRunStepsDataSchema = z.object({
-  message_id: z.string().min(1),
-  items: z.array(ServerToClientEnvelopeSchema),
-  total: z.number().int().nonnegative(),
-  limit: z.number().int().nonnegative(),
-  offset: z.number().int().nonnegative(),
-  has_more: z.boolean(),
-}).strict();
-
 export const SessionParticipantRunStepsDataSchema = z.object({
   participant_id: z.string().min(1),
   run_id: z.string().min(1),
@@ -228,7 +219,13 @@ export const SessionMetadataResponseSchema = successResponseSchema(z.object({
   metadata: z.record(z.string(), z.unknown()),
 }).strict());
 export const SessionMessageListResponseSchema = successResponseSchema(SessionMessageListDataSchema);
-export const SessionMessageRunStepsResponseSchema = successResponseSchema(SessionMessageRunStepsDataSchema);
+export const SessionMessageExecutionDataSchema = z.object({
+  message_id: z.string().min(1),
+  items: z.array(ServerToClientEnvelopeSchema),
+  total: z.number().int().nonnegative(),
+}).strict();
+
+export const SessionMessageExecutionResponseSchema = successResponseSchema(SessionMessageExecutionDataSchema);
 export const SessionParticipantRunListResponseSchema = successResponseSchema(SessionParticipantRunListDataSchema);
 export const SessionParticipantRunStepsResponseSchema = successResponseSchema(SessionParticipantRunStepsDataSchema);
 export const SessionParticipantListResponseSchema = successResponseSchema(SessionParticipantListDataSchema);
@@ -262,7 +259,7 @@ export type SessionPermissionData = z.infer<typeof SessionPermissionDataSchema>;
 export type SessionMessageToolCall = z.infer<typeof SessionMessageToolCallSchema>;
 export type SessionMessage = z.infer<typeof SessionMessageSchema>;
 export type SessionMessageListData = z.infer<typeof SessionMessageListDataSchema>;
-export type SessionMessageRunStepsData = z.infer<typeof SessionMessageRunStepsDataSchema>;
+export type SessionMessageExecutionData = z.infer<typeof SessionMessageExecutionDataSchema>;
 export type SessionParticipantRun = z.infer<typeof SessionParticipantRunSchema>;
 export type SessionParticipantRunListData = z.infer<typeof SessionParticipantRunListDataSchema>;
 export type SessionParticipantRunStepsData = z.infer<typeof SessionParticipantRunStepsDataSchema>;
@@ -279,7 +276,7 @@ export type WorkspaceResponse = z.infer<typeof WorkspaceResponseSchema>;
 export type SessionPermissionResponse = z.infer<typeof SessionPermissionResponseSchema>;
 export type SessionMetadataResponse = z.infer<typeof SessionMetadataResponseSchema>;
 export type SessionMessageListResponse = z.infer<typeof SessionMessageListResponseSchema>;
-export type SessionMessageRunStepsResponse = z.infer<typeof SessionMessageRunStepsResponseSchema>;
+export type SessionMessageExecutionResponse = z.infer<typeof SessionMessageExecutionResponseSchema>;
 export type SessionParticipantRunListResponse = z.infer<typeof SessionParticipantRunListResponseSchema>;
 export type SessionParticipantRunStepsResponse = z.infer<typeof SessionParticipantRunStepsResponseSchema>;
 export type SessionParticipantListResponse = z.infer<typeof SessionParticipantListResponseSchema>;

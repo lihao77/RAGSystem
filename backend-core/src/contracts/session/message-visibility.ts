@@ -17,7 +17,7 @@ export function isParticipantConversationMessageVisible(
   if (threadKey === "root") {
     if (message.child_agent_id !== null) return false;
     if (message.metadata.conversation_scope === "child") return false;
-    if (message.metadata.msg_type === MSG_TYPE.INTENT || message.metadata.msg_type === MSG_TYPE.OBSERVATION) return false;
+    if (message.metadata.msg_type === MSG_TYPE.OBSERVATION) return false;
   }
   return true;
 }

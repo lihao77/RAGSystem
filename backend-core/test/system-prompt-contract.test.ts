@@ -40,16 +40,18 @@ describe("runtime system prompt contract", () => {
     expect(prompt).not.toContain("不要在最终答案中输出超过 20 行原始数据");
   });
 
-  it("advertises only canonical XML output tags", () => {
+  it("advertises only the tagless protocol: plain text + <tool_calls>", () => {
     const xmlPrompt = renderRuntimeXmlProtocolInstruction([]);
     const nativePrompt = renderNativeXmlProtocolInstruction();
 
     for (const prompt of [xmlPrompt, nativePrompt]) {
-      expect(prompt).toContain("<final_answer>");
       expect(prompt).toContain("<file_ref");
       expect(prompt).toContain("copy transient or external output into workspace");
-      expect(prompt).not.toContain("Legacy aliases");
+      // 无标签化：不再教任何阶段标签（正文裸文本，轮次判据唯一化为 tool_calls 有无）。
+      expect(prompt).not.toContain("<intent>");
+      expect(prompt).not.toContain("<final_answer>");
       expect(prompt).not.toContain("<answer>");
+      expect(prompt).not.toContain("Legacy aliases");
     }
     expect(xmlPrompt).toContain("<tool_calls>");
     expect(xmlPrompt).not.toContain("<tools>");

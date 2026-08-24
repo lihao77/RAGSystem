@@ -33,7 +33,6 @@ export function createLocalExecutionStorage(input: {
       getRun: async (sessionId, runId) => input.conversation.getRun(sessionId, runId),
       listRuns: async (sessionId, limit, offset) => input.conversation.listRuns(sessionId, limit, offset),
       getMessageById: async (sessionId, messageId) => input.conversation.getMessageById(sessionId, messageId),
-      listRunSteps: async (query) => input.conversation.listRunSteps(query),
     },
     commitRunInput: (runInput) => input.runtimeStorage.operations.commitRunInput(runInput),
     createEventPersister: (context) => new AsyncKernelEventPersister(

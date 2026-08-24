@@ -94,9 +94,6 @@ export class SessionOps {
 
   deleteSession(sessionId: string): boolean {
     const result = runInTransaction(this.db, () => {
-      this.db.prepare("DELETE FROM step_resources WHERE session_id=?").run(sessionId);
-      this.db.prepare("DELETE FROM resources WHERE session_id=?").run(sessionId);
-      this.db.prepare("DELETE FROM run_steps WHERE session_id=?").run(sessionId);
       this.db.prepare("DELETE FROM runs WHERE session_id=?").run(sessionId);
       this.db.prepare("DELETE FROM child_agents WHERE session_id=?").run(sessionId);
       return this.db.prepare("DELETE FROM sessions WHERE session_id=?").run(sessionId);

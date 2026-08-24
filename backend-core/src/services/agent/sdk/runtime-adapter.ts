@@ -10,6 +10,7 @@ import { buildFullSystemPrompt, buildTool, createRuntime, createToolRegistry, es
 import type { Tool, ToolExecContext, ToolExecutionResult, ToolRegistry, MessageRefreshResult, MessageRefresher, KernelResult, KernelEvent } from "@ragsystem/agent-sdk";
 import type { ChatMessage, ThinkingLevel, TokenUsage } from "@ragsystem/agent-llm";
 import { translateKernelEvent, type WireTranslationContext } from "./event-translation.js";
+import type { AsyncTerminalSalvage } from "./async-event-persister.js";
 import { selectLostObservations } from "./lost-observations.js";
 import type { AgentConfig } from "../../../contracts/agent/agent-config.js";
 import type { MessageInfo, SessionIdentity } from "../../../contracts/session/session.js";
@@ -36,7 +37,7 @@ import type { HostToolRegistry } from "../../runtime/host-tool-registry.js";
 import type { DelegationPendingService, DelegationResolution } from "../../runtime/delegation-pending-service.js";
 import { resolveSessionMetadataPort } from "../context/async-session-metadata-resolver.js";
 import type { SessionFileLookupPort } from "../../../contracts/session/session-file-storage.js";
-import { resolveResumeToolResults, resolveRunStartRound } from "./run-round.js";
+import { resolveResumeBoundaryMessageId, resolveResumeToolResults, resolveRunStartRound } from "./run-round.js";
 import { terminalReason } from "./terminal-reason.js";
 import type { ExecutionEnvironmentCapability } from "../../../contracts/execution/execution-environment.js";
 
@@ -480,7 +481,47 @@ export async function executeRunWithSdk(
     ...(input.sessionMaintenanceToken ? { sessionMaintenanceToken: input.sessionMaintenanceToken } : {}),
     ...(input.initialEnvelopes ? { initialEnvelopes: input.initialEnvelopes } : {}),
   });
+  // 中断/失败 salvage 累加器：跟踪当前轮已流出的思考与正文（post-XML-parse 干净增量）。
+  // 换轮（model_request）清零；reasoning_complete 到达即固化快照并视为完整。
+  const partialRound: { round: number; reasoning: string; reasoningComplete: boolean; content: string } = {
+    round: 0,
+    reasoning: "",
+    reasoningComplete: false,
+    content: "",
+  };
+  const trackPartialRound = (event: KernelEvent): void => {
+    if (event.type === "model_request") {
+      partialRound.round = event.round;
+      partialRound.reasoning = "";
+      partialRound.reasoningComplete = false;
+      partialRound.content = "";
+      return;
+    }
+    if (event.type === "reasoning_delta") {
+      partialRound.reasoning += event.content;
+      return;
+    }
+    if (event.type === "reasoning_complete") {
+      partialRound.reasoning = event.content;
+      partialRound.reasoningComplete = true;
+      return;
+    }
+    if (event.type === "output_delta") {
+      partialRound.content += event.content;
+    }
+  };
+  const terminalSalvage = (): AsyncTerminalSalvage | null => {
+    const hasReasoning = partialRound.reasoning.trim().length > 0;
+    const hasContent = partialRound.content.trim().length > 0;
+    if (!hasReasoning && !hasContent) return null;
+    return {
+      ...(hasReasoning ? { reasoning: partialRound.reasoning, reasoningComplete: partialRound.reasoningComplete } : {}),
+      ...(hasContent ? { content: partialRound.content } : {}),
+      round: partialRound.round,
+    };
+  };
   const commitKernelEvent = async (event: KernelEvent): Promise<void> => {
+    trackPartialRound(event);
     await persister.persist(event);
     for (const envelope of translateKernelEvent(event, wireCtx)) {
       await deps.eventPublisher.commitEnvelope(envelope);
@@ -648,6 +689,8 @@ export async function executeRunWithSdk(
             });
             const persisted = committed.message;
             wireCtx.boundaryMessageId = persisted?.id ?? mailboxMessage.message_id;
+            // 行落库/终局记录与 wire 同步翻转：之后该 run 的行与新 envelope 都归属插嘴段。
+            persister.setBoundaryMessageId?.(wireCtx.boundaryMessageId);
             const outbox = committed.record?.outbox;
             // The input, boundary, outbox, and ACK are already committed. A
             // live delivery failure leaves the outbox pending for retry and
@@ -836,6 +879,15 @@ export async function executeRunWithSdk(
     baseExecCtx.attachmentFileIds = collectAttachmentFileIds(contextRawMessages);
     const startRound = resolveRunStartRound(contextRawMessages, input.runId);
     const resumeToolResults = resolveResumeToolResults(contextRawMessages, input.runId, startRound);
+    // 恢复运行没有 initialMessage：从线程行重建当前 boundary（该 run 已认领的最新
+    // 用户行，含插嘴），行盖章与 wire 工具信封的路由不因 suspend→resume 断档。
+    if (!wireCtx.boundaryMessageId) {
+      const resumeBoundaryId = resolveResumeBoundaryMessageId(contextRawMessages, input.runId);
+      if (resumeBoundaryId) {
+        wireCtx.boundaryMessageId = resumeBoundaryId;
+        persister.setBoundaryMessageId?.(resumeBoundaryId);
+      }
+    }
     runtime = createRuntime(runtimeOpts);
     const handle = runtime.run({
       sessionId: input.sessionId,
@@ -897,8 +949,9 @@ export async function executeRunWithSdk(
     }
     const interrupted = input.signal.aborted || (error instanceof Error && error.name === "AbortError");
     // 终态合一落库：failed/interrupted 更新 run 状态并补齐本 run 的悬空 tool observation。
+    // salvage 保留当前轮已流出的思考（thinking part）与半截正文（并入中断原因文本）。
     const terminalError = interrupted ? new Error("session_stopped") : error;
-    const finalized = await journal.recover(() => persister.finalize(interrupted ? "interrupted" : "failed", null, terminalError));
+    const finalized = await journal.recover(() => persister.finalize(interrupted ? "interrupted" : "failed", null, terminalError, terminalSalvage()));
     if (isInteractionRoot) {
       await deps.pendingInteractions.onRootFinalized(
         input.sessionId,
@@ -924,6 +977,7 @@ export async function executeRunWithSdk(
     content: result.content,
     contentParts: result.contentParts,
     ...(result.providerContinuation ? { providerContinuation: result.providerContinuation } : {}),
+    ...(result.reasoning ? { reasoning: result.reasoning } : {}),
   }));
   if (isInteractionRoot) {
     await deps.pendingInteractions.onRootFinalized(

@@ -41,7 +41,6 @@ export interface ExecutionSessionPort {
   }): Promise<MessageInfo>;
   getMessageForRetry(input: { sessionId: string; afterSeq?: number | null; afterMessageId?: string | null }): Promise<MessageInfo | null>;
   rollbackMessages(input: { sessionId: string; afterSeq?: number | null; afterMessageId?: string | null }): Promise<number>;
-  getLastRunRound(sessionId: string, runId: string): Promise<number>;
 }
 
 export interface SessionExport {
@@ -80,13 +79,11 @@ export interface SessionApplication {
   listMessages(input: { sessionId: string; limit?: number; offset?: number; threadKey?: string | null }): Promise<SessionMessageListSnapshot | null>;
   getRecentMessages(sessionId: string, limit?: number, threadKey?: string | null): Promise<MessageInfo[]>;
   getMessageForRetry(input: { sessionId: string; afterSeq?: number | null; afterMessageId?: string | null }): Promise<MessageInfo | null>;
-  listMessageRunSteps(input: { sessionId: string; messageId: string; limit?: number; offset?: number; threadKey?: string | null }): Promise<{
+  /** 执行视图（消息行合成）：从本 run 的消息行重建执行树 envelope 流（思考=thinking part）。 */
+  listMessageExecution(input: { sessionId: string; messageId: string; threadKey?: string | null }): Promise<{
     message_id: string;
     items: Envelope[];
     total: number;
-    limit: number;
-    offset: number;
-    has_more: boolean;
   }>;
   listParticipantRuns(input: { sessionId: string; participantId: string; limit?: number; offset?: number }): Promise<{
     items: SessionParticipantRunSummary[];

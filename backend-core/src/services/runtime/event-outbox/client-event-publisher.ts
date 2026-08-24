@@ -11,7 +11,6 @@ import type {
   RuntimeRecordEnvelopeInput,
   RuntimeStorage,
 } from "../../../contracts/storage/runtime-storage.js";
-import { buildExecutionEnvelopeRunStep } from "./execution-envelope-archive.js";
 
 export type {
   ClientEventPublisherPort as ClientEventPublisher,
@@ -127,7 +126,6 @@ export class DurableClientEventPublisher implements ClientEventPublisherPort {
     const runId = options.runId ?? event.run_id ?? null;
     return {
       ...(options.requireRunLease ? { requireRunLease: true } : {}),
-      step: buildExecutionEnvelopeRunStep(sessionId, runId, event, options.eventId),
       outbox: {
         sessionId,
         runId,

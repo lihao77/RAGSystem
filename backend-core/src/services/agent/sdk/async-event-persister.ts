@@ -73,8 +73,20 @@ export interface AsyncFinalMessageInput {
   content: string;
   contentParts?: AssistantContentPart[];
   metadata?: Record<string, unknown>;
+  /** final 轮思考全文；落库为消息行 thinking part（一等持久化内容）。 */
+  reasoning?: string;
   /** final 轮思考 continuation；落库为 provider_state 供跨 run 回放。 */
   providerContinuation?: ChatMessage["provider_continuation"];
+}
+
+/** 中断/失败时从事件流 salvage 的当前轮半成品（runtime-adapter 累加器产出）。 */
+export interface AsyncTerminalSalvage {
+  /** 当前轮已累积的思考全文（reasoning_complete 到达过则视为完整）。 */
+  reasoning?: string;
+  reasoningComplete?: boolean;
+  /** 当前轮已流出的正文（post-XML-parse 增量累积）。 */
+  content?: string;
+  round?: number;
 }
 
 /** Deployment-neutral kernel persister backed by a tenant-bound RuntimeStorage adapter. */
@@ -83,6 +95,11 @@ export class AsyncKernelEventPersister {
   private leaseHeartbeat: ReturnType<typeof setInterval> | null = null;
   private leaseLostError: Error | null = null;
   private leaseRenewal: Promise<void> | null = null;
+  /**
+   * 当前 run 段的 boundary 用户消息 id：行落库（boundary_message_id）与 wire 翻译共用。
+   * 初始 = 首条用户消息；认领插嘴（commitRunInput）后翻转——之后所有行归属插嘴段。
+   */
+  private boundaryMessageId: string | null;
 
   constructor(
     private readonly storage: RuntimeStorage,
@@ -93,6 +110,12 @@ export class AsyncKernelEventPersister {
     if (storage.tenantId !== ctx.tenantId) {
       throw new Error(`runtime storage tenant mismatch: expected ${ctx.tenantId}, received ${storage.tenantId}`);
     }
+    this.boundaryMessageId = ctx.initialMessage?.messageId ?? ctx.rootMailboxMessage?.id ?? null;
+  }
+
+  /** 认领插嘴后由 runtime-adapter 调用，与 wireCtx.boundaryMessageId 同步翻转。 */
+  setBoundaryMessageId(id: string | null): void {
+    this.boundaryMessageId = id;
   }
 
   async startRun(): Promise<ExecutionStartDisposition> {
@@ -261,7 +284,7 @@ export class AsyncKernelEventPersister {
       return;
     }
     if (event.type === "assistant_intermediate") {
-      await this.persistAssistant(event.message, event.round);
+      await this.persistAssistant(event.message, event.round, event.reasoning);
     }
   }
 
@@ -269,10 +292,11 @@ export class AsyncKernelEventPersister {
     status: RuntimeFinalizeStatus,
     finalMessage: AsyncFinalMessageInput | null,
     error: unknown = null,
+    salvage: AsyncTerminalSalvage | null = null,
   ): Promise<{ readyResumeInteractionIds: string[] }> {
     try {
       await this.ensureRunLease();
-      const persistedFinal = this.buildFinalMessage(status, finalMessage, error);
+      const persistedFinal = this.buildFinalMessage(status, finalMessage, error, salvage);
       const rootRunId = this.ctx.rootRunId ?? this.ctx.runId;
       const isInteractionRoot = this.isRootRun() || this.ctx.ownsRunLease === true;
       await this.clientEvents.flush(this.ctx.sessionId);
@@ -281,6 +305,9 @@ export class AsyncKernelEventPersister {
       runId: this.ctx.runId,
       sessionId: this.ctx.sessionId,
       status,
+      // 终局记录（final stream/state_sync、悬空工具补齐、agent_ended/run_ended）盖当前
+      // boundary，live 路由与行落库一致——中断时悬空工具与其 tool_call 同面板收口。
+      ...(this.boundaryMessageId ? { boundaryMessageId: this.boundaryMessageId } : {}),
       ...(status === "failed" || status === "interrupted" ? { reason: terminalReason(status, error) } : {}),
       leaseRootRunId: this.leaseRunId(),
       finalMessage: persistedFinal,
@@ -363,17 +390,22 @@ export class AsyncKernelEventPersister {
     }
   }
 
-  private async persistAssistant(message: ChatMessage, round: number): Promise<void> {
+  private async persistAssistant(message: ChatMessage, round: number, reasoning?: string): Promise<void> {
     const messageId = `${this.ctx.runId}:intent:${round}`;
+    const text = extractText(message.content);
+    // 思考是一等持久化内容：随工具轮 INTENT 行落 thinking part（正文 content 不含思考文本）。
+    const thinkingPart = reasoning?.trim()
+      ? [{ type: "thinking" as const, text: reasoning, round: round + 1, complete: true }]
+      : [];
     const input: AddMessageInput & { messageId: string } = {
       messageId,
       sessionId: this.ctx.sessionId,
       role: "assistant",
-      content: extractText(message.content),
-      contentParts: [{ type: "text", text: extractText(message.content) }],
+      content: text,
+      contentParts: [...thinkingPart, { type: "text", text }],
       threadKey: this.ctx.threadKey,
       childAgentId: this.ctx.childAgentId ?? null,
-      metadata: { ...this.messageMeta(round), msg_type: MSG_TYPE.INTENT },
+      metadata: { ...this.messageMeta(round), msg_type: MSG_TYPE.ROUND },
     };
     if (message.tool_calls) {
       input.toolCalls = message.tool_calls as AddMessageInput["toolCalls"];
@@ -413,30 +445,35 @@ export class AsyncKernelEventPersister {
     status: RuntimeFinalizeStatus,
     finalMessage: AsyncFinalMessageInput | null,
     error: unknown,
+    salvage: AsyncTerminalSalvage | null = null,
   ): (AddMessageInput & { messageId: string }) | null {
     if (status === "completed") {
       if (!finalMessage) throw new Error("completed finalize requires a final message");
       const metadata = {
         ...this.finalMessageMeta(),
-        msg_type: MSG_TYPE.ASSISTANT_FINAL,
+        msg_type: MSG_TYPE.ROUND,
         ...(this.ctx.messageMetadata ?? {}),
         ...(finalMessage.metadata ?? {}),
       };
+      const finalThinkingPart: MessageContentPart[] = finalMessage.reasoning?.trim()
+        ? [{ type: "thinking", text: finalMessage.reasoning, complete: true }]
+        : [];
+      const finalTextParts: MessageContentPart[] = finalMessage.contentParts
+        ? finalMessage.contentParts.flatMap((part): MessageContentPart[] => part.type === "text"
+          ? [{ type: "text", text: part.text }]
+          : [{
+            type: "file_ref",
+            file_path: part.filePath,
+            presentation: part.presentation,
+            ...(part.caption ? { caption: part.caption } : {}),
+          }])
+        : (finalMessage.content ? [{ type: "text", text: finalMessage.content }] : []);
       const input: AddMessageInput & { messageId: string } = {
         messageId: finalMessage.id?.trim() || `${this.ctx.runId}:final`,
         sessionId: this.ctx.sessionId,
         role: "assistant",
         content: finalMessage.content,
-        contentParts: finalMessage.contentParts
-          ? finalMessage.contentParts.flatMap((part): MessageContentPart[] => part.type === "text"
-            ? [{ type: "text", text: part.text }]
-            : [{
-              type: "file_ref",
-              file_path: part.filePath,
-              presentation: part.presentation,
-              ...(part.caption ? { caption: part.caption } : {}),
-            }])
-          : (finalMessage.content ? [{ type: "text", text: finalMessage.content }] : []),
+        contentParts: [...finalThinkingPart, ...finalTextParts],
         threadKey: this.ctx.threadKey,
         childAgentId: this.ctx.childAgentId ?? null,
         metadata,
@@ -454,6 +491,7 @@ export class AsyncKernelEventPersister {
       agentName: this.ctx.agentName,
       terminalStatus: status,
       reason: terminalReason(status, error),
+      salvage,
       metadata: {
         ...this.finalMessageMeta(),
         ...(this.ctx.messageMetadata ?? {}),
@@ -484,6 +522,7 @@ export class AsyncKernelEventPersister {
       run_id: this.ctx.runId,
       agent: this.ctx.agentName,
       conversation_scope: this.ctx.parentCallId != null ? "child" : "root",
+      ...(this.boundaryMessageId ? { boundary_message_id: this.boundaryMessageId } : {}),
       ...(this.ctx.taskId ? { task_id: this.ctx.taskId } : {}),
       ...(this.ctx.requestId ? { request_id: this.ctx.requestId } : {}),
       ...(this.ctx.executionKind ? { execution_kind: this.ctx.executionKind } : {}),

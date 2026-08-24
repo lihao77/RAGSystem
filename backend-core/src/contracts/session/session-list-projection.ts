@@ -11,6 +11,6 @@ export function isSessionListVisibleMessage(message: Pick<
   if (message.metadata.react_intermediate === true) return false;
   if (message.metadata.visible_to_user === false) return false;
   if (message.metadata.conversation_scope === "child") return false;
-  if (message.metadata.msg_type === MSG_TYPE.INTENT || message.metadata.msg_type === MSG_TYPE.OBSERVATION) return false;
+  if (message.metadata.msg_type === MSG_TYPE.OBSERVATION) return false;
   return true;
 }

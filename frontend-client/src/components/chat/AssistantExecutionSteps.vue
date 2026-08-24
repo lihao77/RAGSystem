@@ -1,56 +1,58 @@
 <template>
   <div class="assistant-execution">
-    <Button
-      class="assistant-execution-toggle"
-      variant="bare"
-      type="button"
-      :aria-expanded="expanded"
-      :title="expanded ? '收起执行步骤' : '展开执行步骤'"
-      @click="toggleExpanded"
-    >
-      <span class="assistant-execution-label">{{ headerLabel }}</span>
-      <span v-if="running" class="assistant-execution-running">运行中</span>
-      <ChevronDown
-        class="assistant-execution-chevron"
-        :class="{ open: expanded }"
-        aria-hidden="true"
-      />
-    </Button>
+    <template v-if="hasProcess">
+      <Button
+        class="assistant-execution-toggle"
+        variant="bare"
+        type="button"
+        :aria-expanded="expanded"
+        :title="expanded ? '收起执行过程' : '展开执行过程'"
+        @click="toggleExpanded"
+      >
+        <span class="assistant-execution-label">{{ headerLabel }}</span>
+        <span v-if="running" class="assistant-execution-running">运行中</span>
+        <ChevronDown
+          class="assistant-execution-chevron"
+          :class="{ open: expanded }"
+          aria-hidden="true"
+        />
+      </Button>
 
-    <div ref="listOuter" class="assistant-execution-list-outer" :class="{ 'is-open': expanded }">
-      <div class="assistant-execution-list-clip">
-        <div class="assistant-execution-list">
-        <template v-if="nodes.length">
-          <AssistantExecutionNode
-            v-for="(node, index) in nodes"
-            :key="nodeKey(node, index)"
-            :node="node"
-            :running="running"
-            @notify="emit('notify', $event)"
-            @citation-click="emit('citation-click', $event)"
-          />
-        </template>
+      <div ref="listOuter" class="assistant-execution-list-outer" :class="{ 'is-open': expanded }">
+        <div class="assistant-execution-list-clip">
+          <div class="assistant-execution-list">
+            <template v-if="nodes.length">
+              <AssistantExecutionNode
+                v-for="(node, index) in nodes"
+                :key="nodeKey(node, index)"
+                :node="node"
+                :running="running"
+                @notify="emit('notify', $event)"
+                @citation-click="emit('citation-click', $event)"
+              />
+            </template>
 
-        <div v-else-if="msg.executionStepsLoading" class="assistant-execution-state" role="status">
-          <Spinner aria-hidden="true" />
-          <span>正在加载执行步骤...</span>
-        </div>
+            <div v-else-if="msg.executionStepsLoading" class="assistant-execution-state" role="status">
+              <Spinner aria-hidden="true" />
+              <span>正在加载执行步骤...</span>
+            </div>
 
-        <Button
-          v-else-if="msg.executionStepsLoadError"
-          class="self-start"
-          variant="ghost"
-          size="sm"
-          type="button"
-          @click="loadHistoricalSteps"
-        >
-          加载失败，点击重试
-        </Button>
+            <Button
+              v-else-if="msg.executionStepsLoadError"
+              class="self-start"
+              variant="ghost"
+              size="sm"
+              type="button"
+              @click="loadHistoricalSteps"
+            >
+              加载失败，点击重试
+            </Button>
 
-        <span v-else class="assistant-execution-state">暂无执行步骤</span>
+            <span v-else class="assistant-execution-state">暂无执行步骤</span>
+          </div>
         </div>
       </div>
-    </div>
+    </template>
   </div>
 </template>
 
@@ -72,6 +74,7 @@ const props = defineProps({
 
 const emit = defineEmits(['notify', 'citation-click']);
 const messageContext = inject('messageContext');
+// 树只承载过程（思考/意图/工具/注入）；最终答案由消息槽 assistant 行渲染。
 const nodes = computed(() => buildExecutionTree(props.msg.executionTree));
 const flatNodes = computed(() => flattenExecutionNodes(nodes.value));
 const agentOperationCount = computed(() => flatNodes.value.filter(node => (
@@ -80,31 +83,41 @@ const agentOperationCount = computed(() => flatNodes.value.filter(node => (
 const toolCount = computed(() => flatNodes.value.filter(node => (
   node.type === 'tool_call' && node.tool_name !== 'agent'
 )).length);
-const hasFinalAnswer = computed(() => Boolean(
-  props.msg.content?.trim()
-  || props.msg.content_parts?.some(part => (
-    part?.type === 'file_ref'
-    || (part?.type === 'text' && part.text?.trim())
-  )),
+// 过程入口的门控：树有节点 / 加载中 / 加载失败 / 历史未加载（此时入口行就是
+// 懒加载触发器，必须在场——否则纯空树连点击加载的机会都没有）。
+// 纯问答 run 加载后发现树为空，入口自然消失（不加壳）。
+const hasProcess = computed(() => Boolean(
+  nodes.value.length
+  || props.msg.executionStepsLoading
+  || props.msg.executionStepsLoadError
+  || msgIsUnloadedHistory.value,
 ));
-const finalVisible = computed(() => Boolean(props.msg.finished && hasFinalAnswer.value));
-const expanded = ref(false);
-const running = computed(() => !props.msg.finished && !props.msg.stopped);
+// 运行态取自树根 agent 的生命周期——锚点消息自身的 finished 被 dispatcher
+// 恒置 true，不能作为运行依据。插嘴被同 run 认领后，本段的 agent_ended 路由
+// 到新边界面板，旧面板根 agent 停在 running——execution_superseded 让段已
+// 结束，面板不再显示运行中（工具详情的“执行中”同源于此）。
+const running = computed(() => props.msg.executionTree?.root?.status === 'running'
+  && props.msg.execution_superseded !== true);
 const msgIsUnloadedHistory = computed(() => Boolean(
   props.msg.has_execution
   && !props.msg.executionTree?.root
   && !props.msg.executionStepsLoaded,
 ));
 const headerLabel = computed(() => {
-  if (msgIsUnloadedHistory.value || !flatNodes.value.length) return '执行步骤';
+  if (msgIsUnloadedHistory.value || !flatNodes.value.length) return '执行过程';
   const labels = [];
   if (toolCount.value) labels.push(`${toolCount.value} 个工具调用`);
   if (agentOperationCount.value) labels.push(`${agentOperationCount.value} 个智能体操作`);
-  return labels.join(' · ') || '执行步骤';
+  return labels.join(' · ') || '执行过程';
 });
 
-watch(finalVisible, (visible, wasVisible) => {
-  if (visible && !wasVisible) expanded.value = false;
+const expanded = ref(false);
+
+// 运行开始自动展开过程（看它干活），运行结束自动收起（答案由下方 assistant 消息槽
+// 呈现，过程收起后时间线仍是 用户消息→答案 的节奏）。只在"开始/结束"边沿触发，
+// 不拦截用户在运行中的手动展开/收起。
+watch(running, (isRunning) => {
+  expanded.value = isRunning;
 });
 
 watch(() => props.msg.run_id || props.msg.id, () => {
@@ -174,9 +187,7 @@ function scheduleHeightRelease(el) {
 }
 
 /* 展开期间内容变化（历史步骤加载完成 / 流式新增节点）：上限仍钉在旧值时
-   平滑过渡到新高度，避免释放后从占位高度直接跳变到完整高度。
-   不重排释放定时器——流式节点高频到达时每次续期会让面板一直处于追赶过渡，
-   列表底部（正在流式的节点）被裁在可视区外；初次展开排定的释放照常触发。 */
+   平滑过渡到新高度，避免释放后从占位高度直接跳变到完整高度。 */
 watch(nodes, () => {
   if (!expanded.value) return;
   const el = listOuter.value;

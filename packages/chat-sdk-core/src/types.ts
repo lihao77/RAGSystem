@@ -30,7 +30,7 @@ export type RagChatEndpointName =
   | "listSessionParticipantRuns"
   | "getParticipantRunSteps"
   | "listMessages"
-  | "getMessageRunSteps"
+  | "getMessageExecution"
   | "listFiles"
   | "uploadFiles"
   | "validateFiles"

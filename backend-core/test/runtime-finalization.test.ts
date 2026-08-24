@@ -127,6 +127,59 @@ describe("buildTerminalToolMessages", () => {
     expect(closed?.metadata).toMatchObject({ terminal_reason: "未提供失败原因" });
     expect(closed?.content).toBe("工具执行因 Run 失败而终止：未提供失败原因");
   });
+
+  it("stamps the owning round's boundary on closed tools, deriving it when absent", () => {
+    // 恢复路径（租约过期/会话停止）没有运行态 boundary：从悬空工具所属 assistant
+    // 行的 boundary_message_id 推导，历史合成分段与显式传入同效。
+    const messages = [
+      {
+        id: "run-1:intent:0",
+        seq: 2,
+        session_id: "session-1",
+        role: "assistant",
+        content: "first round",
+        content_parts: [{ type: "text", text: "first round" }],
+        metadata: { run_id: "run-1", round: 1, boundary_message_id: "u1" },
+        created_at: "2026-01-01T00:00:00.000Z",
+        thread_key: "root",
+        child_agent_id: null,
+        tool_calls: [{
+          id: "call-1",
+          type: "function",
+          function: { name: "search", arguments: "{}" },
+        }],
+      },
+      {
+        id: "run-1:intent:1",
+        seq: 6,
+        session_id: "session-1",
+        role: "assistant",
+        content: "post interjection round",
+        content_parts: [{ type: "text", text: "post interjection round" }],
+        metadata: { run_id: "run-1", round: 2, boundary_message_id: "u2" },
+        created_at: "2026-01-01T00:00:01.000Z",
+        thread_key: "root",
+        child_agent_id: null,
+        tool_calls: [{
+          id: "call-2",
+          type: "function",
+          function: { name: "read", arguments: "{}" },
+        }],
+      },
+    ] as MessageInfo[];
+
+    const closed = buildTerminalToolMessages(messages, {
+      sessionId: "session-1",
+      runId: "run-1",
+      threadKey: "root",
+      agentName: "agent-1",
+      terminalStatus: "interrupted",
+      reason: "backend restarted",
+    });
+
+    expect(closed.map((message) => [message.toolCallId, message.metadata.boundary_message_id]))
+      .toEqual([["call-1", "u1"], ["call-2", "u2"]]);
+  });
 });
 
 describe("buildTerminalAssistantMessage", () => {
@@ -187,10 +240,61 @@ describe("buildTerminalAssistantMessage", () => {
       { role: "assistant", content: "本次运行执行失败：provider stream disconnected" },
     ]);
   });
+
+  it("salvages half-streamed thinking as a thinking part alongside the reason text", () => {
+    const message = buildTerminalAssistantMessage({
+      sessionId: "session-1",
+      runId: "run-1",
+      threadKey: "root",
+      agentName: "agent-1",
+      terminalStatus: "interrupted",
+      reason: "session_stopped",
+      salvage: { reasoning: "思考到一半的推理", reasoningComplete: false, round: 2 },
+    });
+    expect(message.contentParts).toEqual([
+      { type: "thinking", text: "思考到一半的推理", round: 2, complete: false },
+      { type: "text", text: "本次运行已中断，未生成最终答案。原因：用户主动停止运行" },
+    ]);
+    expect(message.content).toBe("本次运行已中断，未生成最终答案。原因：用户主动停止运行");
+    expect(message.metadata).toMatchObject({ partial: true, interrupted: true });
+  });
+
+  it("salvages complete thinking plus a partial answer with the reason appended", () => {
+    const message = buildTerminalAssistantMessage({
+      sessionId: "session-1",
+      runId: "run-1",
+      threadKey: "root",
+      agentName: "agent-1",
+      terminalStatus: "interrupted",
+      reason: "session_stopped",
+      salvage: { reasoning: "完整思考", reasoningComplete: true, content: "这是流到一半的最终回答" },
+    });
+    const reasonText = "本次运行已中断，未生成最终答案。原因：用户主动停止运行";
+    expect(message.contentParts).toEqual([
+      { type: "thinking", text: "完整思考", complete: true },
+      { type: "text", text: `这是流到一半的最终回答\n\n${reasonText}` },
+    ]);
+    expect(message.content).toBe(`这是流到一半的最终回答\n\n${reasonText}`);
+    expect(message.metadata).toMatchObject({ partial: true });
+  });
+
+  it("does not mark partial when there is nothing to salvage", () => {
+    const message = buildTerminalAssistantMessage({
+      sessionId: "session-1",
+      runId: "run-1",
+      threadKey: "root",
+      agentName: "agent-1",
+      terminalStatus: "failed",
+      reason: "boom",
+      salvage: null,
+    });
+    expect(message.metadata.partial).toBeUndefined();
+    expect(message.contentParts).toHaveLength(1);
+  });
 });
 
 describe("buildRunTerminalRecords", () => {
-  it("keeps final delivery in the outbox while archiving only structural terminal steps", () => {
+  it("delivers terminal events through the outbox with no step archive", () => {
     const finalMessage = {
       id: "assistant-final",
       seq: 2,
@@ -221,13 +325,50 @@ describe("buildRunTerminalRecords", () => {
       record,
     ]));
 
-    expect(byType.get("stream_output")?.step).toBeNull();
-    expect(byType.get("state_sync")?.step).toBeNull();
-    expect(byType.get("agent_ended")?.step).toMatchObject({
-      boundaryMessageId: "assistant-final",
-      boundaryKind: "terminal",
+    // run_steps 归档退役：terminal 记录只落 outbox（投递），不再产出 step。
+    for (const type of ["stream_output", "state_sync", "agent_ended", "run_ended"]) {
+      expect(byType.get(type)).toBeDefined();
+      expect("step" in byType.get(type)!).toBe(false);
+      expect(byType.get(type)!.outbox.eventType).toBe(`client.${type}`);
+    }
+  });
+
+  it("stamps the boundary on every terminal envelope for segment routing", () => {
+    const closedTool = {
+      id: "run-1:tool:call-1",
+      seq: 3,
+      session_id: "session-1",
+      role: "tool",
+      content: "工具执行被中断",
+      content_parts: [{ type: "text", text: "工具执行被中断" }],
+      metadata: { run_id: "run-1", boundary_message_id: "u2" },
+      created_at: "2026-01-01T00:00:00.000Z",
+      thread_key: "root",
+      child_agent_id: null,
+      tool_call_id: "call-1",
+      name: "read",
+    } as MessageInfo;
+
+    const records = buildRunTerminalRecords({
+      run: {
+        sessionId: "session-1",
+        runId: "run-1",
+        agentCallId: "agent-call-1",
+        lineageParentCallId: null,
+        agentName: "assistant",
+        agentDisplayName: "Assistant",
+      },
+      status: "interrupted",
+      reason: "session_stopped",
+      finalMessage: null,
+      boundaryMessageId: "u2",
+      closedToolMessages: [closedTool],
     });
-    expect(byType.get("run_ended")?.step).not.toBeNull();
+
+    for (const record of records) {
+      const event = record.outbox.payload.client_event as { boundary_message_id?: string };
+      expect(event.boundary_message_id).toBe("u2");
+    }
   });
 });
 
@@ -316,6 +457,88 @@ describe("AsyncKernelEventPersister terminal cleanup", () => {
     });
   });
 
+  it("persists per-round thinking as a first-class thinking part on INTENT and final rows", async () => {
+    const tenantId = createTenantId("tnt_test");
+    let persistedMessage: { contentParts: unknown; content: string } | null = null;
+    let finalizeInput: RuntimeFinalizeRunInput | null = null;
+    const storage = {
+      tenantId,
+      operations: {
+        persistMessage: vi.fn(async (input: { message: { contentParts: unknown; content: string } }) => {
+          persistedMessage = input.message;
+        }),
+        finalizeRun: vi.fn(async (input: RuntimeFinalizeRunInput) => {
+          finalizeInput = input;
+          return {
+            finalMessage: {
+              id: input.finalMessage!.messageId,
+              seq: 3,
+              session_id: input.sessionId,
+              role: "assistant",
+              content: input.finalMessage!.content,
+              content_parts: input.finalMessage!.contentParts ?? [],
+              metadata: input.finalMessage!.metadata ?? {},
+              created_at: "2026-01-01T00:00:00.000Z",
+              thread_key: "root",
+              child_agent_id: null,
+            } as MessageInfo,
+            records: [],
+            readyResumeInteractionIds: [],
+          };
+        }),
+      },
+    } as unknown as RuntimeStorage;
+    const clientEvents = {
+      prepare: vi.fn(),
+      flush: vi.fn(async () => undefined),
+      deliver: vi.fn(async () => undefined),
+    };
+    const persister = new AsyncKernelEventPersister(storage, clientEvents, {
+      tenantId,
+      sessionId: "session-1",
+      runId: "run-1",
+      threadKey: "root",
+      agentName: "agent-1",
+      agentDisplayName: "Agent 1",
+      rootCallId: "root-call-1",
+      sessionIdentity: {
+        sessionId: "session-1",
+        ownerUserId: null,
+        visibility: "private",
+        originType: "direct",
+        originId: null,
+        originChannel: "api",
+        workspaceId: null,
+        teamSnapshot: createTestTeamSnapshot(),
+      },
+    });
+
+    await persister.persist({
+      type: "assistant_intermediate",
+      agentName: "agent-1",
+      round: 0,
+      message: {
+        role: "assistant",
+        content: "我来查一下天气",
+        tool_calls: [{ id: "call-1", type: "function", function: { name: "get_weather", arguments: "{}" } }],
+      },
+      reasoning: "用户要查天气，需要调用工具。",
+    });
+    expect(persistedMessage).not.toBeNull();
+    expect(persistedMessage!.contentParts).toEqual([
+      { type: "thinking", text: "用户要查天气，需要调用工具。", round: 1, complete: true },
+      { type: "text", text: "我来查一下天气" },
+    ]);
+    expect(persistedMessage!.content).toBe("我来查一下天气");
+
+    await persister.finalize("completed", { content: "北京今天晴。", reasoning: "最终轮思考全文" });
+    expect(finalizeInput).not.toBeNull();
+    expect(finalizeInput!.finalMessage!.contentParts).toEqual([
+      { type: "thinking", text: "最终轮思考全文", complete: true },
+      { type: "text", text: "北京今天晴。" },
+    ]);
+  });
+
   it("passes a failed reason into dangling tool-call cleanup", async () => {
     const tenantId = createTenantId("tnt_test");
     let finalizeInput: RuntimeFinalizeRunInput | null = null;
@@ -364,6 +587,93 @@ describe("AsyncKernelEventPersister terminal cleanup", () => {
         reason: "provider stream disconnected",
       },
     });
+  });
+
+  it("stamps the boundary on rows and flips it after an interjection claim", async () => {
+    // 初始 boundary = 首条用户消息；认领插嘴（setBoundaryMessageId）翻转后，
+    // 后续行与终局 finalize 都归属插嘴段——历史合成分段与 live 路由同源。
+    const tenantId = createTenantId("tnt_test");
+    const persistedMetadata: Array<Record<string, unknown>> = [];
+    let finalizeInput: RuntimeFinalizeRunInput | null = null;
+    const storage = {
+      tenantId,
+      operations: {
+        persistMessage: vi.fn(async (input: { message: { metadata: Record<string, unknown> } }) => {
+          persistedMetadata.push(input.message.metadata);
+        }),
+        finalizeRun: vi.fn(async (input: RuntimeFinalizeRunInput) => {
+          finalizeInput = input;
+          return { finalMessage: null, records: [], readyResumeInteractionIds: [] };
+        }),
+      },
+    } as unknown as RuntimeStorage;
+    const clientEvents = {
+      prepare: vi.fn(),
+      flush: vi.fn(async () => undefined),
+      deliver: vi.fn(async () => undefined),
+    };
+    const persister = new AsyncKernelEventPersister(storage, clientEvents, {
+      tenantId,
+      sessionId: "session-1",
+      runId: "run-1",
+      threadKey: "root",
+      agentName: "agent-1",
+      agentDisplayName: "Agent 1",
+      rootCallId: "root-call-1",
+      initialMessage: {
+        messageId: "u1",
+        sessionId: "session-1",
+        role: "user",
+        content: "任务",
+        contentParts: [],
+        threadKey: "root",
+        childAgentId: null,
+        metadata: {},
+      },
+      sessionIdentity: {
+        sessionId: "session-1",
+        ownerUserId: null,
+        visibility: "private",
+        originType: "direct",
+        originId: null,
+        originChannel: "api",
+      workspaceId: null,
+      teamSnapshot: createTestTeamSnapshot(),
+      },
+    });
+
+    await persister.persist({
+      type: "assistant_intermediate",
+      agentName: "agent-1",
+      round: 0,
+      message: {
+        role: "assistant",
+        content: "第一轮",
+        tool_calls: [{ id: "call-1", type: "function", function: { name: "read", arguments: "{}" } }],
+      },
+    });
+    expect(persistedMetadata[0]!.boundary_message_id).toBe("u1");
+
+    persister.setBoundaryMessageId("u2");
+    await persister.persist({
+      type: "tool_result",
+      agentName: "agent-1",
+      toolCallId: "call-1",
+      toolName: "read",
+      success: true,
+      summary: "",
+      observation: "data",
+      metadata: {},
+      referenceResult: {},
+      elapsedTime: 0,
+      round: 0,
+      order: 0,
+      roundIndex: 0,
+    });
+    expect(persistedMetadata[1]!.boundary_message_id).toBe("u2");
+
+    await persister.finalize("completed", { content: "答案" });
+    expect(finalizeInput!.boundaryMessageId).toBe("u2");
   });
 
   it("publishes an interrupted terminal agent event for a foreground child aborted with its parent", async () => {

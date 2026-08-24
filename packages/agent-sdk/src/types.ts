@@ -90,26 +90,3 @@ export interface MessageInfo {
   name?: string;
 }
 
-/** run_step 记录（对齐 backend-ts run_step 形状）。 */
-export interface RunStepRecord {
-  id: string;
-  sessionId: string;
-  runId: string;
-  stepType: string;
-  payload: Record<string, unknown>;
-  messageId: string | null;
-  createdAt: string;
-}
-
-/** run 记录。 */
-export interface RunRecord {
-  id: string;
-  sessionId: string;
-  status: RunStatus;
-  rootCallId: string;
-  threadKey: string;
-  parentCallId: string | null;
-  finalMessageId: string | null;
-  createdAt: string;
-  updatedAt: string;
-}

@@ -24,18 +24,6 @@ export interface PaginatedResult<T> {
   has_more: boolean;
 }
 
-export interface RunStepInfo {
-  id: number;
-  run_id: string;
-  /** Stable id shared with the durable outbox row when the step is an archived envelope. */
-  event_id?: string | null;
-  session_id: string;
-  step_order: number;
-  step_type: string;
-  payload: Record<string, unknown>;
-  created_at: string;
-}
-
 export function ok<T>(data?: T, message = "success"): SuccessResponse<T> {
   if (data === undefined) {
     return { success: true, message };

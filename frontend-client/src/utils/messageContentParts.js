@@ -5,6 +5,14 @@ const FILE_PRESENTATIONS = new Set(['inline', 'attachment', 'preview']);
 export function normalizeMessageContentParts(parts) {
   if (!Array.isArray(parts)) return [];
   return parts.flatMap((part) => {
+    if (part?.type === 'thinking' && typeof part.text === 'string' && part.text) {
+      return [{
+        type: 'thinking',
+        text: part.text,
+        ...(typeof part.round === 'number' ? { round: part.round } : {}),
+        ...(typeof part.complete === 'boolean' ? { complete: part.complete } : {}),
+      }];
+    }
     if (part?.type === 'text' && typeof part.text === 'string') {
       return [{ type: 'text', text: part.text }];
     }

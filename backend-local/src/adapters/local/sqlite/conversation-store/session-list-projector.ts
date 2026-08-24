@@ -12,7 +12,7 @@ export function sessionListVisibleMessageSql(alias: string): string {
     AND COALESCE(json_extract(${alias}.metadata, '$.react_intermediate'), 0) != 1
     AND COALESCE(json_extract(${alias}.metadata, '$.visible_to_user'), 1) != 0
     AND COALESCE(json_extract(${alias}.metadata, '$.conversation_scope'), '') != 'child'
-    AND COALESCE(json_extract(${alias}.metadata, '$.msg_type'), '') NOT IN ('${MSG_TYPE.INTENT}', '${MSG_TYPE.OBSERVATION}')`;
+    AND COALESCE(json_extract(${alias}.metadata, '$.msg_type'), '') NOT IN ('${MSG_TYPE.OBSERVATION}')`;
 }
 
 export class SessionListProjector {

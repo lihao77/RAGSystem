@@ -1,6 +1,5 @@
 import type {
   AddMessageInput,
-  AddRunStepInput,
   AppendOutboxInput,
   CreatedRun,
   CreatePendingInteractionInput,
@@ -9,7 +8,6 @@ import type {
   PendingInteractionRecord,
   PendingInteractionStatus,
   RunInfo,
-  RunStepRecord,
   UpdateChildAgentLastRunInput,
 } from "../conversation-store/index.js";
 import type { PermissionMode } from "../runtime/permissions.js";
@@ -48,7 +46,7 @@ export interface RuntimeConversationStorage {
   }): Promise<MessageInfo>;
 }
 
-/** Tenant-bound run and execution-step operations. */
+/** Tenant-bound run operations. */
 export interface RuntimeRunStorage {
   createRun(input: CreateRunInput): Promise<CreatedRun>;
   updateRunStatus(
@@ -59,8 +57,6 @@ export interface RuntimeRunStorage {
     terminalReason?: string | null,
   ): Promise<boolean>;
   getRun(sessionId: string, runId: string): Promise<RunInfo | null>;
-  ensureInitialRunMessageBoundary(sessionId: string, runId: string, messageId: string): Promise<void>;
-  addRunStep(input: AddRunStepInput): Promise<RunStepRecord>;
 }
 
 /** Outbox mutations used while recording execution events. */
@@ -218,14 +214,12 @@ export type RuntimeStartOrAppendRootResult =
     };
 
 export interface RuntimeRecordEnvelopeInput {
-  step?: AddRunStepInput | null;
   outbox: AppendOutboxInput & { eventId: string };
   /** Distributed execution write fence; storage resolves the run root and verifies ownership. */
   requireRunLease?: boolean;
 }
 
 export interface RuntimeRecordEnvelopeResult {
-  step: RunStepRecord | null;
   outbox: OutboxRow;
 }
 
@@ -268,11 +262,9 @@ export function withCanonicalMessageSequence(
     ? (outboxPayload as Record<string, unknown>).client_event
     : null;
   const nextClientEvent = attach(clientEvent);
-  const nextStepPayload = record.step ? attach(record.step.payload) : null;
-  if (nextClientEvent === clientEvent && (!record.step || nextStepPayload === record.step.payload)) return record;
+  if (nextClientEvent === clientEvent) return record;
   return {
     ...record,
-    ...(record.step ? { step: { ...record.step, payload: nextStepPayload as Record<string, unknown> } } : {}),
     outbox: {
       ...record.outbox,
       payload: {
@@ -310,6 +302,11 @@ export interface RuntimeFinalizeRunInput {
   /** Root lease that must still belong to this storage instance in the finalization transaction. */
   leaseRootRunId?: string | null;
   finalMessage?: (AddMessageInput & { messageId: string }) | null;
+  /**
+   * 当前 run 段的 boundary 用户消息 id：终局行与终局 envelope 盖章，live 路由与
+   * 历史合成分段（boundary_message_id 过滤）保持一致。cascade 子 run 无此信息则省略。
+   */
+  boundaryMessageId?: string | null;
   /** Present only when finalizing the root run; applies the root interaction status matrix atomically. */
   interactionRootRunId?: string | null;
   closeDanglingToolCalls?: {

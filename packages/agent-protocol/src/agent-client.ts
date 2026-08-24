@@ -152,14 +152,23 @@ export interface ExecutionToolCall {
   agentOperation?: import("./protocol.js").AgentOperation;
 }
 
-/** ReAct 单轮：模型思维链（reasoning）+ 一段 intent（动作说明）+ 该轮发起的工具调用。 */
+/**
+ * ReAct 单轮：模型思维链（reasoning）+ 轮文本（text，统一通道）+ 该轮发起的工具调用。
+ * 无标签化：说明与最终答案同构——正文统一流式落进轮 text（工具轮 text 轮末由
+ * intent_complete 定格为 intent 语义），不再区分"气泡正文/过程正文"两条渲染路径。
+ */
 export interface ExecutionRound {
   round: number;
   /** 思考模型思维链原文（仅展示，不回灌模型上下文）。 */
   reasoning: string;
   reasoningComplete: boolean;
+  /** 动作说明全文（工具轮轮末由 intent_complete 覆盖式落位）。 */
   intent: string;
   intentComplete: boolean;
+  /** 该轮流式输出正文（说明/最终答案统一通道；live 逐字累加，历史合成一次全文）。 */
+  text: string;
+  textParts?: import("./protocol.js").AssistantContentPart[];
+  textComplete: boolean;
   toolCalls: ExecutionToolCall[];
 }
 

@@ -366,6 +366,17 @@ export const MessageContentPartSchema = z.discriminatedUnion("type", [
     text: z.string(),
     error: z.string().min(1).optional(),
   }).strict(),
+  /**
+   * 思考模型思维链全文（一等持久化内容，与正文/工具调用同级随 assistant 消息行落库）。
+   * 展示与跨模型降级数据源；同印章模型回放仍走服务端 provider_state（签名/加密块），本 part 不进模型上下文。
+   * complete=false 表示中断 salvage 的半截思考。
+   */
+  z.object({
+    type: z.literal("thinking"),
+    text: z.string(),
+    round: z.number().int().nonnegative().optional(),
+    complete: z.boolean().optional(),
+  }).strict(),
 ]);
 
 export const StreamOutputPayloadSchema = z.object({
@@ -374,6 +385,7 @@ export const StreamOutputPayloadSchema = z.object({
     "delta",
     "part_added",
     "final",
+    // intent_delta 已无发射方：保留枚举值仅为解析遗留 outbox 行（无标签化前的增量流）。
     "intent_delta",
     "intent_complete",
     "reasoning_delta",

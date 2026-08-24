@@ -274,6 +274,16 @@ export const POSTGRES_RUN_MIGRATIONS: readonly PostgresRunMigration[] = [
       ON CONFLICT (tenant_id, session_id, run_id, message_id) DO NOTHING;
     `,
   },
+  {
+    version: 11,
+    name: "retire-run-step-archive",
+    // run_steps/boundaries 归档退役：执行视图由消息行合成，结果重建读 runs.terminal_reason。
+    sql: `
+      DROP TABLE IF EXISTS saas_run_message_boundaries;
+      DROP TABLE IF EXISTS saas_run_steps;
+      ALTER TABLE saas_runs DROP COLUMN IF EXISTS next_step_order;
+    `,
+  },
 ];
 
 export function getPendingPostgresRunMigrations(appliedVersion: number): readonly PostgresRunMigration[] {

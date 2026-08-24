@@ -20,7 +20,6 @@ import type {
 } from "../../contracts/runtime/pending-interactions.js";
 import { RuntimeInteractionUnavailableError, type RuntimeFinalizeStatus, type RuntimeInteractionResolution, type RuntimeStorage } from "../../contracts/storage/runtime-storage.js";
 import type { ClientEventPublisherPort } from "../../contracts/runtime/core-runtime-ports.js";
-import { buildExecutionEnvelopeRunStep } from "./event-outbox/execution-envelope-archive.js";
 
 const RESUME_LEASE_MS = 120_000;
 
@@ -394,7 +393,7 @@ export class RuntimeInteractionCoordinator implements InteractionCoordinator {
     return { ...meta, batchId: `${input.rootRunId}:${input.interactionBatchId?.trim() || input.toolCallId}` };
   }
   private takeCached(sessionId: string, toolCallId: string, kind: InteractionKind): ApprovalCacheResolution | null { const value = this.resolutionCache.get(cacheKey(sessionId, toolCallId)); if (value && ((kind === "approval" && "approved" in value) || (kind === "user_input" && "value" in value))) { this.resolutionCache.delete(cacheKey(sessionId, toolCallId)); return value; } return null; }
-  private eventRecord(sessionId: string, event: Envelope, eventId: string) { const runId = event.run_id ?? null; return { step: buildExecutionEnvelopeRunStep(sessionId, runId, event, eventId), outbox: { sessionId, runId, eventId, eventType: `client.${event.type}`, aggregateType: runId ? "run" : "session", aggregateId: runId ?? sessionId, payload: { client_event: event } } }; }
+  private eventRecord(sessionId: string, event: Envelope, eventId: string) { const runId = event.run_id ?? null; return { outbox: { sessionId, runId, eventId, eventType: `client.${event.type}`, aggregateType: runId ? "run" : "session", aggregateId: runId ?? sessionId, payload: { client_event: event } } }; }
   private publishRuntimeInvalidation(sessionId: string, reason: string): Promise<unknown> {
     return this.publisher.publish(sessionId, {
       type: "state_sync",

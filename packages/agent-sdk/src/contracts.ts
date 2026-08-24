@@ -22,7 +22,6 @@ export type {
   FirstTokenEvent,
   OutputDeltaEvent,
   OutputFileRefEvent,
-  IntentDeltaEvent,
   IntentCompleteEvent,
   ReasoningDeltaEvent,
   ReasoningCompleteEvent,
@@ -37,8 +36,6 @@ import type {
   AgentProfile,
   ToolCallRef,
   MessageInfo,
-  RunStepRecord,
-  RunRecord,
   RunStatus,
 } from "./types.js";
 // KernelContext 定义在 kernel-context.ts；contracts 的端口方法签名直接引用其类型，
@@ -125,8 +122,8 @@ export interface KernelObservation {
 
 /** 一次 invoke 的产物：最终回答 or 工具调用申请。两分支都携带本轮 LLM 返回的 token 用量槽位（provider 未返回时为 undefined）。 */
 export type KernelOutcome =
-  | { kind: "final"; finalAnswer: string; contentParts?: AssistantContentPart[]; assistantMessage: ChatMessage; finishReason: string | null; usage: TokenUsage | undefined }
-  | { kind: "tool_calls"; calls: KernelToolCall[]; assistantMessage: ChatMessage; finishReason: string | null; usage: TokenUsage | undefined };
+  | { kind: "final"; finalAnswer: string; contentParts?: AssistantContentPart[]; assistantMessage: ChatMessage; finishReason: string | null; usage: TokenUsage | undefined; reasoning?: string }
+  | { kind: "tool_calls"; calls: KernelToolCall[]; assistantMessage: ChatMessage; finishReason: string | null; usage: TokenUsage | undefined; reasoning?: string };
 
 /** run 最终结果（metadata 源自 profile/provider，对齐 backend-ts KernelResult 形状）。usage 为本轮循环累计 token 用量。 */
 export interface KernelResult {
@@ -144,6 +141,8 @@ export interface KernelResult {
   usage?: TokenUsage;
   /** final 轮的厂商思考 continuation（含签名/加密块），由 persister 落库 provider_state 供跨 run 回放。 */
   providerContinuation?: ChatMessage["provider_continuation"];
+  /** final 轮思考全文；由 persister 落库为消息行 thinking part（一等持久化内容）。 */
+  reasoning?: string;
 }
 
 /* ============================================================

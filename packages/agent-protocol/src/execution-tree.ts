@@ -4,7 +4,7 @@
  * 消费：
  *   - agent_started / agent_ended：执行体生命周期，按 lineage.parent_call_id 嵌套；
  *     无 parent_call_id 者为 root（orchestrator）。
- *   - stream_output(intent_delta / intent_complete)：某 agent 一轮的 intent 文本，
+ *   - stream_output(intent_complete)：某 agent 一轮的 intent 文本（轮末一次全文），
  *     payload.round 标识轮次（ReAct 推断依据）。
  *   - tool_call / tool_result：工具调用按 call_id 配对，挂到所属 agent 的当前轮。
  *
@@ -130,7 +130,7 @@ function flushPendingAgents(state: ExecutionTreeState, parent: ExecutionAgent): 
 function ensureRound(agent: ExecutionAgent, round: number): ExecutionRound {
   const existing = agent.rounds.find((r) => r.round === round);
   if (existing) return existing;
-  const r: ExecutionRound = { round, reasoning: "", reasoningComplete: false, intent: "", intentComplete: false, toolCalls: [] };
+  const r: ExecutionRound = { round, reasoning: "", reasoningComplete: false, intent: "", intentComplete: false, text: "", textComplete: false, toolCalls: [] };
   agent.rounds.push(r);
   return r;
 }
@@ -156,18 +156,14 @@ function routeStreamAgent(state: ExecutionTreeState, env: Envelope): ExecutionAg
   });
 }
 
+/** intent_complete（轮末派生）：说明全文覆盖式落位。intent_delta 已退役，不再有增量累加。 */
 function applyIntentStream(state: ExecutionTreeState, env: Envelope, payload: Record<string, unknown>): void {
-  const phase = asString(payload.phase);
-  if (phase !== "intent_delta" && phase !== "intent_complete") return;
   const agent = routeStreamAgent(state, env);
   const round = asNumber(payload.round) ?? latestRound(agent);
   const r = ensureRound(agent, round);
   const content = asString(payload.content);
-  if (content) {
-    if (phase === "intent_delta" && !r.intentComplete) r.intent += content;
-    else r.intent = content;
-  }
-  if (phase === "intent_complete") r.intentComplete = true;
+  if (content) r.intent = content;
+  r.intentComplete = true;
 }
 
 /** stream_output(reasoning_*)：模型思维链（展示用），投影与 intent 同构——delta 累加 / complete 覆盖+置位。 */
@@ -185,11 +181,18 @@ function applyReasoningStream(state: ExecutionTreeState, env: Envelope, payload:
   if (phase === "reasoning_complete") r.reasoningComplete = true;
 }
 
-/** stream_output(delta/final)：agent 输出内容（非 intent 思考），累加到 agent.output（delta 累加 / final 覆盖）。 */
+/**
+ * stream_output(delta/part_added/final)：输出正文统一落进当前活跃轮的 text 通道
+ * （无标签化：说明与最终答案同构，面板按轮渲染）。agent.output 同步保留，
+ * 供 child agent_call 的 result_summary 消费。
+ * 活跃轮 = 最新一个未完成的轮（text 轮末由 intent_complete/final 定格）；
+ * 最新轮已完成则开启下一轮——无思考模型没有 reasoning 先建轮，全靠此规则推断。
+ */
 function applyOutputStream(state: ExecutionTreeState, env: Envelope, payload: Record<string, unknown>): void {
   const phase = asString(payload.phase);
   if (phase !== "delta" && phase !== "part_added" && phase !== "final") return;
   const agent = routeStreamAgent(state, env);
+  const r = ensureActiveRound(agent);
   if (phase === "part_added") {
     const part = asAssistantContentPart(payload.part);
     const partIndex = asNumber(payload.part_index);
@@ -199,6 +202,8 @@ function applyOutputStream(state: ExecutionTreeState, env: Envelope, payload: Re
       if (partIndex > 0 && agent.output) agent.outputParts[0] = { type: "text", text: agent.output };
     }
     agent.outputParts[partIndex] = part;
+    if (!r.textParts) r.textParts = [];
+    r.textParts[partIndex] = part;
     return;
   }
   const content = asString(payload.content);
@@ -210,17 +215,34 @@ function applyOutputStream(state: ExecutionTreeState, env: Envelope, payload: Re
         return parsed ? [parsed] : [];
       });
     }
+    // final：答案毕业到消息槽的 assistant 消息行（canonical 展示位）。
+    // 轮 text 通道清空让位——最终答案只在界面出现一次，live 与历史（合成不发
+    // 最终轮正文）同构。工具轮说明不毕业，常驻面板。
+    r.text = "";
+    delete r.textParts;
+    r.textComplete = true;
     return;
   }
   if (!content) return;
+  if (!r.textComplete) r.text += content;
   agent.output = (agent.output ?? "") + content;
   const partIndex = asNumber(payload.part_index);
-  if (agent.outputParts && partIndex !== undefined && Number.isInteger(partIndex) && partIndex >= 0) {
-    const existing = agent.outputParts[partIndex];
-    agent.outputParts[partIndex] = existing?.type === "text"
+  const target = r.textParts ?? agent.outputParts;
+  if (target && partIndex !== undefined && Number.isInteger(partIndex) && partIndex >= 0) {
+    const existing = target[partIndex];
+    target[partIndex] = existing?.type === "text"
       ? { type: "text", text: existing.text + content }
       : { type: "text", text: content };
+    if (!r.textParts) r.textParts = target;
   }
+}
+
+/** 活跃轮：最新一个 text 未定格的轮；都已完成则开新轮（latestRound+1）。 */
+function ensureActiveRound(agent: ExecutionAgent): ExecutionRound {
+  const rounds = agent.rounds;
+  const last = rounds[rounds.length - 1];
+  if (last && !last.textComplete && !last.intentComplete) return last;
+  return ensureRound(agent, (last ? last.round : -1) + 1);
 }
 
 function asAssistantContentPart(value: unknown): import("./protocol.js").AssistantContentPart | null {
@@ -421,7 +443,7 @@ export function applyEnvelope(state: ExecutionTreeState, env: Envelope): void {
     }
     case "stream_output": {
       const phase = asString(payload.phase);
-      if (phase === "intent_delta" || phase === "intent_complete") {
+      if (phase === "intent_complete") {
         applyIntentStream(state, env, payload);
       } else if (phase === "reasoning_delta" || phase === "reasoning_complete") {
         applyReasoningStream(state, env, payload);

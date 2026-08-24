@@ -87,7 +87,7 @@ export class LocalSessionApplication implements SessionApplication {
       ? this.conversations.getMessageBySeq(input.sessionId, input.afterSeq)
       : input.afterMessageId ? this.conversations.getMessageById(input.sessionId, input.afterMessageId) : null;
   }
-  async listMessageRunSteps(input: Parameters<SessionApplication["listMessageRunSteps"]>[0]) { return this.sessions.listMessageRunSteps(input); }
+  async listMessageExecution(input: Parameters<SessionApplication["listMessageExecution"]>[0]) { return this.sessions.listMessageExecution(input); }
   async listParticipantRuns(input: Parameters<SessionApplication["listParticipantRuns"]>[0]) { return this.sessions.listParticipantRuns(input); }
   async listParticipantRunExecutionSteps(input: Parameters<SessionApplication["listParticipantRunExecutionSteps"]>[0]) { return this.sessions.listParticipantRunExecutionSteps(input); }
   async updateUserMessage(input: Parameters<SessionApplication["updateUserMessage"]>[0]) { return this.sessions.updateUserMessage(input); }

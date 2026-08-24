@@ -1,12 +1,19 @@
 import type { AddMessageInput } from "../conversation-store/index.js";
 import { MSG_TYPE } from "../message-kinds.js";
 import type { MessageInfo } from "../session/session.js";
-import { PROTOCOL_VERSION, type AssistantContentPart, type Envelope } from "@ragsystem/agent-protocol";
+import type { AssistantContentPart, Envelope } from "@ragsystem/agent-protocol";
 import type { RuntimeRecordEnvelopeInput } from "./runtime-storage.js";
-import { executionEnvelopeMessageBoundary } from "./run-step-boundary.js";
 
 export type TerminalAssistantStatus = "failed" | "interrupted";
 export type TerminalRunStatus = "completed" | TerminalAssistantStatus;
+
+/** 中断/失败时随 terminal 消息保留的当前轮半成品（思考全文/半截正文）。 */
+export interface TerminalSalvage {
+  reasoning?: string;
+  reasoningComplete?: boolean;
+  content?: string;
+  round?: number;
+}
 
 export interface TerminalRunIdentity {
   sessionId: string;
@@ -31,20 +38,37 @@ export function buildTerminalAssistantMessage(input: {
   terminalStatus: TerminalAssistantStatus;
   reason: string;
   messageId?: string;
+  salvage?: TerminalSalvage | null;
   metadata?: Record<string, unknown>;
 }): AddMessageInput & { messageId: string } {
   const reason = input.reason.trim().slice(0, 2_000)
     || (input.terminalStatus === "failed" ? "未提供失败原因" : "未提供中断原因");
   const displayReason = terminalReasonDisplay(input.terminalStatus, reason);
-  const content = input.terminalStatus === "failed"
+  const reasonText = input.terminalStatus === "failed"
     ? `本次运行执行失败：${displayReason}`
     : `本次运行已中断，未生成最终答案。原因：${displayReason}`;
+  // 中断 salvage：思考（半截或完整）以 thinking part 一等保留；半截正文与中断原因合成 text。
+  const salvage = input.salvage ?? null;
+  const thinkingPart = salvage?.reasoning?.trim()
+    ? [{
+      type: "thinking" as const,
+      text: salvage.reasoning,
+      ...(typeof salvage.round === "number" ? { round: salvage.round } : {}),
+      complete: salvage.reasoningComplete === true,
+    }]
+    : [];
+  const partialContent = salvage?.content?.trim() ?? "";
+  const contentParts: AddMessageInput["contentParts"] = [
+    ...thinkingPart,
+    { type: "text", text: partialContent ? `${partialContent}\n\n${reasonText}` : reasonText },
+  ];
+  const hasSalvage = thinkingPart.length > 0 || Boolean(partialContent);
   return {
     messageId: input.messageId?.trim() || `${input.runId}:terminal`,
     sessionId: input.sessionId,
     role: "assistant",
-    content,
-    contentParts: [{ type: "text", text: content }],
+    content: contentParts.map((part) => part.type === "text" ? part.text : "").join(""),
+    contentParts,
     threadKey: input.threadKey,
     childAgentId: input.childAgentId ?? null,
     metadata: {
@@ -56,6 +80,7 @@ export function buildTerminalAssistantMessage(input: {
       terminal_status: input.terminalStatus,
       terminal_reason: reason,
       visible_to_user: true,
+      ...(hasSalvage ? { partial: true } : {}),
       ...(input.terminalStatus === "failed" ? { run_failed: true } : { interrupted: true }),
     },
   };
@@ -80,6 +105,8 @@ export function buildTerminalToolMessages(
     agentName: string;
     terminalStatus: "failed" | "interrupted";
     reason: string;
+    /** 悬空工具所属 run 段的 boundary 用户消息 id（历史合成分段依据）。 */
+    boundaryMessageId?: string | null;
   },
 ): Array<AddMessageInput & { messageId: string }> {
   const answered = new Set(
@@ -101,6 +128,12 @@ export function buildTerminalToolMessages(
   for (const message of messages) {
     if (message.role !== "assistant" || message.metadata.run_id !== input.runId) continue;
     const round = resolveRound(message.metadata.round);
+    // 无显式 boundary（租约恢复/会话停止等无运行态路径）时，从悬空工具所属
+    // assistant 行推导——行上已盖章的 boundary_message_id 即该轮所在段。
+    const boundaryMessageId = input.boundaryMessageId
+      ?? (typeof message.metadata.boundary_message_id === "string" && message.metadata.boundary_message_id
+        ? message.metadata.boundary_message_id
+        : null);
     for (const toolCall of message.tool_calls ?? []) {
       if (answered.has(toolCall.id)) continue;
       answered.add(toolCall.id);
@@ -121,6 +154,7 @@ export function buildTerminalToolMessages(
           terminal_reason: reason,
           agent_name: input.agentName,
           run_id: input.runId,
+          ...(boundaryMessageId ? { boundary_message_id: boundaryMessageId } : {}),
           round: round + 1,
           msg_type: MSG_TYPE.OBSERVATION,
         },
@@ -137,11 +171,16 @@ export function buildRunTerminalRecords(input: {
   reason?: string | null;
   finalMessage: MessageInfo | null;
   closedToolMessages?: readonly MessageInfo[];
+  /** 当前 run 段 boundary：终局 envelope 顶层盖章，live 按段精确路由。 */
+  boundaryMessageId?: string | null;
 }): RuntimeRecordEnvelopeInput[] {
   const { run, status, finalMessage } = input;
   const reason = input.reason?.trim() || null;
   const lineage = run.lineageParentCallId
     ? { lineage: { parent_call_id: run.lineageParentCallId } }
+    : {};
+  const boundary = input.boundaryMessageId
+    ? { boundary_message_id: input.boundaryMessageId }
     : {};
   const records: RuntimeRecordEnvelopeInput[] = [];
   if (finalMessage) {
@@ -152,17 +191,19 @@ export function buildRunTerminalRecords(input: {
       message_id: finalMessage.id,
       call_id: run.agentCallId,
       agent_id: run.agentName,
+      ...boundary,
       payload: {
         phase: "final",
         content: finalMessage.content,
         content_parts: toAssistantContentParts(finalMessage),
         ...lineage,
       },
-    }, { archiveStep: false }));
+    }));
     records.push(terminalEnvelopeRecord(run, `${run.runId}:terminal:state_sync`, {
       type: "state_sync",
       session_id: run.sessionId,
       run_id: run.runId,
+      ...boundary,
       payload: {
         category: "message_saved",
         ref: {
@@ -173,7 +214,7 @@ export function buildRunTerminalRecords(input: {
         },
         ...lineage,
       },
-    }, { archiveStep: false }));
+    }));
   }
   const toolStatus = status === "interrupted" ? "interrupted" as const : "failed" as const;
   const toolSummary = status === "interrupted" ? "工具执行被中断" : "工具执行因 Run 失败而终止";
@@ -186,6 +227,10 @@ export function buildRunTerminalRecords(input: {
         run_id: run.runId,
         call_id: message.tool_call_id,
         agent_id: run.agentName,
+        // 恢复路径无顶层 boundary 时逐工具回退（补齐行已盖章）。
+        ...(input.boundaryMessageId ?? toolBoundaryOf(message)
+          ? { boundary_message_id: input.boundaryMessageId ?? toolBoundaryOf(message)! }
+          : {}),
         payload: {
           tool: message.name ?? "unknown",
           phase: "end",
@@ -205,6 +250,7 @@ export function buildRunTerminalRecords(input: {
     run_id: run.runId,
     call_id: run.agentCallId,
     agent_id: run.agentName,
+    ...boundary,
     payload: {
       phase: "end",
       display_name: run.agentDisplayName,
@@ -213,13 +259,12 @@ export function buildRunTerminalRecords(input: {
       status: agentStatus,
       ...lineage,
     },
-  }, finalMessage
-    ? { boundaryMessageId: finalMessage.id, boundaryKind: "terminal" }
-    : undefined));
+  }));
   records.push(terminalEnvelopeRecord(run, `${run.runId}:terminal:run_ended`, {
     type: "run_ended",
     session_id: run.sessionId,
     run_id: run.runId,
+    ...boundary,
     payload: {
       status,
       ...(reason ? { reason } : {}),
@@ -233,32 +278,8 @@ function terminalEnvelopeRecord(
   run: TerminalRunIdentity,
   eventId: string,
   event: Envelope,
-  options: {
-    archiveStep?: boolean;
-    boundaryMessageId?: string;
-    boundaryKind?: "carrier" | "terminal";
-  } = {},
 ): RuntimeRecordEnvelopeInput {
   return {
-    step: options.archiveStep === false ? null : {
-      sessionId: run.sessionId,
-      runId: run.runId,
-      eventId,
-      stepType: "protocol.envelope.v1",
-      ...executionEnvelopeMessageBoundary(event),
-      ...(options.boundaryMessageId && options.boundaryKind
-        ? {
-            boundaryMessageId: options.boundaryMessageId,
-            boundaryKind: options.boundaryKind,
-          }
-        : {}),
-      payload: {
-        ...event,
-        protocol_version: event.protocol_version ?? PROTOCOL_VERSION,
-        session_id: run.sessionId,
-        run_id: run.runId,
-      },
-    },
     outbox: {
       sessionId: run.sessionId,
       runId: run.runId,
@@ -269,6 +290,12 @@ function terminalEnvelopeRecord(
       payload: { client_event: event },
     },
   };
+}
+
+/** 补齐工具行自带的 boundary（buildTerminalToolMessages 逐工具盖章）。 */
+function toolBoundaryOf(message: MessageInfo): string | null {
+  const value = message.metadata?.boundary_message_id;
+  return typeof value === "string" && value ? value : null;
 }
 
 function toAssistantContentParts(message: MessageInfo): AssistantContentPart[] {

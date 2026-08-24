@@ -302,16 +302,34 @@ test('后台任务 lifecycle 事件只更新运行中心，不重拉消息列表
 test('已送达但由顶层处理的事件会推进 seq，避免后续输出误判 gap', () => {
   const { deps, calls, sessionRunStore } = createDeps();
   sessionRunStore.applySessionRuntime(runtimeSnapshot('running'));
-  deps.messages.value = [createAssistantMessage()];
-  deps.activeRun.assistantMsgIndex = 0;
+  deps.messages.value = [{
+    id: 'boundary-1',
+    role: 'user',
+    content: '原始任务',
+    content_parts: [{ type: 'text', text: '原始任务' }],
+    metadata: { run_id: 'run-1', execution_kind: 'agent_stream' },
+    attachments: [],
+    status: [],
+    finished: false,
+    executionTree: { root: null, steps: [] },
+    _execState: null,
+  }, createAssistantMessage()];
+  deps.activeRun.assistantMsgIndex = 1;
   deps.activeRun.lastSeenSeq = 1;
 
+  const execution = useMessageExecution({
+    currentSessionId: deps.currentSessionId,
+    chatSdkClient: deps.chatSdkClient,
+    activeRun: deps.activeRun,
+  });
+  deps.applyEnvelopeToMessage = execution.applyEnvelopeToMessage;
   const stream = useSessionAgentClient(deps);
   stream.handleEnvelope({ type: 'ack', payload: { category: 'send', ok: true }, run_id: 'run-1', seq: 2 }, 'session-1');
   stream.handleEnvelope({ type: 'stream_output', payload: { phase: 'delta', content: 'hello' }, seq: 3 }, 'session-1');
   stream.handleEnvelope({ type: 'run_ended', payload: { status: 'completed' }, seq: 4 }, 'session-1');
 
-  assert.equal(deps.messages.value[0].content, 'hello');
+  assert.equal(deps.messages.value[0].executionTree.root?.rounds?.[0]?.text ?? '', 'hello');
+  assert.equal(deps.messages.value[1].content, '');
   assert.deepEqual(calls.mergeMessageIdsFromServer, []);
   assert.deepEqual(calls.deleteMessageCache, []);
   assert.deepEqual(calls.loadSessionMessages, []);
@@ -429,6 +447,45 @@ test('agent_message 消费确认从 canonical 数据创建 run 内 followup', ()
   assert.equal(deps.messages.value[2].role, 'assistant');
   assert.deepEqual(deps.pendingCommands.value, []);
   assert.deepEqual(calls.cacheMessages, [['session-1', deps.messages.value]]);
+});
+
+test('插嘴被同 run 认领后，旧边界面板让出运行中（execution_superseded）', () => {
+  const { deps, sessionRunStore } = createDeps();
+  deps.messages.value = [
+    { role: 'user', id: 'u1', content: '原始任务', metadata: { run_id: 'run-1' }, attachments: [] },
+    createAssistantMessage({ content: 'partial', run_id: 'run-1', metadata: { run_id: 'run-1' } }),
+  ];
+  sessionRunStore.beginPendingCommand('followup', 'req-followup');
+  deps.activeRun.active = true;
+  deps.activeRun.runId = 'run-1';
+  deps.activeRun.assistantMsgIndex = 1;
+
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({
+    type: 'agent_message',
+    run_id: 'run-1',
+    payload: {
+      input_type: 'user_message',
+      message_id: 'msg-followup',
+      seq: 12,
+      content_parts: [{ type: 'text', text: '插嘴' }],
+      metadata: {
+        mailbox_message_id: 'msg-followup',
+        agent_message: false,
+        visible_to_user: true,
+        request_id: 'req-followup',
+        execution_kind: 'session_followup',
+        source: 'running_session',
+        consumed_by_run_id: 'run-1',
+      },
+    },
+  }, 'session-1');
+
+  const original = deps.messages.value.find(message => message.id === 'u1');
+  const followup = deps.messages.value.find(message => message.id === 'msg-followup');
+  // 认领即让段：旧边界面板不再显示运行中（其段 agent_ended 会路由到新面板）。
+  assert.equal(original.execution_superseded, true);
+  assert.equal(followup.execution_superseded, undefined);
 });
 
 test('state_sync(message_saved) 从服务端 canonical content_parts 创建用户消息', () => {
@@ -858,8 +915,8 @@ test('连续 Goal 自动续跑后，消息内执行步骤仍用 assistant messag
     const execution = useMessageExecution({
       currentSessionId: deps.currentSessionId,
       chatSdkClient: {
-        getMessageRunSteps: async (sessionId, messageId) => {
-          requestedUrls.push(`/api/agent/sessions/${sessionId}/messages/${messageId}/run-steps`);
+        getMessageExecution: async (sessionId, messageId) => {
+          requestedUrls.push(`/api/agent/sessions/${sessionId}/messages/${messageId}/execution`);
           return { data: { items: [] } };
         },
       },
@@ -869,8 +926,8 @@ test('连续 Goal 自动续跑后，消息内执行步骤仍用 assistant messag
 
     await execution.ensureExecutionStepsLoaded(previousAssistant);
 
-    assert.deepEqual(requestedUrls.filter(url => url?.includes('/run-steps')), [
-      '/api/agent/sessions/session-1/messages/assistant-goal-1/run-steps',
+    assert.deepEqual(requestedUrls.filter(url => url?.includes('/execution')), [
+      '/api/agent/sessions/session-1/messages/assistant-goal-1/execution',
     ]);
   });
 });
@@ -1684,6 +1741,12 @@ test('stream_output(first_token) 设置首 token 时间并切换为模型输出�
   deps.activeRun.runStartedAt = 100;
   deps.llmRetryState.value = { nextAttempt: 2 };
 
+  const execution = useMessageExecution({
+    currentSessionId: deps.currentSessionId,
+    chatSdkClient: deps.chatSdkClient,
+    activeRun: deps.activeRun,
+  });
+  deps.applyEnvelopeToMessage = execution.applyEnvelopeToMessage;
   const stream = useSessionAgentClient(deps);
   stream.handleEnvelope({
     type: 'stream_output',
@@ -1728,10 +1791,27 @@ test('后续 stream_output(first_token) 不覆盖 run 首 token', () => {
 
 test('stream_output(delta) 追加内容并在缺少 first token 事件时兜底 timing', () => {
   const { deps } = createDeps();
-  deps.messages.value = [createAssistantMessage()];
+  deps.messages.value = [{
+    id: 'boundary-1',
+    role: 'user',
+    content: '原始任务',
+    content_parts: [{ type: 'text', text: '原始任务' }],
+    metadata: { run_id: 'run-1', execution_kind: 'agent_stream' },
+    attachments: [],
+    status: [],
+    finished: false,
+    executionTree: { root: null, steps: [] },
+    _execState: null,
+  }, createAssistantMessage()];
   deps.activeRun.active = true;
-  deps.activeRun.assistantMsgIndex = 0;
+  deps.activeRun.assistantMsgIndex = 1;
   deps.activeRun.runStartedAt = 10;
+  const execution = useMessageExecution({
+    currentSessionId: deps.currentSessionId,
+    chatSdkClient: deps.chatSdkClient,
+    activeRun: deps.activeRun,
+  });
+  deps.applyEnvelopeToMessage = execution.applyEnvelopeToMessage;
 
   const stream = useSessionAgentClient(deps);
   stream.handleEnvelope({
@@ -1743,7 +1823,9 @@ test('stream_output(delta) 追加内容并在缺少 first token 事件时兜底 
     payload: { phase: 'delta', content: 'hello' },
   }, 'session-1');
 
-  assert.equal(deps.messages.value[0].content, 'hello');
+  // 统一渲染：流式正文进边界消息执行树的轮 text 通道，消息行不动（final 才落地消息行）。
+  assert.equal(deps.messages.value[1].content, '');
+  assert.equal(deps.messages.value[0].executionTree.root?.rounds[0]?.text, 'hello');
   assert.equal(deps.activeRun.phase, 'model_streaming');
   assert.equal(deps.activeRun.lastChunkAt, 10.5);
   assert.equal(deps.activeRun.outputCharCount, 5);

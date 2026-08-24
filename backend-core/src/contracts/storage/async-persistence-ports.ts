@@ -1,7 +1,6 @@
-import type { PaginatedResult, RunStepInfo } from "../common.js";
+import type { PaginatedResult } from "../common.js";
 import type {
   AddMessageInput,
-  AddRunStepInput,
   CreatedRun,
   CreateRunInput,
   DeleteDeliveredOutboxInput,
@@ -10,7 +9,6 @@ import type {
   RetryOutboxBatchInput,
   RetryOutboxResult,
   RunInfo,
-  RunStepRecord,
 } from "../conversation-store/index.js";
 import type { AgentMetricSummary, DailyActivityPoint, HeatmapPoint, ModelUsagePoint, TokenTrendPoint } from "../conversation-store/index.js";
 import type { PermissionMode } from "../runtime/permissions.js";
@@ -58,18 +56,6 @@ export interface AsyncRunStore {
   listRuns(tenantId: string, sessionId: string, limit?: number): Promise<{ items: RunInfo[]; total: number }>;
   listParticipantRuns(tenantId: string, sessionId: string, participantId: string, limit: number, offset: number): Promise<{ items: RunInfo[]; total: number }>;
   interruptSuspendedRuns(tenantId: string, sessionId: string): Promise<RunInfo[]>;
-  ensureInitialRunMessageBoundary(tenantId: string, sessionId: string, runId: string, messageId: string): Promise<void>;
-  addRunStep(input: AddRunStepInput & { tenantId: string }): Promise<RunStepRecord>;
-  getRunMessageBoundary(tenantId: string, sessionId: string, runId: string, messageId: string): Promise<number | null>;
-  listMessageRunSteps(input: {
-    tenantId: string;
-    sessionId: string;
-    runId: string;
-    messageId: string;
-    limit: number;
-    offset: number;
-  }): Promise<{ items: RunStepInfo[]; total: number }>;
-  listRunSteps(input: { tenantId: string; runId?: string | null; sessionId?: string | null; limit?: number; offset?: number }): Promise<RunStepInfo[]>;
   getTenantRun(tenantId: string, runId: string): Promise<RunInfo | null>;
   listTenantRuns(tenantId: string, activeOnly: boolean): Promise<RunInfo[]>;
 }

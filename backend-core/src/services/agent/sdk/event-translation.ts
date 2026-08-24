@@ -2,7 +2,6 @@ import type {
   ContextUsageEvent,
   FirstTokenEvent,
   IntentCompleteEvent,
-  IntentDeltaEvent,
   KernelEvent,
   ModelAttemptCompletedEvent,
   ModelAttemptFailedEvent,
@@ -56,8 +55,6 @@ export function translateKernelEvent(event: KernelEvent, ctx: WireTranslationCon
       return [onOutputDelta(event, ctx)];
     case "output_file_ref":
       return [onOutputFileRef(event, ctx)];
-    case "intent_delta":
-      return [onIntentDelta(event, ctx)];
     case "intent_complete":
       return [onIntentComplete(event, ctx)];
     case "reasoning_delta":
@@ -198,14 +195,6 @@ function onOutputFileRef(event: OutputFileRefEvent, ctx: WireTranslationContext)
   };
 }
 
-function onIntentDelta(event: IntentDeltaEvent, ctx: WireTranslationContext): Envelope {
-  return {
-    type: "stream_output",
-    ...topMarkers(ctx),
-    payload: { phase: "intent_delta", content: event.content, round: event.round, ...streamLineage(ctx) } satisfies StreamOutputPayload,
-  };
-}
-
 function onIntentComplete(event: IntentCompleteEvent, ctx: WireTranslationContext): Envelope {
   return {
     type: "stream_output",
@@ -237,6 +226,9 @@ function onToolCall(event: ToolCallEvent, ctx: WireTranslationContext): Envelope
     run_id: ctx.runId,
     call_id: event.toolCallId,
     agent_id: ctx.agentId,
+    // 工具事件同样绑定当前 boundary：插嘴认领后 call/result 精确路由到新面板，
+    // 不再依赖前端按消息列表位置回退（列表 splice/重排会拆散 call-result 配对）。
+    ...(ctx.boundaryMessageId ? { boundary_message_id: ctx.boundaryMessageId } : {}),
     payload: {
       tool: event.toolName,
       input: event.arguments,
@@ -252,6 +244,7 @@ function onToolResult(event: ToolResultEvent, ctx: WireTranslationContext): Enve
   const approvalMessage = asString(event.metadata.approval_message);
   const approvalMeta = isRecord(event.metadata.approval) ? event.metadata.approval : null;
   const approvalStatus = asString(approvalMeta?.status);
+  const terminalStatus = asString(event.metadata.terminal_status);
   const base: ToolResultPayload = {
     tool: event.toolName,
     phase: "end",
@@ -261,6 +254,10 @@ function onToolResult(event: ToolResultEvent, ctx: WireTranslationContext): Enve
     summary: event.summary,
     lineage: toolLineage(ctx),
   };
+  // 终局补齐的悬空工具（run 中断/失败）：状态透传 interrupted，live 与历史回放一致。
+  if (!event.success && (terminalStatus === "interrupted" || terminalStatus === "failed")) {
+    base.status = terminalStatus;
+  }
   const rawResult = boundedRawResult(event.rawResult);
   if (rawResult) base.raw_result = rawResult;
   const agentOperation = translateAgentOperation(event.metadata.agent_operation);
@@ -279,6 +276,7 @@ function onToolResult(event: ToolResultEvent, ctx: WireTranslationContext): Enve
     run_id: ctx.runId,
     call_id: event.toolCallId,
     agent_id: ctx.agentId,
+    ...(ctx.boundaryMessageId ? { boundary_message_id: ctx.boundaryMessageId } : {}),
     payload: base,
   };
 }

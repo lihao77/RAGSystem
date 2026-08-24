@@ -67,7 +67,6 @@ export type {
   CreateWorkspaceRequest,
   WorkspaceResponse,
   SessionMessageListResponse,
-  SessionMessageRunStepsResponse,
   SessionParticipant,
   SessionParticipantListData,
   SessionParticipantListResponse,
