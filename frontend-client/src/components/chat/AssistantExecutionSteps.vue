@@ -58,9 +58,10 @@
 
 <script setup>
 import { ChevronDown } from 'lucide-vue-next';
-import { computed, inject, nextTick, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, inject, ref, watch } from 'vue';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
+import { useCollapsibleHeight } from '../../composables/useCollapsibleHeight.js';
 import { buildExecutionTree } from '../../utils/executionTreeBuilder.js';
 import {
   flattenExecutionNodes,
@@ -111,7 +112,9 @@ const headerLabel = computed(() => {
   return labels.join(' · ') || '执行过程';
 });
 
-const expanded = ref(false);
+// 初始值取当前运行态：挂载时 run 已在进行（刷新/重连 mid-run），面板直接展开，
+// 不依赖 watch 边沿触发。
+const expanded = ref(running.value);
 
 // 运行开始自动展开过程（看它干活），运行结束自动收起（答案由下方 assistant 消息槽
 // 呈现，过程收起后时间线仍是 用户消息→答案 的节奏）。只在"开始/结束"边沿触发，
@@ -150,50 +153,10 @@ function waitForStepsSettled() {
   });
 }
 
-/* 面板高度动画：内容无上限，max-height 用实测值驱动（展开后解除上限，
-   流式节点增长不被裁剪）。不用 grid 0fr/1fr——Chrome 在 fr 过渡期对 item 的
-   stretch 解析有缺陷，动画过程中容器占位与实际内容之间会出现空白。 */
+/* 面板高度动画：内容无上限，max-height 由 useCollapsibleHeight 以实测值驱动（展开后
+   解除上限，流式节点增长不被裁剪）。 */
 const listOuter = ref(null);
-let heightReleaseTimer = 0;
-
-watch(expanded, (open) => {
-  nextTick(() => syncPanelHeight(open));
-});
-
-onBeforeUnmount(() => {
-  window.clearTimeout(heightReleaseTimer);
-});
-
-function syncPanelHeight(open) {
-  const el = listOuter.value;
-  if (!el) return;
-  window.clearTimeout(heightReleaseTimer);
-  if (open) {
-    el.style.maxHeight = `${el.scrollHeight}px`;
-    scheduleHeightRelease(el);
-  } else {
-    if (el.style.maxHeight === 'none') {
-      el.style.maxHeight = `${el.scrollHeight}px`;
-      void el.offsetHeight;
-    }
-    el.style.maxHeight = '0px';
-  }
-}
-
-function scheduleHeightRelease(el) {
-  heightReleaseTimer = window.setTimeout(() => {
-    if (expanded.value) el.style.maxHeight = 'none';
-  }, 260);
-}
-
-/* 展开期间内容变化（历史步骤加载完成 / 流式新增节点）：上限仍钉在旧值时
-   平滑过渡到新高度，避免释放后从占位高度直接跳变到完整高度。 */
-watch(nodes, () => {
-  if (!expanded.value) return;
-  const el = listOuter.value;
-  if (!el || el.style.maxHeight === 'none') return;
-  el.style.maxHeight = `${el.scrollHeight}px`;
-});
+useCollapsibleHeight(listOuter, expanded);
 
 async function loadHistoricalSteps() {
   if (!msgIsUnloadedHistory.value || props.msg.executionStepsLoading) return;

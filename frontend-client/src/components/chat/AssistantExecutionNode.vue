@@ -34,8 +34,9 @@
             class="assistant-step-reasoning"
             :style="detailIndentStyle"
             @scroll.passive="handleReasoningScroll"
+            @wheel.passive="handleReasoningWheel"
           >
-            <div class="assistant-step-reasoning-text">{{ reasoningDisplayText }}</div>
+            <div ref="reasoningTextEl" class="assistant-step-reasoning-text"></div>
           </div>
         </div>
         <div class="assistant-step-reasoning-fade is-bottom" aria-hidden="true"></div>
@@ -143,6 +144,7 @@ import {
 } from '../../utils/executionTreePresentation.js';
 import { getAgentOperationTitle } from '../../utils/executionTreeBuilder.js';
 import { agentNodeAccentColor } from '../../utils/participantVisual.js';
+import { useCollapsibleHeight } from '../../composables/useCollapsibleHeight.js';
 import AssistantToolCallDetail from './AssistantToolCallDetail.vue';
 import MarkdownContent from './MarkdownContent.vue';
 
@@ -229,8 +231,9 @@ watch(() => getExecutionNodeKey(props.node), () => {
   expanded.value = false;
   reasoningOverride.value = null;
   reasoningUserPinned.value = false;
+  lastReasoningScrollTop = 0;
   cancelPendingReasoningFrame();
-  flushReasoningText();
+  renderReasoningFrame();
 });
 
 // 思考块折叠:流式中自动展开,完成后自动收起;用户点击后本次覆盖自动行为。
@@ -244,38 +247,42 @@ function toggleReasoningExpanded() {
   reasoningOverride.value = !reasoningExpanded.value;
 }
 
-/* 思考正文：思维链是模型的原始文本，按纯文本渲染（不走 markdown）。
-   流式期间 rAF 节流 + 尾部窗口截断——否则长思考时每个 delta 都全量
-   markdown 解析 + v-html 重建整棵 DOM，累计 O(n²)，几百字后就开始掉帧；
-   截断把每次 patch 的文本量钉在常数，完成后展开即全文。 */
-const REASONING_STREAM_WINDOW = 2000;
+/* 思考正文：思维链是模型原始文本，按纯文本渲染（不走 markdown）。流式更新用
+   appendData 尾部追加——整体替换文本节点会让浏览器对全文重新断行（O(n)/帧，
+   长思考累计 O(n²) 掉帧）；尾部追加只让最后一行行盒失效，成本 O(增量)，
+   流式期间全文在场、可自由回读。非追加式更新（历史回填/完成覆盖）全量替换兜底。
+   这块 DOM 由本组件直接管理，不走 Vue 插值。 */
 const reasoningEl = ref(null);
+const reasoningTextEl = ref(null);
 const reasoningUserPinned = ref(false);
-const reasoningDisplayText = ref('');
-let programmaticScrollUntil = 0;
+let reasoningTextNode = null;
+let reasoningRenderedText = '';
 let reasoningRafId = 0;
-let reasoningWindowCut = 0;
 
-function flushReasoningText() {
-  const text = props.node.reasoning || '';
-  if (!reasoningStreaming.value) {
-    reasoningWindowCut = 0;
-    reasoningDisplayText.value = text;
-    return;
+function renderReasoningText(text) {
+  const el = reasoningTextEl.value;
+  if (!el) return;
+  if (!reasoningTextNode || reasoningTextNode.parentNode !== el) {
+    reasoningTextNode = document.createTextNode('');
+    el.replaceChildren(reasoningTextNode);
+    reasoningRenderedText = '';
   }
-  // 用户上滑阅读时冻结窗口起点：跟随暂停期间窗口继续前移会把正在读的
-  // 头部内容截掉，滚回底部后下一次刷新窗口再前进。
-  if (reasoningUserPinned.value && reasoningWindowCut > 0) {
-    reasoningDisplayText.value = `…（前 ${reasoningWindowCut} 字流式期间已折叠）\n${text.slice(reasoningWindowCut)}`;
-    return;
+  if (text.startsWith(reasoningRenderedText)) {
+    if (text.length > reasoningRenderedText.length) {
+      reasoningTextNode.appendData(text.slice(reasoningRenderedText.length));
+    }
+  } else {
+    reasoningTextNode.data = text;
   }
-  let cut = Math.max(0, text.length - REASONING_STREAM_WINDOW);
-  const lineBreak = text.lastIndexOf('\n', cut);
-  if (lineBreak > cut - 400) cut = lineBreak + 1;
-  reasoningWindowCut = cut;
-  reasoningDisplayText.value = cut > 0
-    ? `…（前 ${cut} 字流式期间已折叠，思考完成后可查看全文）\n${text.slice(cut)}`
-    : text;
+  reasoningRenderedText = text;
+}
+
+/* 渲染一帧并处理跟随：DOM 是本组件直接写的，随后读 scrollHeight 即是新布局，
+   不需要等 nextTick。 */
+function renderReasoningFrame() {
+  renderReasoningText(props.node.reasoning || '');
+  if (!reasoningUserPinned.value && reasoningExpanded.value) stickReasoningToBottom();
+  updateReasoningFades();
 }
 
 function cancelPendingReasoningFrame() {
@@ -285,49 +292,49 @@ function cancelPendingReasoningFrame() {
 }
 
 watch(() => props.node.reasoning, () => {
-  if (!reasoningStreaming.value) {
-    flushReasoningText();
-    return;
-  }
   if (reasoningRafId) return;
   reasoningRafId = window.requestAnimationFrame(() => {
     reasoningRafId = 0;
-    flushReasoningText();
+    renderReasoningFrame();
   });
-}, { immediate: true });
+}, { immediate: true, flush: 'post' });
 
 watch(reasoningStreaming, (streaming) => {
   if (streaming) return;
+  // 完成覆盖可能是非追加式全文：取消在途帧，立即同步渲染。
   cancelPendingReasoningFrame();
-  flushReasoningText();
+  renderReasoningFrame();
 });
 
-/* 底部跟随：只信用户的真实滚动——滚离底部即暂停跟随，滚回底部自动恢复。
-   程序滚动后短窗内忽略 scroll 事件，避免自己触发的滚动改动 pin 状态。
-   不再用"渲染前距底 ≤40px"猜测：markdown/大增量会让单帧高度突增，
-   曾被误判成用户上滑而永久停止跟随。 */
+/* 底部跟随：滚轮上滚（阅读意图）立即 pin，滚回底部（delta>0 且 gap≈0）自动恢复；
+   拖滚动条/键盘上滚由 scroll 事件里 delta<0 且 gap>8 兜底 pin。
+   不用"程序滚动后短窗内忽略 scroll 事件"的时间窗——流式期间程序滚动每帧发生，
+   时间窗永不闭合，用户滚动会被持续吞掉。程序滚动恒落在 gap=0，天然不干扰 pin 态。 */
+let lastReasoningScrollTop = 0;
+
+function handleReasoningWheel(event) {
+  if (event.deltaY >= 0) return;
+  const el = reasoningEl.value;
+  if (!el || el.scrollHeight <= el.clientHeight + 1) return;
+  reasoningUserPinned.value = true;
+}
+
 function handleReasoningScroll() {
-  if (performance.now() < programmaticScrollUntil) return;
   const el = reasoningEl.value;
   if (!el) return;
-  reasoningUserPinned.value = el.scrollHeight - el.scrollTop - el.clientHeight > 8;
+  const gap = el.scrollHeight - el.scrollTop - el.clientHeight;
+  const delta = el.scrollTop - lastReasoningScrollTop;
+  lastReasoningScrollTop = el.scrollTop;
+  if (delta > 0 && gap <= 2) reasoningUserPinned.value = false;
+  else if (delta < 0 && gap > 8) reasoningUserPinned.value = true;
   updateReasoningFades();
 }
 
 function stickReasoningToBottom() {
   const el = reasoningEl.value;
   if (!el) return;
-  programmaticScrollUntil = performance.now() + 150;
   el.scrollTop = el.scrollHeight;
 }
-
-watch(reasoningDisplayText, () => {
-  nextTick(() => {
-    if (!reasoningUserPinned.value && reasoningExpanded.value) stickReasoningToBottom();
-    updateReasoningFades();
-    retargetReasoningHeight();
-  });
-});
 
 // 上下渐变遮罩：只在对应方向还有未滚到的内容时出现，滚到头即消失。
 const reasoningTopFaded = ref(false);
@@ -343,120 +350,26 @@ function updateReasoningFades() {
 watch(reasoningExpanded, (open) => {
   nextTick(() => {
     updateReasoningFades();
-    syncReasoningHeight(open);
     // 流式中（手动收起后）重新展开：直接定位到最新内容，保持吸附。
     if (open && reasoningStreaming.value) stickReasoningToBottom();
   });
 });
 
 onBeforeUnmount(() => {
-  window.clearTimeout(reasoningHeightTimer);
-  window.clearTimeout(collapseHeightTimer);
   cancelPendingReasoningFrame();
 });
 
-/* 高度动画：max-height 用实测值驱动。固定 320px 区间会让短内容在过渡早期
-   就到达实际高度、其后全是不可见的空跑，观感上"过快"；展开动画结束后
-   把上限放回 320px，流式增长的内容仍有滚动空间。 */
+/* 高度动画：max-height 用实测值驱动（cap 320px——展开动画结束后上限释放回 320px，
+   流式增长的内容仍有滚动空间）。细节见 useCollapsibleHeight。 */
 const reasoningClipEl = ref(null);
-let reasoningHeightTimer = 0;
+useCollapsibleHeight(reasoningClipEl, reasoningExpanded, { cap: 320 });
 
-function syncReasoningHeight(open) {
-  const clip = reasoningClipEl.value;
-  if (!clip) return;
-  window.clearTimeout(reasoningHeightTimer);
-  if (open) {
-    const target = Math.min(clip.scrollHeight, 320);
-    clip.style.maxHeight = `${target}px`;
-    scheduleReasoningRelease(clip);
-  } else {
-    // 钉住到当前可视高度时需临时禁用过渡：上限(320)→实测值的跳变本身不可见，
-    // 若作为过渡处理会让 max-height 从 320 插值到 0，短内容在越过自身高度前
-    // 一直无视觉变化，最后才瞬间收完。
-    clip.style.transition = 'none';
-    clip.style.maxHeight = `${clip.offsetHeight}px`;
-    void clip.offsetHeight;
-    clip.style.transition = '';
-    clip.style.maxHeight = '0px';
-  }
-}
-
-function scheduleReasoningRelease(clip) {
-  reasoningHeightTimer = window.setTimeout(() => {
-    if (reasoningExpanded.value) clip.style.maxHeight = '320px';
-  }, 260);
-}
-
-/* 流式内容增长：上限仍钉在旧的实测值时平滑过渡到新高度（只增不减）。
-   不重排释放定时器——流式增量若每次续期，上限会一直处在追赶过渡中，最新内容
-   长期被裁在可视区外；初次展开排定的释放照常触发后，交还给 320px 上限+滚动层。 */
-function retargetReasoningHeight() {
-  if (!reasoningExpanded.value) return;
-  const clip = reasoningClipEl.value;
-  if (!clip) return;
-  const cap = clip.style.maxHeight;
-  if (!cap || cap === 'none' || cap === '320px') return;
-  const target = Math.min(clip.scrollHeight, 320);
-  if (target <= parseFloat(cap)) return;
-  clip.style.maxHeight = `${target}px`;
-}
-
-/* 详情/子步骤折叠：与思考块、外层步骤面板同思路，max-height 用实测值驱动（不用
-   grid 0fr/1fr——Chrome 在 fr 过渡期对 grid item 的 stretch 解析有缺陷，收起动画
-   会在内容下方留出空白）；展开动画结束后释放上限，流式新增的子节点/结果不被裁剪。 */
+/* 详情/子步骤折叠：与思考块同机制。结果流式就绪会让 hasDetails/hasChildren 中途变真，
+   容器在展开态下晚挂载——useCollapsibleHeight 在元素出现时按当前展开态补一次同步。 */
 const detailWrapEl = ref(null);
 const childWrapEl = ref(null);
-let collapseHeightTimer = 0;
-
-watch(expanded, (open) => {
-  nextTick(() => syncCollapseHeight(open));
-});
-
-/* 结果流式就绪会让 hasDetails/hasChildren 中途变真：容器在展开态下才挂载，max-height
-   仍是 CSS 初值 0，需补一次高度同步。 */
-watch([hasDetails, hasChildren], ([details, children], [prevDetails, prevChildren]) => {
-  if (expanded.value && ((details && !prevDetails) || (children && !prevChildren))) {
-    nextTick(() => syncCollapseHeight(true));
-  }
-});
-
-function syncCollapseHeight(open) {
-  window.clearTimeout(collapseHeightTimer);
-  const wraps = collapseWraps();
-  if (open) {
-    for (const el of wraps) el.style.maxHeight = `${el.scrollHeight}px`;
-    if (wraps.length) scheduleCollapseRelease();
-    return;
-  }
-  for (const el of wraps) {
-    if (el.style.maxHeight === 'none') {
-      el.style.maxHeight = `${el.scrollHeight}px`;
-      void el.offsetHeight;
-    }
-    el.style.maxHeight = '0px';
-  }
-}
-
-function scheduleCollapseRelease() {
-  collapseHeightTimer = window.setTimeout(() => {
-    if (!expanded.value) return;
-    for (const el of collapseWraps()) el.style.maxHeight = 'none';
-  }, 260);
-}
-
-/* 展开期间内容变化（流式新增子节点/结果）：上限仍钉在旧实测值时平滑过渡到新高度。
-   不重排释放定时器——连续流式会不断续期，容器高度一直在过渡中追赶内容，底部最新
-   内容长期被裁；初次展开排定的释放照常触发后，上限交还给内容自身。 */
-watch(() => props.node, () => {
-  if (!expanded.value) return;
-  const pinned = collapseWraps().filter(el => el.style.maxHeight && el.style.maxHeight !== 'none');
-  if (!pinned.length) return;
-  for (const el of pinned) el.style.maxHeight = `${el.scrollHeight}px`;
-});
-
-function collapseWraps() {
-  return [detailWrapEl.value, childWrapEl.value].filter(Boolean);
-}
+useCollapsibleHeight(detailWrapEl, expanded);
+useCollapsibleHeight(childWrapEl, expanded);
 
 function toggleExpanded() {
   if (expandable.value) expanded.value = !expanded.value;
@@ -621,7 +534,7 @@ function truncate(value, maxLength) {
   color: var(--color-error);
 }
 
-/* 折叠容器（工具/agent 详情与子步骤）：max-height 由 syncCollapseHeight 以实测高度内联
+/* 折叠容器（工具/agent 详情与子步骤）：max-height 由 useCollapsibleHeight 以实测高度内联
    驱动，展开动画结束后释放上限（none）。不用 grid 0fr/1fr——Chrome 在 fr 过渡期对
    grid item 的 stretch 解析有缺陷（容器按插值高度占位、内容不跟随），收起动画会在
    内容下方留出一段空白；max-height 直接驱动容器自身高度，任意中间态都贴合。
@@ -646,7 +559,7 @@ function truncate(value, maxLength) {
    的 stretch 解析有缺陷（clip 不填满轨道、容器却按完整插值高度占位），动画过程中
    会在内容下方留出一段空白；max-height 直接驱动 clip 自身高度，任意中间态都贴合。
    与滚动层分离保证动画期间滚动条几何不变（揭开/盖上一张静止的内容快照）。 */
-/* 展开/收起同速（240ms 匀速）；max-height 目标值由 syncReasoningHeight 以实测高度内联驱动。 */
+/* 展开/收起同速（240ms 匀速）；max-height 目标值由 useCollapsibleHeight 以实测高度内联驱动。 */
 .assistant-step-reasoning-clip {
   max-height: 0;
   overflow: hidden;
