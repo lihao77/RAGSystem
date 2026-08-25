@@ -330,10 +330,15 @@ export class AguiTranslator {
     const aguiInterruptId = callId;
     if (str(payload.kind) === "approval") {
       const toolName = str(payload.tool);
+      // interrupt.id 保持 interaction id（resume 引用键）；toolCallId 用真实
+      // 工具调用 id（payload.input.tool_call_id），与批准后 tool_result 信封的
+      // call_id 同源，客户端才能把审批前后的事件配到同一次调用上。
+      const input = (payload.input ?? {}) as Rec;
+      const toolCallId = str(input.tool_call_id) ?? callId;
       const interrupt: AguiInterrupt = {
         id: aguiInterruptId,
         reason: "confirmation",
-        toolCallId: callId,
+        toolCallId,
         message: str(payload.prompt) || str(payload.message) || "需要确认",
         metadata: approvalInterruptMetadata(payload),
         responseSchema: {
@@ -350,7 +355,7 @@ export class AguiTranslator {
           callId,
           kind: "approval",
           internalRunId: this.ctx.internalRunId,
-          toolCallId: callId,
+          toolCallId,
           ...(toolName ? { toolName } : {}),
           interrupt,
         },

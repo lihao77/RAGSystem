@@ -22,7 +22,7 @@ function streamEnvelope(phase: string, content = "", seq?: number): Envelope {
   };
 }
 
-function interactionEnvelope(callId = "approval-1"): Envelope {
+function interactionEnvelope(callId = "approval-1", toolCallId?: string): Envelope {
   return {
     type: "interaction",
     session_id: "thread-1",
@@ -33,6 +33,7 @@ function interactionEnvelope(callId = "approval-1"): Envelope {
       phase: "required",
       tool: "dangerous_tool",
       prompt: "确认执行？",
+      ...(toolCallId ? { input: { tool_call_id: toolCallId } } : {}),
     },
   };
 }
@@ -198,6 +199,25 @@ describe("AguiTranslator interrupt identity", () => {
       type: "RUN_FINISHED",
       outcome: { type: "interrupt", interrupts: [expect.objectContaining({ id: "approval-42" })] },
     }));
+  });
+
+  it("pairs approval interrupts with the real tool call id for post-approval events", () => {
+    const result = translator().translate(interactionEnvelope("approval-42", "call_tool_9"));
+
+    expect(result.interruptRecord?.toolCallId).toBe("call_tool_9");
+    expect(result.events).toContainEqual(expect.objectContaining({
+      type: "RUN_FINISHED",
+      outcome: {
+        type: "interrupt",
+        interrupts: [expect.objectContaining({ id: "approval-42", toolCallId: "call_tool_9" })],
+      },
+    }));
+  });
+
+  it("falls back to the interaction id when the approval payload omits tool_call_id", () => {
+    const result = translator().translate(interactionEnvelope("approval-7"));
+
+    expect(result.interruptRecord?.toolCallId).toBe("approval-7");
   });
 
   it("keeps delegated tool metadata in the interrupt fallback", () => {
