@@ -2,7 +2,7 @@ import { isRecord } from "@ragsystem/backend-core/utils/guards.js";
 import { randomUUID } from "node:crypto";
 
 import type { DaemonBotRepository } from "../contracts/bot-repository.js";
-import type { BotConfig, BotCronTask, BotCronTaskCreate, BotCronTaskUpdate, PlatformType } from "../contracts/bot.js";
+import type { BotConfig, PlatformType } from "../contracts/bot.js";
 import type { DaemonOutgoingMessage, DaemonTestMessage } from "../contracts/daemon.js";
 import type { TenantId, UserId } from "@ragsystem/backend-core/identity/types.js";
 import type { PermissionMode } from "@ragsystem/backend-core/contracts/runtime/permissions.js";
@@ -79,7 +79,6 @@ interface BotRuntimeState {
   config: BotConfig;
   feishuRuntime: FeishuRuntime | null;
   registeredRouteToken: string | null;
-  cronHistory: Map<string, Array<Record<string, unknown>>>;
   processedMessageIds: Map<string, number>;
 }
 
@@ -92,13 +91,10 @@ export interface DaemonServiceOptions {
 
 export class DaemonService {
   private readonly states = new Map<UserId, BotRuntimeState>();
-  private readonly cronLeaseOwner = randomUUID();
   private readonly stateInitializations = new Map<UserId, Promise<BotRuntimeState>>();
   private readonly reloads = new Map<UserId, Promise<void>>();
   private startPromise: Promise<void> | null = null;
-  private schedulerTimer: NodeJS.Timeout | null = null;
   private leaderRetryTimer: NodeJS.Timeout | null = null;
-  private schedulerRunning = false;
   private leader = false;
 
   constructor(private readonly options: DaemonServiceOptions) {}
@@ -123,7 +119,6 @@ export class DaemonService {
 
   private async initializeLeader(): Promise<void> {
     for (const config of await this.options.botRepository.listAllEnabledFeishu()) await this.rebuildBot(config);
-    this.startScheduler();
   }
 
   private startLeaderRetry(): void {
@@ -160,7 +155,7 @@ export class DaemonService {
     if (!bot || bot.status !== "active") return;
     const config = await this.options.botRepository.getRuntimeConfig(botId);
     if (!config) return;
-    await this.rebuildBot(config, existing?.cronHistory);
+    await this.rebuildBot(config);
   }
 
   async testMessage(botId: UserId, input: DaemonTestMessage): Promise<{ status: "ok"; message: string; session_id: string; result: string }> {
@@ -192,120 +187,18 @@ export class DaemonService {
     return (await invokeWebhook(state.feishuRuntime.dispatcher, body)) ?? { code: 0 };
   }
 
-  async listBotCronTasks(botId: UserId): Promise<BotCronTask[]> {
-    await this.requireBotConfig(botId);
-    return this.options.botRepository.listCronTasks(botId);
-  }
-
-  async createBotCronTask(botId: UserId, task: BotCronTaskCreate): Promise<BotCronTask> {
-    await this.requireBotConfig(botId);
-    if (await this.options.botRepository.getCronTask(botId, task.task_id)) throw new DaemonServiceError(400, `任务已存在: ${task.task_id}`);
-    const created = await this.options.botRepository.createCronTask(botId, { ...task, next_run: task.enabled ? computeNextRun(task.cron) : null });
-    (await this.ensureState(botId)).cronHistory.set(task.task_id, []);
-    return created;
-  }
-
-  async updateBotCronTask(botId: UserId, taskId: string, patch: BotCronTaskUpdate): Promise<BotCronTask | null> {
-    const current = await this.options.botRepository.getCronTask(botId, taskId);
-    if (!current) return null;
-    const cron = patch.cron ?? current.cron;
-    const enabled = patch.enabled ?? current.enabled;
-    return this.options.botRepository.updateCronTask(botId, taskId, {
-      ...compactCronPatch(patch),
-      next_run: enabled ? computeNextRun(cron) : null,
-    });
-  }
-
-  async deleteBotCronTask(botId: UserId, taskId: string): Promise<boolean> {
-    const deleted = await this.options.botRepository.deleteCronTask(botId, taskId);
-    if (deleted) this.states.get(botId)?.cronHistory.delete(taskId);
-    return deleted;
-  }
-
-  async triggerBotCronTask(botId: UserId, taskId: string, claimToken?: string): Promise<{ status: "ok"; result: string | null }> {
-    const state = await this.ensureState(botId);
-    const task = await this.options.botRepository.getCronTask(botId, taskId);
-    if (!task || !task.enabled) throw new DaemonServiceError(404, `任务不存在或未启用: ${taskId}`);
-    const startedAt = Date.now();
-    try {
-      const sessionId = resolveSessionId(state.config, "feishu", `cron:${taskId}`);
-      const sessionMetadata = { push_chat_id: task.push_chat_id };
-      const result = await this.runAgent(state, task.task, sessionId, "daemon.cron", task.entry_agent ?? state.config.entry_agent, sessionMetadata);
-      const now = Date.now() / 1000;
-      if (result.suspended) {
-        if (!result.interactionsDelivered) await this.sendSuspendedCards(state, suspendedInteractions(result), sessionMetadata, task);
-      }
-      await this.options.botRepository.updateCronTask(botId, taskId, {
-        last_run: now,
-        next_run: computeNextRun(task.cron),
-        last_result: result.suspended ? "SUSPENDED" : result.content.slice(0, 200),
-      }, claimToken ? { claimToken } : undefined);
-      this.recordCronHistory(state, taskId, { timestamp: now, success: true, result: result.suspended ? "SUSPENDED" : result.content.slice(0, 200), error: null, elapsed: (Date.now() - startedAt) / 1000 });
-      if (!result.suspended && task.push_platform && task.push_chat_id) {
-        const sent = await this.sendMessage(botId, { platform: task.push_platform, chat_id: task.push_chat_id, content: result.content, message_type: "text" });
-        if (sent.status === "failed") throw new Error(sent.error ?? "飞书消息发送失败");
-      }
-      return { status: "ok", result: result.content || null };
-    } catch (error) {
-      const now = Date.now() / 1000;
-      const message = error instanceof Error ? error.message : String(error);
-      await this.options.botRepository.updateCronTask(botId, taskId, {
-        last_run: now,
-        next_run: computeNextRun(task.cron),
-        last_result: `ERROR: ${message}`,
-      }, claimToken ? { claimToken } : undefined);
-      this.recordCronHistory(state, taskId, { timestamp: now, success: false, result: "", error: message, elapsed: (Date.now() - startedAt) / 1000 });
-      throw new DaemonServiceError(400, message);
-    }
-  }
-
-  async getBotCronHistory(botId: UserId, taskId: string, limit: number): Promise<Array<Record<string, unknown>>> {
-    return ((await this.ensureState(botId)).cronHistory.get(taskId) ?? []).slice(0, Math.max(0, Math.floor(limit)));
-  }
-
   close(): void {
-    if (this.schedulerTimer) clearInterval(this.schedulerTimer);
-    this.schedulerTimer = null;
     if (this.leaderRetryTimer) clearInterval(this.leaderRetryTimer);
     this.leaderRetryTimer = null;
     if (this.leader) {
       this.leader = false;
       void this.options.leaderLease?.release();
     }
-    this.schedulerRunning = false;
     for (const state of this.states.values()) this.disposeState(state);
     this.states.clear();
     this.stateInitializations.clear();
     this.reloads.clear();
     this.startPromise = null;
-  }
-
-  private async runDueTasks(now: number): Promise<void> {
-    const claims = await this.options.botRepository.claimDueCronTasks({
-      now,
-      leaseOwner: this.cronLeaseOwner,
-    });
-    for (const claim of claims) {
-      try {
-        await this.triggerBotCronTask(claim.botId, claim.taskId, claim.claimToken);
-        await this.options.botRepository.completeCronTaskClaim({ botId: claim.botId, taskId: claim.taskId, claimToken: claim.claimToken });
-      } catch (error) {
-        await this.options.botRepository.releaseCronTaskClaim({ botId: claim.botId, taskId: claim.taskId, claimToken: claim.claimToken });
-        console.error(`[daemon][cron][${claim.botId}/${claim.taskId}] 自动调度失败`, error);
-      }
-    }
-  }
-
-  private startScheduler(): void {
-    if (this.schedulerTimer) return;
-    this.schedulerTimer = setInterval(() => {
-      if (this.schedulerRunning) return;
-      this.schedulerRunning = true;
-      void this.runDueTasks(Date.now() / 1000).finally(() => {
-        this.schedulerRunning = false;
-      });
-    }, 60_000);
-    this.schedulerTimer.unref();
   }
 
   private async ensureState(botId: UserId): Promise<BotRuntimeState> {
@@ -331,7 +224,7 @@ export class DaemonService {
     return config;
   }
 
-  private async rebuildBot(config: BotConfig, priorHistory?: Map<string, Array<Record<string, unknown>>>): Promise<BotRuntimeState> {
+  private async rebuildBot(config: BotConfig): Promise<BotRuntimeState> {
     const bot = await this.options.botRepository.get(config.bot_id);
     let resolvedConfig = config;
     if (config.enabled && config.feishu.enabled && config.feishu.receive_mode === "webhook" && !config.feishu.route_token) {
@@ -344,10 +237,8 @@ export class DaemonService {
       config: resolvedConfig,
       feishuRuntime: null,
       registeredRouteToken: null,
-      cronHistory: priorHistory ?? new Map(),
       processedMessageIds: new Map(),
     };
-    this.syncCronHistoryKeys(state);
     if (bot?.status === "active" && resolvedConfig.enabled && resolvedConfig.feishu.enabled) this.startFeishu(state);
     this.states.set(state.botId, state);
     return state;
@@ -564,14 +455,13 @@ export class DaemonService {
     state: BotRuntimeState,
     interaction: DaemonSuspendedInteraction,
     sessionMetadata: Record<string, unknown>,
-    cronTask?: BotCronTask | undefined,
   ): Promise<void> {
     if (!state.feishuRuntime) {
       throw new Error("飞书适配器未配置");
     }
-    const chatId = resolveBotChatId(state.config, sessionMetadata, cronTask);
+    const chatId = resolveBotChatId(state.config, sessionMetadata);
     if (!chatId) {
-      throw new Error("挂起交互缺少飞书 chat_id，请配置 default_chat_id 或 cron push_chat_id");
+      throw new Error("挂起交互缺少飞书 chat_id，请配置 default_chat_id");
     }
     const cardSchema = interaction.kind === "approval"
       ? buildApprovalCard({
@@ -596,10 +486,9 @@ export class DaemonService {
     state: BotRuntimeState,
     interactions: DaemonSuspendedInteraction[],
     sessionMetadata: Record<string, unknown>,
-    cronTask?: BotCronTask | undefined,
   ): Promise<void> {
     for (const interaction of interactions) {
-      await this.sendSuspendedCard(state, interaction, sessionMetadata, cronTask);
+      await this.sendSuspendedCard(state, interaction, sessionMetadata);
     }
   }
 
@@ -614,18 +503,6 @@ export class DaemonService {
     }
   }
 
-  private recordCronHistory(state: BotRuntimeState, taskId: string, item: Record<string, unknown>): void {
-    const history = state.cronHistory.get(taskId) ?? [];
-    history.unshift(item);
-    state.cronHistory.set(taskId, history.slice(0, 50));
-  }
-
-  private syncCronHistoryKeys(state: BotRuntimeState): void {
-    const taskIds = new Set(state.config.cron_tasks.map((task) => task.task_id));
-    for (const taskId of taskIds) if (!state.cronHistory.has(taskId)) state.cronHistory.set(taskId, []);
-    for (const taskId of state.cronHistory.keys()) if (!taskIds.has(taskId)) state.cronHistory.delete(taskId);
-  }
-
   private purgeExpiredDedup(state: BotRuntimeState, now: number): void {
     for (const [id, timestamp] of state.processedMessageIds) if (now - timestamp > DEDUP_TTL_MS) state.processedMessageIds.delete(id);
   }
@@ -638,7 +515,6 @@ function resolveSessionId(config: BotConfig, platform: PlatformType, chatId: str
 export function resolveBotChatId(
   config: BotConfig,
   sessionMetadata: Record<string, unknown>,
-  cronTask?: Pick<BotCronTask, "push_chat_id"> | undefined,
 ): string | null {
   const directChatId = readNonEmptyString(sessionMetadata.chatId);
   if (directChatId) return directChatId;
@@ -646,9 +522,7 @@ export function resolveBotChatId(
     ?? (isRecord(sessionMetadata.feishu) ? readNonEmptyString(sessionMetadata.feishu.sender_open_id) : null);
   if (senderOpenId) return senderOpenId;
   const defaultChatId = config.feishu.default_chat_id?.trim();
-  if (defaultChatId) return defaultChatId;
-  const cronChatId = cronTask?.push_chat_id?.trim() ?? readNonEmptyString(sessionMetadata.push_chat_id);
-  return cronChatId || null;
+  return defaultChatId || null;
 }
 
 function toSuspendedInteraction(botId: UserId, meta: ApprovalMeta): DaemonSuspendedInteraction {
@@ -676,78 +550,9 @@ function readNonEmptyString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function compactCronPatch(patch: BotCronTaskUpdate): Partial<Omit<BotCronTask, "bot_id" | "task_id">> {
-  const compact: Partial<Omit<BotCronTask, "bot_id" | "task_id">> = {};
-  if (patch.cron !== undefined) compact.cron = patch.cron;
-  if (patch.task !== undefined) compact.task = patch.task;
-  if (patch.entry_agent !== undefined) compact.entry_agent = patch.entry_agent;
-  if (patch.enabled !== undefined) compact.enabled = patch.enabled;
-  if (patch.push_platform !== undefined) compact.push_platform = patch.push_platform;
-  if (patch.push_chat_id !== undefined) compact.push_chat_id = patch.push_chat_id;
-  return compact;
-}
-
 function readMessageId(response: unknown): string | null {
   if (!isRecord(response)) return null;
   return isRecord(response.data) && typeof response.data.message_id === "string" ? response.data.message_id : null;
-}
-
-function computeNextRun(cron: string): number | null {
-  const next = nextCronTime(cron);
-  return next ? next.getTime() / 1000 : null;
-}
-
-function nextCronTime(cron: string, after = new Date()): Date | null {
-  const parts = cron.trim().split(/\s+/);
-  if (parts.length !== 5) return null;
-  let date = new Date(after.getTime());
-  date.setSeconds(0, 0);
-  date = new Date(date.getTime() + 60_000);
-  const limit = new Date(date.getTime() + 366 * 24 * 60 * 60 * 1000);
-  while (date < limit) {
-    if (matchesCron(cron, date)) return date;
-    date = new Date(date.getTime() + 60_000);
-  }
-  return null;
-}
-
-function matchesCron(cron: string, date: Date): boolean {
-  const parts = cron.trim().split(/\s+/);
-  if (parts.length !== 5) return false;
-  const [minute, hour, dayOfMonth, month, dayOfWeek] = parts;
-  if (!minute || !hour || !dayOfMonth || !month || !dayOfWeek) return false;
-  if (!parseCronField(minute, 0, 59).has(date.getMinutes())) return false;
-  if (!parseCronField(hour, 0, 23).has(date.getHours())) return false;
-  if (!parseCronField(month, 1, 12).has(date.getMonth() + 1)) return false;
-  const dayOfMonthRestricted = dayOfMonth !== "*";
-  const dayOfWeekRestricted = dayOfWeek !== "*";
-  if (dayOfMonthRestricted && dayOfWeekRestricted) return parseCronField(dayOfMonth, 1, 31).has(date.getDate()) || parseCronField(dayOfWeek, 0, 6).has(date.getDay());
-  return parseCronField(dayOfMonth, 1, 31).has(date.getDate()) && parseCronField(dayOfWeek, 0, 6).has(date.getDay());
-}
-
-function parseCronField(field: string, min: number, max: number): Set<number> {
-  const values = new Set<number>();
-  for (const part of field.split(",")) {
-    if (part === "*") addRange(values, min, max, 1);
-    else if (part.includes("/")) {
-      const [base, rawStep] = part.split("/");
-      const step = Math.max(1, Number(rawStep) || 1);
-      const start = base === "*" ? min : Number(base);
-      addRange(values, Number.isFinite(start) ? start : min, max, step);
-    } else if (part.includes("-")) {
-      const [start, end] = part.split("-");
-      addRange(values, Number(start), Number(end), 1);
-    } else {
-      const value = Number(part);
-      if (Number.isInteger(value) && value >= min && value <= max) values.add(value);
-    }
-  }
-  return values;
-}
-
-function addRange(values: Set<number>, start: number, end: number, step: number): void {
-  if (!Number.isInteger(start) || !Number.isInteger(end)) return;
-  for (let value = Math.max(start, 0); value <= end; value += step) values.add(value);
 }
 
 function safeSessionPart(value: string): string {

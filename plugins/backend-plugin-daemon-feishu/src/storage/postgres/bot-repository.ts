@@ -5,11 +5,10 @@ import type { Pool, PoolClient, QueryResult, QueryResultRow } from "pg";
 import type {
   BotConfig,
   BotConfigUpdate,
-  BotCronTask,
   BotSummary,
   TenantBotSummary,
 } from "../../contracts/bot.js";
-import type { BotCronTaskClaim, BotWithConfig, DaemonBotRepository } from "../../contracts/bot-repository.js";
+import type { BotWithConfig, DaemonBotRepository } from "../../contracts/bot-repository.js";
 import type { SecretCoordinates, SecretMutation, SecretResolver } from "@ragsystem/backend-core/contracts/integrations/secret-resolver.js";
 import type { Bot } from "@ragsystem/backend-core/contracts/control-plane/user.js";
 import { createTenantId, createUserId, type TenantId, type UserId } from "@ragsystem/backend-core/identity/types.js";
@@ -149,14 +148,13 @@ export class PostgresBotRepository implements DaemonBotRepository {
     const row = result.rows[0];
     if (!row) return null;
     const tenantId = createTenantId(row.tenant_id);
-    const [cronTasks, appSecret, token, encodingKey, routeToken] = await Promise.all([
-      this.listCronTasks(botId),
+    const [appSecret, token, encodingKey, routeToken] = await Promise.all([
       this.resolveSecret(tenantId, botId, "feishu.app_secret"),
       this.resolveSecret(tenantId, botId, "feishu.token"),
       this.resolveSecret(tenantId, botId, "feishu.encoding_aes_key"),
       this.resolveSecret(tenantId, botId, "feishu.route_token"),
     ]);
-    return mapBotConfig(row, cronTasks, { appSecret, token, encodingKey, routeToken });
+    return mapBotConfig(row, { appSecret, token, encodingKey, routeToken });
   }
 
   async updateConfig(botId: UserId, patch: BotConfigUpdate): Promise<BotConfig> {
@@ -209,94 +207,6 @@ export class PostgresBotRepository implements DaemonBotRepository {
     return row ? { tenantId: createTenantId(row.tenant_id), botId: createUserId(row.bot_id) } : null;
   }
 
-  async listCronTasks(botId: UserId): Promise<BotCronTask[]> {
-    const result = await this.pool.query<BotCronTaskRow>(`${BOT_CRON_SELECT} WHERE bot_id=$1 ORDER BY task_id`, [botId]);
-    return result.rows.map(mapCronTask);
-  }
-
-  async claimDueCronTasks(input: {
-    now: number;
-    leaseOwner: string;
-    leaseSeconds?: number;
-    limit?: number;
-  }): Promise<BotCronTaskClaim[]> {
-    const leaseSeconds = Math.max(5, Math.min(Math.trunc(input.leaseSeconds ?? 300), 86_400));
-    const limit = Math.max(1, Math.min(Math.trunc(input.limit ?? 100), 500));
-    return this.transaction(async (client) => {
-      const due = await client.query<{ bot_id: string; task_id: string }>(`
-        SELECT task.bot_id, task.task_id
-        FROM control_bot_cron_tasks task
-        JOIN control_users u ON u.id=task.bot_id
-        WHERE task.enabled=TRUE AND task.next_run IS NOT NULL AND task.next_run <= $1
-          AND (task.lease_expires_at IS NULL OR task.lease_expires_at <= $1)
-          AND u.type='bot' AND u.status='active'
-        ORDER BY task.bot_id, task.task_id
-        FOR UPDATE OF task SKIP LOCKED
-        LIMIT $2
-      `, [input.now, limit]);
-      const claimed: BotCronTaskClaim[] = [];
-      for (const row of due.rows) {
-        const claimToken = randomUUID();
-        const attemptId = randomUUID();
-        const leaseExpiresAt = input.now + leaseSeconds;
-        const updated = await client.query(`
-          UPDATE control_bot_cron_tasks
-          SET lease_owner=$1, lease_token=$2, lease_expires_at=$3,
-              last_attempt_id=$4, attempt_count=attempt_count+1
-          WHERE bot_id=$5 AND task_id=$6
-        `, [input.leaseOwner, claimToken, leaseExpiresAt, attemptId, row.bot_id, row.task_id]);
-        if ((updated.rowCount ?? 0) === 0) continue;
-        claimed.push({ botId: createUserId(row.bot_id), taskId: row.task_id, claimToken, attemptId, leaseOwner: input.leaseOwner, leaseExpiresAt });
-      }
-      return claimed;
-    });
-  }
-
-  async completeCronTaskClaim(input: { botId: UserId; taskId: string; claimToken: string }): Promise<boolean> {
-    return changed(await this.pool.query(`
-      UPDATE control_bot_cron_tasks
-      SET lease_owner=NULL, lease_token=NULL, lease_expires_at=NULL
-      WHERE bot_id=$1 AND task_id=$2 AND lease_token=$3
-    `, [input.botId, input.taskId, input.claimToken]));
-  }
-
-  async releaseCronTaskClaim(input: { botId: UserId; taskId: string; claimToken: string }): Promise<boolean> {
-    return this.completeCronTaskClaim(input);
-  }
-
-  async getCronTask(botId: UserId, taskId: string): Promise<BotCronTask | null> {
-    const result = await this.pool.query<BotCronTaskRow>(`${BOT_CRON_SELECT} WHERE bot_id=$1 AND task_id=$2`, [botId, taskId]);
-    return result.rows[0] ? mapCronTask(result.rows[0]) : null;
-  }
-
-  async createCronTask(botId: UserId, input: Parameters<DaemonBotRepository["createCronTask"]>[1]): Promise<BotCronTask> {
-    const result = await this.pool.query<BotCronTaskRow>(`
-      INSERT INTO control_bot_cron_tasks(
-        bot_id, task_id, cron, task, entry_agent, enabled, push_platform, push_chat_id, next_run
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-      RETURNING ${BOT_CRON_COLUMNS}
-    `, [botId, input.task_id, input.cron, input.task, input.entry_agent ?? null, input.enabled ?? true,
-      input.push_platform ?? null, input.push_chat_id ?? null, input.next_run ?? null]);
-    return mapCronTask(requiredRow(result));
-  }
-
-  async updateCronTask(botId: UserId, taskId: string, patch: Parameters<DaemonBotRepository["updateCronTask"]>[2], options?: Parameters<DaemonBotRepository["updateCronTask"]>[3]): Promise<BotCronTask | null> {
-    const current = await this.getCronTask(botId, taskId);
-    if (!current) return null;
-    const next = { ...current, ...defined(patch) };
-    const result = await this.pool.query<BotCronTaskRow>(`
-      UPDATE control_bot_cron_tasks SET cron=$1, task=$2, entry_agent=$3, enabled=$4,
-        push_platform=$5, push_chat_id=$6, next_run=$7, last_run=$8, last_result=$9
-      WHERE bot_id=$10 AND task_id=$11 AND ($12::text IS NULL OR lease_token=$12) RETURNING ${BOT_CRON_COLUMNS}
-    `, [next.cron, next.task, next.entry_agent, next.enabled, next.push_platform, next.push_chat_id,
-      next.next_run, next.last_run, next.last_result, botId, taskId, options?.claimToken ?? null]);
-    return result.rows[0] ? mapCronTask(result.rows[0]) : null;
-  }
-
-  async deleteCronTask(botId: UserId, taskId: string): Promise<boolean> {
-    return changed(await this.pool.query("DELETE FROM control_bot_cron_tasks WHERE bot_id=$1 AND task_id=$2", [botId, taskId]));
-  }
-
   private resolveSecret(tenantId: TenantId, botId: UserId, field: BotSecretField): Promise<string | null> {
     return this.secrets.resolve(secretCoordinates(tenantId, botId, field));
   }
@@ -325,15 +235,11 @@ const BOT_SUMMARY_SELECT = `SELECT b.id, b.display_name, b.created_at, b.status,
 const BOT_CONFIG_SELECT = `SELECT bot_id, tenant_id, enabled, team, entry_agent, session_id,
   default_session_ttl, permission_mode, feishu_app_id, feishu_receive_mode,
   feishu_default_chat_id, feishu_enabled, created_at, updated_at FROM control_bot_configs`;
-const BOT_CRON_COLUMNS = `bot_id, task_id, cron, task, entry_agent, enabled, push_platform,
-  push_chat_id, next_run, last_run, last_result`;
-const BOT_CRON_SELECT = `SELECT ${BOT_CRON_COLUMNS} FROM control_bot_cron_tasks`;
 
 interface BotRow extends QueryResultRow { id: string; display_name: string; created_at: Date | string; status: string; type: string; owner_id: string | null }
 interface TenantBotSummaryRow extends QueryResultRow { id: string; display_name: string; created_at: Date | string; status: string; owner_name: string; enabled: boolean; feishu_enabled: boolean; feishu_receive_mode: string; entry_agent: string | null }
 interface BotSummaryRow extends TenantBotSummaryRow { tenant_id: string; tenant_name: string }
 interface BotConfigRow extends QueryResultRow { bot_id: string; tenant_id: string; enabled: boolean; team: string | null; entry_agent: string | null; session_id: string | null; default_session_ttl: number; permission_mode: BotConfig["permission_mode"]; feishu_app_id: string | null; feishu_receive_mode: "webhook" | "long_connection"; feishu_default_chat_id: string | null; feishu_enabled: boolean; created_at: Date | string; updated_at: Date | string }
-interface BotCronTaskRow extends QueryResultRow { bot_id: string; task_id: string; cron: string; task: string; entry_agent: string | null; enabled: boolean; push_platform: "feishu" | null; push_chat_id: string | null; next_run: number | null; last_run: number | null; last_result: string | null }
 
 function mapBot(row: BotRow): Bot {
   if (row.type !== "bot" || !row.owner_id) throw new Error(`无效 bot 用户记录: ${row.id}`);
@@ -351,7 +257,6 @@ function mapTenantBotSummary(row: TenantBotSummaryRow): TenantBotSummary {
 
 function mapBotConfig(
   row: BotConfigRow,
-  cronTasks: BotCronTask[],
   secrets: { appSecret: string | null; token: string | null; encodingKey: string | null; routeToken: string | null },
 ): BotConfig {
   return { bot_id: createUserId(row.bot_id), tenant_id: createTenantId(row.tenant_id), enabled: row.enabled,
@@ -359,15 +264,8 @@ function mapBotConfig(
     permission_mode: row.permission_mode, feishu: { enabled: row.feishu_enabled, app_id: row.feishu_app_id,
       app_secret: secrets.appSecret, token: secrets.token, encoding_aes_key: secrets.encodingKey,
       receive_mode: row.feishu_receive_mode, route_token: secrets.routeToken,
-      default_chat_id: row.feishu_default_chat_id }, cron_tasks: cronTasks,
+      default_chat_id: row.feishu_default_chat_id },
     created_at: timestamp(row.created_at), updated_at: timestamp(row.updated_at) };
-}
-
-function mapCronTask(row: BotCronTaskRow): BotCronTask {
-  return { bot_id: createUserId(row.bot_id), task_id: row.task_id, cron: row.cron, task: row.task,
-    entry_agent: row.entry_agent, enabled: row.enabled, push_platform: row.push_platform,
-    push_chat_id: row.push_chat_id, next_run: numberOrNull(row.next_run), last_run: numberOrNull(row.last_run),
-    last_result: row.last_result };
 }
 
 function mergeConfig(current: BotConfig, patch: BotConfigUpdate): BotConfig {
@@ -417,11 +315,4 @@ function secretCoordinates(tenantId: TenantId, botId: UserId, field: BotSecretFi
 
 function digest(value: string): string { return createHash("sha256").update(value).digest("hex"); }
 function timestamp(value: Date | string): string { return value instanceof Date ? value.toISOString() : new Date(value).toISOString(); }
-function numberOrNull(value: number | string | null): number | null { return value === null ? null : Number(value); }
 function changed(result: QueryResult): boolean { return (result.rowCount ?? 0) > 0; }
-function requiredRow<Row extends QueryResultRow>(result: QueryResult<Row>): Row {
-  const row = result.rows[0]; if (!row) throw new Error("PostgreSQL bot write did not return a row"); return row;
-}
-function defined<T extends object>(value: T): Partial<T> {
-  return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined)) as Partial<T>;
-}

@@ -197,43 +197,6 @@
 
         <Card>
           <CardHeader>
-            <div class="card-heading-row">
-              <div>
-                <CardTitle>定时任务</CardTitle>
-                <CardDescription>任务保存后按计划自动执行，也可手动触发。</CardDescription>
-              </div>
-              <Button size="sm" @click="openCronDialog()">
-                <IconPlus data-icon="inline-start" />
-                新建任务
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <EmptyState v-if="cronTasks.length === 0" title="暂无定时任务" />
-            <div v-else class="cron-list">
-              <div v-for="task in cronTasks" :key="task.task_id" class="cron-item">
-                <div class="cron-copy">
-                  <div class="cron-title-row">
-                    <strong>{{ task.task_id }}</strong>
-                    <Badge variant="outline">{{ task.cron }}</Badge>
-                    <Badge :variant="task.enabled ? 'default' : 'secondary'">{{ task.enabled ? '启用' : '停用' }}</Badge>
-                  </div>
-                  <p>{{ task.task }}</p>
-                  <small>下次运行：{{ formatRunTime(task.next_run) || '未计划' }} · 最近结果：{{ task.last_result || '暂无' }}</small>
-                </div>
-                <div class="cron-actions">
-                  <Button variant="action-neutral" size="icon-sm" title="编辑" aria-label="编辑" @click="openCronDialog(task)"><IconEdit /></Button>
-                  <Button variant="action-success" size="icon-sm" title="立即触发" aria-label="立即触发" @click="triggerAction.run(task.task_id)"><IconPlay /></Button>
-                  <Button variant="action-neutral" size="icon-sm" title="历史" aria-label="历史" @click="historyAction.run(task.task_id)"><History :size="16" /></Button>
-                  <Button variant="action-danger" size="icon-sm" title="删除" aria-label="删除" @click="removeCronAction.run(task.task_id)"><IconTrash /></Button>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
             <CardTitle>调试与发送</CardTitle>
             <CardDescription>测试 Agent 执行，或通过当前飞书机器人主动发送文本消息。</CardDescription>
           </CardHeader>
@@ -308,42 +271,11 @@
       </DialogContent>
     </Dialog>
 
-    <Dialog v-model:open="cronDialogOpen">
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>{{ editingCronId ? '编辑定时任务' : '新建定时任务' }}</DialogTitle>
-          <DialogDescription>使用标准五段 Cron 表达式；任务保存后按计划自动执行，也可手动触发。</DialogDescription>
-        </DialogHeader>
-        <div class="dialog-form form-grid">
-          <div class="form-item"><label>任务 ID</label><Input v-model="cronForm.task_id" :disabled="Boolean(editingCronId)" /></div>
-          <div class="form-item"><label>Cron</label><Input v-model="cronForm.cron" class="input-mono" /></div>
-          <div class="form-item full"><label>任务内容</label><Textarea v-model="cronForm.task" rows="4" /></div>
-          <div class="form-item"><label>入口 Agent</label><CustomSelect v-model="cronForm.entry_agent" :options="agentOptions" placeholder="使用机器人默认 Agent" /></div>
-          <div class="form-item"><label>推送 Chat ID（可选）</label><Input v-model="cronForm.push_chat_id" /></div>
-          <div class="form-item full"><label>启用任务</label><Switch v-model:checked="cronForm.enabled" /></div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" @click="cronDialogOpen = false">取消</Button>
-          <Button :disabled="cronSaveAction.loading.value" @click="cronSaveAction.run()">保存任务</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-
-    <Dialog v-model:open="historyDialogOpen">
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>任务运行历史</DialogTitle>
-          <DialogDescription>{{ historyTaskId }}</DialogDescription>
-        </DialogHeader>
-        <pre class="history-output">{{ historyText }}</pre>
-      </DialogContent>
-    </Dialog>
-
     <AlertDialog v-model:open="deleteDialogOpen">
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>删除机器人</AlertDialogTitle>
-          <AlertDialogDescription>将同时删除该机器人的飞书配置与全部 Cron 任务，此操作不可撤销。</AlertDialogDescription>
+          <AlertDialogDescription>将同时删除该机器人的飞书配置，此操作不可撤销。</AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel :disabled="deleteAction.loading.value">取消</AlertDialogCancel>
@@ -356,12 +288,11 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue';
-import { Eye, EyeOff, History } from 'lucide-vue-next';
+import { Eye, EyeOff } from 'lucide-vue-next';
 import PageLayout from '../components/PageLayout.vue';
 import EmptyState from '../components/EmptyState.vue';
 import CustomSelect from '../components/ui/CustomSelect.vue';
 import IconCopy from '../components/icons/IconCopy.vue';
-import IconEdit from '../components/icons/IconEdit.vue';
 import IconPlay from '../components/icons/IconPlay.vue';
 import IconPlus from '../components/icons/IconPlus.vue';
 import IconRefresh from '../components/icons/IconRefresh.vue';
@@ -391,19 +322,12 @@ const agentNames = ref([]);
 const teamOptions = ref([]);
 const teamLoading = ref(false);
 const agentLoading = ref(false);
-const cronTasks = ref([]);
 const createDialogOpen = ref(false);
-const cronDialogOpen = ref(false);
-const historyDialogOpen = ref(false);
 const deleteDialogOpen = ref(false);
 const newBotName = ref('');
-const editingCronId = ref('');
-const historyTaskId = ref('');
-const historyText = ref('暂无运行记录');
 const testResult = ref('');
 
 const form = reactive(emptyForm());
-const cronForm = reactive(emptyCronForm());
 const testForm = reactive({ chat_id: '', content: '你好，请介绍一下自己。' });
 const sendForm = reactive({ chat_id: '', content: 'RAGSystem 飞书消息测试' });
 const showSecrets = reactive({ app_secret: false, token: false, encoding_aes_key: false });
@@ -469,9 +393,6 @@ const loadAgentsForTeam = async (teamName = form.team) => {
     if (form.entry_agent && !agentNames.value.includes(form.entry_agent)) {
       form.entry_agent = '';
     }
-    if (cronForm.entry_agent && !agentNames.value.includes(cronForm.entry_agent)) {
-      cronForm.entry_agent = '';
-    }
   } catch (error) {
     console.warn('加载机器人 Agent 列表失败:', error);
     agentNames.value = [];
@@ -519,33 +440,6 @@ const deleteAction = useAsyncAction(async () => {
   await loadAction.run();
 }, { successMessage: '机器人已删除', errorPrefix: '删除机器人失败' });
 
-const cronSaveAction = useAsyncAction(async () => {
-  const botId = requireBotId();
-  const payload = buildCronPayload();
-  if (editingCronId.value) await botApi.updateBotCronTask(botId, editingCronId.value, payload);
-  else await botApi.createBotCronTask(botId, { task_id: cronForm.task_id.trim(), ...payload });
-  cronDialogOpen.value = false;
-  await loadCronTasks();
-}, { successMessage: '定时任务已保存', errorPrefix: '保存定时任务失败' });
-
-const removeCronAction = useAsyncAction(async taskId => {
-  await botApi.deleteBotCronTask(requireBotId(), taskId);
-  await loadCronTasks();
-}, { successMessage: '定时任务已删除', errorPrefix: '删除定时任务失败' });
-
-const triggerAction = useAsyncAction(async taskId => {
-  const result = await botApi.triggerBotCronTask(requireBotId(), taskId);
-  await loadCronTasks();
-  return result;
-}, { successMessage: '定时任务执行完成', errorPrefix: '触发定时任务失败' });
-
-const historyAction = useAsyncAction(async taskId => {
-  const result = await botApi.getBotCronHistory(requireBotId(), taskId);
-  historyTaskId.value = taskId;
-  historyText.value = result.history?.length ? JSON.stringify(result.history, null, 2) : '暂无运行记录';
-  historyDialogOpen.value = true;
-}, { errorPrefix: '加载运行历史失败' });
-
 const testAction = useAsyncAction(async () => {
   const result = await botApi.testBot(requireBotId(), { content: testForm.content, platform: 'feishu', chat_id: testForm.chat_id || 'test_user' });
   testResult.value = result.result || JSON.stringify(result, null, 2);
@@ -563,10 +457,6 @@ function emptyForm() {
     displayName: '', enabled: false, team: '', entry_agent: '', session_id: '', default_session_ttl: 86400, permission_mode: 'relaxed',
     feishu: { enabled: false, app_id: '', app_secret: '', token: '', encoding_aes_key: '', receive_mode: 'webhook' },
   };
-}
-
-function emptyCronForm() {
-  return { task_id: '', cron: '0 9 * * 1-5', task: '', entry_agent: '', enabled: true, push_chat_id: '' };
 }
 
 function applySelectedBot() {
@@ -589,7 +479,6 @@ function applySelectedBot() {
       receive_mode: config?.feishu?.receive_mode || 'webhook',
     },
   });
-  cronTasks.value = config?.cron_tasks || [];
   testResult.value = '';
   savedSnapshot.value = snapshotForm();
 }
@@ -605,7 +494,7 @@ async function selectBot(botId) {
   }
   selectedBotId.value = botId;
   applySelectedBot();
-  await Promise.all([loadCronTasks(), loadAgentsForTeam(form.team)]);
+  await loadAgentsForTeam(form.team);
 }
 
 async function refreshSelectedBot(botId) {
@@ -617,12 +506,6 @@ async function refreshSelectedBot(botId) {
   selectedBotId.value = botId;
   applySelectedBot();
   await loadAgentsForTeam(form.team);
-}
-
-async function loadCronTasks() {
-  if (!selectedBotId.value) return;
-  cronTasks.value = await botApi.listBotCronTasks(selectedBotId.value);
-  if (selectedBot.value) selectedBot.value.config.cron_tasks = cronTasks.value;
 }
 
 function buildConfigPayload() {
@@ -645,30 +528,6 @@ function buildConfigPayload() {
   };
 }
 
-function buildCronPayload() {
-  return {
-    cron: cronForm.cron.trim(),
-    task: cronForm.task.trim(),
-    entry_agent: cronForm.entry_agent || null,
-    enabled: Boolean(cronForm.enabled),
-    push_platform: cronForm.push_chat_id ? 'feishu' : null,
-    push_chat_id: cronForm.push_chat_id || null,
-  };
-}
-
-function openCronDialog(task = null) {
-  editingCronId.value = task?.task_id || '';
-  Object.assign(cronForm, emptyCronForm(), task ? {
-    task_id: task.task_id,
-    cron: task.cron,
-    task: task.task,
-    entry_agent: task.entry_agent || '',
-    enabled: Boolean(task.enabled),
-    push_chat_id: task.push_chat_id || '',
-  } : {});
-  cronDialogOpen.value = true;
-}
-
 function requireBotId() {
   if (!selectedBotId.value) throw new Error('请先选择机器人');
   return selectedBotId.value;
@@ -682,11 +541,6 @@ function connectionLabel(config) {
 
 function connectionTone(config) {
   return config?.enabled && config?.feishu?.enabled ? 'success' : 'muted';
-}
-
-function formatRunTime(unixSeconds) {
-  if (!unixSeconds) return '';
-  return new Date(unixSeconds * 1000).toLocaleString();
 }
 
 async function copyWebhook() {
@@ -703,7 +557,7 @@ onMounted(() => loadAction.run());
 
 <style scoped>
 .bot-list-content, .bot-detail, .dialog-form { display: flex; flex-direction: column; gap: var(--spacing-md); }
-.bot-list, .cron-list { display: flex; flex-direction: column; gap: 1px; }
+.bot-list { display: flex; flex-direction: column; gap: 1px; }
 /* 列表项 —— 圆角行：hover/选中浮淡层，与全站导航选中态一致 */
 .bot-list-item { width: 100%; display: flex; align-items: center; gap: var(--spacing-sm); padding: var(--spacing-sm) var(--spacing-md); border: none; border-radius: var(--radius-md); background: transparent; color: var(--color-text-primary); text-align: left; cursor: pointer; transition: background var(--transition-fast); }
 .bot-list-item:hover { background: var(--color-hover-overlay-md); }
@@ -712,7 +566,7 @@ onMounted(() => loadAction.run());
 .bot-list-copy { min-width: 0; display: flex; flex: 1; flex-direction: column; gap: 2px; }
 .bot-list-copy strong, .bot-list-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bot-list-copy small { color: var(--color-text-muted); }
-.card-heading-row, .header-actions, .switch-field, .cron-title-row, .cron-actions, .webhook-box { display: flex; align-items: center; gap: var(--spacing-sm); }
+.card-heading-row, .header-actions, .switch-field, .webhook-box { display: flex; align-items: center; gap: var(--spacing-sm); }
 .card-heading-row { justify-content: space-between; align-items: flex-start; }
 .form-item { display: flex; flex-direction: column; gap: var(--spacing-xs); min-width: 0; }
 .form-item.full { grid-column: 1 / -1; }
@@ -725,12 +579,6 @@ onMounted(() => loadAction.run());
 .password-toggle:hover { color: var(--color-text-primary); background: var(--color-hover-overlay-md); }
 .webhook-box { justify-content: space-between; padding: var(--spacing-sm); border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-hover-overlay-md); }
 .webhook-box code { min-width: 0; overflow-wrap: anywhere; color: var(--color-brand-accent); font-size: var(--font-size-xs); }
-.cron-item { display: flex; align-items: center; justify-content: space-between; gap: var(--spacing-md); padding: var(--spacing-sm) var(--spacing-md); border: none; border-bottom: 1px solid var(--color-border); border-radius: 0; background: transparent; transition: background var(--transition-fast); }
-.cron-item:last-child { border-bottom: none; }
-.cron-item:hover { background: var(--color-hover-overlay-md); }
-.cron-copy { min-width: 0; }
-.cron-copy p { margin: var(--spacing-xs) 0; color: var(--color-text-secondary); }
-.cron-copy small { color: var(--color-text-muted); }
 .debug-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--spacing-lg); }
 .debug-panel { display: flex; flex-direction: column; gap: var(--spacing-sm); min-width: 0; }
 .debug-panel__head { display: flex; flex-direction: column; gap: 2px; padding-bottom: var(--spacing-sm); border-bottom: 1px solid var(--color-border); }
@@ -739,12 +587,12 @@ onMounted(() => loadAction.run());
 .debug-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .debug-field label { font-size: var(--font-size-xs); color: var(--color-text-secondary); font-weight: 500; }
 .debug-panel__foot { display: flex; justify-content: flex-end; padding-top: 2px; }
-.debug-output, .history-output { max-height: 320px; overflow: auto; white-space: pre-wrap; padding: var(--spacing-sm) var(--spacing-md); border: none; border-left: 2px solid var(--color-border); border-radius: 0; background: transparent; color: var(--color-text-secondary); font-family: var(--font-mono); font-size: var(--font-size-xs); }
+.debug-output { max-height: 320px; overflow: auto; white-space: pre-wrap; padding: var(--spacing-sm) var(--spacing-md); border: none; border-left: 2px solid var(--color-border); border-radius: 0; background: transparent; color: var(--color-text-secondary); font-family: var(--font-mono); font-size: var(--font-size-xs); }
 .bot-placeholder { min-height: 180px; }
 @media (max-width: 720px) {
   .debug-grid { grid-template-columns: 1fr; }
   .form-item.full { grid-column: auto; }
-  .card-heading-row, .cron-item { flex-direction: column; align-items: stretch; }
-  .header-actions, .cron-actions { flex-wrap: wrap; }
+  .card-heading-row { flex-direction: column; align-items: stretch; }
+  .header-actions { flex-wrap: wrap; }
 }
 </style>

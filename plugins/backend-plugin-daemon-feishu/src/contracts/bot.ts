@@ -20,23 +20,6 @@ export const BotFeishuConfigSchema = z.object({
   default_chat_id: z.string().nullable().optional().default(null),
 });
 
-export const BotCronTaskSchema = z.object({
-  bot_id: UserIdSchema,
-  task_id: z.string().min(1),
-  cron: z.string().min(1),
-  task: z.string().min(1),
-  entry_agent: z.string().nullable().optional().default(null),
-  enabled: z.boolean().optional().default(true),
-  push_platform: PlatformTypeSchema.nullable().optional().default(null),
-  push_chat_id: z.string().nullable().optional().default(null),
-  next_run: z.number().nullable().optional().default(null),
-  last_run: z.number().nullable().optional().default(null),
-  last_result: z.string().nullable().optional().default(null),
-});
-
-export const BotCronTaskCreateSchema = BotCronTaskSchema.omit({ bot_id: true, next_run: true, last_run: true, last_result: true });
-export const BotCronTaskUpdateSchema = BotCronTaskCreateSchema.partial();
-
 export const BotConfigSchema = z.object({
   bot_id: UserIdSchema,
   tenant_id: TenantIdSchema,
@@ -48,7 +31,6 @@ export const BotConfigSchema = z.object({
   default_session_ttl: z.number().int().positive().optional().default(86400),
   permission_mode: PermissionModeSchema.optional().default("relaxed"),
   feishu: BotFeishuConfigSchema.optional().default({}),
-  cron_tasks: z.array(BotCronTaskSchema).optional().default([]),
   created_at: z.string(),
   updated_at: z.string(),
 });
@@ -84,9 +66,6 @@ export const TenantBotSummarySchema = BotSummaryBaseSchema;
 
 export type PlatformType = z.infer<typeof PlatformTypeSchema>;
 export type BotFeishuConfig = z.infer<typeof BotFeishuConfigSchema>;
-export type BotCronTask = z.infer<typeof BotCronTaskSchema>;
-export type BotCronTaskCreate = z.infer<typeof BotCronTaskCreateSchema>;
-export type BotCronTaskUpdate = z.infer<typeof BotCronTaskUpdateSchema>;
 export type BotConfig = z.infer<typeof BotConfigSchema>;
 export type BotConfigUpdate = z.infer<typeof BotConfigUpdateSchema>;
 export type BotSummary = z.infer<typeof BotSummarySchema>;

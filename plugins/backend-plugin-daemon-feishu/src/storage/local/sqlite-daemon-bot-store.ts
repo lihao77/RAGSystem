@@ -9,8 +9,6 @@ import { HttpError } from "@ragsystem/backend-core/utils/errors.js";
 import type {
   BotConfig,
   BotConfigUpdate,
-  BotCronTask,
-  BotCronTaskCreate,
   BotSummary,
   TenantBotSummary,
 } from "../../contracts/bot.js";
@@ -24,8 +22,6 @@ const BOT_SUMMARY_SELECT = `SELECT b.id, b.display_name, b.created_at, b.status,
 const BOT_CONFIG_SELECT = `SELECT bot_id, tenant_id, enabled, team, entry_agent, session_id, default_session_ttl, permission_mode,
   feishu_app_id, feishu_app_secret, feishu_token, feishu_encoding_aes_key, feishu_receive_mode,
   feishu_route_token, feishu_default_chat_id, feishu_enabled, created_at, updated_at FROM bot_configs`;
-const BOT_CRON_SELECT = `SELECT bot_id, task_id, cron, task, entry_agent, enabled, push_platform,
-  push_chat_id, next_run, last_run, last_result FROM bot_cron_tasks`;
 
 /** Plugin-owned synchronous Bot store over the host-provided SQLite control database. */
 export class SqliteDaemonBotStore {
@@ -127,7 +123,7 @@ export class SqliteDaemonBotStore {
 
   getBotRuntimeConfig(botId: UserId): BotConfig | null {
     const row = this.db.prepare(`${BOT_CONFIG_SELECT} WHERE bot_id=?`).get(botId) as BotConfigRow | undefined;
-    return row ? mapBotConfig(row, this.listBotCronTasks(botId)) : null;
+    return row ? mapBotConfig(row) : null;
   }
 
   updateBotConfig(botId: UserId, patch: BotConfigUpdate): BotConfig {
@@ -157,52 +153,7 @@ export class SqliteDaemonBotStore {
   getAllEnabledFeishuBots(): BotConfig[] {
     const rows = this.db.prepare(`${BOT_CONFIG_SELECT} WHERE enabled=1 AND feishu_enabled=1 AND bot_id IN (SELECT id FROM users WHERE type='bot' AND status='active') ORDER BY bot_id`)
       .all() as unknown as BotConfigRow[];
-    return rows.map((row) => mapBotConfig(row, this.listBotCronTasks(row.bot_id)));
-  }
-
-  listBotCronTasks(botId: UserId): BotCronTask[] {
-    const rows = this.db.prepare(`${BOT_CRON_SELECT} WHERE bot_id=? ORDER BY task_id`).all(botId) as unknown as BotCronTaskRow[];
-    return rows.map(mapBotCronTask);
-  }
-
-  findDueCronTasks(now: number): Array<{ botId: UserId; taskId: string }> {
-    const rows = this.db.prepare(`
-      SELECT bot_cron_tasks.bot_id AS bot_id, bot_cron_tasks.task_id AS task_id
-      FROM bot_cron_tasks
-      JOIN users ON users.id=bot_cron_tasks.bot_id
-      WHERE bot_cron_tasks.enabled=1 AND bot_cron_tasks.next_run IS NOT NULL
-        AND bot_cron_tasks.next_run <= ? AND users.type='bot' AND users.status='active'
-      ORDER BY bot_cron_tasks.bot_id, bot_cron_tasks.task_id
-    `).all(now) as Array<{ bot_id: UserId; task_id: string }>;
-    return rows.map((row) => ({ botId: row.bot_id, taskId: row.task_id }));
-  }
-
-  getBotCronTask(botId: UserId, taskId: string): BotCronTask | null {
-    const row = this.db.prepare(`${BOT_CRON_SELECT} WHERE bot_id=? AND task_id=?`).get(botId, taskId) as BotCronTaskRow | undefined;
-    return row ? mapBotCronTask(row) : null;
-  }
-
-  createBotCronTask(botId: UserId, input: BotCronTaskCreate & { next_run?: number | null }): BotCronTask {
-    this.db.prepare(`
-      INSERT INTO bot_cron_tasks(bot_id, task_id, cron, task, entry_agent, enabled, push_platform, push_chat_id, next_run, last_run, last_result)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)
-    `).run(botId, input.task_id, input.cron, input.task, input.entry_agent, boolToInt(input.enabled), input.push_platform, input.push_chat_id, input.next_run ?? null);
-    return this.getBotCronTask(botId, input.task_id)!;
-  }
-
-  updateBotCronTask(botId: UserId, taskId: string, patch: Partial<Omit<BotCronTask, "bot_id" | "task_id">>): BotCronTask | null {
-    const current = this.getBotCronTask(botId, taskId);
-    if (!current) return null;
-    const next = { ...current, ...definedFields(patch) };
-    this.db.prepare(`
-      UPDATE bot_cron_tasks SET cron=?, task=?, entry_agent=?, enabled=?, push_platform=?, push_chat_id=?, next_run=?, last_run=?, last_result=?
-      WHERE bot_id=? AND task_id=?
-    `).run(next.cron, next.task, next.entry_agent, boolToInt(next.enabled), next.push_platform, next.push_chat_id, next.next_run, next.last_run, next.last_result, botId, taskId);
-    return this.getBotCronTask(botId, taskId);
-  }
-
-  deleteBotCronTask(botId: UserId, taskId: string): boolean {
-    return Number(this.db.prepare("DELETE FROM bot_cron_tasks WHERE bot_id=? AND task_id=?").run(botId, taskId).changes) > 0;
+    return rows.map((row) => mapBotConfig(row));
   }
 
   private transaction<T>(operation: () => T): T {
@@ -268,20 +219,6 @@ interface BotConfigRow {
   updated_at: string;
 }
 
-interface BotCronTaskRow {
-  bot_id: UserId;
-  task_id: string;
-  cron: string;
-  task: string;
-  entry_agent: string | null;
-  enabled: number;
-  push_platform: "feishu" | null;
-  push_chat_id: string | null;
-  next_run: number | null;
-  last_run: number | null;
-  last_result: string | null;
-}
-
 function mapBot(row: UserRow): Bot {
   if (row.type !== "bot" || !row.owner_id) throw new Error(`无效 bot 用户记录: ${row.id}`);
   if (row.status !== "active" && row.status !== "disabled") throw new Error(`未知用户状态: ${row.status}`);
@@ -318,7 +255,7 @@ function mapBotSummary(row: BotSummaryRow): BotSummary {
   return { ...mapTenantBotSummary(row), tenantId: row.tenant_id, tenantName: row.tenant_name };
 }
 
-function mapBotConfig(row: BotConfigRow, cronTasks: BotCronTask[]): BotConfig {
+function mapBotConfig(row: BotConfigRow): BotConfig {
   return {
     bot_id: row.bot_id,
     tenant_id: row.tenant_id,
@@ -338,25 +275,8 @@ function mapBotConfig(row: BotConfigRow, cronTasks: BotCronTask[]): BotConfig {
       route_token: row.feishu_route_token,
       default_chat_id: row.feishu_default_chat_id,
     },
-    cron_tasks: cronTasks,
     created_at: row.created_at,
     updated_at: row.updated_at,
-  };
-}
-
-function mapBotCronTask(row: BotCronTaskRow): BotCronTask {
-  return {
-    bot_id: row.bot_id,
-    task_id: row.task_id,
-    cron: row.cron,
-    task: row.task,
-    entry_agent: row.entry_agent,
-    enabled: row.enabled !== 0,
-    push_platform: row.push_platform,
-    push_chat_id: row.push_chat_id,
-    next_run: row.next_run,
-    last_run: row.last_run,
-    last_result: row.last_result,
   };
 }
 
@@ -397,10 +317,6 @@ function mergeFeishuPatch(current: BotConfig["feishu"], patch: BotConfigUpdate["
     route_token: patch.route_token !== undefined ? patch.route_token : current.route_token,
     default_chat_id: patch.default_chat_id !== undefined ? patch.default_chat_id : current.default_chat_id,
   };
-}
-
-function definedFields<T extends object>(value: T): Partial<T> {
-  return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined)) as Partial<T>;
 }
 
 function boolToInt(value: boolean): number {

@@ -62,7 +62,7 @@ async function runAgentTask(
         visibility: "private",
         originType: "bot",
         originId: input.botId,
-        originChannel: input.source.includes("cron") ? "cron" : input.source.includes("feishu") ? "feishu" : "api",
+        originChannel: input.source.includes("feishu") ? "feishu" : "api",
         workspaceId: null,
         teamSnapshot,
         ...(Object.keys(createMetadata).length > 0 ? { metadata: createMetadata } : {}),

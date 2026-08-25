@@ -1,14 +1,9 @@
-import { randomUUID } from "node:crypto";
-import type {
-  BotCronTaskClaim,
-  DaemonBotRepository,
-} from "../../contracts/bot-repository.js";
+import type { DaemonBotRepository } from "../../contracts/bot-repository.js";
 import type { DatabaseSync } from "node:sqlite";
 import { SqliteDaemonBotStore } from "./sqlite-daemon-bot-store.js";
 
 /** Async Bot boundary backed by the Local control SQLite database. */
 export class SqliteBotRepository implements DaemonBotRepository {
-  private readonly cronClaims = new Map<string, BotCronTaskClaim>();
   readonly store: SqliteDaemonBotStore;
 
   constructor(database: DatabaseSync) {
@@ -39,32 +34,4 @@ export class SqliteBotRepository implements DaemonBotRepository {
       candidate.feishu.receive_mode === "webhook" && candidate.feishu.route_token === routeToken);
     return config ? { tenantId: config.tenant_id, botId: config.bot_id } : null;
   }
-  async listCronTasks(botId: Parameters<DaemonBotRepository["listCronTasks"]>[0]) { return this.store.listBotCronTasks(botId); }
-  async claimDueCronTasks(input: Parameters<DaemonBotRepository["claimDueCronTasks"]>[0]): Promise<BotCronTaskClaim[]> {
-    const leaseSeconds = Math.max(5, Math.min(Math.trunc(input.leaseSeconds ?? 300), 86_400));
-    const claims: BotCronTaskClaim[] = [];
-    for (const due of this.store.findDueCronTasks(input.now).slice(0, input.limit ?? 100)) {
-      const key = `${due.botId}:${due.taskId}`;
-      const existing = this.cronClaims.get(key);
-      if (existing && existing.leaseExpiresAt > input.now) continue;
-      const claim = { botId: due.botId, taskId: due.taskId, claimToken: randomUUID(), attemptId: randomUUID(), leaseOwner: input.leaseOwner, leaseExpiresAt: input.now + leaseSeconds };
-      this.cronClaims.set(key, claim);
-      claims.push(claim);
-    }
-    return claims;
-  }
-  async completeCronTaskClaim(input: { botId: Parameters<DaemonBotRepository["get"]>[0]; taskId: string; claimToken: string }): Promise<boolean> {
-    const key = `${input.botId}:${input.taskId}`;
-    const claim = this.cronClaims.get(key);
-    if (!claim || claim.claimToken !== input.claimToken) return false;
-    this.cronClaims.delete(key);
-    return true;
-  }
-  async releaseCronTaskClaim(input: { botId: Parameters<DaemonBotRepository["get"]>[0]; taskId: string; claimToken: string }): Promise<boolean> {
-    return this.completeCronTaskClaim(input);
-  }
-  async getCronTask(botId: Parameters<DaemonBotRepository["getCronTask"]>[0], taskId: string) { return this.store.getBotCronTask(botId, taskId); }
-  async createCronTask(botId: Parameters<DaemonBotRepository["createCronTask"]>[0], input: Parameters<DaemonBotRepository["createCronTask"]>[1]) { return this.store.createBotCronTask(botId, input); }
-  async updateCronTask(botId: Parameters<DaemonBotRepository["updateCronTask"]>[0], taskId: string, patch: Parameters<DaemonBotRepository["updateCronTask"]>[2]) { return this.store.updateBotCronTask(botId, taskId, patch); }
-  async deleteCronTask(botId: Parameters<DaemonBotRepository["deleteCronTask"]>[0], taskId: string) { return this.store.deleteBotCronTask(botId, taskId); }
 }

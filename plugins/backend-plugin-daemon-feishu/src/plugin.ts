@@ -1,12 +1,15 @@
 import type { BackendPlugin } from "@ragsystem/backend-core/plugins/backend-plugin.js";
 import type { ControlPlane } from "@ragsystem/backend-core/contracts/control-plane/index.js";
 import type { UserId } from "@ragsystem/backend-core/identity/types.js";
+import { provideCapability } from "@ragsystem/backend-core/plugins/capability-registry.js";
+import { schedulerDeliveryChannelToken } from "@ragsystem/backend-plugin-scheduler/contracts/delivery.js";
 
 import { createDaemonApplicationRuntime, type DaemonApplicationRuntime } from "./application-runtime.js";
 import type { DaemonLeaderLease } from "./contracts/daemon-leader-lease.js";
 import { registerBotRoutes } from "./routes/bots.js";
 import { registerDaemonPlatformRoutes } from "./routes/platform.js";
 import type { DaemonBotRepository } from "./contracts/bot-repository.js";
+import { createFeishuDeliveryChannel } from "./services/feishu-delivery-channel.js";
 
 export const DAEMON_FEISHU_PLUGIN_ID = "@ragsystem/backend-plugin-daemon-feishu";
 
@@ -59,6 +62,18 @@ export function createDaemonFeishuPlugin(dependencies: DaemonFeishuPluginDepende
           botRepository: resolveDependency(dependencies.botRepository),
         });
       });
+      // scheduler 的 feishu 投递通道：把定时任务结果/挂起通知发到飞书（投递期延迟解析运行时）
+      context.runtimes.register(() => ({
+        capabilities: [
+          provideCapability(schedulerDeliveryChannelToken("feishu"), createFeishuDeliveryChannel({
+            service: () => {
+              if (!application) throw new Error("Daemon/Feishu application runtime is not initialized");
+              return application.service;
+            },
+            botRepository: () => resolveDependency(dependencies.botRepository),
+          }), DAEMON_FEISHU_PLUGIN_ID),
+        ],
+      }));
       context.events.on("resource.changed", async (payload) => {
         if (!application || !isUserStatusChange(payload)) return;
         const botId = payload.resourceId as UserId;

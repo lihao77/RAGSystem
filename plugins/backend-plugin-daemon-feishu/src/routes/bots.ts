@@ -2,7 +2,7 @@ import type { FastifyPluginAsync, FastifyRequest } from "fastify";
 import { z } from "zod";
 import "@ragsystem/backend-core/fastify-context.js";
 
-import { BotConfigUpdateSchema, BotCronTaskCreateSchema, BotCronTaskUpdateSchema } from "../contracts/bot.js";
+import { BotConfigUpdateSchema } from "../contracts/bot.js";
 import type { DaemonBotRepository } from "../contracts/bot-repository.js";
 import { DaemonOutgoingMessageSchema, DaemonTestMessageSchema } from "../contracts/daemon.js";
 import { createUserId, type UserId } from "@ragsystem/backend-core/identity/types.js";
@@ -12,8 +12,6 @@ import type { RuntimeContainerRegistry } from "@ragsystem/backend-core/services/
 import { requireTenantMember } from "@ragsystem/backend-core/routes/tenant-role.js";
 
 interface BotParams { botId: string; }
-interface BotCronParams extends BotParams { taskId: string; }
-interface LimitQuery { limit?: string | number; }
 interface BotListQuery { tenant?: string | number | boolean; }
 
 const BotCreateSchema = z.object({ display_name: z.string().trim().min(1) });
@@ -116,45 +114,6 @@ export const registerBotRoutes: FastifyPluginAsync<BotRouteOptions> = async (app
 
   app.post<{ Params: BotParams }>("/:botId/send", async (request) => {
     return options.daemon.sendMessage(parseBotId(request.params.botId), DaemonOutgoingMessageSchema.parse(request.body));
-  });
-
-  app.get<{ Params: BotParams }>("/:botId/cron/tasks", async (request) => options.daemon.listBotCronTasks(parseBotId(request.params.botId)));
-
-  app.post<{ Params: BotParams }>("/:botId/cron/tasks", async (request) => {
-    try {
-      return await options.daemon.createBotCronTask(parseBotId(request.params.botId), BotCronTaskCreateSchema.parse(request.body));
-    } catch (error) {
-      throw toHttpError(error);
-    }
-  });
-
-  app.put<{ Params: BotCronParams }>("/:botId/cron/tasks/:taskId", async (request) => {
-    const updated = await options.daemon.updateBotCronTask(parseBotId(request.params.botId), request.params.taskId, BotCronTaskUpdateSchema.parse(request.body));
-    if (!updated) throw new HttpError(404, "not_found", `任务不存在: ${request.params.taskId}`);
-    return updated;
-  });
-
-  app.delete<{ Params: BotCronParams }>("/:botId/cron/tasks/:taskId", async (request) => {
-    if (!await options.daemon.deleteBotCronTask(parseBotId(request.params.botId), request.params.taskId)) {
-      throw new HttpError(404, "not_found", `任务不存在: ${request.params.taskId}`);
-    }
-    return { status: "ok" };
-  });
-
-  app.post<{ Params: BotCronParams }>("/:botId/cron/tasks/:taskId/trigger", async (request) => {
-    try {
-      return await options.daemon.triggerBotCronTask(parseBotId(request.params.botId), request.params.taskId);
-    } catch (error) {
-      throw toHttpError(error);
-    }
-  });
-
-  app.get<{ Params: BotCronParams; Querystring: LimitQuery }>("/:botId/cron/tasks/:taskId/history", async (request) => {
-    const limit = Number(request.query.limit ?? 20);
-    return {
-      task_id: request.params.taskId,
-      history: await options.daemon.getBotCronHistory(parseBotId(request.params.botId), request.params.taskId, Number.isFinite(limit) ? limit : 20),
-    };
   });
 };
 
