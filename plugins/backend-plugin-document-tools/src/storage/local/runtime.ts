@@ -20,6 +20,7 @@ export function createLocalDocumentToolsRuntimeFactory(
     return {
       document: new LocalDocumentToolService({
         dataRoot: context.dataRoot,
+        executionEnvironment: context.executionEnvironment,
         fileHistory: findDocumentEditHistoryResource(context.resources),
       }),
     };

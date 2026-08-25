@@ -12,6 +12,7 @@ import {
   DEFAULT_STRUCTURE_PREVIEW_ROWS,
 } from "./preview.js";
 import { LocalDocumentPathManager } from "./path-manager.js";
+import type { ExecutionEnvironmentCapability } from "@ragsystem/backend-core/contracts/execution/execution-environment.js";
 import type { PathAccessPolicy } from "@ragsystem/backend-core/contracts/runtime/path-access-policy.js";
 import {
   buildDiffPreview,
@@ -32,12 +33,16 @@ export class LocalDocumentToolService {
   private readonly pathManager: LocalDocumentPathManager;
   private readonly fileHistory: DocumentEditHistoryPort | null;
 
-  constructor(options: { dataRoot?: string | undefined; fileHistory?: DocumentEditHistoryPort | null | undefined } = {}) {
+  constructor(options: {
+    dataRoot?: string | undefined;
+    executionEnvironment?: ExecutionEnvironmentCapability | null | undefined;
+    fileHistory?: DocumentEditHistoryPort | null | undefined;
+  } = {}) {
     if (!options.dataRoot?.trim()) {
       throw new Error("LocalDocumentToolService 必须传入已解析的 dataRoot");
     }
     const dataRoot = path.resolve(options.dataRoot);
-    this.pathManager = new LocalDocumentPathManager(dataRoot);
+    this.pathManager = new LocalDocumentPathManager(dataRoot, options.executionEnvironment ?? null);
     this.fileHistory = options.fileHistory ?? null;
   }
 

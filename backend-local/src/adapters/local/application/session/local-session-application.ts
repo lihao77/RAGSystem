@@ -5,6 +5,7 @@ import type { AgentSessionApplication } from "@ragsystem/backend-core/services/s
 import type { ConversationStore } from "../../sqlite/conversation-store/index.js";
 import { TenantSessionIdentityApplication } from "@ragsystem/backend-core/services/sessions/session-identity-application.js";
 import { canonicalLocalWorkspaceKey, normalizeLocalWorkspacePath } from "@ragsystem/backend-core/services/workspaces/workspace-application.js";
+import type { ExecutionEnvironmentCapability } from "@ragsystem/backend-core/contracts/execution/execution-environment.js";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type { SessionTeamSnapshotResolver } from "@ragsystem/backend-core/contracts/session/session.js";
@@ -18,6 +19,7 @@ export class LocalSessionApplication implements SessionApplication {
     private readonly sessions: AgentSessionApplication,
     private readonly conversations: ConversationStore,
     private readonly teamSnapshots: SessionTeamSnapshotResolver,
+    private readonly executionEnvironment: ExecutionEnvironmentCapability,
   ) {
     this.sessionIdentities = new TenantSessionIdentityApplication(tenantId, {
       getSession: async (sessionId) => conversations.getSession(sessionId),
@@ -71,8 +73,13 @@ export class LocalSessionApplication implements SessionApplication {
   async getSession(sessionId: string) { return this.sessions.getSession(sessionId); }
   async resolveWorkspaceRoot(sessionId: string): Promise<string | null> {
     const session = await this.getSession(sessionId);
-    if (!session?.workspace_id) return null;
-    return this.conversations.getWorkspaceById(this.tenantId, session.workspace_id)?.root_path ?? null;
+    if (!session) return null;
+    if (session.workspace_id) {
+      return this.conversations.getWorkspaceById(this.tenantId, session.workspace_id)?.root_path ?? null;
+    }
+    // 未绑定工作区的会话：工具写入落在执行环境的确定性会话目录，
+    // 读取侧走同一目录权威，避免“写入成功但下载 404”。
+    return this.executionEnvironment.paths({ sessionId }).workspace;
   }
   async getSessionForExecutionValidation(sessionId: string) { return this.sessions.getSession(sessionId); }
   updateSessionMetadata(sessionId: string, patch: Record<string, unknown>) { return this.sessionIdentities.updateSessionMetadata(sessionId, patch); }

@@ -15,6 +15,7 @@ import type { SystemConfigPort } from "../contracts/runtime/system-config.js";
 import type { CapabilityProvider, CapabilityRegistry } from "./capability-registry.js";
 import type { RuntimeContainerRegistry } from "../services/runtime/runtime-container-registry.js";
 import type { BackendResourceToken, BackendPluginResourceContribution } from "./resource-registry.js";
+import type { ExecutionEnvironmentCapability } from "../contracts/execution/execution-environment.js";
 
 export type { BackendResourceToken, BackendPluginResourceContribution } from "./resource-registry.js";
 
@@ -222,6 +223,12 @@ export interface BackendPluginRuntimeContext {
   readonly deploymentKind: "local" | "saas";
   readonly tenantId: TenantId;
   readonly dataRoot: string;
+  /**
+   * 目录服务接口：托管目录布局（workspace/uploads）的唯一权威。
+   * 与工具执行期注入的 ToolExecContext.executionPaths 同源；插件运行时工厂
+   * 需要目录布局时直接消费它，不再用 dataRoot 自行推导。
+   */
+  readonly executionEnvironment?: ExecutionEnvironmentCapability;
   readonly modelAdapter: ModelProviderCatalogPort;
   readonly systemConfig: SystemConfigPort;
   readonly agentConfig: AgentConfigPort;

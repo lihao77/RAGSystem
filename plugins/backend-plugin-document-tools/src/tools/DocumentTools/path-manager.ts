@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 
 import type { ToolExecContext } from "@ragsystem/agent-sdk";
-import type { ExecutionPaths } from "@ragsystem/backend-core/contracts/execution/execution-environment.js";
+import type { ExecutionEnvironmentCapability, ExecutionPaths } from "@ragsystem/backend-core/contracts/execution/execution-environment.js";
 import { createLocalExecutionPaths } from "@ragsystem/backend-core/contracts/execution/execution-environment.js";
 import type { PathAccessPolicy } from "@ragsystem/backend-core/contracts/runtime/path-access-policy.js";
 import { isAbsolutePathLike, isPathUnder, resolvePathLike } from "@ragsystem/backend-core/tools/shared/paths.js";
@@ -18,7 +18,10 @@ export type ManagedSpace = keyof ExecutionPaths;
  * display aliases.
  */
 export class LocalDocumentPathManager {
-  constructor(private readonly dataRoot: string) {
+  constructor(
+    private readonly dataRoot: string,
+    private readonly executionEnvironment: ExecutionEnvironmentCapability | null = null,
+  ) {
     if (!dataRoot?.trim()) throw new Error("LocalDocumentPathManager 必须传入 dataRoot");
   }
 
@@ -97,6 +100,14 @@ export class LocalDocumentPathManager {
     customParams: { workspace_root?: string | null } | null | undefined,
   ): ExecutionPaths {
     if (context.executionPaths) return context.executionPaths;
+    // 宿主目录服务优先；无宿主（纯单测）时才用 dataRoot 推导同一布局。
+    if (this.executionEnvironment) {
+      return this.executionEnvironment.paths({
+        sessionId: context.sessionId,
+        runId: context.runId,
+        workspaceRoot: normalizeString(context.workspaceRoot) ?? normalizeString(customParams?.workspace_root),
+      });
+    }
     return createLocalExecutionPaths(this.dataRoot, {
       sessionId: context.sessionId,
       runId: context.runId,

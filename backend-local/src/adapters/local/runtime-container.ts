@@ -59,6 +59,8 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
   await agentConfig.initialize();
   const agentMailbox = new LocalAgentMailboxStoreAdapter(conversationStore);
   const fileHistory = new FileHistoryService({ dataRoot });
+  // 目录服务唯一实例：工具执行、插件上下文、工作区文件读取共用同一权威。
+  const executionEnvironment = createLocalExecutionEnvironment(dataRoot);
   const transientResources = new TransientSessionResourceService(dataRoot);
   transientResources.startPruning();
   const sessionApplication = new AgentSessionApplication(
@@ -70,7 +72,7 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
       : null,
     agentConfig,
   );
-  const requestSessionApplication = new LocalSessionApplication(options.tenantId, sessionApplication, conversationStore, agentConfig);
+  const requestSessionApplication = new LocalSessionApplication(options.tenantId, sessionApplication, conversationStore, agentConfig, executionEnvironment);
   const realtimeEvents = new RealtimeEventHub();
   const outboxDispatcher = new OutboxDispatcher(new LocalOutboxStoreAdapter(conversationStore), realtimeEvents);
   const runtimeStorage = options.runtimeStorageFactory?.(options.tenantId)
@@ -129,6 +131,7 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
     deploymentKind: "local",
     tenantId: options.tenantId,
     dataRoot,
+    executionEnvironment,
     modelAdapter,
     systemConfig,
     agentConfig,
@@ -157,7 +160,7 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
   const pluginCapabilities = pluginRuntime?.capabilities ?? new CapabilityRegistry();
   pluginCapabilities.provide(
     EXECUTION_ENVIRONMENT_CAPABILITY,
-    createLocalExecutionEnvironment(dataRoot),
+    executionEnvironment,
     "@ragsystem/backend-local",
   );
   const localAnalytics = new LocalAnalyticsApplication(conversationStore);
@@ -211,6 +214,7 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
         sessionApplication,
         conversationStore,
         agentConfig,
+        executionEnvironment,
       ),
       analytics: localAnalytics,
       monitoring: localMonitoring,

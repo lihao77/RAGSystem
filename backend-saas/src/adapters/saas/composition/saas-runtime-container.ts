@@ -119,10 +119,12 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
   );
   // 插件 createRuntime 先于协调器构造，port 延迟绑定：先传稳定引用，容器建好后回填。
   const pendingInteractionBinding = createPendingInteractionBinding();
+  const executionEnvironment = createSaaSExecutionEnvironment();
   const pluginRuntime = await options.plugins?.createRuntime({
     deploymentKind: "saas",
     tenantId,
     dataRoot,
+    executionEnvironment,
     modelAdapter,
     systemConfig,
     agentConfig,
@@ -135,7 +137,7 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
   const pluginCapabilities = pluginRuntime?.capabilities ?? new CapabilityRegistry();
   pluginCapabilities.provide(
     EXECUTION_ENVIRONMENT_CAPABILITY,
-    createSaaSExecutionEnvironment(),
+    executionEnvironment,
     "@ragsystem/backend-saas",
   );
 
