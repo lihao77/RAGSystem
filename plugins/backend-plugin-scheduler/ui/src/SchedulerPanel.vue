@@ -46,7 +46,7 @@ async function loadTasks() {
   loading.value = true;
   loadError.value = '';
   try {
-    const response = await api.value.get('/api/scheduler/');
+    const response = await api.value.get('/api/scheduler/tasks');
     tasks.value = Array.isArray(response?.tasks) ? response.tasks : [];
   } catch (error) {
     loadError.value = readErrorMessage(error, '加载定时任务失败');
