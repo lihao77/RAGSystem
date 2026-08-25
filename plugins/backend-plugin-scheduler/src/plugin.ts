@@ -1,13 +1,9 @@
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-
 import type { BackendPlugin } from "@ragsystem/backend-core/plugins/backend-plugin.js";
 
 import { createSchedulerApplicationRuntime, type SchedulerApplicationRuntime } from "./application-runtime.js";
 import type { SchedulerLeaderLease } from "./contracts/leader-lease.js";
 import type { SchedulerTaskStore } from "./contracts/task-store.js";
 import { registerSchedulerRoutes } from "./routes/tasks.js";
-import { registerSchedulerUiRoutes } from "./ui-assets.js";
 
 export const SCHEDULER_PLUGIN_ID = "@ragsystem/backend-plugin-scheduler";
 
@@ -16,12 +12,6 @@ export type SchedulerDependencySource<Value> = Value | (() => Value);
 export interface SchedulerPluginDependencies {
   readonly taskStore: SchedulerDependencySource<SchedulerTaskStore>;
   readonly leaderLease?: SchedulerDependencySource<SchedulerLeaderLease | undefined>;
-  /** UI bundle 目录；缺省取包内 ui/dist。 */
-  readonly uiRoot?: SchedulerDependencySource<string | undefined>;
-}
-
-export function resolveDefaultSchedulerUiRoot(): string {
-  return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../ui/dist");
 }
 
 export function createSchedulerPlugin(dependencies: SchedulerPluginDependencies): BackendPlugin {
@@ -50,14 +40,6 @@ export function createSchedulerPlugin(dependencies: SchedulerPluginDependencies)
       context.routes.register("management", "/api/scheduler", async (app) => {
         if (!application) throw new Error("Scheduler application runtime is not initialized");
         await app.register(registerSchedulerRoutes, { scheduler: application.service });
-      });
-      context.routes.register("public", "/api/scheduler", async (app) => {
-        const uiRoot = dependencies.uiRoot ? resolveDependency(dependencies.uiRoot) : undefined;
-        await app.register(registerSchedulerUiRoutes, { uiRoot: uiRoot ?? resolveDefaultSchedulerUiRoot() });
-      });
-      context.ui.register({
-        bundleUrl: "/api/scheduler/ui/bundle.js",
-        views: [{ route: "/scheduler", entry: "SchedulerPanel", title: "定时任务", placement: "management" }],
       });
       context.events.on("session.origins.resolve", async (payload) => {
         if (!isSessionOriginResolution(payload)) return;

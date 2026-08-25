@@ -13,4 +13,3 @@ export { runSqliteSchedulerMigrations } from "./storage/local/sqlite-migrations.
 export { PostgresSchedulerTaskStore } from "./storage/postgres/task-store.js";
 export { runPostgresSchedulerMigrations } from "./storage/postgres/migrations.js";
 export { registerSchedulerRoutes } from "./routes/tasks.js";
-export { registerSchedulerUiRoutes } from "./ui-assets.js";
