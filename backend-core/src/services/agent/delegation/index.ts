@@ -62,6 +62,8 @@ interface ChildRunInput {
   executionKind: string;
   rootTask: string;
   source: "agent_call";
+  /** 通信模式直启 child run：父消息初始行的 agent_message 元数据（对齐 mailbox 认领路径 canonical 口径）。 */
+  initialMessageMetadata?: Record<string, unknown>;
   signal?: AbortSignal | undefined;
   teamSnapshot: SessionTeamSnapshot;
   workspaceRoot: string | null;
@@ -90,6 +92,7 @@ interface ChildRunBuildSpec {
   runParentCallId: string | null;
   resumeRunId: string | null;
   initialEnvelopes?: readonly Envelope[];
+  initialMessageMetadata?: Record<string, unknown>;
   timeoutMs?: number | null;
 }
 
@@ -847,6 +850,28 @@ export class AgentDelegationService implements DelegationPort, ParticipantRunLif
       runParentCallId: parentCallId,
       resumeRunId: null,
       initialEnvelopes,
+      // 空闲 child 直启新 run：消息不经 mailbox 认领，初始行需自带 agent_message
+      // 语义元数据（实时 agent_message 事件与重载渲染共用同一口径）。
+      initialMessageMetadata: {
+        agent_message: true,
+        agent_message_display_content: message,
+        agent_message_direction: "parent_to_child",
+        agent_message_source_agent_name: parentAgent.agent_name,
+        agent_message_source_child_agent_id: normalizeString(ctx.currentChildAgentId),
+        agent_message_target_agent_name: child.agent_name,
+        agent_message_target_child_agent_id: childAgentId,
+        agent_message_target_thread_key: child.thread_key,
+        consumed_by_run_id: childRunId,
+        conversation_scope: "child",
+        direction: "parent_to_child",
+        mailbox_kind: kind,
+        source_agent_name: parentAgent.agent_name,
+        source_child_agent_id: normalizeString(ctx.currentChildAgentId),
+        source_run_id: normalizeString(ctx.runId),
+        target_agent_name: child.agent_name,
+        target_child_agent_id: childAgentId,
+        target_thread_key: child.thread_key,
+      },
       ...(clampMailboxTimeout(input.timeoutMs) ? { timeoutMs: clampMailboxTimeout(input.timeoutMs) } : {}),
     });
     return this.runChildInvocation({
@@ -1043,6 +1068,7 @@ export class AgentDelegationService implements DelegationPort, ParticipantRunLif
       parentLineageParentCallId: normalizeString(spec.ctx.parentCallId),
       ...(spec.timeoutMs ? { timeoutMs: spec.timeoutMs } : {}),
       ...(spec.initialEnvelopes ? { initialEnvelopes: spec.initialEnvelopes } : {}),
+      ...(spec.initialMessageMetadata ? { initialMessageMetadata: spec.initialMessageMetadata } : {}),
     };
   }
 
@@ -1200,6 +1226,7 @@ export class AgentDelegationService implements DelegationPort, ParticipantRunLif
           execution_kind: input.entrypoint,
           source: input.source,
           child_agent_id: input.childAgent.child_agent_id,
+          ...(input.initialMessageMetadata ?? {}),
         },
       };
     }

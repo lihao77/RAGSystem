@@ -124,6 +124,7 @@ export class AsyncKernelEventPersister {
     if (this.ctx.parentRunId != null && !this.ctx.ownsRunLease) await this.ensureRunLease();
     const initialBoundaryMessageId = this.ctx.initialMessage?.messageId ?? this.ctx.rootMailboxMessage?.id ?? null;
     const messageSaved = this.initialMessageSavedEnvelope();
+    const agentMessage = this.initialAgentMessageEnvelope();
     const prepareInitial = (event: Envelope, eventId: string) => this.clientEvents.prepare(
         this.ctx.sessionId,
         initialBoundaryMessageId && !event.boundary_message_id
@@ -139,6 +140,9 @@ export class AsyncKernelEventPersister {
     const initialRecords = [
       ...(messageSaved
         ? [prepareInitial(messageSaved, `${this.ctx.runId}:initial:message_saved`)]
+        : []),
+      ...(agentMessage
+        ? [prepareInitial(agentMessage, `${this.ctx.runId}:initial:agent_message`)]
         : []),
       ...(this.ctx.initialEnvelopes ?? []).map((event, index) => prepareInitial(
         event,
@@ -250,6 +254,88 @@ export class AsyncKernelEventPersister {
             : undefined,
           content_parts: canonical.contentParts ?? [],
           metadata: canonical.metadata ?? {},
+        },
+      },
+    };
+  }
+
+  /**
+   * Child run 随启动事务携带的初始消息（父消息直启新 run / mailbox 续接 run）不经
+   * 运行中认领路径，wire 侧没有任何"新消息"事件——实时查看子线程时父消息要等切
+   * 换重载才可见。这里按认领路径（event-publisher.buildAgentMessage + runtime-adapter
+   * 的 canonicalMetadata）的同形 payload 补一条 agent_message 初始 Envelope，前端
+   * useMessageExecution 会据 target_child_agent_id 实时插入子线程。仅限 agent/mailbox
+   * 语义的初始消息：委派任务的合成指令不在此列（与重载渲染口径一致，非 agent_message
+   * 不渲染为智能体气泡）。
+   */
+  private initialAgentMessageEnvelope(): Envelope | null {
+    if (this.ctx.childAgentId == null || !this.ctx.initialMessage) return null;
+    const initial = this.ctx.initialMessage;
+    const metadata = initial.metadata ?? {};
+    if (metadata.agent_message !== true && typeof metadata.mailbox_message_id !== "string") return null;
+    const consumedRunId = typeof metadata.consumed_by_run_id === "string"
+      ? metadata.consumed_by_run_id
+      : this.ctx.runId;
+    const contentParts = initial.contentParts ?? [];
+    const textContent = contentParts
+      .filter((part): part is { type: "text"; text: string } => part.type === "text")
+      .map((part) => part.text)
+      .join("");
+    const content = typeof metadata.agent_message_display_content === "string" && metadata.agent_message_display_content
+      ? metadata.agent_message_display_content
+      : textContent;
+    const kind = metadata.mailbox_kind === "progress"
+      || metadata.mailbox_kind === "response"
+      || metadata.mailbox_kind === "result"
+      ? metadata.mailbox_kind
+      : "request";
+    const direction = metadata.direction === "parent_to_child" || metadata.direction === "child_to_parent"
+      ? metadata.direction
+      : null;
+    const sourceAgentName = typeof metadata.source_agent_name === "string"
+      ? metadata.source_agent_name
+      : null;
+    const sourceChildAgentId = typeof metadata.source_child_agent_id === "string"
+      ? metadata.source_child_agent_id
+      : typeof metadata.child_agent_id === "string"
+        ? metadata.child_agent_id
+        : null;
+    const sourceRunId = typeof metadata.mailbox_source_run_id === "string"
+      ? metadata.mailbox_source_run_id
+      : typeof metadata.source_run_id === "string"
+        ? metadata.source_run_id
+        : null;
+    const sourceAgentCallId = typeof metadata.mailbox_source_agent_call_id === "string"
+      ? metadata.mailbox_source_agent_call_id
+      : null;
+    return {
+      type: "agent_message",
+      session_id: this.ctx.sessionId,
+      run_id: this.ctx.runId,
+      call_id: this.ctx.rootCallId,
+      message_id: initial.messageId,
+      payload: {
+        kind,
+        message_id: initial.messageId,
+        source_run_id: sourceRunId,
+        source_agent_call_id: sourceAgentCallId,
+        ...(sourceAgentName ? { source_agent_name: sourceAgentName } : {}),
+        source_child_agent_id: sourceChildAgentId,
+        target_child_agent_id: this.ctx.childAgentId,
+        target_thread_key: this.ctx.threadKey,
+        ...(direction ? { direction } : {}),
+        correlation_id: typeof metadata.mailbox_correlation_id === "string"
+          ? metadata.mailbox_correlation_id
+          : null,
+        reply_to_message_id: typeof metadata.mailbox_reply_to_message_id === "string"
+          ? metadata.mailbox_reply_to_message_id
+          : null,
+        content,
+        content_parts: contentParts,
+        metadata: {
+          ...metadata,
+          consumed_by_run_id: consumedRunId,
+          run_id: consumedRunId,
         },
       },
     };
