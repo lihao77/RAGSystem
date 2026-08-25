@@ -112,3 +112,5 @@ dist/
 
 # Local LLM diagnostics (capture scripts + request bodies, never commit)
 .scratch/
+.tmp-verify-data/
+.tmp-verify-server.log

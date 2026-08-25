@@ -1,4 +1,4 @@
-import type { TenantId } from "@ragsystem/backend-core/identity/types.js";
+import type { TenantId, UserId } from "@ragsystem/backend-core/identity/types.js";
 import type { SchedulerTask, SchedulerTaskCreate, SchedulerTaskUpdate } from "./task.js";
 
 export interface SchedulerTaskClaim {
@@ -10,9 +10,12 @@ export interface SchedulerTaskClaim {
   leaseExpiresAt: number;
 }
 
-/** 租户级定时任务存储；claim 系列方法承担多实例下的认领互斥。 */
+/**
+ * 租户内定时任务存储。任务私有于 owner（管理面按 ownerId 过滤）；
+ * claim 系列方法始终扫全租户并承担多实例下的认领互斥。
+ */
 export interface SchedulerTaskStore {
-  listTasks(tenantId: TenantId): Promise<SchedulerTask[]>;
+  listTasks(tenantId: TenantId, ownerId?: UserId): Promise<SchedulerTask[]>;
   claimDueTasks(input: {
     now: number;
     leaseOwner: string;

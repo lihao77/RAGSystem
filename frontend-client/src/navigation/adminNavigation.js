@@ -155,7 +155,7 @@ export const managementNavItems = [
     path: '/scheduler',
     label: '定时任务',
     title: '定时任务管理',
-    description: '管理租户级定时任务：Cron 计划、手动触发与运行历史。',
+    description: '管理个人定时任务：Cron 计划、手动触发与运行历史。',
     group: 'operations',
     requireTenantRole: 'member',
     icon: CalendarClock,

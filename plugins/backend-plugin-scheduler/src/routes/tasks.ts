@@ -20,7 +20,8 @@ export interface SchedulerRouteOptions {
 export const registerSchedulerRoutes: FastifyPluginAsync<SchedulerRouteOptions> = async (app, options) => {
   app.addHook("preHandler", async (request) => { requireTenantMember(request); });
 
-  app.get("/tasks", async (request) => ({ tasks: await options.scheduler.listTasks(request.identity.tenantId) }));
+  // 任务私有于创建者：所有管理面按请求用户过滤/校验；调度循环不受影响
+  app.get("/tasks", async (request) => ({ tasks: await options.scheduler.listTasks(request.identity.tenantId, request.identity.userId) }));
 
   app.post("/tasks", async (request) => {
     try {
@@ -32,8 +33,7 @@ export const registerSchedulerRoutes: FastifyPluginAsync<SchedulerRouteOptions> 
   });
 
   app.get<{ Params: TaskParams }>("/tasks/:taskId", async (request) => {
-    const task = await options.scheduler.listTasks(request.identity.tenantId)
-      .then((tasks) => tasks.find((item) => item.task_id === request.params.taskId));
+    const task = await options.scheduler.getTask(request.identity.tenantId, request.params.taskId, request.identity.userId);
     if (!task) throw new HttpError(404, "not_found", `任务不存在: ${request.params.taskId}`);
     return task;
   });
@@ -41,7 +41,7 @@ export const registerSchedulerRoutes: FastifyPluginAsync<SchedulerRouteOptions> 
   app.put<{ Params: TaskParams }>("/tasks/:taskId", async (request) => {
     try {
       const patch = SchedulerTaskUpdateSchema.extend({ cron: CronExpression.optional() }).parse(request.body);
-      const updated = await options.scheduler.updateTask(request.identity.tenantId, request.params.taskId, patch);
+      const updated = await options.scheduler.updateTask(request.identity.tenantId, request.params.taskId, patch, request.identity.userId);
       if (!updated) throw new HttpError(404, "not_found", `任务不存在: ${request.params.taskId}`);
       return updated;
     } catch (error) {
@@ -50,7 +50,7 @@ export const registerSchedulerRoutes: FastifyPluginAsync<SchedulerRouteOptions> 
   });
 
   app.delete<{ Params: TaskParams }>("/tasks/:taskId", async (request) => {
-    if (!await options.scheduler.deleteTask(request.identity.tenantId, request.params.taskId)) {
+    if (!await options.scheduler.deleteTask(request.identity.tenantId, request.params.taskId, request.identity.userId)) {
       throw new HttpError(404, "not_found", `任务不存在: ${request.params.taskId}`);
     }
     return { status: "ok" };
@@ -58,13 +58,15 @@ export const registerSchedulerRoutes: FastifyPluginAsync<SchedulerRouteOptions> 
 
   app.post<{ Params: TaskParams }>("/tasks/:taskId/trigger", async (request) => {
     try {
-      return await options.scheduler.triggerTask(request.identity.tenantId, request.params.taskId);
+      return await options.scheduler.triggerTask(request.identity.tenantId, request.params.taskId, undefined, request.identity.userId);
     } catch (error) {
       throw toHttpError(error);
     }
   });
 
   app.get<{ Params: TaskParams; Querystring: LimitQuery }>("/tasks/:taskId/history", async (request) => {
+    const task = await options.scheduler.getTask(request.identity.tenantId, request.params.taskId, request.identity.userId);
+    if (!task) throw new HttpError(404, "not_found", `任务不存在: ${request.params.taskId}`);
     const limit = Number(request.query.limit ?? 20);
     return {
       task_id: request.params.taskId,

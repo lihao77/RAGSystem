@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Pool } from "pg";
-import { createTenantId, createUserId, type TenantId } from "@ragsystem/backend-core/identity/types.js";
+import { createTenantId, createUserId, type TenantId, type UserId } from "@ragsystem/backend-core/identity/types.js";
 
 import type { SchedulerTaskClaim, SchedulerTaskStore } from "../../contracts/task-store.js";
 import type { SchedulerTask, SchedulerTaskCreate } from "../../contracts/task.js";
@@ -32,10 +32,14 @@ interface TaskRow {
 export class PostgresSchedulerTaskStore implements SchedulerTaskStore {
   constructor(private readonly pool: Pool) {}
 
-  async listTasks(tenantId: TenantId): Promise<SchedulerTask[]> {
-    const result = await this.pool.query<TaskRow>(
-      `SELECT ${TASK_COLUMNS} FROM control_scheduler_tasks WHERE tenant_id=$1 ORDER BY task_id`, [tenantId],
-    );
+  async listTasks(tenantId: TenantId, ownerId?: UserId): Promise<SchedulerTask[]> {
+    const result = ownerId
+      ? await this.pool.query<TaskRow>(
+        `SELECT ${TASK_COLUMNS} FROM control_scheduler_tasks WHERE tenant_id=$1 AND owner_user_id=$2 ORDER BY task_id`, [tenantId, ownerId],
+      )
+      : await this.pool.query<TaskRow>(
+        `SELECT ${TASK_COLUMNS} FROM control_scheduler_tasks WHERE tenant_id=$1 ORDER BY task_id`, [tenantId],
+      );
     return result.rows.map(mapTask);
   }
 

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
-import { createTenantId, createUserId, type TenantId } from "@ragsystem/backend-core/identity/types.js";
+import { createTenantId, createUserId, type TenantId, type UserId } from "@ragsystem/backend-core/identity/types.js";
 
 import type { SchedulerTaskClaim, SchedulerTaskStore } from "../../contracts/task-store.js";
 import type { SchedulerTask, SchedulerTaskCreate } from "../../contracts/task.js";
@@ -37,10 +37,11 @@ export class SqliteSchedulerTaskStore implements SchedulerTaskStore {
 
   constructor(private readonly db: DatabaseSync) {}
 
-  async listTasks(tenantId: TenantId): Promise<SchedulerTask[]> {
-    return this.db.prepare(`SELECT ${TASK_COLUMNS} FROM scheduler_tasks WHERE tenant_id=? ORDER BY task_id`)
-      .all(tenantId)
-      .map((row) => mapTask(row as unknown as TaskRow));
+  async listTasks(tenantId: TenantId, ownerId?: UserId): Promise<SchedulerTask[]> {
+    const rows = ownerId
+      ? this.db.prepare(`SELECT ${TASK_COLUMNS} FROM scheduler_tasks WHERE tenant_id=? AND owner_user_id=? ORDER BY task_id`).all(tenantId, ownerId)
+      : this.db.prepare(`SELECT ${TASK_COLUMNS} FROM scheduler_tasks WHERE tenant_id=? ORDER BY task_id`).all(tenantId);
+    return rows.map((row) => mapTask(row as unknown as TaskRow));
   }
 
   async claimDueTasks(input: Parameters<SchedulerTaskStore["claimDueTasks"]>[0]): Promise<SchedulerTaskClaim[]> {

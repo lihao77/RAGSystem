@@ -33,7 +33,7 @@ function createFakeStore(tasks = []) {
   const state = { tasks: tasks.map((task) => ({ ...task })), claims: [], updates: [] }
   const store = {
     state,
-    async listTasks(tenantId) { return state.tasks.filter((task) => task.tenant_id === tenantId) },
+    async listTasks(tenantId, ownerId) { return state.tasks.filter((task) => task.tenant_id === tenantId && (ownerId === undefined || task.owner_user_id === ownerId)) },
     async claimDueTasks({ now, leaseOwner }) {
       return state.tasks
         .filter((task) => task.enabled && task.next_run !== null && task.next_run <= now)
@@ -194,4 +194,28 @@ test('resolveSessionId derives deterministic ids and honors pinned sessions', ()
   assert.equal(resolveSessionId({ session_id: ' fixed-session ', task_id: 'x' }), 'fixed-session')
   assert.equal(resolveSessionId({ session_id: null, task_id: 'daily report!' }), 'scheduler-daily_report_')
   assert.equal(resolveSessionId({ session_id: null, task_id: 'same' }), resolveSessionId({ session_id: null, task_id: 'same' }))
+})
+
+test('management surface is private to the task owner while triggering stays owner-agnostic', async () => {
+  const other = createUserId('usr_other')
+  const store = createFakeStore([
+    createTask({ task_id: 'mine' }),
+    createTask({ task_id: 'theirs', owner_user_id: other }),
+  ])
+  const runs = []
+  const service = new SchedulerService({
+    taskStore: store,
+    runTask: async (input) => { runs.push(input.task.task_id); return { suspended: false, content: 'ok' } },
+  })
+
+  assert.deepEqual((await service.listTasks(TENANT, OWNER)).map((task) => task.task_id), ['mine'])
+  assert.deepEqual((await service.listTasks(TENANT)).map((task) => task.task_id), ['mine', 'theirs'], '调度循环语境仍取全租户')
+  assert.equal(await service.getTask(TENANT, 'theirs', OWNER), null)
+  assert.equal(await service.updateTask(TENANT, 'theirs', { enabled: false }, OWNER), null)
+  assert.equal(await service.deleteTask(TENANT, 'theirs', OWNER), false)
+  await assert.rejects(() => service.triggerTask(TENANT, 'theirs', undefined, OWNER), /任务不存在或未启用/)
+
+  const outcome = await service.triggerTask(TENANT, 'theirs')
+  assert.equal(outcome.status, 'ok')
+  assert.deepEqual(runs, ['theirs'])
 })

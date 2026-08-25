@@ -65,6 +65,10 @@ test('scheduler migration carries bot cron tasks over with feishu delivery and i
   assert.equal(weekly.entry_agent, 'reporter', '任务级 entry_agent 优先于 bot 默认')
   assert.deepEqual(weekly.delivery, { channel: 'feishu', target: 'oc_default', bot_id: 'usr_bot1' }, '无 push_chat_id 时回退 bot 默认 chat')
 
+  // 管理面 owner 过滤：迁移来的任务只对其 owner 可见，调度面仍取全量
+  assert.equal((await store.listTasks('tnt_a', 'usr_owner1')).length, 2)
+  assert.equal((await store.listTasks('tnt_a', 'usr_somebody_else')).length, 0)
+
   // 幂等：重复执行迁移不产生重复行
   runSqliteSchedulerMigrations(db)
   assert.equal((await store.listTasks('tnt_a')).length, 2)

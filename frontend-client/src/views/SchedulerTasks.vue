@@ -1,5 +1,5 @@
 <template>
-  <PageLayout title="定时任务" subtitle="租户级 Cron 计划任务" mobile-title="定时任务">
+  <PageLayout title="定时任务" subtitle="个人 Cron 计划任务" mobile-title="定时任务">
     <div class="scheduler-manager">
       <div class="section-toolbar">
         <div class="toolbar-left">
@@ -112,7 +112,7 @@
           </div>
           <div class="form-item">
             <label>入口 Agent</label>
-            <CustomSelect v-model="form.entry_agent" :options="agentOptions" :disabled="agentLoading" placeholder="使用租户默认 Agent" />
+            <CustomSelect v-model="form.entry_agent" :options="agentOptions" :disabled="agentLoading" placeholder="使用默认 Agent" />
           </div>
           <div class="form-item">
             <label>权限模式</label>
@@ -225,7 +225,7 @@ const triggerBusyId = ref('');
 const form = reactive(createEmptyForm());
 
 const agentOptions = computed(() => [
-  { value: '', label: '使用租户默认 Agent' },
+  { value: '', label: '使用默认 Agent' },
   ...agentNames.value.map(name => ({ value: name, label: name })),
 ]);
 const permissionModeOptions = [

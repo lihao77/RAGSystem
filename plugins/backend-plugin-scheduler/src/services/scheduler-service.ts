@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import type { TenantId } from "@ragsystem/backend-core/identity/types.js";
+import type { TenantId, UserId } from "@ragsystem/backend-core/identity/types.js";
 import type { SchedulerTaskStore, SchedulerTaskClaim } from "../contracts/task-store.js";
 import type { SchedulerLeaderLease } from "../contracts/leader-lease.js";
 import type { SchedulerDeliveryInput } from "../contracts/delivery.js";
@@ -142,8 +142,22 @@ export class SchedulerService {
     }
   }
 
-  async listTasks(tenantId: TenantId): Promise<SchedulerTask[]> {
-    return this.options.taskStore.listTasks(tenantId);
+  /**
+   * 管理面列表。任务私有于 owner：传入 ownerId 时只返回该用户的任务；
+   * 调度循环（runDueTasks）走 claim 面，始终扫全租户。
+   */
+  async listTasks(tenantId: TenantId, ownerId?: UserId): Promise<SchedulerTask[]> {
+    return this.options.taskStore.listTasks(tenantId, ownerId);
+  }
+
+  async getTask(tenantId: TenantId, taskId: string, ownerId?: UserId): Promise<SchedulerTask | null> {
+    const task = await this.options.taskStore.getTask(tenantId, taskId);
+    if (!task) return null;
+    if (ownerId && task.owner_user_id !== ownerId) {
+      // 与不存在同样返回 null，不向其他成员泄露任务存在性
+      return null;
+    }
+    return task;
   }
 
   async createTask(tenantId: TenantId, ownerId: string, input: SchedulerTaskCreate): Promise<SchedulerTask> {
@@ -156,8 +170,8 @@ export class SchedulerService {
     });
   }
 
-  async updateTask(tenantId: TenantId, taskId: string, patch: SchedulerTaskUpdate): Promise<SchedulerTask | null> {
-    const current = await this.options.taskStore.getTask(tenantId, taskId);
+  async updateTask(tenantId: TenantId, taskId: string, patch: SchedulerTaskUpdate, ownerId?: UserId): Promise<SchedulerTask | null> {
+    const current = await this.getTask(tenantId, taskId, ownerId);
     if (!current) return null;
     const cron = patch.cron ?? current.cron;
     const enabled = patch.enabled ?? current.enabled;
@@ -167,14 +181,15 @@ export class SchedulerService {
     });
   }
 
-  async deleteTask(tenantId: TenantId, taskId: string): Promise<boolean> {
+  async deleteTask(tenantId: TenantId, taskId: string, ownerId?: UserId): Promise<boolean> {
+    if (!(await this.getTask(tenantId, taskId, ownerId))) return false;
     const deleted = await this.options.taskStore.deleteTask(tenantId, taskId);
     if (deleted) this.history.delete(historyKey(tenantId, taskId));
     return deleted;
   }
 
-  async triggerTask(tenantId: TenantId, taskId: string, claimToken?: string): Promise<{ status: "ok"; result: string | null }> {
-    const task = await this.options.taskStore.getTask(tenantId, taskId);
+  async triggerTask(tenantId: TenantId, taskId: string, claimToken?: string, ownerId?: UserId): Promise<{ status: "ok"; result: string | null }> {
+    const task = await this.getTask(tenantId, taskId, ownerId);
     if (!task || !task.enabled) throw new SchedulerServiceError(404, `任务不存在或未启用: ${taskId}`);
     const startedAt = Date.now();
     const sessionId = resolveSessionId(task);
