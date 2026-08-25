@@ -7,9 +7,9 @@ const MemoryScopeNameSchema = z.enum(["team", "session", "agent", "workspace", "
 export const MemoryAgentConfigSchema = z.object({
   enabled: z.boolean().default(true),
   auto_inject: z.boolean().default(true),
-  allowed_scopes: z.array(MemoryScopeNameSchema).default(["team", "session", "user"]),
-  write_scopes: z.array(MemoryScopeNameSchema).default(["session", "user"]),
-  archive_scopes: z.array(MemoryScopeNameSchema).default(["session", "user"]),
+  allowed_scopes: z.array(MemoryScopeNameSchema).default(["team", "session", "agent", "user"]),
+  write_scopes: z.array(MemoryScopeNameSchema).default(["session", "agent", "user"]),
+  archive_scopes: z.array(MemoryScopeNameSchema).default(["session", "agent", "user"]),
 }).strict();
 
 export type MemoryAgentConfig = z.infer<typeof MemoryAgentConfigSchema>;
