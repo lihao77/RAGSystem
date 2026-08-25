@@ -114,3 +114,6 @@ dist/
 .scratch/
 .tmp-verify-data/
 .tmp-verify-server.log
+.tmp-patch-*.cjs
+.tmp-verify-data/
+.tmp-verify-server.log

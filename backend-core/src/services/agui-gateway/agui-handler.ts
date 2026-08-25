@@ -14,7 +14,7 @@ import { AguiTranslator } from "./agui-translator.js";
 import { InterruptMachine, type InterruptRecord } from "./interrupt-machine.js";
 import { openAguiSse, type AguiSseStream } from "./sse-stream.js";
 import { lastUserTask, mapClientTools, type AguiResumeItem, type RunAgentInput } from "./agui-input.js";
-import { encodeAguiSse, type AguiEvent, type AguiInterrupt } from "./agui-events.js";
+import { approvalInterruptMetadata, encodeAguiSse, type AguiEvent, type AguiInterrupt } from "./agui-events.js";
 import type { Envelope, SessionRuntimePayload } from "../../contracts/events.js";
 import { loadAguiRunReplay } from "./agui-replay.js";
 
@@ -34,6 +34,11 @@ function pendingInterruptRecord(meta: ApprovalMeta, threadId: string, internalRu
         reason: "confirmation",
         toolCallId: meta.toolCallId,
         message: meta.prompt || meta.reason || "需要确认",
+        metadata: {
+          ...(meta.toolName ? { toolName: meta.toolName } : {}),
+          ...(meta.riskLevel ? { riskLevel: meta.riskLevel } : {}),
+          ...(meta.reason ? { reason: meta.reason } : {}),
+        },
         responseSchema: {
           type: "object",
           properties: { approved: { type: "boolean" }, message: { type: "string" } },
@@ -95,6 +100,7 @@ function runtimeInterruptRecord(
         reason: "confirmation",
         ...(toolCallId ? { toolCallId } : {}),
         message: prompt || "需要确认",
+        metadata: approvalInterruptMetadata(payload),
         responseSchema: {
           type: "object",
           properties: { approved: { type: "boolean" }, message: { type: "string" } },

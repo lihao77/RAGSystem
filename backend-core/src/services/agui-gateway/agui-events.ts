@@ -149,6 +149,31 @@ export interface AguiInterrupt {
   metadata?: Record<string, unknown>;
 }
 
+/**
+ * 审批 interrupt 的详情元数据：从 interaction payload 提取工具名/风险/参数/理由等，
+ * 供前端审批弹窗展示（message 只承载提示文本，详情一律走 metadata）。
+ */
+export function approvalInterruptMetadata(payload: Record<string, unknown>): Record<string, unknown> {
+  const str = (value: unknown): string | undefined => (typeof value === 'string' && value ? value : undefined);
+  const input = payload.input && typeof payload.input === 'object' && !Array.isArray(payload.input)
+    ? payload.input as Record<string, unknown> : {};
+  const toolArguments = input.arguments && typeof input.arguments === 'object' && !Array.isArray(input.arguments)
+    ? input.arguments as Record<string, unknown> : undefined;
+  const reasonCodes = Array.isArray(input.approval_reason_codes)
+    ? input.approval_reason_codes.filter((item): item is string => typeof item === 'string') : undefined;
+  const secondaryReasons = Array.isArray(input.approval_secondary_reasons)
+    ? input.approval_secondary_reasons.filter((item): item is string => typeof item === 'string') : undefined;
+  return {
+    ...(str(payload.tool) ? { toolName: str(payload.tool) } : {}),
+    ...(str(payload.risk_level) ? { riskLevel: str(payload.risk_level) } : {}),
+    ...(str(input.agent_name) ? { agentName: str(input.agent_name) } : {}),
+    ...(toolArguments ? { arguments: toolArguments } : {}),
+    ...(str(input.approval_reason) ?? str(payload.message) ? { reason: str(input.approval_reason) ?? str(payload.message) } : {}),
+    ...(reasonCodes?.length ? { reasonCodes } : {}),
+    ...(secondaryReasons?.length ? { secondaryReasons } : {}),
+    ...(str(input.permission_mode) ? { permissionMode: str(input.permission_mode) } : {}),
+  };
+}
 /** SSE 编码：每事件一行 `data: {json}\n\n`。 */
 export function encodeAguiSse(event: AguiEvent): string {
   return `data: ${JSON.stringify(event)}\n\n`;

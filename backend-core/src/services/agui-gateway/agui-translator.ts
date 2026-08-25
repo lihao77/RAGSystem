@@ -12,6 +12,7 @@ import type {
   StepStartedEvent,
   ToolCallResultEvent,
 } from "./agui-events.js";
+import { approvalInterruptMetadata } from "./agui-events.js";
 import type { InterruptRecord } from "./interrupt-machine.js";
 
 export interface TranslateContext {
@@ -334,6 +335,7 @@ export class AguiTranslator {
         reason: "confirmation",
         toolCallId: callId,
         message: str(payload.prompt) || str(payload.message) || "需要确认",
+        metadata: approvalInterruptMetadata(payload),
         responseSchema: {
           type: "object",
           properties: { approved: { type: "boolean" }, message: { type: "string" } },
