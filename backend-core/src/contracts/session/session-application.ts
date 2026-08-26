@@ -16,6 +16,17 @@ import type { TenantId } from "../../identity/types.js";
 import type { WorkspaceRecord } from "../workspace/workspace.js";
 
 /**
+ * 会话域条目不存在（消息/Run/会话）。路由层据此映射 404；
+ * 其余 service 错误走 500，避免内部故障被伪装成"资源不存在"。
+ */
+export class SessionItemNotFoundError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SessionItemNotFoundError";
+  }
+}
+
+/**
  * Execution-only session port.  Unlike SessionApplication this intentionally
  * contains only the operations used while launching a run.  Implementations
  * may be fully asynchronous (for example the SaaS PostgreSQL adapter).

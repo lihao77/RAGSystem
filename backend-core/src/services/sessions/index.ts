@@ -12,6 +12,7 @@ import { assertSafeSessionId } from "../../contracts/session/session-id.js";
 import type { TenantId } from "../../identity/types.js";
 import type { PermissionMode } from "../../contracts/runtime/permissions.js";
 import type { ExecutionSessionPort, SessionParticipantRunSummary } from "../../contracts/session/session-application.js";
+import { SessionItemNotFoundError } from "../../contracts/session/session-application.js";
 import { isParticipantConversationMessageVisible } from "../../contracts/session/message-visibility.js";
 import { synthesizeExecutionEnvelopes } from "./execution-synthesis.js";
 
@@ -142,7 +143,7 @@ export class AgentSessionApplication implements ExecutionSessionPort {
     const threadKey = input.threadKey?.trim() || "root";
     const message = await this.repository.getMessageById(input.sessionId, input.messageId);
     if (!message || !isParticipantConversationMessageVisible(message, threadKey)) {
-      throw new Error(`消息不存在: ${input.messageId}`);
+      throw new SessionItemNotFoundError(`消息不存在: ${input.messageId}`);
     }
     const runId = executionRunId(message);
     if (!runId) return { message_id: input.messageId, items: [], total: 0 };
@@ -197,7 +198,7 @@ export class AgentSessionApplication implements ExecutionSessionPort {
     const offset = input.offset ?? 0;
     const run = await this.repository.getRun(input.sessionId, input.runId);
     if (!run || !this.isParticipantRun(run, input.participantId)) {
-      throw new Error(`Run 不存在: ${input.runId}`);
+      throw new SessionItemNotFoundError(`Run 不存在: ${input.runId}`);
     }
     // 同源改造：participant 执行视图同样来自该 run 所属线程的消息行合成。
     const envelopes = await this.synthesizeRunEnvelopes(
@@ -290,7 +291,7 @@ export class AgentSessionApplication implements ExecutionSessionPort {
   }> {
     const session = await this.getSession(sessionId);
     if (!session) {
-      throw new Error(`会话不存在: ${sessionId}`);
+      throw new SessionItemNotFoundError(`会话不存在: ${sessionId}`);
     }
     let messages = await this.listMessages({
       sessionId,

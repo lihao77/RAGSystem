@@ -32,7 +32,8 @@ import {
   SessionOriginTypeSchema,
 } from "../../contracts/session/session.js";
 import { CreateWorkspaceRequestSchema, WorkspaceResponseSchema } from "@ragsystem/api-contracts";
-import { HttpError } from "../../utils/errors.js";
+import { HttpError, httpErrorFrom } from "../../utils/errors.js";
+import { SessionItemNotFoundError } from "../../contracts/session/session-application.js";
 import { ensureRequestApplications } from "../../app/request-applications.js";
 import type { AgentRouteOptions } from "../route-options.js";
 import { z, ZodError } from "zod";
@@ -348,8 +349,7 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
       reply.header("content-disposition", `attachment; filename="session_${safeSessionId}.json"`);
       return data;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      throw new HttpError(404, "not_found", message);
+      throw sessionItemHttpError(error);
     }
   });
 
@@ -369,8 +369,7 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
         });
         return validateResponse(SessionMessageExecutionResponseSchema, ok(data, "获取执行视图成功"));
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        throw new HttpError(404, "not_found", message);
+        throw sessionItemHttpError(error);
       }
     },
   );
@@ -669,6 +668,13 @@ async function resolveSessionParticipant(
 
 function sanitizeExportSessionId(sessionId: string): string {
   return sessionId.replace(/[^A-Za-z0-9._-]+/g, "_").replace(/^[._]+|[._]+$/g, "") || "session";
+}
+
+/** 已知"条目不存在"→ 404；HttpError 透传；其余 service 错误兜底 500，不再一律伪装成 404。 */
+function sessionItemHttpError(error: unknown): HttpError {
+  return httpErrorFrom(error, (e) =>
+    e instanceof SessionItemNotFoundError ? new HttpError(404, "not_found", e.message) : null,
+  );
 }
 
 function parseRollbackAndRetryRequest(body: unknown) {
