@@ -10,12 +10,9 @@
         @click="toggleReasoningExpanded"
       >
         <span class="assistant-step-icon" title="思考过程">
-          <svg v-if="reasoningStreaming" class="assistant-step-spinner" viewBox="0 0 20 20" aria-hidden="true">
-            <circle cx="10" cy="10" r="7.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-dasharray="34 14" />
-          </svg>
-          <Brain v-else aria-hidden="true" />
+          <Brain aria-hidden="true" />
         </span>
-        <span class="assistant-step-name">深度思考</span>
+        <span class="assistant-step-name" :class="{ 'is-shimmer': reasoningStreaming }">深度思考</span>
         <span v-if="reasoningStreaming" class="assistant-step-summary">思考中...</span>
         <ChevronDown class="assistant-step-chevron" :class="{ open: reasoningExpanded }" aria-hidden="true" />
       </button>
@@ -96,12 +93,9 @@
         @click="toggleExpanded"
       >
         <span class="assistant-step-icon" :title="iconLabel">
-          <svg v-if="status === 'running'" class="assistant-step-spinner" viewBox="0 0 20 20" aria-hidden="true">
-            <circle cx="10" cy="10" r="7.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-dasharray="34 14" />
-          </svg>
-          <WorkPanelTimelineIcon v-else :kind="iconKind" />
+          <WorkPanelTimelineIcon :kind="iconKind" />
         </span>
-        <span class="assistant-step-name">{{ titleText }}</span>
+        <span class="assistant-step-name" :class="{ 'is-shimmer': status === 'running' }">{{ titleText }}</span>
         <span v-if="summaryText" class="assistant-step-summary">{{ summaryText }}</span>
         <ChevronDown
           v-if="expandable"
@@ -491,8 +485,8 @@ function truncate(value, maxLength) {
   background: transparent;
   color: var(--color-text-secondary);
   font: inherit;
-  font-size: 11.5px;
-  line-height: 1.5;
+  font-size: 14px;
+  line-height: 1.7;
   text-align: left;
   cursor: pointer;
 }
@@ -513,16 +507,12 @@ function truncate(value, maxLength) {
   height: 14px;
 }
 
-.assistant-step-spinner {
-  display: block;
-  animation: assistant-step-spin 0.9s linear infinite;
-}
-
+/* 不加 color 过渡：shimmer 切换要求 color: transparent 与渐变背景同帧增减——
+   若 color 参与过渡，运行结束时渐变瞬间消失而文字从透明淡入，会闪一下。 */
 .assistant-step-name {
   flex-shrink: 0;
   color: var(--color-text-muted);
   font-weight: 500;
-  transition: color var(--transition-fast);
 }
 
 .assistant-step-summary {
@@ -547,8 +537,7 @@ function truncate(value, maxLength) {
   transform: rotate(180deg);
 }
 
-.assistant-step-row.status-running .assistant-step-icon,
-.assistant-step-row.status-running .assistant-step-name {
+.assistant-step-row.status-running .assistant-step-icon {
   color: var(--color-brand-accent);
 }
 
@@ -559,8 +548,7 @@ function truncate(value, maxLength) {
   color: var(--agent-accent, var(--color-text-muted));
 }
 
-.assistant-step-row.is-agent.status-running .assistant-step-icon,
-.assistant-step-row.is-agent.status-running .assistant-step-name {
+.assistant-step-row.is-agent.status-running .assistant-step-icon {
   color: var(--agent-accent, var(--color-brand-accent));
 }
 
@@ -574,6 +562,34 @@ function truncate(value, maxLength) {
 .assistant-step-row.status-error .assistant-step-name,
 .assistant-step-row.status-error .assistant-step-summary {
   color: var(--color-error);
+}
+
+/* 运行态"光拂过"：图标保持原样（仅着色），步骤名以掠过的高对比光带呈现运行
+   态——渐变裁切到文字上（background-clip: text），动画移动背景位置。基色用
+   muted、光带用 text-primary，明暗两种主题下光带都是对比度更高的扫过区。
+   无缝循环的数学约束：size 300% 且位移 150%→0%，总位移恰为一个瓦片周期
+   （两端相位相同），且两端名字都落在光带（42%~58%）之外的静默区——改
+   size/百分比必须重新满足这两条，否则循环接缝处会跳变。周期 3s：扫过
+   ~1.5s + 静默 ~1.5s。选择器带 .assistant-step-row 前缀并置于各名称着色
+   规则之后，确保 color: transparent 在 specificity/顺序上稳赢（否则实色
+   字会盖住渐变）。 */
+.assistant-step-row .assistant-step-name.is-shimmer {
+  background: linear-gradient(
+    100deg,
+    var(--color-text-muted) 42%,
+    var(--color-text-primary) 50%,
+    var(--color-text-muted) 58%
+  );
+  background-size: 300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: assistant-step-sweep 3s linear infinite;
+}
+
+@keyframes assistant-step-sweep {
+  from { background-position: 150% 0; }
+  to { background-position: 0% 0; }
 }
 
 /* 折叠容器（工具/agent 详情与子步骤）：max-height 由 useCollapsibleHeight 以实测高度内联
@@ -698,13 +714,11 @@ function truncate(value, maxLength) {
   color: var(--color-error);
 }
 
-@keyframes assistant-step-spin {
-  to { transform: rotate(360deg); }
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .assistant-step-spinner {
+  .assistant-step-row .assistant-step-name.is-shimmer {
     animation: none;
+    background: none;
+    color: inherit;
   }
 
   .assistant-step-detail-wrap,

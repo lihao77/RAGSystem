@@ -56,6 +56,9 @@ test('消息列表复用 Widget 的紧凑气泡和工具调用视觉结构', asy
   assert.equal(stepsSource.includes('`${toolCount.value} 个工具调用`'), true);
   assert.equal(nodeSource.includes('class="assistant-step-row"'), true);
   assert.equal(nodeSource.includes('class="assistant-step-detail-wrap"'), true);
+  // 运行态指示：图标保持不变，步骤名以“光拂过”shimmer 呈现（旋转 spinner 已移除）
+  assert.equal(nodeSource.includes('is-shimmer'), true);
+  assert.equal(nodeSource.includes('assistant-step-spinner'), false);
   assert.equal(styles.includes('--message-list-gap: 16px'), true);
   assert.equal(styles.includes('--message-bubble-radius: 16px'), true);
   assert.equal(styles.includes('max-width: 80%'), true);
