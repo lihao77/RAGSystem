@@ -55,7 +55,13 @@ const OUTBOX_GC_INTERVAL_MS = 60_000;
 export async function createLocalRuntimeContainer(options: LocalRuntimeContainerOptions): Promise<LocalRuntimeContainer> {
   const dataRoot = path.resolve(options.dataRoot ?? path.join(os.homedir(), ".ragsystem"));
   const conversationStore = createConversationStore({ dbPath: options.dbPath, dataRoot });
-  const agentConfig = new AgentConfigService(new FileAgentConfigTeamStore({ dataRoot: options.dataRoot, configRoot: options.agentConfigRoot }));
+  const lifecycle = options.lifecycleEvents
+    ? { tenantId: options.tenantId, publish: options.lifecycleEvents }
+    : null;
+  const agentConfig = new AgentConfigService(
+    new FileAgentConfigTeamStore({ dataRoot: options.dataRoot, configRoot: options.agentConfigRoot }),
+    lifecycle,
+  );
   await agentConfig.initialize();
   const agentMailbox = new LocalAgentMailboxStoreAdapter(conversationStore);
   const fileHistory = new FileHistoryService({ dataRoot });
@@ -71,6 +77,7 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
       ? conversationStore.getWorkspaceById(session.tenant_id, session.workspace_id)?.root_path ?? null
       : null,
     agentConfig,
+    lifecycle,
   );
   const requestSessionApplication = new LocalSessionApplication(options.tenantId, sessionApplication, conversationStore, agentConfig, executionEnvironment);
   const realtimeEvents = new RealtimeEventHub();

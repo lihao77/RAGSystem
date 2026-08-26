@@ -1,3 +1,4 @@
+import type { FastifyBaseLogger } from "fastify";
 import type { HookEvent, HookHandler, HookRegistry, Tool } from "@ragsystem/agent-sdk";
 import type { MessageContentPart } from "@ragsystem/agent-protocol";
 
@@ -156,6 +157,13 @@ interface BackendApplicationEventContribution {
 class BackendApplicationEventRegistry {
   private readonly contributions: BackendApplicationEventContribution[] = [];
 
+  /** 宿主注入的错误记录器：单个 handler 失败只记日志，不中断其余订阅方。 */
+  private handlerError: ((pluginId: string, event: string, error: unknown) => void) | null = null;
+
+  setHandlerErrorReporter(reporter: (pluginId: string, event: string, error: unknown) => void): void {
+    this.handlerError = reporter;
+  }
+
   forPlugin(pluginId: string): PluginEventRegistrar {
     return {
       on: (event, handler) => {
@@ -170,7 +178,13 @@ class BackendApplicationEventRegistry {
 
   async emit(event: string, payload: unknown): Promise<void> {
     for (const contribution of this.contributions) {
-      if (contribution.event === event) await contribution.handler(payload);
+      if (contribution.event !== event) continue;
+      try {
+        await contribution.handler(payload);
+      } catch (error) {
+        // 事件是尽力通知：订阅方异常不影响发布方（如实体删除）已提交的变更。
+        this.handlerError?.(contribution.pluginId, event, error);
+      }
     }
   }
 
@@ -493,6 +507,9 @@ export class BackendPluginManager {
   async initializeApplication(context: BackendPluginApplicationContext): Promise<void> {
     if (!this.registered) throw new Error("Plugins must be registered before application runtimes are initialized");
     if (this.applicationRuntime) throw new Error("Plugin application runtimes have already been initialized");
+    this.applicationEventRegistry.setHandlerErrorReporter((pluginId, event, error) => {
+      context.logger.error({ err: error, pluginId, event }, "Plugin application event handler failed");
+    });
     this.applicationRuntime = await this.applicationFactoryRegistry.create({
       ...context,
       resources: [

@@ -8,6 +8,7 @@ import { EXECUTION_ENVIRONMENT_CAPABILITY, createSaaSExecutionEnvironment } from
 
 import type { RuntimeContainer, SaaSRuntimeContainer } from "@ragsystem/backend-core/contracts/runtime/runtime-container.js";
 import type { TenantId } from "@ragsystem/backend-core/identity/types.js";
+import type { EntityLifecyclePublisher } from "@ragsystem/backend-core/contracts/runtime/entity-lifecycle-events.js";
 import { AgentConfigService } from "@ragsystem/backend-core/services/agent/config/index.js";
 import type { AgentExecutionLogger } from "@ragsystem/backend-core/services/agent/execution/index.js";
 import { AsyncKernelEventPersister } from "@ragsystem/backend-core/services/agent/sdk/async-event-persister.js";
@@ -40,6 +41,8 @@ export interface SaaSRuntimeContainerOptions {
   logger?: AgentExecutionLogger;
   hooks?: (registry: HookRegistry) => void;
   plugins?: BackendRuntimeContributions;
+  /** 宿主注入的实体生命周期事件发布端口；注入后领域服务的删除/重命名会广播生命周期事件。 */
+  lifecycleEvents?: EntityLifecyclePublisher;
   modelAdapterProvidersConfigPath?: string;
   sandboxDriver: SandboxDriver;
   sandboxLeaseTimeoutSeconds?: number;
@@ -72,7 +75,13 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
   });
   const fileHistory = conversationRuntime.createFileHistoryStorage(tenantId);
   const sessionFiles = conversationRuntime.createSessionFileStorage(tenantId);
-  const agentConfig = new AgentConfigService(conversationRuntime.createAgentConfigTeamStore(tenantId));
+  const lifecycle = options.lifecycleEvents
+    ? { tenantId, publish: options.lifecycleEvents }
+    : null;
+  const agentConfig = new AgentConfigService(
+    conversationRuntime.createAgentConfigTeamStore(tenantId),
+    lifecycle,
+  );
   await agentConfig.initialize();
   const sessionApplication = new SaaSSessionApplication(
     tenantId,
@@ -82,6 +91,7 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
     conversationRuntime.runs,
     conversationRuntime.outbox,
     conversationRuntime.workspaces,
+    lifecycle,
   );
   // SaaS providers are Postgres-backed; ModelAdapterService is a pure in-process projection.
   // Keep provider configuration process-local so create/update never writes providers.yaml under dataRoot.

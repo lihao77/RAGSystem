@@ -6,6 +6,8 @@ import type {
 import type { SessionHistoryPort } from "../../contracts/session/session-history.js";
 import { EnvelopeSchema, type Envelope, type MessageContentPart } from "@ragsystem/agent-protocol";
 import type { SessionResourceCleanup } from "../../contracts/session/session-resource-cleanup.js";
+import type { EntityLifecycleBinding } from "../../contracts/runtime/entity-lifecycle-events.js";
+import { SESSION_DELETED_EVENT } from "../../contracts/runtime/entity-lifecycle-events.js";
 import { assertSafeSessionId } from "../../contracts/session/session-id.js";
 import type { TenantId } from "../../identity/types.js";
 import type { PermissionMode } from "../../contracts/runtime/permissions.js";
@@ -20,6 +22,7 @@ export class AgentSessionApplication implements ExecutionSessionPort {
     private readonly resourceCleanup: SessionResourceCleanup | null = null,
     private readonly workspaceRootResolver: ((session: SessionInfo) => Promise<string | null>) | null = null,
     private readonly teamSnapshots: SessionTeamSnapshotResolver | null = null,
+    private readonly lifecycle: EntityLifecycleBinding | null = null,
   ) {}
 
   async createSession(input: CreateSessionRecordInput): Promise<SessionInfo> {
@@ -69,7 +72,15 @@ export class AgentSessionApplication implements ExecutionSessionPort {
   async deleteSession(sessionId: string): Promise<boolean> {
     await this.history?.cleanup(sessionId);
     const deleted = await this.repository.deleteSession(sessionId);
-    if (deleted) await this.resourceCleanup?.cleanupSessionResources(sessionId);
+    if (deleted) {
+      await this.resourceCleanup?.cleanupSessionResources(sessionId);
+      if (this.lifecycle) {
+        await this.lifecycle.publish(SESSION_DELETED_EVENT, {
+          tenantId: this.lifecycle.tenantId,
+          sessionId,
+        });
+      }
+    }
     return deleted;
   }
 

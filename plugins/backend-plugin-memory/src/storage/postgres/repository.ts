@@ -27,6 +27,22 @@ export interface PostgresQueryResult<Row extends Record<string, unknown> = Recor
   rowCount?: number;
 }
 
+/** scope 分区所在的三张表；清理与改名保持同删/同改。 */
+const MEMORY_PARTITION_TABLES = ["memory_entries", "memory_candidates", "memory_scope_revisions"] as const;
+
+/** agent scope_id 是 JSON.stringify([team, agent])；解析失败返回 null。 */
+function parseAgentScopeId(scopeId: string): [string, string] | null {
+  try {
+    const parsed = JSON.parse(scopeId) as unknown;
+    if (Array.isArray(parsed) && parsed.length === 2 && typeof parsed[0] === "string" && typeof parsed[1] === "string") {
+      return [parsed[0], parsed[1]];
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export interface PostgresMemoryExecutor {
   query<Row extends Record<string, unknown> = Record<string, unknown>>(sql: string, params?: readonly unknown[]): Promise<PostgresQueryResult<Row>>;
   transaction<T>(fn: (executor: PostgresMemoryExecutor) => Promise<T>): Promise<T>;
@@ -126,6 +142,68 @@ export class PostgresMemoryRepository implements TransactionalMemoryRepository {
   async getEntry(tenantId: string, memoryId: string): Promise<PersistedMemoryEntry | null> {
     const result = await this.executor.query("SELECT * FROM memory_entries WHERE tenant_id = $1 AND id = $2", [tenantId, memoryId]);
     return result.rows[0] ? entry(result.rows[0]) : null;
+  }
+
+  /** 实体清理/对账用：枚举某 scope 在三张表里出现过的全部分区 key。 */
+  async listScopeIds(tenantId: string, scope: "session" | "team" | "agent"): Promise<string[]> {
+    const result = await this.executor.query<{ scope_id: string }>(`
+      SELECT scope_id FROM (
+        SELECT DISTINCT scope_id FROM memory_entries WHERE tenant_id = $1 AND scope = $2
+        UNION SELECT DISTINCT scope_id FROM memory_candidates WHERE tenant_id = $1 AND scope = $2
+        UNION SELECT DISTINCT scope_id FROM memory_scope_revisions WHERE tenant_id = $1 AND scope = $2
+      ) partitions
+    `, [tenantId, scope]);
+    return result.rows.map((row) => row.scope_id);
+  }
+
+  /** 删除分区（条目 + 候选 + 版本行）三表同删；返回删除总行数。 */
+  async deletePartitions(
+    tenantId: string,
+    partitions: ReadonlyArray<{ scope: string; scope_id: string }>,
+  ): Promise<number> {
+    let deleted = 0;
+    await this.executor.transaction(async (tx) => {
+      for (const partition of partitions) {
+        for (const table of MEMORY_PARTITION_TABLES) {
+          const result = await tx.query(
+            `DELETE FROM ${table} WHERE tenant_id = $1 AND scope = $2 AND scope_id = $3`,
+            [tenantId, partition.scope, partition.scope_id],
+          );
+          deleted += Number(result.rowCount ?? 0);
+        }
+      }
+    });
+    return deleted;
+  }
+
+  /** team 重命名：team 分区直改 scope_id；agent 分区是 ["team","agent"] JSON 串，逐行重写首元素。 */
+  async renameTeamPartitions(tenantId: string, previousTeamName: string, teamName: string): Promise<void> {
+    await this.executor.transaction(async (tx) => {
+      for (const table of MEMORY_PARTITION_TABLES) {
+        await tx.query(
+          `UPDATE ${table} SET scope_id = $3 WHERE tenant_id = $1 AND scope = 'team' AND scope_id = $2`,
+          [tenantId, previousTeamName, teamName],
+        );
+      }
+      const agents = await tx.query<{ scope_id: string }>(`
+        SELECT scope_id FROM (
+          SELECT DISTINCT scope_id FROM memory_entries WHERE tenant_id = $1 AND scope = 'agent'
+          UNION SELECT DISTINCT scope_id FROM memory_candidates WHERE tenant_id = $1 AND scope = 'agent'
+          UNION SELECT DISTINCT scope_id FROM memory_scope_revisions WHERE tenant_id = $1 AND scope = 'agent'
+        ) partitions
+      `, [tenantId]);
+      for (const row of agents.rows) {
+        const parsed = parseAgentScopeId(row.scope_id);
+        if (!parsed || parsed[0] !== previousTeamName) continue;
+        const nextScopeId = JSON.stringify([teamName, parsed[1]]);
+        for (const table of MEMORY_PARTITION_TABLES) {
+          await tx.query(
+            `UPDATE ${table} SET scope_id = $3 WHERE tenant_id = $1 AND scope = 'agent' AND scope_id = $2`,
+            [tenantId, row.scope_id, nextScopeId],
+          );
+        }
+      }
+    });
   }
 
   async listEntries(partition: MemoryPartition, options: PersistedMemoryListOptions = {}): Promise<PersistedMemoryEntry[]> {

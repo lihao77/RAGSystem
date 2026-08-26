@@ -1,6 +1,7 @@
 import type { MemoryPluginRuntimeFactory } from "../../dependencies.js";
 import { configureMemoryHooks } from "../../runtime-hook.js";
 import { createMemoryApplication } from "../../services/memory/memory-application.js";
+import { startSessionMemoryReconciliation } from "../../services/memory/session-reconcile.js";
 import { SaaSMemoryToolService } from "../../tools/SaaSMemoryExecution.js";
 import { SaaSMemoryContextRepository } from "./memory-context-repository.js";
 import { PostgresMemoryRepository, type PostgresMemoryExecutor } from "./repository.js";
@@ -13,23 +14,68 @@ export function createPostgresMemoryRuntimeFactory(options: {
 }): MemoryPluginRuntimeFactory {
   const repository = new PostgresMemoryRepository(options.executor);
   return (context) => {
-    const application = createMemoryApplication(context.tenantId, repository);
+    const tenantId = context.tenantId;
+    const application = createMemoryApplication(tenantId, repository);
     const contextRepository = new SaaSMemoryContextRepository(application.query);
-    const agentConfig = new MemoryAgentConfigService(
-      new PostgresMemoryAgentConfigStore(options.executor, context.tenantId),
-    );
+    const agentConfigStore = new PostgresMemoryAgentConfigStore(options.executor, tenantId);
+    const agentConfig = new MemoryAgentConfigService(agentConfigStore);
+    const sessionReconciliation = startSessionMemoryReconciliation({
+      listSessionScopeIds: () => repository.listScopeIds(tenantId, "session"),
+      getSession: (sessionId) => context.sessions.getSession(sessionId),
+      purgeSession: async (sessionId) => (await repository.deletePartitions(tenantId, [
+        { scope: "session", scope_id: sessionId },
+      ])) > 0,
+    });
     return {
       tools: new SaaSMemoryToolService(application, context.sessions),
       agentConfig,
       createApplication: () => application,
+      purge: async (input) => {
+        if (input.scope === "session") {
+          const deleted = await repository.deletePartitions(tenantId, [
+            { scope: "session", scope_id: input.sessionId },
+          ]);
+          return deleted > 0;
+        }
+        if (input.scope === "agent") {
+          await agentConfigStore.deleteByTarget(input.teamName, input.agentName);
+          const deleted = await repository.deletePartitions(tenantId, [
+            { scope: "agent", scope_id: JSON.stringify([input.teamName, input.agentName]) },
+          ]);
+          return deleted > 0;
+        }
+        await agentConfigStore.deleteByTarget(input.teamName);
+        const agentScopeIds = (await repository.listScopeIds(tenantId, "agent"))
+          .map((scopeId) => parseAgentTeamName(scopeId) === input.teamName ? scopeId : null)
+          .filter((scopeId): scopeId is string => scopeId !== null);
+        const deleted = await repository.deletePartitions(tenantId, [
+          { scope: "team", scope_id: input.teamName },
+          ...agentScopeIds.map((scopeId) => ({ scope: "agent", scope_id: scopeId })),
+        ]);
+        return deleted > 0;
+      },
+      migrateTeam: async (previousTeamName, teamName) => {
+        await agentConfigStore.renameTeam(previousTeamName, teamName);
+        await repository.renameTeamPartitions(tenantId, previousTeamName, teamName);
+      },
       configureHooks: (registry) => configureMemoryHooks(registry, {
         context,
         agentConfig,
         repository: contextRepository,
-        listCandidates: (input) => listPostgresCandidates(repository, context.tenantId, input),
+        listCandidates: (input) => listPostgresCandidates(repository, tenantId, input),
       }),
+      dispose: () => sessionReconciliation.stop(),
     };
   };
+}
+
+function parseAgentTeamName(scopeId: string): string | null {
+  try {
+    const parsed = JSON.parse(scopeId) as unknown;
+    return Array.isArray(parsed) && typeof parsed[0] === "string" ? parsed[0] : null;
+  } catch {
+    return null;
+  }
 }
 
 async function listPostgresCandidates(

@@ -72,7 +72,9 @@ export async function buildCoreApp(options: CoreBuildAppOptions): Promise<Fastif
     resolve: (request, scope) => runtime.identityProvider.resolve(request, scope),
   };
   const runtimeContributions = pluginManager.runtimeContributions(deployment.hostResources ?? []);
-  const registry = await deployment.createRegistry(app.log, runtimeContributions);
+  const registry = await deployment.createRegistry(app.log, runtimeContributions, {
+    emitLifecycleEvent: (event, payload) => pluginManager.emit(event, payload),
+  });
   const wsTickets = deployment.wsTickets;
   await pluginManager.initializeApplication({
     logger: app.log,

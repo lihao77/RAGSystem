@@ -46,4 +46,24 @@ export class SqliteMemoryAgentConfigStore implements MemoryAgentConfigStore {
     ).run(this.tenantId, key.teamName, key.agentName);
     return Number(result.changes) > 0;
   }
+
+  /** 删除 team（可选缩到单个 agent）名下的记忆配置；返回删除行数。 */
+  deleteByTarget(teamName: string, agentName?: string | null): number {
+    const result = agentName
+      ? this.db.prepare(
+        "DELETE FROM memory_agent_configs WHERE tenant_id = ? AND team_name = ? AND agent_name = ?",
+      ).run(this.tenantId, teamName, agentName)
+      : this.db.prepare(
+        "DELETE FROM memory_agent_configs WHERE tenant_id = ? AND team_name = ?",
+      ).run(this.tenantId, teamName);
+    return Number(result.changes);
+  }
+
+  /** team 重命名：记忆配置行跟随迁移；返回更新行数。 */
+  renameTeam(previousTeamName: string, teamName: string): number {
+    const result = this.db.prepare(
+      "UPDATE memory_agent_configs SET team_name = ?, updated_at = CURRENT_TIMESTAMP WHERE tenant_id = ? AND team_name = ?",
+    ).run(teamName, this.tenantId, previousTeamName);
+    return Number(result.changes);
+  }
 }

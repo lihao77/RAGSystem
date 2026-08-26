@@ -336,6 +336,47 @@ export class MemoryStore {
     });
   }
 
+  /**
+   * 删除整个 scope 目录（索引 + 全部条目）。锁文件自身最后清理：
+   * proper-lockfile 的锁文件位于 scope 目录内，先删会让 release 失效。
+   */
+  async purgeScope(scopeSpec: MemoryScopeSpec): Promise<boolean> {
+    const scopeRoot = this.getScopeRoot(scopeSpec);
+    if (!scopeRoot || !fs.existsSync(scopeRoot)) return false;
+    const lockArtifacts = new Set([".memory-scope", ".memory-scope.lock"]);
+    await this.withScopeLock(scopeRoot, async () => {
+      for (const entry of await fs.promises.readdir(scopeRoot)) {
+        if (lockArtifacts.has(entry)) continue;
+        await fs.promises.rm(path.join(scopeRoot, entry), { recursive: true, force: true });
+      }
+    });
+    await fs.promises.rm(scopeRoot, { recursive: true, force: true });
+    return true;
+  }
+
+  /** team 重命名时整体迁移记忆目录（team scope 与其下全部 agent scope）。 */
+  async migrateTeamScope(previousTeamName: string, teamName: string): Promise<boolean> {
+    const previousRoot = this.teamRoot(previousTeamName);
+    const nextRoot = this.teamRoot(teamName);
+    if (!fs.existsSync(previousRoot) || previousRoot === nextRoot) return false;
+    fs.mkdirSync(path.dirname(nextRoot), { recursive: true });
+    await fs.promises.rename(previousRoot, nextRoot);
+    return true;
+  }
+
+  /** session 对账用：列出落盘的 session scope 目录名（即 sessionId）。 */
+  listSessionScopeIds(): string[] {
+    const memoryRoot = path.join(this.dataRoot, "memory");
+    return listChildDirectories(path.join(memoryRoot, "sessions"));
+  }
+
+  private teamRoot(teamName: string): string {
+    const memoryRoot = path.join(this.dataRoot, "memory");
+    const normalized = normalizePathSegment(teamName, "team_name");
+    if (!normalized) throw new Error("team scope 缺少 team_name");
+    return resolveScopePath(memoryRoot, "teams", normalized);
+  }
+
   async archiveMemoryWithCommit(
     scopeSpec: MemoryScopeSpec,
     fileName: string,

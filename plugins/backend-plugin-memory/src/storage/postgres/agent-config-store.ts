@@ -36,4 +36,23 @@ export class PostgresMemoryAgentConfigStore implements MemoryAgentConfigStore {
     );
     return Number(result.rowCount ?? 0) > 0;
   }
+
+  /** 删除 team（可选缩到单个 agent）名下的记忆配置；返回删除行数。 */
+  async deleteByTarget(teamName: string, agentName?: string | null): Promise<number> {
+    const sql = agentName
+      ? "DELETE FROM memory_agent_configs WHERE tenant_id = $1 AND team_name = $2 AND agent_name = $3"
+      : "DELETE FROM memory_agent_configs WHERE tenant_id = $1 AND team_name = $2";
+    const params = agentName ? [this.tenantId, teamName, agentName] : [this.tenantId, teamName];
+    const result = await this.executor.query(sql, params);
+    return Number(result.rowCount ?? 0);
+  }
+
+  /** team 重命名：记忆配置行跟随迁移；返回更新行数。 */
+  async renameTeam(previousTeamName: string, teamName: string): Promise<number> {
+    const result = await this.executor.query(
+      "UPDATE memory_agent_configs SET team_name = $3, updated_at = CURRENT_TIMESTAMP WHERE tenant_id = $1 AND team_name = $2",
+      [this.tenantId, previousTeamName, teamName],
+    );
+    return Number(result.rowCount ?? 0);
+  }
 }

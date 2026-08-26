@@ -144,13 +144,14 @@ export async function createSaaSDeploymentRuntime(env: AppEnv): Promise<SaaSDepl
     },
     applications: deploymentApplications,
     validateProfile: validateSaaSProfile,
-    createRegistry: (logger, plugins) => new SaaSTenantRuntimeRegistry(
+    createRegistry: (logger, plugins, host) => new SaaSTenantRuntimeRegistry(
       env,
       control.controlPlane.tenants,
       conversation,
       logger,
       {
         ...(plugins ? { plugins } : {}),
+        ...(host ? { lifecycleEvents: host.emitLifecycleEvent } : {}),
       },
     ),
     createIdentityProvider: (authMode, sessionTokens) => {

@@ -9,6 +9,7 @@ import type { ExecutionStorage } from "@ragsystem/backend-core/contracts/executi
 import type { PathAccessPolicy } from "@ragsystem/backend-core/contracts/runtime/path-access-policy.js";
 import type { RuntimeStorage } from "@ragsystem/backend-core/contracts/storage/runtime-storage.js";
 import type { AgentSessionApplication } from "@ragsystem/backend-core/services/sessions/index.js";
+import type { EntityLifecyclePublisher } from "@ragsystem/backend-core/contracts/runtime/entity-lifecycle-events.js";
 import type { BackendRuntimeContributions } from "@ragsystem/backend-core/plugins/backend-plugin.js";
 import type { ConversationStore } from "./sqlite/conversation-store/index.js";
 
@@ -30,6 +31,8 @@ export interface LocalRuntimeContainerOptions {
   outboxDispatcherIntervalMs?: number;
   hooks?: (registry: HookRegistry) => void;
   plugins?: BackendRuntimeContributions;
+  /** 宿主注入的实体生命周期事件发布端口（core-app 经 DeploymentRuntime 透传）。 */
+  lifecycleEvents?: EntityLifecyclePublisher;
   clientEventsFactory?: (
     tenantId: TenantId,
     realtimeEvents: RealtimeEventBus,

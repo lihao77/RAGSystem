@@ -8,6 +8,8 @@ import type { CreateSessionRecordInput, MessageInfo, SessionCreateInput, Session
 import { normalizeSessionMetadata } from "@ragsystem/backend-core/contracts/session/session.js";
 import { assertSafeSessionId } from "@ragsystem/backend-core/contracts/session/session-id.js";
 import type { AsyncFileHistoryStore } from "@ragsystem/backend-core/contracts/file-history-store/index.js";
+import type { EntityLifecycleBinding } from "@ragsystem/backend-core/contracts/runtime/entity-lifecycle-events.js";
+import { SESSION_DELETED_EVENT } from "@ragsystem/backend-core/contracts/runtime/entity-lifecycle-events.js";
 import type { RunInfo } from "@ragsystem/backend-core/contracts/conversation-store/index.js";
 import { EnvelopeSchema, type Envelope } from "@ragsystem/agent-protocol";
 import { TenantSessionIdentityApplication } from "@ragsystem/backend-core/services/sessions/session-identity-application.js";
@@ -25,6 +27,7 @@ export class SaaSSessionApplication implements SessionApplication, ExecutionSess
     private readonly runs: AsyncRunStore | null = null,
     _outbox: ExecutionReplayRepositoryPort | null = null,
     private readonly workspaces: WorkspaceRepositoryPort | null = null,
+    private readonly lifecycle: EntityLifecycleBinding | null = null,
   ) {
     this.sessionIdentities = new TenantSessionIdentityApplication(tenantId, {
       getSession: (sessionId) => repository.getSession(sessionId),
@@ -103,7 +106,14 @@ export class SaaSSessionApplication implements SessionApplication, ExecutionSess
   async deleteSession(sessionId: string): Promise<boolean> {
     if (!(await this.getSession(sessionId))) return false;
     await this.fileHistory?.cleanup(sessionId);
-    return this.repository.deleteSession(sessionId);
+    const deleted = await this.repository.deleteSession(sessionId);
+    if (deleted && this.lifecycle) {
+      await this.lifecycle.publish(SESSION_DELETED_EVENT, {
+        tenantId: this.tenantId,
+        sessionId,
+      });
+    }
+    return deleted;
   }
   async listMessages(input: { sessionId: string; limit?: number; offset?: number; threadKey?: string | null }): Promise<SessionMessageListSnapshot | null> {
     if (!(await this.getSession(input.sessionId))) return null;

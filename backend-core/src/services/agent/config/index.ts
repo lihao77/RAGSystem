@@ -27,6 +27,12 @@ import {
   type TeamConfigs,
 } from "./configs.js";
 import type { IAgentConfigTeamStore } from "../../../contracts/agent/team-store.js";
+import type { EntityLifecycleBinding } from "../../../contracts/runtime/entity-lifecycle-events.js";
+import {
+  AGENT_DELETED_EVENT,
+  TEAM_DELETED_EVENT,
+  TEAM_RENAMED_EVENT,
+} from "../../../contracts/runtime/entity-lifecycle-events.js";
 import { computeSessionTeamRevision, type SessionTeamSnapshot } from "../../../contracts/session/session.js";
 import { listAvailableTools as listAvailableRuntimeTools } from "./tools.js";
 import { toYaml } from "./yaml.js";
@@ -40,11 +46,13 @@ export class AgentConfigService {
   private activeTeam = "default";
   private readonly teams = new Map<string, TeamConfigs>();
   private readonly teamStore: IAgentConfigTeamStore;
+  private readonly lifecycle: EntityLifecycleBinding | null;
   private initialized = false;
   private initializePromise: Promise<void> | null = null;
 
-  constructor(teamStore: IAgentConfigTeamStore) {
+  constructor(teamStore: IAgentConfigTeamStore, lifecycle: EntityLifecycleBinding | null = null) {
     this.teamStore = teamStore;
+    this.lifecycle = lifecycle;
     this.teams.set("default", new Map(Object.entries(buildDefaultAgentConfigs())));
   }
 
@@ -170,11 +178,13 @@ export class AgentConfigService {
 
   async deleteConfig(agentName: string, options: { teamName?: string | null } = {}): Promise<boolean> {
     await this.ensureInitialized();
+    const teamName = this.resolveTeamNameForWrite(options.teamName);
     const configs = this.getConfigsForWrite(options.teamName);
     const deleted = configs.delete(agentName);
     if (deleted) {
       this.purgeAgentReferences(configs, agentName);
       await this.saveAll();
+      await this.publishAgentDeleted(teamName, agentName);
     }
     return deleted;
   }
@@ -247,6 +257,7 @@ export class AgentConfigService {
 
   async deleteAgent(agentName: string, options: { teamName?: string | null } = {}): Promise<boolean> {
     await this.ensureInitialized();
+    const teamName = this.resolveTeamNameForWrite(options.teamName);
     const normalized = normalizeAgentName(agentName);
     const configs = this.getConfigsForWrite(options.teamName);
     const config = configs.get(normalized);
@@ -260,6 +271,7 @@ export class AgentConfigService {
     if (deleted) {
       this.purgeAgentReferences(configs, normalized);
       await this.saveAll();
+      await this.publishAgentDeleted(teamName, normalized);
     }
     return deleted;
   }
@@ -312,6 +324,12 @@ export class AgentConfigService {
     }
     await this.teamStore.removeTeam(normalized);
     await this.saveAll();
+    if (this.lifecycle) {
+      await this.lifecycle.publish(TEAM_DELETED_EVENT, {
+        tenantId: this.lifecycle.tenantId,
+        teamName: normalized,
+      });
+    }
     return this.listTeams();
   }
 
@@ -335,6 +353,13 @@ export class AgentConfigService {
       await this.teamStore.renameTeam(current, next);
     }
     await this.saveAll();
+    if (this.lifecycle && current !== next) {
+      await this.lifecycle.publish(TEAM_RENAMED_EVENT, {
+        tenantId: this.lifecycle.tenantId,
+        previousTeamName: current,
+        teamName: next,
+      });
+    }
     return this.listTeams();
   }
 
@@ -373,6 +398,7 @@ export class AgentConfigService {
     if (!this.teams.has(normalizedTeamName)) {
       await this.createTeam(normalizedTeamName, normalizedSourceTeam);
     }
+    const previousConfigs = this.teams.get(normalizedTeamName) ?? new Map<string, AgentConfig>();
 
     const nextConfigs = new Map<string, AgentConfig>();
     const defaultEntries: string[] = [];
@@ -399,6 +425,7 @@ export class AgentConfigService {
 
     this.teams.set(normalizedTeamName, nextConfigs);
     await this.saveAll();
+    await this.publishRemovedAgents(normalizedTeamName, previousConfigs, nextConfigs);
     return {
       team_name: normalizedTeamName,
       agent_count: nextConfigs.size,
@@ -409,11 +436,14 @@ export class AgentConfigService {
 
   async resetDefaultTeam(): Promise<TeamSummary> {
     await this.ensureInitialized();
-    this.teams.set("default", new Map(Object.entries(buildDefaultAgentConfigs())));
+    const previousConfigs = this.teams.get("default") ?? new Map<string, AgentConfig>();
+    const nextConfigs = new Map<string, AgentConfig>(Object.entries(buildDefaultAgentConfigs()));
+    this.teams.set("default", nextConfigs);
     if (!this.teams.has(this.activeTeam)) {
       this.activeTeam = "default";
     }
     await this.saveAll();
+    await this.publishRemovedAgents("default", previousConfigs, nextConfigs);
     return this.listTeams();
   }
 
@@ -433,6 +463,33 @@ export class AgentConfigService {
   private getConfigsForWrite(teamName?: string | null): TeamConfigs {
     const normalized = teamName?.trim();
     return normalized ? this.getTeamConfigs(normalized) : this.getActiveConfigs();
+  }
+
+  /** 事件 payload 用的 team 名：与 getConfigsForWrite 同一寻址规则（归一化/激活回退）。 */
+  private resolveTeamNameForWrite(teamName?: string | null): string {
+    const normalized = teamName?.trim();
+    return normalized ? normalizeTeamName(normalized) : this.activeTeam;
+  }
+
+  private async publishAgentDeleted(teamName: string, agentName: string): Promise<void> {
+    if (!this.lifecycle) return;
+    await this.lifecycle.publish(AGENT_DELETED_EVENT, {
+      tenantId: this.lifecycle.tenantId,
+      teamName,
+      agentName,
+    });
+  }
+
+  /** 整组替换配置（applyTeamPayload/resetDefaultTeam）后被移除的 agent 同样是删除事实。 */
+  private async publishRemovedAgents(
+    teamName: string,
+    previous: Map<string, AgentConfig>,
+    next: Map<string, AgentConfig>,
+  ): Promise<void> {
+    if (!this.lifecycle) return;
+    for (const agentName of previous.keys()) {
+      if (!next.has(agentName)) await this.publishAgentDeleted(teamName, agentName);
+    }
   }
 
   private resolveConfigsForRead(teamName?: string | null): TeamConfigs | null {

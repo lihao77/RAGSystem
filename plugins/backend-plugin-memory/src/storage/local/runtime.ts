@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 import type { MemoryPluginRuntimeFactory } from "../../dependencies.js";
 import { configureMemoryHooks } from "../../runtime-hook.js";
 import { MemoryToolService } from "../../tools/MemoryExecution.js";
+import { startSessionMemoryReconciliation } from "../../services/memory/session-reconcile.js";
 import { MemoryCandidateOps } from "./candidate-store.js";
 import { LocalMemoryCandidateCommandAdapter } from "./memory-candidate-command-adapter.js";
 import { LocalMemoryContextRepository } from "./memory-context-repository.js";
@@ -39,9 +40,13 @@ export function createLocalMemoryRuntimeFactory(): MemoryPluginRuntimeFactory {
       new LocalMemoryCandidateCommandAdapter(candidates),
       context.tenantId,
     );
-    const agentConfig = new MemoryAgentConfigService(
-      new SqliteMemoryAgentConfigStore(db, context.tenantId),
-    );
+    const agentConfigStore = new SqliteMemoryAgentConfigStore(db, context.tenantId);
+    const agentConfig = new MemoryAgentConfigService(agentConfigStore);
+    const sessionReconciliation = startSessionMemoryReconciliation({
+      listSessionScopeIds: () => memory.listSessionScopeIds(),
+      getSession: (sessionId) => context.sessions.getSession(sessionId),
+      purgeSession: (sessionId) => memory.purgeScope({ scope: "session", session_id: sessionId }),
+    });
 
     return {
       tools,
@@ -53,13 +58,34 @@ export function createLocalMemoryRuntimeFactory(): MemoryPluginRuntimeFactory {
         viewerUserId,
         viewerSessionIds,
       ),
+      purge: async (input) => {
+        if (input.scope === "session") {
+          return memory.purgeScope({ scope: "session", session_id: input.sessionId });
+        }
+        if (input.scope === "agent") {
+          agentConfigStore.deleteByTarget(input.teamName, input.agentName);
+          candidates.deleteMemoryCandidatesByTarget(input.teamName, input.agentName);
+          return memory.purgeScope({ scope: "agent", team_name: input.teamName, agent_name: input.agentName });
+        }
+        agentConfigStore.deleteByTarget(input.teamName);
+        candidates.deleteMemoryCandidatesByTarget(input.teamName);
+        return memory.purgeScope({ scope: "team", team_name: input.teamName });
+      },
+      migrateTeam: async (previousTeamName, teamName) => {
+        agentConfigStore.renameTeam(previousTeamName, teamName);
+        candidates.renameMemoryCandidateTeam(previousTeamName, teamName);
+        await memory.migrateTeamScope(previousTeamName, teamName);
+      },
       configureHooks: (registry) => configureMemoryHooks(registry, {
         context,
         agentConfig,
         repository,
         listCandidates: async (input) => candidates.listMemoryCandidates(input),
       }),
-      dispose: () => db.close(),
+      dispose: () => {
+        sessionReconciliation.stop();
+        db.close();
+      },
     };
   };
 }

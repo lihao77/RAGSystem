@@ -7,6 +7,7 @@ import type { RuntimeContainerRegistry } from "../services/runtime/runtime-conta
 import type { SessionTokenService } from "../services/runtime/session-token-service.js";
 import type { WsTicketService } from "../services/runtime/ws-ticket-service.js";
 import type { BackendPluginResourceContribution, BackendRuntimeContributions } from "../plugins/backend-plugin.js";
+import type { EntityLifecyclePublisher } from "../contracts/runtime/entity-lifecycle-events.js";
 import type { DeploymentProfile } from "../identity/types.js";
 
 export interface DeploymentApplicationResolvers {
@@ -26,6 +27,11 @@ export interface DeploymentApplicationResolvers {
  * Implementations belong to backend-local or backend-saas; shared code must not
  * inspect storage modes or instantiate infrastructure adapters.
  */
+/** 宿主提供给部署组合的服务：领域服务经此发布实体生命周期事件到插件总线。 */
+export interface DeploymentHostServices {
+  emitLifecycleEvent: EntityLifecyclePublisher;
+}
+
 export interface DeploymentRuntime {
   readonly controlPlane: ControlPlane;
   readonly applications: DeploymentApplicationResolvers;
@@ -36,6 +42,7 @@ export interface DeploymentRuntime {
   createRegistry(
     logger: FastifyBaseLogger,
     plugins?: BackendRuntimeContributions,
+    host?: DeploymentHostServices,
   ): RuntimeContainerRegistry | Promise<RuntimeContainerRegistry>;
   createIdentityProvider(
     authMode: string,

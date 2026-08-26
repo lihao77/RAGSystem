@@ -82,6 +82,21 @@ export class MemoryCandidateOps {
     return Number(row.total);
   }
 
+  /** 删除 team（可选缩到单个 agent）名下的全部候选记录；返回删除行数。 */
+  deleteMemoryCandidatesByTarget(teamName: string, agentName?: string | null): number {
+    const result = agentName
+      ? this.db.prepare("DELETE FROM memory_candidates WHERE team_name=? AND agent_name=?").run(teamName, agentName)
+      : this.db.prepare("DELETE FROM memory_candidates WHERE team_name=?").run(teamName);
+    return Number(result.changes);
+  }
+
+  /** team 重命名：候选记录的 team_name 跟随迁移；返回更新行数。 */
+  renameMemoryCandidateTeam(previousTeamName: string, teamName: string): number {
+    const result = this.db.prepare("UPDATE memory_candidates SET team_name=? WHERE team_name=?")
+      .run(teamName, previousTeamName);
+    return Number(result.changes);
+  }
+
   claimMemoryCandidate(id: string, reviewerUserId: string): { attemptId: string; claimedAt: string } | null {
     const attemptId = randomUUID();
     const result = this.db.prepare(`

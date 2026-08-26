@@ -7,6 +7,7 @@ import type { TenantDirectory } from "@ragsystem/backend-core/contracts/control-
 import type { RuntimeContainer } from "@ragsystem/backend-core/contracts/runtime/runtime-container.js";
 import type { TenantId } from "@ragsystem/backend-core/identity/types.js";
 import type { AgentExecutionLogger } from "@ragsystem/backend-core/services/agent/execution/index.js";
+import type { EntityLifecyclePublisher } from "@ragsystem/backend-core/contracts/runtime/entity-lifecycle-events.js";
 import { TenantRuntimeRegistryCore } from "@ragsystem/backend-core/services/runtime/tenant-runtime-registry.js";
 import type { RuntimeContainerRegistry } from "@ragsystem/backend-core/services/runtime/runtime-container-registry.js";
 import type { SaaSConversationRuntimeHandle } from "./saas-conversation-runtime.js";
@@ -20,6 +21,8 @@ export interface SaaSTenantRuntimeRegistryOptions {
   sandboxDriver?: SandboxDriver;
   hooks?: (registry: HookRegistry) => void;
   plugins?: BackendRuntimeContributions;
+  /** 宿主注入的实体生命周期事件发布端口（core-app 经 DeploymentRuntime 透传）。 */
+  lifecycleEvents?: EntityLifecyclePublisher;
 }
 
 /** SaaS deployment adapter around the shared tenant runtime lifecycle. */
@@ -59,6 +62,7 @@ export class SaaSTenantRuntimeRegistry
           ...(logger ? { logger } : {}),
           ...(options.hooks ? { hooks: options.hooks } : {}),
           ...(options.plugins ? { plugins: options.plugins } : {}),
+          ...(options.lifecycleEvents ? { lifecycleEvents: options.lifecycleEvents } : {}),
         });
         try {
           await runtime.backgroundTasks.initialize();

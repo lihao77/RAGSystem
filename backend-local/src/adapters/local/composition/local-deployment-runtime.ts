@@ -66,11 +66,16 @@ export async function createLocalDeploymentRuntime(env: AppEnv): Promise<LocalDe
     hostResources,
     validateProfile: validateLocalProfile,
     wsTickets,
-    createRegistry: (logger, plugins) => new LocalTenantRuntimeRegistry(
+    createRegistry: (logger, plugins, host) => new LocalTenantRuntimeRegistry(
       env,
       controlPlane.tenants,
       logger,
-      plugins ? { runtimeOptions: { plugins } } : {},
+      {
+        runtimeOptions: {
+          ...(plugins ? { plugins } : {}),
+          ...(host ? { lifecycleEvents: host.emitLifecycleEvent } : {}),
+        },
+      },
     ),
     createIdentityProvider: async (authMode) => {
       const identityProvider = createLocalIdentityProvider(authMode, controlPlane);
