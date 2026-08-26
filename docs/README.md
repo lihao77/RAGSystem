@@ -27,6 +27,7 @@ This directory is the canonical repository-level documentation center for mainli
 - [refactor/ADAPTIVE_AGENT_EXPERIENCE_PLAN.md](refactor/ADAPTIVE_AGENT_EXPERIENCE_PLAN.md) — AutoDream 记忆治理方案 / AutoDream memory governance plan
 - [refactor/CLAUDE_CODE_ALIGNMENT_PLAN.md](refactor/CLAUDE_CODE_ALIGNMENT_PLAN.md) — Claude Code 对标演进路线图 / alignment roadmap vs Claude Code
 - [refactor/TOOLING_GAP_ANALYSIS_VS_CLAUDE_CODE.md](refactor/TOOLING_GAP_ANALYSIS_VS_CLAUDE_CODE.md) — 工具体系差异分析 / tooling gap analysis vs Claude Code
+- [refactor/PLUGIN_EXTENSION_SURFACE_PLAN.md](refactor/PLUGIN_EXTENSION_SURFACE_PLAN.md) — Core 向插件开放的能力路线（生命周期事件闭环、总线语义、会话流渲染）/ plugin extension surface roadmap
 
 ## 归档文档 / Archived documents
 
