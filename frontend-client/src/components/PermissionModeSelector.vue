@@ -182,6 +182,14 @@ watch(() => props.sessionId, sessionId => {
   color: var(--color-error);
 }
 
+/* 聚焦指示改用与 hover 一致的背景；覆盖全局 outline 与 Button 变体的 focus ring，
+   避免点击瞬间轮廓/光圈闪现（button 选择器抬高优先级以盖过 tailwind focus-visible:ring-1） */
+button.permission-mode-trigger:focus-visible {
+  outline: none;
+  box-shadow: none;
+  background: var(--color-hover-overlay);
+}
+
 .mode-option-icon {
   flex-shrink: 0;
   color: var(--color-text-secondary);

@@ -199,6 +199,13 @@ defineExpose({ getSelection });
   position: relative;
   user-select: none;
   box-shadow: var(--shadow-sm);
+  /* 覆盖 shadcn Trigger 带来的 tailwind outline-none（=2px solid transparent）。
+     outline 样式保持 none：配合 transition:all，若样式为 solid，焦点进出时
+     outline 颜色补间会在按钮周围产生一圈渐隐的白色轮廓（点击闪现） */
+  outline: none;
+}
+.llm-select-trigger:focus-visible {
+  border-color: var(--color-border-focus);
 }
 .llm-select-trigger:hover:not(.disabled) {
   background-color: var(--color-interactive-hover);
@@ -234,7 +241,13 @@ defineExpose({ getSelection });
 }
 
 .llm-selector--composer .llm-select-trigger.open {
-  border-color: var(--color-border-focus);
+  background: var(--color-hover-overlay);
+}
+
+/* 聚焦指示改用与 hover 一致的背景；避免点击瞬间轮廓/光圈闪现 */
+.llm-selector--composer .llm-select-trigger:focus-visible {
+  outline: none;
+  box-shadow: none;
   background: var(--color-hover-overlay);
 }
 

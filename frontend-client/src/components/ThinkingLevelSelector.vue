@@ -14,7 +14,13 @@
           <IconChevronDown class="arrow-icon" :class="{ rotate: open }" :size="14" />
         </button>
       </PopoverTrigger>
-      <PopoverContent class="thinking-popover p-0" align="start" side="top" :side-offset="8">
+      <PopoverContent
+      class="thinking-popover p-0"
+      align="start"
+      side="top"
+      :side-offset="8"
+      @focus-outside.prevent
+    >
         <div role="radiogroup" aria-label="思考等级" class="thinking-options">
           <button
             type="button"
@@ -139,9 +145,15 @@ watch(selectedLLM, loadCapability);
 }
 
 .thinking-trigger.open {
-  border-color: var(--color-border-focus);
   background: var(--color-hover-overlay);
   color: var(--color-text-primary);
+}
+
+/* 聚焦指示改用与 hover 一致的背景；避免点击瞬间轮廓/光圈闪现 */
+.thinking-selector .thinking-trigger:focus-visible {
+  outline: none;
+  box-shadow: none;
+  background: var(--color-hover-overlay);
 }
 
 .thinking-trigger.active {
