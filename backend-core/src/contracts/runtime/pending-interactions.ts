@@ -66,6 +66,25 @@ export interface PendingInteractionPort {
   waitForUserInput(input: PendingUserInputRequest): Promise<PendingUserInputResolution>;
   waitForApproval(input: PendingApprovalRequest): Promise<PendingApprovalResolution>;
   cancelSession(sessionId: string, reason?: string): Promise<void>;
+  /**
+   * 订阅"交互进入 pending"通知（审批/用户输入等待用户时发出）。
+   * 观察型 API：仅供通知类插件（如桌宠）感知等待中的交互，不影响交互流程本身。
+   */
+  onInteractionRequired(handler: (notice: PendingInteractionNotice) => void): () => void;
+}
+
+/** 交互请求通知载荷：waitForApproval / waitForUserInput 阻塞等待用户时发出。 */
+export interface PendingInteractionNotice {
+  readonly id: string;
+  readonly kind: "approval" | "user_input";
+  readonly sessionId: string;
+  readonly runId: string;
+  /** approval：触发审批的工具名；user_input：固定 "request_user_input"。 */
+  readonly tool: string;
+  /** user_input：问题文本。 */
+  readonly prompt: string | null;
+  /** approval：审批原因。 */
+  readonly reason: string | null;
 }
 
 export interface InteractionResumeCallbacks {

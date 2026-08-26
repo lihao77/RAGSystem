@@ -14,6 +14,7 @@ import type {
   InteractionResumeStarter,
   PendingApprovalRequest,
   PendingApprovalResolution,
+  PendingInteractionNotice,
   PendingInteractionRespondResult,
   PendingUserInputRequest,
   PendingUserInputResolution,
@@ -38,6 +39,7 @@ export class RuntimeInteractionCoordinator implements InteractionCoordinator {
   private readonly pendingMeta = new Map<string, ApprovalMeta>();
   private readonly deferredResume = new Map<string, Set<string>>();
   private readonly deferredCallbacks = new Map<string, InteractionResumeCallbacks | undefined>();
+  private readonly interactionNotifiers = new Set<(notice: PendingInteractionNotice) => void>();
   private resumeStarter: InteractionResumeStarter | undefined;
 
   constructor(
@@ -46,6 +48,18 @@ export class RuntimeInteractionCoordinator implements InteractionCoordinator {
   ) {}
 
   bindResumeStarter(starter: InteractionResumeStarter): void { this.resumeStarter = starter; }
+
+  /** 观察型订阅：交互进入 pending 时通知（如桌宠插件）；观察者异常不影响交互流程。 */
+  onInteractionRequired(handler: (notice: PendingInteractionNotice) => void): () => void {
+    this.interactionNotifiers.add(handler);
+    return () => this.interactionNotifiers.delete(handler);
+  }
+
+  private notifyInteractionRequired(notice: PendingInteractionNotice): void {
+    for (const notify of this.interactionNotifiers) {
+      try { notify(notice); } catch { /* 观察者失败静默忽略 */ }
+    }
+  }
 
   private setApprovalCache(sessionId: string, toolCallId: string, resolution: ApprovalCacheResolution): void {
     this.resolutionCache.set(cacheKey(sessionId, toolCallId), resolution);
@@ -89,6 +103,7 @@ export class RuntimeInteractionCoordinator implements InteractionCoordinator {
       },
     };
     const pending = this.waitLive(interactionId, input, meta, "user_input");
+    this.notifyInteractionRequired({ id: interactionId, kind: "user_input", sessionId: input.sessionId, runId: input.runId, tool: "request_user_input", prompt: input.prompt, reason: null });
     try { await this.recordRequired(meta, input, event); } catch (error) { const waiter = this.liveWaiters.get(interactionId); this.liveWaiters.delete(interactionId); this.pendingMeta.delete(interactionId); waiter?.abort?.(); waiter?.reject(error instanceof Error ? error : new Error(String(error))); return pending; }
     return pending;
   }
@@ -128,6 +143,7 @@ export class RuntimeInteractionCoordinator implements InteractionCoordinator {
       },
     };
     const pending = this.waitLive(interactionId, input, meta, "approval");
+    this.notifyInteractionRequired({ id: interactionId, kind: "approval", sessionId: input.sessionId, runId: input.runId, tool: input.toolName, prompt: input.description ?? null, reason: input.approvalReason ?? null });
     try { await this.recordRequired(meta, input, event); } catch (error) { const waiter = this.liveWaiters.get(interactionId); this.liveWaiters.delete(interactionId); this.pendingMeta.delete(interactionId); waiter?.abort?.(); waiter?.reject(error instanceof Error ? error : new Error(String(error))); return pending; }
     return pending;
   }

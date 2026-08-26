@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { PendingInteractionPort } from "../src/contracts/runtime/pending-interactions.js";
+import type { PendingInteractionNotice, PendingInteractionPort } from "../src/contracts/runtime/pending-interactions.js";
 import { createPendingInteractionBinding } from "../src/services/runtime/pending-interaction-binding.js";
 
 describe("pending interaction binding", () => {
@@ -27,6 +27,7 @@ describe("pending interaction binding", () => {
       waitForUserInput: vi.fn().mockResolvedValue({ inputId: "i1", value: "yes", respondedAt: "now" }),
       waitForApproval: vi.fn().mockResolvedValue({ approvalId: "a1", approved: true, message: "", respondedAt: "now" }),
       cancelSession: vi.fn().mockResolvedValue(undefined),
+      onInteractionRequired: vi.fn().mockReturnValue(() => undefined),
     };
     binding.bind(target);
 
@@ -49,5 +50,33 @@ describe("pending interaction binding", () => {
     expect(target.waitForUserInput).toHaveBeenCalledWith(input);
     await binding.port.onRootFinalized("s1", "r1", "completed");
     expect(target.onRootFinalized).toHaveBeenCalledWith("s1", "r1", "completed");
+  });
+
+  it("supports subscribing to interaction notices before bind and replays them onto the coordinator", () => {
+    const binding = createPendingInteractionBinding();
+    const notices: PendingInteractionNotice[] = [];
+    const unsubscribe = binding.port.onInteractionRequired((notice) => notices.push(notice));
+
+    // bind 前订阅不抛错（观察型例外）；bind 后转挂到真实协调器
+    const realUnsubscribe = vi.fn();
+    const target: PendingInteractionPort = {
+      onRootFinalized: vi.fn().mockResolvedValue(undefined),
+      waitForUserInput: vi.fn(),
+      waitForApproval: vi.fn(),
+      cancelSession: vi.fn().mockResolvedValue(undefined),
+      onInteractionRequired: vi.fn().mockReturnValue(realUnsubscribe),
+    };
+    binding.bind(target);
+    expect(target.onInteractionRequired).toHaveBeenCalledTimes(1);
+
+    // bind 后新订阅直接透传；退订走真实协调器的退订函数
+    const unsubscribeLate = binding.port.onInteractionRequired(() => undefined);
+    expect(target.onInteractionRequired).toHaveBeenCalledTimes(2);
+    unsubscribeLate();
+    expect(realUnsubscribe).toHaveBeenCalledTimes(1);
+
+    // bind 前的订阅退订同样生效（本地集合移除，不再转挂）
+    unsubscribe();
+    expect(realUnsubscribe).toHaveBeenCalledTimes(1);
   });
 });
