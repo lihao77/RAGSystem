@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain, Menu, screen, Tray } = require('electron')
+const { app, BrowserWindow, dialog, ipcMain, Menu, Notification, screen, shell, Tray } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const os = require('os')
@@ -8,6 +8,7 @@ const net = require('net')
 const http = require('http')
 
 const APP_NAME = 'RAGSystem'
+const APP_ID = 'com.ragsystem.desktop' // 与 electron-builder appId 一致；Windows 通知以 AUMID 归属应用
 const PREFERRED_PORT = Number(process.env.RAGSYSTEM_BACKEND_PORT || 5002)
 const MAX_PORT_SEARCH = 20
 const START_TIMEOUT_MS = 45000
@@ -16,6 +17,29 @@ const isSmoke = process.env.RAGSYSTEM_DESKTOP_SMOKE === '1'
 // 开发时前端走 Vite dev server（HMR）；设置后主窗口/宠物窗口加载该地址而非后端静态产物
 const devFrontendUrl = process.env.RAGSYSTEM_DEV_FRONTEND_URL?.trim() || null
 const APP_ICON = path.join(__dirname, 'build', 'icon.ico')
+
+// Windows 通知归属（AUMID）：必须在 app ready 前设置，否则 toast 无法正确关联应用。
+// 未打包的 dev 模式还需一枚带 AUMID 的开始菜单快捷方式，否则 toast 静默不显示
+// （安装包由 electron-builder 建快捷方式；dev 在此自建，幂等覆盖）。
+function ensureWindowsToastIdentity() {
+  if (process.platform !== 'win32') return
+  app.setAppUserModelId(APP_ID)
+  if (app.isPackaged) return
+  const shortcutPath = path.join(
+    app.getPath('appData'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', `${APP_NAME}.lnk`,
+  )
+  try {
+    shell.writeShortcutLink(shortcutPath, {
+      target: process.execPath,
+      args: path.join(__dirname),
+      appUserModelId: APP_ID,
+      description: APP_NAME,
+    })
+  } catch (error) {
+    console.warn('dev toast 快捷方式创建失败（通知可能不显示）:', error.message)
+  }
+}
+ensureWindowsToastIdentity()
 
 // 主窗口标题栏（窗口控件区）：背景全透明，页面内容直接透到最小化/关闭按钮下方，
 // 无需与任何主题/页面颜色同步；仅符号色跟随主题（--color-text-primary）。
@@ -64,6 +88,29 @@ ipcMain.handle('pet:quick-ask', (event, text) => {
   mainWindow.show()
   mainWindow.focus()
   mainWindow.webContents.send('ragsystem:quick-ask', String(text ?? '').slice(0, 2000))
+  return true
+})
+
+// 系统通知：任务完成/失败/需要确认且主窗口失焦时弹出 OS 通知（事件引擎在 pet 插件，
+// 宠物本体不承载任务提示——纯桌宠）。主窗口可见且持焦点 = 用户在看，勿扰。
+// 实例保持引用直至关闭，防止被 GC 导致 toast 消失/回调失效。
+const activeNotifications = new Set()
+ipcMain.handle('desktop:notify', (event, payload) => {
+  if (!Notification.isSupported()) return false
+  if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() && mainWindow.isFocused()) return false
+  const title = String(payload?.title ?? '').slice(0, 120)
+  if (!title) return false
+  const body = String(payload?.body ?? '').slice(0, 200)
+  const notification = new Notification({ title, body: body || undefined })
+  notification.on('click', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.show()
+      mainWindow.focus()
+    }
+  })
+  notification.on('close', () => activeNotifications.delete(notification))
+  activeNotifications.add(notification)
+  notification.show()
   return true
 })
 
@@ -336,48 +383,60 @@ function petWindowsVisible() {
 
 function togglePetWindows() {
   const show = !petWindowsVisible()
-  for (const win of petWindows) {
-    if (show) win.show()
-    else win.hide()
+  if (show) {
+    // Windows 上透明 + focusable:false 窗口 hide()/show() 后鼠标输入管线失效（Electron 已知问题，
+    // setBounds 自触碰/focusable 翻转/setIgnoreMouseEvents 重设实测均无法完全恢复）：
+    // 显示时销毁重建，走与首次创建一致的路径；位置由页面 localStorage 记忆，原位重现。
+    for (const win of [...petWindows]) win.destroy()
+    createPetWindows()
+  } else {
+    for (const win of [...petWindows]) win.hide()
   }
+  if (tray && !tray.isDestroyed()) rebuildTrayMenu()
+}
+
+/** 托盘菜单需按宠物可见性/自启状态重建（label 在构建时固化，toggle 后不重建会显示过期文案）。 */
+function rebuildTrayMenu() {
+  if (!tray || tray.isDestroyed()) return
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: petWindowsVisible() ? '隐藏桌宠' : '显示桌宠', click: togglePetWindows },
+    {
+      label: '打开主窗口',
+      click: () => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.show()
+          mainWindow.focus()
+        } else {
+          createMainWindow()
+        }
+      },
+    },
+    { type: 'separator' },
+    {
+      // 不用 type:'checkbox'：Windows 原生菜单会为勾选符号在整列左侧预留空白栏，
+      // 未勾选时左侧一列全空、所有条目右移，观感突兀；状态改写入 label。
+      label: `开机自启：${app.getLoginItemSettings().openAtLogin ? '已开启' : '已关闭'}`,
+      click: () => {
+        app.setLoginItemSettings({ openAtLogin: !app.getLoginItemSettings().openAtLogin })
+        rebuildTrayMenu()
+      },
+    },
+    { type: 'separator' },
+    {
+      label: '退出',
+      click: () => {
+        app.isQuitting = true
+        app.quit()
+      },
+    },
+  ]))
 }
 
 function createTray() {
   tray = new Tray(APP_ICON)
   tray.setToolTip(APP_NAME)
-  const rebuildMenu = () => {
-    tray.setContextMenu(Menu.buildFromTemplate([
-      { label: petWindowsVisible() ? '隐藏桌宠' : '显示桌宠', click: togglePetWindows },
-      {
-        label: '打开主窗口',
-        click: () => {
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.show()
-            mainWindow.focus()
-          } else {
-            createMainWindow()
-          }
-        },
-      },
-      { type: 'separator' },
-      {
-        label: '开机自启',
-        type: 'checkbox',
-        checked: app.getLoginItemSettings().openAtLogin,
-        click: (item) => app.setLoginItemSettings({ openAtLogin: item.checked }),
-      },
-      { type: 'separator' },
-      {
-        label: '退出',
-        click: () => {
-          app.isQuitting = true
-          app.quit()
-        },
-      },
-    ]))
-  }
   tray.on('click', togglePetWindows)
-  rebuildMenu()
+  rebuildTrayMenu()
 }
 
 async function bootstrap() {
