@@ -18,6 +18,7 @@ import {
   buildPromptOutputEfficiencySection,
   buildPromptSystemSection,
   buildPromptToolsSection,
+  buildPromptVisibleOutputSection,
 } from "./sections.js";
 
 /** prompt 构建只需 behavior.systemPrompt；放宽 profile 类型，调试/preview 无需完整 tier 投影。 */
@@ -54,6 +55,7 @@ function buildDynamicSystemPrompt(profile: PromptProfile, context: AgentPromptCo
     buildPromptCorePrinciplesSection(),
     buildPromptExecutionPrinciplesSection(mode),
     buildPromptOutputEfficiencySection(mode),
+    buildPromptVisibleOutputSection(),
     buildExecutionPathsSection(context.executionPaths),
     buildPromptToolsSection(tools, mode),
     buildDataFileRulesSection(),

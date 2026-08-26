@@ -12,6 +12,7 @@
  * - 错误分类与重试 → 执行原则（System 段只声明"必须遵守权限审批结果"）
  * - workspace/uploads 路径语义 → 当前执行目录（工具段只描述路径参数如何应用）
  * - file_ref 完整标签语法 → 协议层（行为段只引用标签名，不复述属性语法）
+ * - 语言规则（用户语言/代码原样/不暴露推理）→ 系统约束（协议层只描述流式形态事实，不复述）
  */
 import type { RuntimeToolDefinition } from "./tool-types.js";
 import type { ToolExecutionPaths, ToolInstructionMode } from "../contracts.js";
@@ -50,7 +51,10 @@ export function buildPromptCorePrinciplesSection(): string {
 - 优先选择成功率最高、轮次最少的路径；能一句说清就不要三句
 - 用户指定的格式、字段、排序、单位或语言风格，最终答案必须严格遵守
 - 不确定、未查到或数据不足时，明确说明边界，不要猜测
-- 缺少关键输入且无法通过现有工具补齐时，直接说明需要用户补充的信息`;
+- 缺少关键输入且无法通过现有工具补齐时，直接说明需要用户补充的信息
+- 任务失败或只部分完成时，如实说明失败原因、已尝试的路径和当前状态，不假装成功或用含糊措辞掩盖
+- 结论依赖假设或未经核实的数据时，区分确认事实与推断，标注关键假设
+- 执行不可逆或影响范围大的操作（删除、覆盖、对外发布）时，在正文中说明其影响，不要只依赖审批提示`;
 }
 
 export function buildPromptExecutionPrinciplesSection(mode: ToolInstructionMode): string {
@@ -68,6 +72,15 @@ export function buildPromptOutputEfficiencySection(_mode: ToolInstructionMode): 
 
 - 直接给答案或直接调用工具，不写冗长过程汇报；最终答案先给结论，再给必要细节，不复述用户问题
 - 能由一个工具完成时，不要拆成多轮工具链；只有相互独立且确实需要多个工具时才并行`;
+}
+
+export function buildPromptVisibleOutputSection(): string {
+  return `## 可见输出排版
+
+- 最终回答默认使用 GFM Markdown：代码、命令、路径与标识符用行内代码，多行代码用带语言标注的围栏代码块
+- 回答形态匹配问题：简单问题用一段话直接回答，不套标题、列表或表格；内容复杂或用户要求结构化时才分层组织
+- 默认不使用 emoji；用户自己使用或明确要求时可以跟随
+- 可见文本边生成边呈现给用户，避免长铺垫；执行过程由界面展示，正文不复述工具调用细节`;
 }
 
 function buildPromptUsingToolsSection(mode: ToolInstructionMode): string {

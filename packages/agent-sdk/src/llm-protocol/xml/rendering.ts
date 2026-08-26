@@ -17,7 +17,7 @@ import type { RuntimeToolDefinition } from "../../prompt/tool-types.js";
  */
 export function renderRuntimeXmlProtocolInstruction(tools: RuntimeToolDefinition[]): string {
   const protocol = [
-    "Your visible reply is plain text streamed to the user as you write it. Write it in the user's language, do not expose hidden reasoning.",
+    "Your visible reply is plain text streamed to the user as you write it.",
     "When you need a tool, put the invocation in a <tool_calls> block. Text outside <tool_calls> in that round is a short natural language action note for the user; keep it brief.",
     "When the task is complete, reply with the final answer as plain text, without any tool_calls block.",
     'To embed a durable workspace file in the final answer, use the exact self-closing <file_ref path="relative/path" presentation="inline|attachment|preview" caption="optional label"/> tag. Plain "File: ..." text, Markdown links, and attachment prose are not file references. Only use a real workspace-relative path returned by a tool; copy transient or external output into workspace before referencing it.',
@@ -50,7 +50,7 @@ export function renderRuntimeXmlProtocolInstruction(tools: RuntimeToolDefinition
 export function renderNativeXmlProtocolInstruction(): string {
   const protocol = [
     "You call tools via native function calling. Your text output never carries tool invocation.",
-    "Your visible reply is plain text streamed to the user as you write it. Write it in the user's language, do not expose hidden reasoning.",
+    "Your visible reply is plain text streamed to the user as you write it.",
     "When calling a tool, any text in the same round is a short natural language action note for the user; keep it brief.",
     "When the task is complete, reply with the final answer as plain text, without calling any tool.",
     'To embed a durable workspace file in the final answer, use the exact self-closing <file_ref path="relative/path" presentation="inline|attachment|preview" caption="optional label"/> tag. Plain "File: ..." text, Markdown links, and attachment prose are not file references. Only use a real workspace-relative path returned by a tool; copy transient or external output into workspace before referencing it.',

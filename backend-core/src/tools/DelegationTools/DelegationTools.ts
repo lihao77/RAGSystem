@@ -104,7 +104,7 @@ const AGENT_DELEGATION_TOOLS: RuntimeToolDefinition[] = [
         },
         context_hint: {
           type: "string",
-          description: "Optional extra constraints, output format, or background.",
+          description: "Optional extra constraints, output format, or background. Without an explicit output format, the child's final reply follows the default result contract: conclusion, artifacts, caveats.",
         },
         kind: {
           type: "string",
