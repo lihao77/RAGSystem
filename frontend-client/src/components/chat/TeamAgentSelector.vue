@@ -164,6 +164,17 @@ watch(() => props.team, (team) => { void ensureTeamAgents(team); }, { immediate:
   cursor: pointer;
   user-select: none;
   transition: all 0.3s;
+  /* 覆盖 shadcn Trigger 带来的 tailwind outline-none（=2px solid transparent）。
+     outline 样式保持 none：配合 transition:all，若样式为 solid，焦点进出时
+     outline 颜色补间会在按钮周围产生一圈渐隐的白色轮廓（点击闪现） */
+  outline: none;
+}
+
+/* 聚焦指示改用与 hover 一致的背景；避免点击瞬间轮廓/光圈闪现 */
+.ta-trigger:focus-visible {
+  outline: none;
+  box-shadow: none;
+  background: var(--color-hover-overlay);
 }
 
 .ta-trigger:hover:not(.disabled) {
@@ -172,7 +183,7 @@ watch(() => props.team, (team) => { void ensureTeamAgents(team); }, { immediate:
 }
 
 .ta-trigger.open {
-  border-color: var(--color-border-focus);
+  border-color: transparent;
   background: var(--color-hover-overlay);
 }
 

@@ -565,7 +565,8 @@ textarea::placeholder {
 .input-footer-left {
   display: flex;
   align-items: center;
-  gap: 10px;
+  /* 与内部 composer-run-controls 的 gap: 2px 对齐，避免加号按钮和选择器之间空一大截 */
+  gap: 2px;
   flex: 1 1 auto;
   min-width: 0;
   flex-wrap: wrap;
@@ -622,10 +623,6 @@ textarea::placeholder {
   .input-footer {
     gap: 8px;
     padding-top: 8px;
-  }
-
-  .input-footer-left {
-    gap: 8px;
   }
 }
 
