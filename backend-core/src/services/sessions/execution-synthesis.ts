@@ -40,7 +40,7 @@ export function synthesizeExecutionEnvelopes(
     run_id: ctx.runId,
     call_id: ctx.runId,
     agent_id: agentName,
-    timestamp: ordered[0]?.created_at,
+    timestamp: toEnvelopeTimestamp(ordered[0]?.created_at),
     payload: { phase: "start" },
   });
   // 最终轮行不写 metadata.round，kernel round 由本 run 已见最大轮次推导：工具轮
@@ -129,7 +129,7 @@ export function synthesizeExecutionEnvelopes(
     call_id: ctx.runId,
     agent_id: agentName,
     // 顶层 timestamp（末行 created_at）供前端定格工作时长。
-    timestamp: ordered[ordered.length - 1]?.created_at,
+    timestamp: toEnvelopeTimestamp(ordered[ordered.length - 1]?.created_at),
     payload: terminalRow
       ? {
         phase: "end",
@@ -145,6 +145,18 @@ export function synthesizeExecutionEnvelopes(
 /** terminal 行（中断/失败 salvage）暂不进执行树，思考由消息气泡渲染；待中断终态视觉后接入。 */
 function isTerminalRow(row: MessageInfo): boolean {
   return typeof row.metadata?.terminal_status === "string";
+}
+
+/**
+ * 消息表 created_at 是 SQLite datetime 串（"YYYY-MM-DD HH:MM:SS"，UTC 落库），而协议
+ * envelope 的 timestamp 只接受 int 或 ISO datetime——空格分隔串透传会被响应契约校验
+ * 拒掉并整体转成 404。此处归一化为 ISO；已是 ISO 的值原样通过。
+ */
+function toEnvelopeTimestamp(createdAt: string | undefined): string | undefined {
+  if (!createdAt) return undefined;
+  if (createdAt.includes("T")) return createdAt;
+  const match = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})(\.\d+)?$/.exec(createdAt);
+  return match ? `${match[1]}T${match[2]}${match[3] ?? ""}Z` : createdAt;
 }
 
 /** persister 落库的 metadata.round 是 kernel round + 1（展示序号从 1 起）；缺失时兜底 0。 */

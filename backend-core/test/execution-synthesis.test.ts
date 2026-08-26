@@ -75,6 +75,23 @@ describe("synthesizeExecutionEnvelopes", () => {
     expect(toolCall.input).toEqual({ city: "北京" });
   });
 
+  it("normalizes SQLite-format created_at into ISO for envelope timestamps", () => {
+    // 消息表历史行的 created_at 是 SQLite datetime 串（空格分隔，UTC 落库）；协议
+    // timestamp 只认 int/ISO——透传会触发响应契约校验失败，历史上曾被路由整体转成
+    // 404（执行过程加载失败）。归一化后开篇/收口均携带合法 ISO。
+    const roundRow = row({
+      id: "run-1:intent:0",
+      seq: 2,
+      created_at: "2026-08-26 12:48:43",
+      content_parts: [{ type: "text", text: "查一下" }],
+      metadata: { ...runMeta, msg_type: MSG_TYPE.ROUND, round: 1 },
+      tool_calls: [{ id: "call-1", type: "function", function: { name: "read", arguments: "{}" } }],
+    });
+    const envelopes = synthesizeExecutionEnvelopes([roundRow], { sessionId: "session-1", runId: "run-1" });
+    expect(envelopes[0]!.timestamp).toBe("2026-08-26T12:48:43Z");
+    expect(envelopes[envelopes.length - 1]!.timestamp).toBe("2026-08-26T12:48:43Z");
+  });
+
   it("synthesizes tool results from observation rows and marks failed references", () => {
     const observation = row({
       id: "run-1:tool:call-1",

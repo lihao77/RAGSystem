@@ -108,13 +108,14 @@ describe("AgentSessionApplication participant Run steps", () => {
       participantId: "child-1",
       runId: "child-run",
       limit: 2,
-      offset: 2,
+      offset: 3,
     });
 
-    // 合成 5 条（reasoning_complete + intent_complete + tool_call + tool_result + agent_ended 终态收口）
-    // → limit 2 offset 2 切到 [tool_call, tool_result]，还有剩余（has_more）
+    // 合成 6 条（agent_started 开篇 + reasoning_complete + intent_complete + tool_call
+    // + tool_result + agent_ended 终态收口）
+    // → limit 2 offset 3 切到 [tool_call, tool_result]，还有剩余（has_more）
     expect(result.run_id).toBe("child-run");
-    expect(result.total).toBe(5);
+    expect(result.total).toBe(6);
     expect(result.items.map((item) => item.type)).toEqual(["tool_call", "tool_result"]);
     expect(result.has_more).toBe(true);
     expect(listMessages).toHaveBeenCalledWith("session-1", 10_000, 0, "child:child-1");
@@ -166,6 +167,7 @@ describe("AgentSessionApplication participant Run steps", () => {
 
     expect(fromUser.items).toEqual(fromFinal.items);
     expect(fromFinal.items.map((item) => [item.type, (item.payload as Record<string, unknown>).phase ?? null])).toEqual([
+      ["agent_started", "start"],
       ["stream_output", "intent_complete"],
       ["tool_call", "start"],
       ["tool_result", "end"],
@@ -220,12 +222,14 @@ describe("AgentSessionApplication participant Run steps", () => {
     const shape = (items: { type: string; payload?: unknown }[]) =>
       items.map((item) => [item.type, (item.payload as Record<string, unknown>).phase ?? null]);
     expect(shape(first.items)).toEqual([
+      ["agent_started", "start"],
       ["stream_output", "intent_complete"],
       ["tool_call", "start"],
       ["tool_result", "end"],
       ["agent_ended", "end"],
     ]);
     expect(shape(second.items)).toEqual([
+      ["agent_started", "start"],
       ["stream_output", "intent_complete"],
       ["tool_call", "start"],
       ["tool_result", "end"],
@@ -270,8 +274,8 @@ describe("AgentSessionApplication participant Run steps", () => {
     const first = await sessions.listMessageExecution({ sessionId: "session-1", messageId: "u1" });
     const second = await sessions.listMessageExecution({ sessionId: "session-1", messageId: "u2" });
 
-    expect(first.items.map((item) => item.type)).toEqual(["stream_output", "tool_call", "agent_ended"]);
-    expect(second.items.map((item) => item.type)).toEqual(["stream_output", "agent_ended"]);
+    expect(first.items.map((item) => item.type)).toEqual(["agent_started", "stream_output", "tool_call", "agent_ended"]);
+    expect(second.items.map((item) => item.type)).toEqual(["agent_started", "stream_output", "agent_ended"]);
   });
 
   it("delegates rollback truncation to the repository transaction", async () => {
