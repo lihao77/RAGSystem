@@ -65,6 +65,8 @@ export class AgentExecutionEventPublisher {
       type: "agent_started",
       session_id: input.sessionId,
       ...top,
+      // 顶层 timestamp（ISO）供前端执行树推 agent 工作时长（"已工作 X 分 X 秒"）。
+      timestamp: new Date().toISOString(),
       payload: { phase: "start", task: input.task, display_name: input.agent.display_name || input.agent.agent_name, lineage },
     };
   }

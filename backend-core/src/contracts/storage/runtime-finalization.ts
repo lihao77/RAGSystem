@@ -250,6 +250,8 @@ export function buildRunTerminalRecords(input: {
     call_id: run.agentCallId,
     agent_id: run.agentName,
     ...boundary,
+    // 顶层 timestamp（ISO）供前端执行树定格 agent 工作时长。
+    timestamp: new Date().toISOString(),
     payload: {
       phase: "end",
       display_name: run.agentDisplayName,

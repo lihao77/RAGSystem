@@ -52,20 +52,25 @@ describe("synthesizeExecutionEnvelopes", () => {
     const fromRound = synthesizeExecutionEnvelopes([roundRow], { sessionId: "session-1", runId: "run-1" });
     const fromLegacy = synthesizeExecutionEnvelopes([legacyIntent], { sessionId: "session-1", runId: "run-1" });
 
-    // 工具轮：思考 + 意图 + 工具调用（无 thinking part 的轮不产生空 reasoning）+ run 终态。
+    // 工具轮：agent_started 开篇（带首行 created_at 作 startedAt）+ 思考 + 意图 +
+    // 工具调用（无 thinking part 的轮不产生空 reasoning）+ run 终态。
     expect(fromRound.map((env) => [env.type, (env.payload as Record<string, unknown>).phase ?? null])).toEqual([
+      ["agent_started", "start"],
       ["stream_output", "reasoning_complete"],
       ["stream_output", "intent_complete"],
       ["tool_call", "start"],
       ["agent_ended", "end"],
     ]);
-    expect(fromLegacy.map((env) => env.type)).toEqual(["stream_output", "tool_call", "agent_ended"]);
+    expect(fromLegacy.map((env) => env.type)).toEqual(["agent_started", "stream_output", "tool_call", "agent_ended"]);
+    // 生命周期开篇/收口携带顶层 timestamp（首行/末行 created_at），供前端推工作时长。
+    expect(fromRound[0]!.timestamp).toBe("2026-01-01T00:00:00.000Z");
+    expect(fromRound[fromRound.length - 1]!.timestamp).toBe("2026-01-01T00:00:00.000Z");
 
-    const reasoning = fromRound[0]!.payload as Record<string, unknown>;
+    const reasoning = fromRound[1]!.payload as Record<string, unknown>;
     expect(reasoning.content).toBe("用户要查北京天气，调用工具。");
     expect(reasoning.round).toBe(0); // metadata.round 是展示序号（kernel round + 1）
 
-    const toolCall = fromRound[2]!.payload as Record<string, unknown>;
+    const toolCall = fromRound[3]!.payload as Record<string, unknown>;
     expect(toolCall.tool).toBe("get_weather");
     expect(toolCall.input).toEqual({ city: "北京" });
   });
@@ -91,10 +96,10 @@ describe("synthesizeExecutionEnvelopes", () => {
     });
 
     const envelopes = synthesizeExecutionEnvelopes([observation, failed], { sessionId: "session-1", runId: "run-1" });
-    expect(envelopes.map((env) => env.type)).toEqual(["tool_result", "tool_result", "agent_ended"]);
-    expect((envelopes[0]!.payload as Record<string, unknown>).observation).toBe("{\"temp\":25}");
-    expect((envelopes[0]!.payload as Record<string, unknown>).ok).toBe(true);
-    expect((envelopes[1]!.payload as Record<string, unknown>).ok).toBe(false);
+    expect(envelopes.map((env) => env.type)).toEqual(["agent_started", "tool_result", "tool_result", "agent_ended"]);
+    expect((envelopes[1]!.payload as Record<string, unknown>).observation).toBe("{\"temp\":25}");
+    expect((envelopes[1]!.payload as Record<string, unknown>).ok).toBe(true);
+    expect((envelopes[2]!.payload as Record<string, unknown>).ok).toBe(false);
   });
 
   it("emits only reasoning for the final round row, with kernel round derived from tool rounds", () => {
@@ -127,15 +132,16 @@ describe("synthesizeExecutionEnvelopes", () => {
     const envelopes = synthesizeExecutionEnvelopes([intentRound, observation, finalRow], { sessionId: "session-1", runId: "run-1" });
     const phases = envelopes.map((env) => [env.type, (env.payload as Record<string, unknown>).phase ?? null]);
     // 最终轮只回放思考——正文由消息槽 assistant 行承载（live 的 final 相位同样
-    // 把轮 text 让位给消息行，最终答案只出现一次）；尾部 agent_ended 收口。
+    // 把轮 text 让位给消息行，最终答案只出现一次）；agent_started 开篇 + agent_ended 收口。
     expect(phases).toEqual([
+      ["agent_started", "start"],
       ["stream_output", "intent_complete"],
       ["tool_call", "start"],
       ["tool_result", "end"],
       ["stream_output", "reasoning_complete"],
       ["agent_ended", "end"],
     ]);
-    const finalReasoning = envelopes[3]!.payload as Record<string, unknown>;
+    const finalReasoning = envelopes[4]!.payload as Record<string, unknown>;
     expect(finalReasoning.content).toBe("查到了，直接回答。");
     expect(finalReasoning.round).toBe(1);
   });
@@ -148,8 +154,8 @@ describe("synthesizeExecutionEnvelopes", () => {
       metadata: { ...runMeta, msg_type: MSG_TYPE.ROUND },
     });
     const envelopes = synthesizeExecutionEnvelopes([finalRow], { sessionId: "session-1", runId: "run-1" });
-    expect(envelopes.map((env) => env.type)).toEqual(["stream_output", "agent_ended"]);
-    expect((envelopes[0]!.payload as Record<string, unknown>).round).toBe(0);
+    expect(envelopes.map((env) => env.type)).toEqual(["agent_started", "stream_output", "agent_ended"]);
+    expect((envelopes[1]!.payload as Record<string, unknown>).round).toBe(0);
   });
 
   it("keeps legacy assistant_final rows replayable as final rounds", () => {
@@ -160,9 +166,9 @@ describe("synthesizeExecutionEnvelopes", () => {
       metadata: { ...runMeta, msg_type: MSG_TYPE.ROUND },
     });
     const envelopes = synthesizeExecutionEnvelopes([legacyFinal], { sessionId: "session-1", runId: "run-1" });
-    expect(envelopes.map((env) => env.type)).toEqual(["stream_output", "agent_ended"]);
-    expect((envelopes[0]!.payload as Record<string, unknown>).phase).toBe("reasoning_complete");
-    expect((envelopes[0]!.payload as Record<string, unknown>).round).toBe(0);
+    expect(envelopes.map((env) => env.type)).toEqual(["agent_started", "stream_output", "agent_ended"]);
+    expect((envelopes[1]!.payload as Record<string, unknown>).phase).toBe("reasoning_complete");
+    expect((envelopes[1]!.payload as Record<string, unknown>).round).toBe(0);
   });
 
   it("replays terminal-closed dangling tools as interrupted, never as succeeded", () => {
@@ -202,10 +208,10 @@ describe("synthesizeExecutionEnvelopes", () => {
     const envelopes = synthesizeExecutionEnvelopes([terminal], { sessionId: "session-1", runId: "run-1" });
     // 中断思考进树（树是思考的唯一出口）；正文由消息槽 terminal 行承载；
     // run 终态收口 interrupted + 原因。
-    expect(envelopes.map((env) => env.type)).toEqual(["stream_output", "agent_ended"]);
-    expect((envelopes[0]!.payload as Record<string, unknown>).phase).toBe("reasoning_complete");
-    expect((envelopes[0]!.payload as Record<string, unknown>).content).toBe("半截思考");
-    const ended = envelopes[1]!.payload as Record<string, unknown>;
+    expect(envelopes.map((env) => env.type)).toEqual(["agent_started", "stream_output", "agent_ended"]);
+    expect((envelopes[1]!.payload as Record<string, unknown>).phase).toBe("reasoning_complete");
+    expect((envelopes[1]!.payload as Record<string, unknown>).content).toBe("半截思考");
+    const ended = envelopes[2]!.payload as Record<string, unknown>;
     expect(ended.status).toBe("interrupted");
     expect(ended.success).toBe(false);
     expect(ended.result).toBe("user abort");
@@ -220,7 +226,7 @@ describe("synthesizeExecutionEnvelopes", () => {
       metadata: { ...runMeta },
     });
     const envelopes = synthesizeExecutionEnvelopes([noise], { sessionId: "session-1", runId: "run-1" });
-    expect(envelopes.map((env) => env.type)).toEqual(["agent_ended"]);
-    expect((envelopes[0]!.payload as Record<string, unknown>).status).toBe("succeeded");
+    expect(envelopes.map((env) => env.type)).toEqual(["agent_started", "agent_ended"]);
+    expect((envelopes[1]!.payload as Record<string, unknown>).status).toBe("succeeded");
   });
 });

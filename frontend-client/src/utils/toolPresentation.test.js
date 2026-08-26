@@ -5,9 +5,7 @@ import {
   getToolDiffView,
   getToolDisplayName,
   getToolIconKind,
-  getToolInputSections,
   getToolInspectorLabel,
-  getToolOutputSections,
   getToolSubtitle,
   getToolTerminalView,
   parseDiffPreviewText,
@@ -28,7 +26,6 @@ test('Goal tools use Goal-specific presentation instead of legacy task labels', 
   assert.equal(getToolInspectorLabel('goal_create'), 'Goal 详情')
   assert.equal(getToolIconKind('goal_create'), 'task')
   assert.match(getToolSubtitle(node), /创建 Goal/)
-  assert.deepEqual(getToolInputSections(node).map((section) => section.label), ['最终目标', '验收标准'])
 })
 
 test('Goal list preview reports the returned history count', () => {
@@ -120,25 +117,6 @@ test('getToolDiffView builds the edit_file diff model with stats', () => {
   assert.equal(getToolDiffView({ type: 'tool_call', tool_name: 'execute_bash' }), null)
 })
 
-test('code sections carry language hints for highlighting', () => {
-  const bashNode = {
-    type: 'tool_call',
-    tool_name: 'execute_bash',
-    arguments: JSON.stringify({ command: 'npm test' }),
-  }
-  const bashCommand = getToolInputSections(bashNode).find((section) => section.id === 'input-bash-command')
-  assert.equal(bashCommand.language, 'bash')
-
-  const readNode = {
-    type: 'tool_call',
-    tool_name: 'read_file',
-    arguments: JSON.stringify({ file_path: 'src/app.py' }),
-    raw_result: JSON.stringify({ content: 'print(1)' }),
-  }
-  const readContent = getToolOutputSections(readNode).find((section) => section.id === 'output-read-file')
-  assert.equal(readContent.language, 'python')
-})
-
 test('terminal view recovers stdout/stderr from the rendered bash observation text', () => {
   const node = {
     type: 'tool_call',
@@ -228,29 +206,7 @@ test('terminal view keys on raw_result output_type streams, not just tool name',
   assert.equal(getToolTerminalView(plain), null)
 })
 
-test('skill markdown output renders string content as a markdown section', () => {
-  const node = {
-    type: 'tool_call',
-    tool_name: 'activate_skill',
-    status: 'success',
-    arguments: JSON.stringify({ skill_name: 'pdf' }),
-    raw_result: JSON.stringify({
-      success: true,
-      tool_name: 'activate_skill',
-      output_type: 'markdown',
-      content: '# PDF 技能\n\n说明正文',
-      metadata: { skill_name: 'pdf', content_length: 14 },
-    }),
-  }
-
-  const sections = getToolOutputSections(node)
-  const markdown = sections.find((section) => section.id === 'output-skill-markdown')
-  assert.equal(markdown.label, 'SKILL.md')
-  assert.equal(markdown.language, 'markdown')
-  assert.match(markdown.text, /PDF 技能/)
-})
-
-test('glob sections read the current files field with legacy filenames fallback', () => {
+test('glob subtitle reads the current files field with legacy filenames fallback', () => {
   const base = {
     type: 'tool_call',
     tool_name: 'glob',
@@ -261,12 +217,6 @@ test('glob sections read the current files field with legacy filenames fallback'
     ...base,
     raw_result: JSON.stringify({ output_type: 'json', content: { files: ['a.py', 'b.py'], count: 2 } }),
   }
-  const legacy = {
-    ...base,
-    raw_result: JSON.stringify({ output_type: 'json', content: { filenames: ['old.py'] } }),
-  }
 
-  assert.match(getToolOutputSections(current).find((s) => s.id === 'output-glob-files').text, /a\.py/)
-  assert.match(getToolOutputSections(legacy).find((s) => s.id === 'output-glob-files').text, /old\.py/)
   assert.match(getToolSubtitle(current), /2 个文件/)
 })

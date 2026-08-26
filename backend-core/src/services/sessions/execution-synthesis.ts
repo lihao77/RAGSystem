@@ -32,6 +32,17 @@ export function synthesizeExecutionEnvelopes(
   const emit = (event: KernelEvent): void => {
     envelopes.push(...translateKernelEvent(event, wireCtx));
   };
+  // 生命周期开篇：显式 agent_started 让树根尽早成形（call_id=runId，与 root 投影一致），
+  // 并携带首行 created_at 作为 startedAt——与实时流的顶层 timestamp 同构。
+  envelopes.push({
+    type: "agent_started",
+    session_id: ctx.sessionId,
+    run_id: ctx.runId,
+    call_id: ctx.runId,
+    agent_id: agentName,
+    timestamp: ordered[0]?.created_at,
+    payload: { phase: "start" },
+  });
   // 最终轮行不写 metadata.round，kernel round 由本 run 已见最大轮次推导：工具轮
   // kernel 0..n-1（metadata.round 1..n）→ 最终轮 kernel n；无工具轮则为 0。
   // 只累计显式携带 round 的行——final 行自身的兜底 round 0 不得参与推导。
@@ -117,6 +128,8 @@ export function synthesizeExecutionEnvelopes(
     run_id: ctx.runId,
     call_id: ctx.runId,
     agent_id: agentName,
+    // 顶层 timestamp（末行 created_at）供前端定格工作时长。
+    timestamp: ordered[ordered.length - 1]?.created_at,
     payload: terminalRow
       ? {
         phase: "end",

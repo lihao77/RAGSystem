@@ -459,7 +459,12 @@
   margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: var(--message-list-gap);
+  /* 不用容器 gap：间距由子项 margin-top 提供（下方 * + * 规则），这样
+     "带执行过程的段 → assistant 答案"的紧凑间距可以用普通覆盖规则写入。 */
+}
+
+.message-stream > * + * {
+  margin-top: var(--message-list-gap);
 }
 
 .message {
@@ -470,6 +475,13 @@
   /* Apple-style smooth entrance */
   animation: messageSlideIn 0.5s var(--ease-default) forwards;
   width: 100%;
+}
+
+/* 带执行过程的 user 消息与紧随的 assistant 正文是一个语义单元（段过程 → 段尾
+   答案）：压缩两者间的间距，让过程贴住答案而不是贴住 user 气泡。只作用于相邻
+   兄弟——下一条是 user（插嘴）时不受影响。 */
+.message-stream > .message.user.message--has-execution + .message.assistant {
+  margin-top: 6px;
 }
 
 .chat-main.is-restoring-session-scroll .message-stream {

@@ -76,48 +76,28 @@
       <div v-else class="tool-diff__empty">无行级差异</div>
     </div>
 
-    <!-- 已知工具：分段视图（输入/输出分段，code 段带语言标题与复制按钮） -->
-    <template v-else-if="visibleSections.length">
-      <div v-for="sectionItem in visibleSections" :key="sectionItem.id" class="tool-call-detail-block">
-        <span class="tool-call-detail-label">{{ sectionItem.label }}</span>
-        <div
-          v-if="sectionItem.kind === 'code'"
-          class="tool-call-detail-code markdown-body"
-          @click="handleCopyAction"
-          v-html="renderSectionCode(sectionItem)"
-        ></div>
-        <ul v-else-if="sectionItem.options && sectionItem.options.length" class="tool-call-detail-options">
-          <li v-for="option in sectionItem.options" :key="option">{{ option }}</li>
-        </ul>
-        <pre v-else class="tool-call-detail-text" :class="{ 'is-muted': sectionItem.muted }">{{ sectionItem.text }}</pre>
-      </div>
-      <div v-if="running" class="tool-call-detail-running">执行中...</div>
-    </template>
-
-    <!-- 未知工具：参数 JSON + 结果文本 -->
+    <!-- 其余工具：参数 + 结果。特殊工具（bash 终端 / edit diff）之外不做
+        per-tool 分段适配，信息密度和形态保持统一。 -->
     <template v-else>
       <div class="tool-call-detail-block">
         <span class="tool-call-detail-label">参数</span>
-        <pre class="tool-call-detail-text is-mono">{{ formatArguments(node.arguments) }}</pre>
+        <pre class="tool-call-detail-text is-mono">{{ formattedArguments }}</pre>
       </div>
       <div class="tool-call-detail-block">
         <span class="tool-call-detail-label">结果</span>
-        <div class="tool-call-detail-text" :class="{ 'is-error': isError }">{{ fallbackResult }}</div>
+        <div class="tool-call-detail-text" :class="{ 'is-error': isError }">{{ resultText }}</div>
       </div>
     </template>
   </div>
 </template>
 
 <script setup>
-import { computed, onUnmounted } from 'vue';
-import { renderCodeBlock, renderHighlightedCode } from '../../utils/markdown.js';
-import { createMarkdownCopyAction } from '../../utils/markdownBlockActions.js';
+import { computed } from 'vue';
+import { renderHighlightedCode } from '../../utils/markdown.js';
 import {
   getToolDiffView,
   getToolErrorText,
   getToolFallbackText,
-  getToolInputSections,
-  getToolOutputSections,
   getToolTerminalView,
 } from '../../utils/toolPresentation.js';
 import { normalizeExecutionStatus } from '../../utils/executionTreePresentation.js';
@@ -144,39 +124,15 @@ const commandHtml = computed(() => (
   terminalView.value?.command ? renderHighlightedCode(terminalView.value.command, 'bash') : ''
 ));
 
-const visibleSections = computed(() => {
-  const input = getToolInputSections(props.node)
-  const output = getToolOutputSections(props.node)
-  // observation 为渲染文本时部分工具（如 read_file 纯文本内容）产不出输出分段，
-  // 补一段「结果」承载原始 observation，避免比旧的通用视图丢信息。
-  if (!output.length && !isError.value && !props.running) {
-    const rawText = getToolFallbackText(props.node)
-    if (rawText) output.push({ id: 'output-fallback-raw', label: '结果', text: rawText, kind: 'text' })
-  }
-  return [...input, ...output]
-});
+const formattedArguments = computed(() => formatArguments(props.node.arguments));
 
-const fallbackResult = computed(() => (props.running
+const resultText = computed(() => (props.running
   ? '执行中...'
   : getToolFallbackText(props.node) || (isError.value ? '失败（无结果）' : '（无结果）')
 ));
 
-const { handleCopyAction, releaseCopyFeedback } = createMarkdownCopyAction({
-  notify: (message, type) => emit('notify', { message, type }),
-});
-onUnmounted(releaseCopyFeedback);
-
-// section 未显式声明语言时按形状嗅探：{ / [ 开头的多为 formatContent 产出的 JSON
-function sectionLanguage(section) {
-  if (section.language) return section.language;
-  const text = String(section.text || '').trim();
-  if (text.startsWith('{') || text.startsWith('[')) return 'json';
-  return '';
-}
-
-function renderSectionCode(section) {
-  return renderCodeBlock(section.text, sectionLanguage(section));
-}
+// emit('notify') 目前无消费方，保留接口以兼容后续错误提示挂载
+void emit;
 
 function formatArguments(value) {
   if (value === undefined || value === null) return '（无）';
@@ -200,7 +156,7 @@ function diffMark(type) {
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
 .tool-call-detail-block {
@@ -235,10 +191,6 @@ function diffMark(type) {
   font-family: var(--font-mono);
 }
 
-.tool-call-detail-text.is-muted {
-  color: var(--color-text-muted);
-}
-
 .tool-call-detail-text.is-error,
 .tool-call-detail-error {
   background: rgba(var(--color-error-rgb), 0.1);
@@ -251,34 +203,6 @@ function diffMark(type) {
   font-size: 11.5px;
   line-height: 1.5;
   overflow-wrap: anywhere;
-}
-
-.tool-call-detail-running {
-  color: var(--color-text-muted);
-  font-size: 11.5px;
-}
-
-/* 代码段复用 markdown 代码块外壳（语言标题 + 复制按钮），贴紧详情排版 */
-.tool-call-detail-code {
-  min-width: 0;
-}
-
-.tool-call-detail-code :deep(.md-special-block) {
-  margin: 0;
-}
-
-.tool-call-detail-code :deep(.md-block-title) {
-  font-size: 10.5px;
-}
-
-.tool-call-detail-options {
-  margin: 0;
-  padding: 7px 9px 7px 26px;
-  border-radius: var(--radius-sm);
-  background: var(--color-bg-secondary);
-  color: var(--color-text-secondary);
-  font-size: 11.5px;
-  line-height: 1.7;
 }
 
 /* ── 终端块 ─────────────────────────────────────────────

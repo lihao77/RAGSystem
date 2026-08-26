@@ -27,6 +27,7 @@
                 :key="nodeKey(node, index)"
                 :node="node"
                 :running="running"
+                :as-tail-output="tailActive && index === tailThoughtIndex"
                 @notify="emit('notify', $event)"
                 @citation-click="emit('citation-click', $event)"
               />
@@ -58,11 +59,12 @@
 
 <script setup>
 import { ChevronDown } from 'lucide-vue-next';
-import { computed, inject, ref, watch } from 'vue';
+import { computed, inject, onBeforeUnmount, ref, watch } from 'vue';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { useCollapsibleHeight } from '../../composables/useCollapsibleHeight.js';
 import { buildExecutionTree } from '../../utils/executionTreeBuilder.js';
+import { formatWorkDuration } from '../../utils/durationFormat.js';
 import {
   flattenExecutionNodes,
   getExecutionNodeKey,
@@ -75,7 +77,9 @@ const props = defineProps({
 
 const emit = defineEmits(['notify', 'citation-click']);
 const messageContext = inject('messageContext');
-// 树只承载过程（思考/意图/工具/注入）；最终答案由消息槽 assistant 行渲染。
+// 扁平时间线：过程节点直接渲染，段尾最后的大模型输出（thought 尾轮）以 assistant
+// 正文样式呈现（as-tail-output）——它可能是流式活跃轮，也可能是插嘴/中断留下的
+// 未定格轮。final 毕业后轮 text 清空，最终答案由紧随的 assistant 消息行渲染。
 const nodes = computed(() => buildExecutionTree(props.msg.executionTree));
 const flatNodes = computed(() => flattenExecutionNodes(nodes.value));
 const agentOperationCount = computed(() => flatNodes.value.filter(node => (
@@ -97,34 +101,92 @@ const hasProcess = computed(() => Boolean(
 // 恒置 true，不能作为运行依据。插嘴被同 run 认领后，本段的 agent_ended 路由
 // 到新边界面板，旧面板根 agent 停在 running——execution_superseded 让段已
 // 结束，面板不再显示运行中（工具详情的“执行中”同源于此）。
-const running = computed(() => props.msg.executionTree?.root?.status === 'running'
+const root = computed(() => props.msg.executionTree?.root || null);
+const running = computed(() => root.value?.status === 'running'
   && props.msg.execution_superseded !== true);
 const msgIsUnloadedHistory = computed(() => Boolean(
   props.msg.has_execution
   && !props.msg.executionTree?.root
   && !props.msg.executionStepsLoaded,
 ));
+
+/* 段尾输出（该段最后的大模型文字，assistant 姿态呈现）：
+   - 流式中：树尾活跃轮 text——它就是候选最终答案；
+   - 插嘴孤儿段（execution_superseded）/ 中断、失败段：未定格的半截轮 text，
+     该段永远等不到自己的 final，它就是段内最后的输出；
+   - 正常完成段：final 毕业清空轮 text，段尾输出自然缺席，最终答案由紧随的
+     assistant 消息行渲染（不重复出现）。 */
+const tailActive = computed(() => running.value
+  || props.msg.execution_superseded === true
+  || root.value?.status === 'interrupted'
+  || root.value?.status === 'failed');
+const tailThoughtIndex = computed(() => {
+  for (let index = nodes.value.length - 1; index >= 0; index -= 1) {
+    const node = nodes.value[index];
+    if (node?.type === 'thought' && (node.intent || '').trim()) return index;
+  }
+  return -1;
+});
+
+/* 工作时长：优先协议投影的 root.startedAt/endedAt（envelope 顶层 timestamp）；
+   事件缺时间戳（旧后端/AG-UI 降级通道）时用前端首次见到 running 的本地时刻兜底，
+   终态且无协议时间则无时长（降级为仅计数摘要）。 */
+const now = ref(Date.now());
+const localStartAt = ref(0);
+let elapsedTimer = 0;
+
+const elapsedMs = computed(() => {
+  const start = root.value?.startedAt || localStartAt.value;
+  if (!start) return null;
+  if (running.value) return Math.max(0, now.value - start);
+  const end = root.value?.endedAt;
+  return Number.isFinite(end) ? Math.max(0, end - start) : null;
+});
+const durationText = computed(() => formatWorkDuration(elapsedMs.value ?? Number.NaN));
+
 const headerLabel = computed(() => {
   if (msgIsUnloadedHistory.value || !flatNodes.value.length) return '执行过程';
   const labels = [];
+  if (durationText.value) labels.push(`已工作 ${durationText.value}`);
   if (toolCount.value) labels.push(`${toolCount.value} 个工具调用`);
   if (agentOperationCount.value) labels.push(`${agentOperationCount.value} 个智能体操作`);
   return labels.join(' · ') || '执行过程';
 });
 
+function restartElapsedTimer() {
+  if (elapsedTimer) {
+    clearInterval(elapsedTimer);
+    elapsedTimer = 0;
+  }
+  if (!running.value) return;
+  elapsedTimer = window.setInterval(() => {
+    now.value = Date.now();
+  }, 1000);
+}
+
 // 初始值取当前运行态：挂载时 run 已在进行（刷新/重连 mid-run），面板直接展开，
 // 不依赖 watch 边沿触发。
 const expanded = ref(running.value);
 
-// 运行开始自动展开过程（看它干活），运行结束自动收起（答案由下方 assistant 消息槽
-// 呈现，过程收起后时间线仍是 用户消息→答案 的节奏）。只在"开始/结束"边沿触发，
-// 不拦截用户在运行中的手动展开/收起。
+// 运行开始自动展开过程（看它干活），run 级终态自动收起——折叠触发绑 run 终态
+// 而非轮级 final：插嘴孤儿段/被 followup 打断的轮可能永远等不到 final。收起后
+// 段尾输出（若段无 final 正文）保持展开，时间线仍是 用户消息→段尾输出 的节奏。
+// 只在"开始/结束"边沿触发，不拦截用户在运行中的手动展开/收起。
 watch(running, (isRunning) => {
   expanded.value = isRunning;
-});
+  if (isRunning && !localStartAt.value) localStartAt.value = Date.now();
+  if (!isRunning) localStartAt.value = 0;
+  now.value = Date.now();
+  restartElapsedTimer();
+}, { immediate: true });
 
 watch(() => props.msg.run_id || props.msg.id, () => {
   expanded.value = false;
+  localStartAt.value = 0;
+});
+
+onBeforeUnmount(() => {
+  if (elapsedTimer) clearInterval(elapsedTimer);
 });
 
 async function toggleExpanded() {
@@ -190,6 +252,7 @@ function nodeKey(node, index) {
   min-height: 0;
   justify-content: flex-start;
   gap: 6px;
+  margin-top: 6px;
   padding: 2px 0;
   font-size: 12.5px;
   line-height: 1.5;

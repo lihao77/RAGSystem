@@ -26,6 +26,8 @@ export function buildAgentCallStart(input: AgentCallStartEventInput & { runId: s
       run_id: input.runId,
       agent_id: input.agentName,
       call_id: input.agentCallId,
+      // 顶层 timestamp（ISO）供前端执行树推子 agent 工作时长。
+      timestamp: new Date().toISOString(),
       payload: {
         phase: "start",
         task: input.description,

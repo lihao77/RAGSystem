@@ -6,6 +6,7 @@
       {
         'message--session-followup': msg.metadata?.execution_kind === 'session_followup' || msg.metadata?.source === 'running_session',
         'message--agent-message': msg.metadata?.agent_message === true,
+        'message--has-execution': showExecutionSteps,
       },
     ]"
     :data-msg-index="index"

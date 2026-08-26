@@ -203,6 +203,9 @@ export interface ExecutionAgent {
   task?: string;
   status: "running" | "succeeded" | "failed" | "interrupted";
   result?: string;
+  /** 生命周期时刻（ms epoch，envelope 顶层 timestamp 归一化）；事件缺时间戳时不落。 */
+  startedAt?: number;
+  endedAt?: number;
   rounds: ExecutionRound[];
   children: ExecutionAgent[];
   messages?: ExecutionAgentMessage[];

@@ -56,6 +56,17 @@ function asNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
+/** envelope 顶层 timestamp（int 秒或 ISO datetime）归一化为 ms epoch；缺失/非法返回 undefined。 */
+function envelopeTimestampMs(env: Envelope): number | undefined {
+  const ts = (env as { timestamp?: unknown }).timestamp;
+  if (typeof ts === "number" && Number.isFinite(ts)) return ts * 1000;
+  if (typeof ts === "string") {
+    const parsed = Date.parse(ts);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
+}
+
 function ensureAgent(
   state: ExecutionTreeState,
   callId: string,
@@ -439,7 +450,7 @@ export function applyEnvelope(state: ExecutionTreeState, env: Envelope): void {
       const callId = asString(env.call_id);
       if (!callId) return;
       const lineage = asRecord(payload.lineage);
-      ensureAgent(state, callId, {
+      const agent = ensureAgent(state, callId, {
         agentId: asString(env.agent_id),
         displayName: asString(payload.display_name),
         task: asString(payload.task),
@@ -447,6 +458,8 @@ export function applyEnvelope(state: ExecutionTreeState, env: Envelope): void {
         invocationCallId: asString(payload.invocation_call_id),
         participantId: asString(payload.child_agent_id),
       });
+      const startedAt = envelopeTimestampMs(env);
+      if (agent.startedAt === undefined && startedAt !== undefined) agent.startedAt = startedAt;
       return;
     }
     case "agent_ended": {
@@ -461,6 +474,7 @@ export function applyEnvelope(state: ExecutionTreeState, env: Envelope): void {
       if (typeof payload.success !== "boolean" || payload.success !== (status === "succeeded")) return;
       const nextStatus = status;
       const result = asString(payload.result);
+      const endedAt = envelopeTimestampMs(env);
       if (!agent) {
         const lineage = asRecord(payload.lineage);
         const parentCallId = asString(lineage.parent_call_id);
@@ -471,11 +485,16 @@ export function applyEnvelope(state: ExecutionTreeState, env: Envelope): void {
         });
         terminalAgent.status = nextStatus;
         if (result) terminalAgent.result = result;
+        if (endedAt !== undefined) {
+          terminalAgent.endedAt = endedAt;
+          if (terminalAgent.startedAt === undefined) terminalAgent.startedAt = endedAt;
+        }
         return;
       }
       if (agent.status !== "running") return;
       agent.status = nextStatus;
       if (result) agent.result = result;
+      if (endedAt !== undefined) agent.endedAt = endedAt;
       return;
     }
     case "stream_output": {

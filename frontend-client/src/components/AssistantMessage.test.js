@@ -86,15 +86,14 @@ test('工具调用详情按工具类型分化：bash 终端块、edit diff 块�
   // 渲染节点只负责行与折叠，工具详情整体交给专用组件
   assert.equal(nodeSource.includes('<AssistantToolCallDetail'), true);
   assert.equal(nodeSource.includes('formatArguments'), false);
-  // 四种形态：终端(execute_bash) → diff(edit_file) → 分段(已知工具) → 参数/结果兜底
+  // 三种形态：终端(execute_bash) → diff(edit_file) → 通用参数/结果（不做 per-tool 分段适配）
   assert.equal(detailSource.includes('v-if="terminalView"'), true);
   assert.equal(detailSource.includes('v-else-if="diffView"'), true);
-  assert.equal(detailSource.includes('v-else-if="visibleSections.length"'), true);
   assert.equal(detailSource.includes('getToolTerminalView'), true);
   assert.equal(detailSource.includes('getToolDiffView'), true);
-  assert.equal(detailSource.includes('getToolInputSections'), true);
-  assert.equal(detailSource.includes('getToolOutputSections'), true);
-  assert.equal(detailSource.includes('renderCodeBlock'), true);
+  assert.equal(detailSource.includes('getToolFallbackText'), true);
+  assert.equal(detailSource.includes('getToolInputSections'), false);
+  assert.equal(detailSource.includes('getToolOutputSections'), false);
   // 终端语义：$ 提示符 + stdout/stderr 分色 + 退出码徽标；diff 语义：+/- 标记与增删行着色
   assert.equal(detailSource.includes('tool-terminal__prompt'), true);
   assert.equal(detailSource.includes('tool-terminal__stdout'), true);

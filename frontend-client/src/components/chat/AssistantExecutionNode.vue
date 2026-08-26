@@ -44,25 +44,56 @@
     </template>
 
     <template v-else-if="node.type === 'thought'">
-      <div class="assistant-step-intent" :style="indentStyle">
+      <!-- 段尾输出：该段最后的大模型文字（流式活跃轮/插嘴或中断的未定格轮），
+           以 assistant 正文姿态呈现——不可折叠，正常字号 markdown + 流式光标。 -->
+      <div v-if="asTailOutput" class="assistant-step-tail-output">
+        <MessageContentParts
+          v-if="node.text_parts?.length"
+          :parts="node.text_parts"
+          :msg="tailMsgProxy"
+          @notify="emit('notify', $event)"
+          @citation-click="emit('citation-click', $event)"
+        />
         <MarkdownContent
+          v-else
           :content="node.intent || ''"
-          :streaming="running && node.intent_complete === false"
+          :streaming="tailStreaming"
           @notify="emit('notify', $event)"
           @citation-click="emit('citation-click', $event)"
         />
+        <div v-if="hasChildren" class="assistant-step-children">
+          <AssistantExecutionNode
+            v-for="(child, index) in node.children"
+            :key="nodeKey(child, index)"
+            :node="child"
+            :depth="depth"
+            :running="running"
+            @notify="emit('notify', $event)"
+            @citation-click="emit('citation-click', $event)"
+          />
+        </div>
       </div>
-      <div v-if="hasChildren" class="assistant-step-children">
-        <AssistantExecutionNode
-          v-for="(child, index) in node.children"
-          :key="nodeKey(child, index)"
-          :node="child"
-          :depth="depth + 1"
-          :running="running"
-          @notify="emit('notify', $event)"
-          @citation-click="emit('citation-click', $event)"
-        />
-      </div>
+      <template v-else>
+        <div class="assistant-step-intent" :style="indentStyle">
+          <MarkdownContent
+            :content="node.intent || ''"
+            :streaming="running && node.intent_complete === false"
+            @notify="emit('notify', $event)"
+            @citation-click="emit('citation-click', $event)"
+          />
+        </div>
+        <div v-if="hasChildren" class="assistant-step-children">
+          <AssistantExecutionNode
+            v-for="(child, index) in node.children"
+            :key="nodeKey(child, index)"
+            :node="child"
+            :depth="depth"
+            :running="running"
+            @notify="emit('notify', $event)"
+            @citation-click="emit('citation-click', $event)"
+          />
+        </div>
+      </template>
     </template>
 
     <template v-else>
@@ -147,6 +178,7 @@ import { agentNodeAccentColor } from '../../utils/participantVisual.js';
 import { useCollapsibleHeight } from '../../composables/useCollapsibleHeight.js';
 import AssistantToolCallDetail from './AssistantToolCallDetail.vue';
 import MarkdownContent from './MarkdownContent.vue';
+import MessageContentParts from './MessageContentParts.vue';
 
 defineOptions({ name: 'AssistantExecutionNode' });
 
@@ -154,10 +186,16 @@ const props = defineProps({
   node: { type: Object, required: true },
   depth: { type: Number, default: 0 },
   running: { type: Boolean, default: false },
+  // 段尾输出标记：本节点是段内最后的大模型文字，切换为 assistant 正文姿态。
+  asTailOutput: { type: Boolean, default: false },
 });
 
 const emit = defineEmits(['notify', 'citation-click']);
 const expanded = ref(false);
+const tailStreaming = computed(() => props.running && props.node.intent_complete === false);
+// MessageContentParts 的流式光标由 msg.finished/stopped 驱动，段尾输出用本节点
+// 的流式态代理（不走消息槽——段尾输出可能永远没有对应消息行）。
+const tailMsgProxy = computed(() => ({ finished: !tailStreaming.value, stopped: false }));
 const status = computed(() => normalizeExecutionStatus(props.node.status));
 const isAgentOperation = computed(() => props.node.type === 'tool_call' && props.node.tool_name === 'agent');
 const isAgentNode = computed(() => props.node.type === 'agent_call' || isAgentOperation.value);
@@ -410,6 +448,21 @@ function truncate(value, maxLength) {
   display: flex;
   min-width: 0;
   flex-direction: column;
+}
+
+/* 段尾输出：assistant 正文姿态（与最终答案消息行同款排版），不折叠、不缩进。 */
+.assistant-step-tail-output {
+  min-width: 0;
+  padding-block: 6px 2px;
+}
+
+.assistant-step-tail-output :deep(.markdown-body) {
+  font-size: 14.5px;
+  line-height: 1.75;
+}
+
+.assistant-step-tail-output :deep(.markdown-body > :last-child) {
+  margin-bottom: 0;
 }
 
 .assistant-step-intent {
