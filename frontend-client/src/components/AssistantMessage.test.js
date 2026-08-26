@@ -32,6 +32,10 @@ test('执行步骤中的 intent 使用 final 相同的 Markdown 渲染，运行�
   assert.equal(source.includes('answerNode'), false);
   assert.equal(nodeSource.includes("node.type === 'answer'"), false);
   assert.equal(source.includes('ensureExecutionStepsLoaded'), true);
+  // 点开过的段懒加载后发现树为空：面板保留并显示"暂无执行步骤"，不原地消失。
+  assert.equal(source.includes('暂无执行步骤'), true);
+  assert.equal(source.includes('userRevealed.value = true'), true);
+  assert.equal(source.includes('|| userRevealed.value,'), true);
 });
 
 test('用户和智能体消息由消息项共用执行步骤，最终 assistant 不显示入口', async () => {
@@ -102,4 +106,9 @@ test('工具调用详情按工具类型分化：bash 终端块、edit diff 块�
   assert.equal(detailSource.includes('tool-diff__mark'), true);
   assert.equal(detailSource.includes('color-mix(in srgb, var(--color-success) 8%, transparent)'), true);
   assert.equal(detailSource.includes('color-mix(in srgb, var(--color-error) 8%, transparent)'), true);
+  // 详情运行态以节点 status 为准（run 级 running 只做门控）：run 进行中已完成
+  // 的工具立即呈现结果/退出码，仅真正执行中的工具显示“执行中”。
+  assert.equal(detailSource.includes("props.running && status.value === 'running'"), true);
+  assert.equal(detailSource.includes('v-if="toolRunning"'), true);
+  assert.equal(detailSource.includes('!toolRunning.value'), true);
 });

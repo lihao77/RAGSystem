@@ -45,7 +45,8 @@
 
     <template v-else-if="node.type === 'thought'">
       <!-- 段尾输出：该段最后的大模型文字（流式活跃轮/插嘴或中断的未定格轮），
-           以 assistant 正文姿态呈现——不可折叠，正常字号 markdown + 流式光标。 -->
+           以 assistant 正文姿态呈现——不可折叠 + 流式光标；排版与 intent/最终
+           答案行同款（见样式），降级时不发生缩放跳动。 -->
       <div v-if="asTailOutput" class="assistant-step-tail-output">
         <MessageContentParts
           v-if="node.text_parts?.length"
@@ -61,39 +62,28 @@
           @notify="emit('notify', $event)"
           @citation-click="emit('citation-click', $event)"
         />
-        <div v-if="hasChildren" class="assistant-step-children">
-          <AssistantExecutionNode
-            v-for="(child, index) in node.children"
-            :key="nodeKey(child, index)"
-            :node="child"
-            :depth="depth"
-            :running="running"
-            @notify="emit('notify', $event)"
-            @citation-click="emit('citation-click', $event)"
-          />
-        </div>
       </div>
-      <template v-else>
-        <div class="assistant-step-intent" :style="indentStyle">
-          <MarkdownContent
-            :content="node.intent || ''"
-            :streaming="running && node.intent_complete === false"
-            @notify="emit('notify', $event)"
-            @citation-click="emit('citation-click', $event)"
-          />
-        </div>
-        <div v-if="hasChildren" class="assistant-step-children">
-          <AssistantExecutionNode
-            v-for="(child, index) in node.children"
-            :key="nodeKey(child, index)"
-            :node="child"
-            :depth="depth"
-            :running="running"
-            @notify="emit('notify', $event)"
-            @citation-click="emit('citation-click', $event)"
-          />
-        </div>
-      </template>
+      <div v-else class="assistant-step-intent" :style="indentStyle">
+        <MarkdownContent
+          :content="node.intent || ''"
+          :streaming="running && node.intent_complete === false"
+          @notify="emit('notify', $event)"
+          @citation-click="emit('citation-click', $event)"
+        />
+      </div>
+      <!-- 子步骤统一挂在文本容器外：段尾输出降级为 intent 时 children 不换容器，
+           几何不变。 -->
+      <div v-if="hasChildren" class="assistant-step-children">
+        <AssistantExecutionNode
+          v-for="(child, index) in node.children"
+          :key="nodeKey(child, index)"
+          :node="child"
+          :depth="depth"
+          :running="running"
+          @notify="emit('notify', $event)"
+          @citation-click="emit('citation-click', $event)"
+        />
+      </div>
     </template>
 
     <template v-else>
@@ -450,29 +440,28 @@ function truncate(value, maxLength) {
   flex-direction: column;
 }
 
-/* 段尾输出：assistant 正文姿态（与最终答案消息行同款排版），不折叠、不缩进。 */
-.assistant-step-tail-output {
-  min-width: 0;
-  padding-block: 6px 2px;
-}
-
-.assistant-step-tail-output :deep(.markdown-body) {
-  font-size: 14.5px;
-  line-height: 1.75;
-}
-
-.assistant-step-tail-output :deep(.markdown-body > :last-child) {
-  margin-bottom: 0;
-}
-
+/* 轮文本容器：段尾输出与 intent 共用同一套容器几何——段尾输出在下一轮文字
+   开始时降级为 intent，padding 不一致会让上方内容瞬间位移。 */
+.assistant-step-tail-output,
 .assistant-step-intent {
   min-width: 0;
   padding-block: 4px;
 }
 
+/* 轮文本排版：与最终答案消息行同款（chat-view.css 的 .message.assistant
+   .markdown-body，14px/1.7）。段尾输出流式态 → 降级为 intent → run 终态由
+   最终答案行接管，三处字号/行高必须一致，任何一处偏离都会让正在读的文字
+   突然缩放；改动需与 chat-view.css 同步。 */
+.assistant-step-tail-output :deep(.markdown-body),
 .assistant-step-intent :deep(.markdown-body) {
   font-size: 14px;
   line-height: 1.7;
+}
+
+/* markdown 末元素的 margin-bottom 会被 BFC 容器包含，在块尾留出空白；统一清零。 */
+.assistant-step-tail-output :deep(.markdown-body > :last-child),
+.assistant-step-intent :deep(.markdown-body > :last-child) {
+  margin-bottom: 0;
 }
 
 .assistant-step-brain {
@@ -624,11 +613,6 @@ function truncate(value, maxLength) {
   max-height: 320px;
   overflow-x: hidden;
   overflow-y: auto;
-}
-
-/* markdown 末元素的 margin-bottom 会被 BFC 容器包含，在块尾留出空白；intent 块统一清零。 */
-.assistant-step-intent :deep(.markdown-body > :last-child) {
-  margin-bottom: 0;
 }
 
 /* 左侧竖线：1px，位于思考图标中心的正下方（随缩进层级），随展开高度生长。 */

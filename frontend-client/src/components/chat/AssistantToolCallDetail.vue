@@ -24,7 +24,7 @@
           <span class="tool-terminal__prompt" aria-hidden="true">$</span>
           <pre class="tool-terminal__pre"><code v-html="commandHtml"></code></pre>
         </div>
-        <div v-if="running" class="tool-terminal__running">
+        <div v-if="toolRunning" class="tool-terminal__running">
           <span class="tool-terminal__cursor" aria-hidden="true"></span>执行中...
         </div>
         <template v-else-if="terminalView.backgroundStarted">
@@ -117,8 +117,13 @@ const errorText = computed(() => (isError.value ? getToolErrorText(props.node) :
 
 const terminalView = computed(() => getToolTerminalView(props.node));
 const diffView = computed(() => getToolDiffView(props.node));
+/* 工具运行态以节点自身 status 为准（run 级 running 只做门控）：run 进行中已完成的
+   工具立即呈现结果与退出码，仅真正执行中的工具显示"执行中"；run 终态后因中断
+   未收到 tool_result 而卡在 running 的节点，也不再永远显示执行中。 */
+const toolRunning = computed(() => props.running && status.value === 'running');
+
 const exitBadge = computed(() => Boolean(
-  !props.running && terminalView.value && terminalView.value.exitCode != null,
+  !toolRunning.value && terminalView.value && terminalView.value.exitCode != null,
 ));
 const commandHtml = computed(() => (
   terminalView.value?.command ? renderHighlightedCode(terminalView.value.command, 'bash') : ''
@@ -126,7 +131,7 @@ const commandHtml = computed(() => (
 
 const formattedArguments = computed(() => formatArguments(props.node.arguments));
 
-const resultText = computed(() => (props.running
+const resultText = computed(() => (toolRunning.value
   ? '执行中...'
   : getToolFallbackText(props.node) || (isError.value ? '失败（无结果）' : '（无结果）')
 ));

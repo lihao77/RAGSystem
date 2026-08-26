@@ -783,6 +783,9 @@
   box-shadow: none;
 }
 
+/* assistant 正文排版基线：最终答案消息行、执行面板轮文本（段尾输出/intent，
+   AssistantExecutionNode.vue）三处同款——段尾输出降级为 intent、run 终态由
+   本行接管时文字不缩放。改动需与该组件同步。 */
 .message.assistant .markdown-body {
   font-size: 14px;
   line-height: 1.7;

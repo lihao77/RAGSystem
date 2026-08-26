@@ -89,18 +89,21 @@ const toolCount = computed(() => flatNodes.value.filter(node => (
   node.type === 'tool_call' && node.tool_name !== 'agent'
 )).length);
 // 过程入口的门控：树有节点 / 加载中 / 加载失败 / 历史未加载（此时入口行就是
-// 懒加载触发器，必须在场——否则纯空树连点击加载的机会都没有）。
-// 纯问答 run 加载后发现树为空，入口自然消失（不加壳）。
+// 懒加载触发器，必须在场——否则纯空树连点击加载的机会都没有）/ 用户点开过。
+// 纯问答 run 加载后发现树为空：没点开过的段不加壳（入口缺席）；点开过的段
+// 保留入口并显示"暂无执行步骤"，不在交互中原地消失。
 const hasProcess = computed(() => Boolean(
   nodes.value.length
   || props.msg.executionStepsLoading
   || props.msg.executionStepsLoadError
-  || msgIsUnloadedHistory.value,
+  || msgIsUnloadedHistory.value
+  || userRevealed.value,
 ));
 // 运行态取自树根 agent 的生命周期——锚点消息自身的 finished 被 dispatcher
 // 恒置 true，不能作为运行依据。插嘴被同 run 认领后，本段的 agent_ended 路由
 // 到新边界面板，旧面板根 agent 停在 running——execution_superseded 让段已
-// 结束，面板不再显示运行中（工具详情的“执行中”同源于此）。
+// 结束，面板不再显示运行中。工具详情的“执行中”以节点自身 status 为准，
+// 此 run 级标志只做门控（见 AssistantToolCallDetail）。
 const root = computed(() => props.msg.executionTree?.root || null);
 const running = computed(() => root.value?.status === 'running'
   && props.msg.execution_superseded !== true);
@@ -109,6 +112,9 @@ const msgIsUnloadedHistory = computed(() => Boolean(
   && !props.msg.executionTree?.root
   && !props.msg.executionStepsLoaded,
 ));
+// 用户点开过的段（手动展开）：历史懒加载后发现树为空也不移除面板，
+// 展开态显示"暂无执行步骤"兜底；未点开过的段保持无入口（不加壳）。
+const userRevealed = ref(false);
 
 /* 段尾输出（该段最后的大模型文字，assistant 姿态呈现）：
    - 流式中：树尾活跃轮 text——它就是候选最终答案；
@@ -194,6 +200,8 @@ async function toggleExpanded() {
     expanded.value = false;
     return;
   }
+  // 点开即认领：加载后即使树为空，面板也在场显示"暂无执行步骤"。
+  userRevealed.value = true;
   // 历史步骤未就绪时先取完整数据再展开，避免先开占位面板、数据到达后再跳变。
   if (msgIsUnloadedHistory.value || props.msg.executionStepsLoading) {
     await loadHistoricalSteps();
