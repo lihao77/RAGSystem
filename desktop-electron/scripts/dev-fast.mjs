@@ -3,14 +3,17 @@
 //   后端：backend-local 源码 tsx watch（插件经 --conditions=development 直接走 src）
 //   壳：Electron 复用已就绪的后端（与正式启动一致的复用策略），窗口加载 Vite 地址
 // 数据目录与桌面正式启动一致（默认 ~/.ragsystem-desktop），装一次向导两边共用。
-import { spawn } from "node:child_process";
+import { spawn, execFile } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+
+const execFileAsync = promisify(execFile);
 
 const require = createRequire(import.meta.url);
 const electronPath = require("electron");
@@ -27,6 +30,9 @@ const desktopDataRoot = process.env.RAG_DATA_ROOT || path.join(os.homedir(), ".r
 
 const children = [];
 let shuttingDown = false;
+// 本进程拉起的 backend/vite 端口；复用已运行实例时保持 null（不归我们清理）。
+let spawnedBackendPort = null;
+let spawnedVitePort = null;
 
 // Windows 下 shell:true 的 kill 只杀 cmd 壳，孙进程会残留；taskkill /T 杀整棵进程树
 const killTree = (child) => {
@@ -38,14 +44,44 @@ const killTree = (child) => {
   }
 };
 
+// 端口兜底：windowsHide 的子进程不接控制台事件（收不到 Ctrl+C），外层 npm 与本进程的
+// 清理也存在竞速——树杀落空时按监听端口反查 PID 补杀，否则后端/Vite 会逐次残留累积。
+const killListenersOnPort = async (port) => {
+  if (process.platform !== "win32" || !port) return;
+  try {
+    const { stdout } = await execFileAsync("netstat", ["-ano", "-p", "tcp"], { windowsHide: true });
+    const pids = new Set();
+    for (const line of stdout.split(/\r?\n/)) {
+      const match = /\s\S+:(\d+)\s+\S+\s+LISTENING\s+(\d+)\s*$/.exec(line);
+      if (match && Number(match[1]) === port) {
+        const pid = Number(match[2]);
+        if (pid && pid !== process.pid) pids.add(pid);
+      }
+    }
+    if (pids.size === 0) return;
+    await Promise.all(
+      [...pids].map((pid) =>
+        execFileAsync("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true }).catch(() => {})),
+    );
+    console.log(`[dev-fast] 端口 ${port} 兜底清理了 ${pids.size} 个残留监听进程`);
+  } catch {
+    // netstat/taskkill 不可用等环境问题：树杀已尽力，静默跳过
+  }
+};
+
 const shutdown = (code = 0) => {
   if (shuttingDown) return;
   shuttingDown = true;
   for (const child of children) killTree(child);
-  setTimeout(() => process.exit(code), 500);
+  void (async () => {
+    await killListenersOnPort(spawnedBackendPort);
+    await killListenersOnPort(spawnedVitePort);
+    setTimeout(() => process.exit(code), 500);
+  })();
 };
-process.once("SIGINT", () => shutdown(130));
-process.once("SIGTERM", () => shutdown(143));
+// 用 on 而非 once：清理期间用户再按 Ctrl+C 不应触发默认硬杀、打断兜底清理
+process.on("SIGINT", () => shutdown(130));
+process.on("SIGTERM", () => shutdown(143));
 
 const getJson = (url, timeoutMs = 2000) =>
   new Promise((resolve, reject) => {
@@ -167,6 +203,7 @@ try {
       windowsHide: true,
     });
     children.push(backend);
+    spawnedBackendPort = backendPort;
     backend.stdout.on("data", forward("backend"));
     backend.stderr.on("data", forward("backend"));
     backend.once("exit", (code) => {
@@ -192,6 +229,7 @@ try {
       windowsHide: true,
     });
     children.push(vite);
+    spawnedVitePort = vitePort;
     vite.stdout.on("data", forward("vite"));
     vite.stderr.on("data", forward("vite"));
   } else {
