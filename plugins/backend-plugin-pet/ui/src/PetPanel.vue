@@ -3,9 +3,6 @@
     <PetSurface
       v-if="ready && available"
       :available="available"
-      :mood="mood"
-      :pulse="pulse"
-      :hint="hint"
       :notice="notice"
       :display="displayId"
       :size="stageSize"
@@ -35,6 +32,8 @@ const STATE_POLL_MS = 4000;
 const NOTICE_MS = 5000;
 const BASE_STAGE_SIZE = 462;
 const DEFAULT_SETTINGS = { default_animation: 'idle', scale: 1, notice_enabled: true };
+/** 系统通知正文截断长度（对齐 dsh-pet 上游 MAX_BODY）。 */
+const NOTIFY_BODY_LIMIT = 80;
 
 /**
  * 桌宠 view（插件 bundle 版，由宿主 PluginViewHost 挂载）。
@@ -52,9 +51,6 @@ const props = defineProps({
 
 const available = ref(null);
 const ready = ref(false);
-const mood = ref('idle');
-const pulse = ref(null);
-const hint = ref(null);
 const notice = ref(null);
 const settings = ref(DEFAULT_SETTINGS);
 const quickAsk = ref(false);
@@ -72,6 +68,7 @@ let stateTimer = null;
 let noticeTimer = null;
 let seenErrorAt = null;
 let seenCompletedAt = null;
+let seenInteractionId = null;
 let statePrimed = false;
 const restoredStyles = [];
 
@@ -81,34 +78,54 @@ function clampScale(value) {
   return Math.min(Math.max(n, 0.5), 2);
 }
 
-const showNotice = (kind, text) => {
-  if (settings.value.notice_enabled === false) return; // 场景配置关闭状态气泡
-  notice.value = { kind, text };
+/** 通知正文截断（对齐上游 MAX_BODY）。 */
+function truncate(text) {
+  const t = String(text ?? '').trim();
+  return t.length > NOTIFY_BODY_LIMIT ? `${t.slice(0, NOTIFY_BODY_LIMIT)}…` : t;
+}
+
+const showNotice = (kind, icon, text) => {
+  notice.value = { kind, icon, text };
   clearTimeout(noticeTimer);
   noticeTimer = setTimeout(() => {
     notice.value = null;
   }, NOTICE_MS);
 };
 
+/**
+ * 任务事件 → 系统桌面通知（经 IPC 由 Electron 主进程弹出，主窗口失焦时才弹）。
+ * 宠物本体不承载任务提示（回归纯桌宠），仅 quick-ask 交互反馈用头顶气泡。
+ */
+const notifyDesktop = (title, body = '') => {
+  if (settings.value.notice_enabled === false) return;
+  window.ragsystemDesktop?.notify?.(title, truncate(body));
+};
+
 const applyState = (state) => {
   if (!state || typeof state !== 'object') return;
-  mood.value = state.activeRuns > 0 ? 'busy' : 'idle';
-  hint.value = state.busyHint ?? null;
-  // 首帧只建立基线，不触发历史 error/done 的脉冲
+  // 首帧只建立基线，不触发历史 error/done/交互的通知
   if (!statePrimed) {
     statePrimed = true;
     seenErrorAt = state.lastErrorAt ?? null;
     seenCompletedAt = state.lastCompletedAt ?? null;
+    seenInteractionId = state.lastInteraction?.id ?? null;
     return;
   }
   if (state.lastErrorAt && state.lastErrorAt !== seenErrorAt) {
     seenErrorAt = state.lastErrorAt;
-    pulse.value = { kind: 'error', at: state.lastErrorAt };
-    showNotice('error', '任务出错');
+    notifyDesktop('生成失败', state.lastSummary ?? '');
   } else if (state.lastCompletedAt && state.lastCompletedAt !== seenCompletedAt) {
     seenCompletedAt = state.lastCompletedAt;
-    pulse.value = { kind: 'done', at: state.lastCompletedAt };
-    showNotice('done', '任务完成');
+    notifyDesktop('对话完成');
+  }
+  const interaction = state.lastInteraction;
+  if (interaction && interaction.id !== seenInteractionId) {
+    seenInteractionId = interaction.id;
+    if (interaction.kind === 'approval') {
+      notifyDesktop('正在申请权限', [interaction.tool ? `工具「${interaction.tool}」` : '', interaction.reason ?? ''].filter(Boolean).join('：'));
+    } else {
+      notifyDesktop('模型在等你回答', interaction.prompt ?? '');
+    }
   }
 };
 
@@ -202,12 +219,12 @@ const submitQuickAsk = async () => {
   const desktop = window.ragsystemDesktop;
   if (!desktop?.quickAsk) {
     closeQuickAsk();
-    showNotice('info', '仅桌面端可用');
+    showNotice('error', 'error', '仅桌面端可用');
     return;
   }
   const sent = await desktop.quickAsk(text);
   closeQuickAsk();
-  showNotice(sent ? 'done' : 'error', sent ? '已发送' : '发送失败');
+  showNotice(sent ? 'done' : 'error', sent ? 'done' : 'error', sent ? '已发送' : '发送失败');
 };
 
 const setupClickThrough = () => {
@@ -229,7 +246,7 @@ const setupClickThrough = () => {
   apply(false); // 初始整体穿透，命中宠物/输入框后再恢复交互
   cleanupClickThrough = () => {
     document.removeEventListener('mousemove', onMouseMove);
-    document.documentElement.removeEventListener('mouseleave', onMouseLeave);
+    document.removeEventListener('mouseleave', onMouseLeave);
   };
 };
 

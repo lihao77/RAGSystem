@@ -11,6 +11,20 @@ export interface PetActivitySnapshot {
   readonly lastSummary: string | null;
   /** busy 期间的工具映射提示 { anim, at }：前端据此切换"正在做什么"的动画；null = 无。 */
   readonly busyHint: { readonly anim: string; readonly at: number } | null;
+  /** 最近一次等待用户的交互（审批/用户输入），系统通知事件源；null = 无。 */
+  readonly lastInteraction: PetInteractionNotice | null;
+}
+
+/** 等待用户的交互通知（来自 pendingInteractions.onInteractionRequired）。 */
+export interface PetInteractionNotice {
+  readonly id: string;
+  readonly kind: "approval" | "user_input";
+  /** approval：工具名；user_input："request_user_input"。 */
+  readonly tool: string;
+  readonly prompt: string | null;
+  readonly reason: string | null;
+  /** 时间戳（ms）。 */
+  readonly at: number;
 }
 
 /** 摘要截断长度（前端气泡展示用）。 */
@@ -60,6 +74,7 @@ export class PetActivityTracker {
   private lastCompletedAt: number | null = null;
   private lastSummary: string | null = null;
   private busyHint: { anim: string; at: number } | null = null;
+  private lastInteraction: PetInteractionNotice | null = null;
   private lastHintAt = 0;
   private readonly listeners = new Set<(snapshot: PetActivitySnapshot) => void>();
 
@@ -115,7 +130,14 @@ export class PetActivityTracker {
       lastCompletedAt: this.lastCompletedAt,
       lastSummary: this.lastSummary,
       busyHint: this.busyHint,
+      lastInteraction: this.lastInteraction,
     };
+  }
+
+  /** 审批/用户输入进入 pending（run 挂起等用户）——前端据此弹系统通知。 */
+  noteInteractionRequired(notice: Omit<PetInteractionNotice, "at">): void {
+    this.lastInteraction = { ...notice, at: Date.now() };
+    this.notify();
   }
 }
 

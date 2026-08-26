@@ -50,10 +50,10 @@ export function createPetSystemConfigExtension(currentValue: unknown): SystemCon
           },
           {
             key: "notice_enabled",
-            label: "状态气泡",
+            label: "任务通知",
             type: "boolean",
             default: true,
-            help: "任务出错/完成时在宠物头顶冒状态气泡",
+            help: "任务完成/失败/需要确认时，窗口失焦则弹系统桌面通知（宠物本体不参与）",
           },
         ],
       },

@@ -19,14 +19,11 @@
         @pointercancel="onPointerUp"
       />
     </div>
-    <!-- 状态气泡：挂在 pet-root 内，拖拽/漫游时随根元素一起移动 -->
+    <!-- 状态气泡：挂在 pet-root 内，拖拽/漫游时随根元素一起移动。
+         图标用 dsh-pet 0.2.0 的 AI 生成通知图（MIT 素材，Vite 打包输出） -->
     <Transition name="pet-notice">
       <div v-if="notice" class="pet-notice" :class="notice.kind" role="status">
-        <svg class="pet-notice-icon" viewBox="0 0 14 14" aria-hidden="true">
-          <path v-if="notice.kind === 'done'" class="stroke" d="M2.5 7.5l3 3 6-7" />
-          <path v-else-if="notice.kind === 'error'" class="stroke" d="M3.5 3.5l7 7M10.5 3.5l-7 7" />
-          <circle v-else class="fill" cx="7" cy="7" r="2.6" />
-        </svg>
+        <img class="pet-notice-icon" :src="NOTICE_ICONS[notice.icon] ?? NOTICE_ICONS.done" alt="" draggable="false">
         <span>{{ notice.text }}</span>
       </div>
     </Transition>
@@ -36,7 +33,10 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
+import iconDone from './assets/notify-done.png';
+import iconError from './assets/notify-error.png';
 import {
+  BASE_PET_SIZE,
   DRAG_THRESHOLD,
   HIT_BOX,
   IDLE,
@@ -50,8 +50,9 @@ import {
 } from './petChain.js';
 
 /**
- * 桌宠本体：双缓冲 webm 播放 + 概率动画链 + 点击/拖拽/漫游 + agent 状态联动。
- * 移植自 dsh-pet（MIT）lib/client.js，渲染层重写为 canvas 合成：
+ * 桌宠本体：双缓冲 webm 播放 + 概率动画链 + 点击/拖拽/漫游互动。纯桌宠——不联动
+ * agent 状态（任务事件提示走系统桌面通知，见 PetPanel），移植自 dsh-pet（MIT）
+ * lib/client.js，渲染层重写为 canvas 合成：
  *
  * - 两个隐藏 <video> 负责解码，可见 <canvas> 每帧绘制（640×360 原生分辨率）。
  * - 切换动画时旧视频先 pause（冻结帧、alpha=1）垫底，新视频以缓动 alpha 叠加淡入——
@@ -59,10 +60,12 @@ import {
  *   合成淡入保证任意时刻整体不透明，消除切换痕迹。
  * - 每个视频槽位记忆自己的朝向（镜像在绘制时按槽位应用），淡出帧保持原朝向。
  * - 以递增“代数”gen 丢弃过期就绪回调，防止快速连点把画面切丢。
- * - 链式模型：所有动画一次性播放，ended 按概率选下一个（30/10/40/20）；
- *   mood=busy（agent 运行中）时改走工作动画池；error/done 脉冲一次性打断。
+ * - 链式模型：所有动画一次性播放，ended 按概率选下一个（10/5/80/5）。
  */
 const emit = defineEmits(['quick-ask']);
+
+/** 气泡图标（dsh-pet AI 生成通知图）按语义映射；任务事件已走系统通知，仅剩 quick-ask 反馈。 */
+const NOTICE_ICONS = { done: iconDone, error: iconError };
 
 const props = defineProps({
   /** 舞台宽度（px），高 = 宽 × 9/16。 */
@@ -73,15 +76,9 @@ const props = defineProps({
   available: { type: Array, default: null },
   /** 初始动画名（场景配置 default_animation）；素材清单里没有时回退待机。 */
   initialAnim: { type: String, default: null },
-  /** idle | busy：busy 时优先工作动画（写代码/思考…），不转向不漫游。 */
-  mood: { type: String, default: 'idle' },
-  /** 一次性脉冲：{ kind: 'error' | 'done', at }——at 变化即触发一次打断动画。 */
-  pulse: { type: Object, default: null },
-  /** busy 期间的工具映射提示 { anim, at }：agent 正在用什么 → 宠物演什么。 */
-  hint: { type: Object, default: null },
   /** 显示器索引（多显示器时每窗一个），位置记忆按其分键。 */
   display: { type: [String, Number], default: '0' },
-  /** 头顶状态药丸 { kind: 'idle'|'done'|'error'|'info', text }；null = 隐藏。 */
+  /** 头顶反馈气泡 { kind: 'done'|'error'|'info', icon: 'done'|'error'|'approval'|'question', text }；null = 隐藏。 */
   notice: { type: Object, default: null },
 });
 
@@ -123,8 +120,6 @@ let justDragged = false;
 let moveRaf = null;
 let moveToken = 0;
 let pendingMove = null; // 计划中的移动（等移动动画就绪后由 rAF 驱动）
-let lastPulseAt = 0;
-let lastHintAt = 0;
 let lastStartleAt = 0;
 let lastShyAt = 0;
 let hoverTimer = null;
@@ -181,7 +176,7 @@ const drawShadow = () => {
 };
 
 const renderLoop = (now) => {
-  const active = transition !== null || isDragging.value || props.mood === 'busy' || props.hint;
+  const active = transition !== null || isDragging.value;
   if (!active && now - lastDrawAt < IDLE_FRAME_MS) {
     rafId = requestAnimationFrame(renderLoop);
     return;
@@ -244,13 +239,15 @@ const pickNextStep = () => {
   const next = pickNext({
     current: anim.value,
     catalog: catalog.value,
-    mood: props.mood,
     facing: facing.value,
+    scale: props.size / BASE_PET_SIZE,
     centerX: currentCenterX(),
     centerY: currentCenterY(),
     viewportWidth: viewport.value.w,
     viewportHeight: viewport.value.h,
-    halfW: halfW.value,
+    // 漫游贴边边界按"人物本体"算而非画布：人物宽约为画布宽 37.5%（居中，
+    // x∈[200,440]/640），画布半宽换成身体半宽后才能走到贴近屏幕边缘
+    halfW: halfW.value * 0.375,
     halfH: halfH.value,
   });
   if (next.kind === 'move') pendingMove = next.plan;
@@ -259,7 +256,7 @@ const pickNextStep = () => {
   seq.value += 1;
 };
 
-/** 立即打断当前动画播放指定动画（点击回应 / error / done 脉冲共用）。 */
+/** 立即打断当前动画播放指定动画（点击回应 / 受惊共用）。 */
 const interruptWith = (next) => {
   stopMove();
   anim.value = next;
@@ -270,9 +267,8 @@ const interruptWith = (next) => {
 const handleEnded = () => {
   if (dragState.active) return; // 拖拽中不打断
   if (anim.value === TURN) facing.value = facing.value === 'left' ? 'right' : 'left';
-  // 用户打断/脉冲触发的动画（点击回应/拖拽/炸毛/庆祝）播完 → 先回待机缓冲
-  const isInterruptAnim =
-    anim.value === catalog.value.drag || catalog.value.clicks.includes(anim.value) || anim.value === catalog.value.error || catalog.value.done.includes(anim.value);
+  // 用户打断触发的动画（点击回应/拖拽/受惊）播完 → 先回待机缓冲
+  const isInterruptAnim = anim.value === catalog.value.drag || catalog.value.clicks.includes(anim.value);
   if (isInterruptAnim) {
     anim.value = IDLE;
     once.value = true;
@@ -281,42 +277,6 @@ const handleEnded = () => {
   }
   pickNextStep();
 };
-
-// ---- agent 状态脉冲（error/done 各触发一次） ----
-watch(
-  () => props.pulse,
-  (pulse) => {
-    if (!pulse || pulse.at === lastPulseAt) return;
-    lastPulseAt = pulse.at;
-    if (pulse.kind === 'error' && catalog.value.error) {
-      interruptWith(catalog.value.error);
-    } else if (pulse.kind === 'done' && catalog.value.done.length > 0) {
-      interruptWith(pick(catalog.value.done));
-    }
-  },
-);
-
-// mood 翻转到 busy 时立即打断换工作姿态（不等当前动画播完，反应即时可感）
-watch(
-  () => props.mood,
-  (mood, previous) => {
-    if (mood === 'busy' && previous !== 'busy' && !dragState.active && catalog.value.busy.length > 0) {
-      interruptWith(pick(catalog.value.busy));
-    }
-  },
-);
-
-// busy 期间的工具映射提示：agent 用什么工具 → 宠物演对应动画（后端已节流 8s）
-watch(
-  () => props.hint,
-  (hint) => {
-    if (!hint || hint.at === lastHintAt) return;
-    lastHintAt = hint.at;
-    if (props.mood !== 'busy' || dragState.active) return;
-    const available = catalog.value.acts.includes(hint.anim) || catalog.value.busy.includes(hint.anim);
-    if (available) interruptWith(hint.anim);
-  },
-);
 
 // ---- 位置记忆（按显示器分键，重启后留在原地） ----
 const positionKey = computed(() => `ragsystem-pet-position-${props.display}`);
@@ -525,9 +485,16 @@ const rootStyle = computed(() => {
   const style = { '--pet-size': `${props.size}px` };
   const pos = customPos.value;
   if (pos) {
-    // 比例 × 当前视口尺寸定位，并钳制在窗口内（窗口缩小时不跑出屏幕）
-    const left = Math.min(Math.max(pos.rx * viewport.value.w - halfW.value, 0), viewport.value.w - props.size);
-    const top = Math.min(Math.max(pos.ry * viewport.value.h - halfH.value, 0), viewport.value.h - stageHeight.value);
+    // 比例 × 当前视口尺寸定位；钳制按"人物本体"而非画布（人物占画布 x∈[200,440]/640，
+    // 头顶画布 y=50、脚底 y=330，另有 30/360 的舞台下沉把脚贴到 root 底缘——
+    // 人物可视区相对 root 顶为 y∈[80,360]/360）——画布透明留白可以出屏，人物本体留在屏内，
+    // 这样能拖到贴边（与角落定位的负偏移补偿同一套几何）
+    const bodyLeft = -props.size * (200 / 640);
+    const bodyRight = viewport.value.w - props.size * (440 / 640);
+    const headTop = -stageHeight.value * (80 / 360);
+    const feetBottom = viewport.value.h - stageHeight.value;
+    const left = Math.min(Math.max(pos.rx * viewport.value.w - halfW.value, bodyLeft), bodyRight);
+    const top = Math.min(Math.max(pos.ry * viewport.value.h - halfH.value, headTop), feetBottom);
     style.left = `${left}px`;
     style.top = `${top}px`;
     style.right = 'auto';
@@ -576,13 +543,16 @@ onBeforeUnmount(() => {
   user-select: none;
 }
 
+/* 角落定位锚定人物本体而非画布：640×360 画布人物居中，身体右/左缘约在 x=440/x=200
+   （HIT_BOX），侧边留白占画布宽 31.25%——若按画布边缘算距离，人物会离屏幕边
+   ~31%×画布宽（约 200px）。负偏移补偿后人物本体距边 24px。 */
 .pet-root[data-corner='bottom-right'] {
-  right: 24px;
+  right: calc(24px - var(--pet-size) * 0.3125);
   bottom: 0;
 }
 
 .pet-root[data-corner='bottom-left'] {
-  left: 24px;
+  left: calc(24px - var(--pet-size) * 0.3125);
   bottom: 0;
 }
 
@@ -614,19 +584,21 @@ onBeforeUnmount(() => {
   pointer-events: none;
 }
 
+/* 手套光标（同步 dsh-pet 0.2.0，MIT）：小图由 Vite 内联 data URI，热点取掌心 */
 .pet-hit {
   position: absolute;
   pointer-events: auto;
-  cursor: grab;
+  cursor: url('./assets/cursor-grab.png') 16 16, grab;
   z-index: 1;
 }
 
 .pet-hit.dragging {
-  cursor: grabbing;
+  cursor: url('./assets/cursor-grabbing.png') 16 16, grabbing;
 }
 
-/* 头顶状态气泡：系统风（深色浮层面 + 分层阴影 + 低饱和状态色 token）×
-   宠物风（对话小尾巴 + spring 弹跳入场）。锚在 pet-root 顶部（画布 y=0..50 本就是头顶留白） */
+/* 头顶通知气泡：自足配色（不依赖主题变量——独立宠物窗无主题上下文，且主题文字色
+   会与固定深底冲突导致看不清）：深色玻璃底 + 纯白文字 + AI 图标。
+   锚在 pet-root 顶部（画布 y=0..50 本就是头顶留白） */
 .pet-notice {
   position: absolute;
   top: 0;
@@ -635,20 +607,26 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 9px;
-  padding: 10px 18px 10px 15px;
-  border-radius: var(--radius-2xl, 12px);
-  background: rgba(32, 32, 32, 0.95);
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  max-width: min(480px, 76vw);
+  padding: 8px 15px 8px 9px;
+  border-radius: 14px;
+  background: rgba(21, 23, 28, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.15);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.07),
-    0 2px 8px rgba(0, 0, 0, 0.32),
-    0 10px 32px rgba(0, 0, 0, 0.42);
-  color: var(--color-text-primary, #fafafa);
-  font-size: 14px;
-  font-weight: 500;
-  letter-spacing: 0.3px;
+    0 4px 14px rgba(0, 0, 0, 0.35),
+    0 12px 36px rgba(0, 0, 0, 0.45);
+  color: #ffffff;
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
   white-space: nowrap;
   pointer-events: none;
+}
+
+.pet-notice span {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* 指向宠物头顶的小尾巴 */
@@ -659,29 +637,19 @@ onBeforeUnmount(() => {
   bottom: -5.5px;
   width: 11px;
   height: 11px;
-  background: rgba(32, 32, 32, 0.95);
-  border-right: 1px solid rgba(255, 255, 255, 0.14);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(21, 23, 28, 0.94);
+  border-right: 1px solid rgba(255, 255, 255, 0.15);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
   transform: translateX(-50%) rotate(45deg);
 }
 
+/* 气泡图标：dsh-pet AI 生成通知图（方形 PNG，微圆角融入浮层） */
 .pet-notice-icon {
-  width: 15px;
-  height: 15px;
+  width: 20px;
+  height: 20px;
   flex: none;
-  color: var(--color-text-secondary, #b3b3b3);
-}
-
-.pet-notice-icon .stroke {
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.9;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.pet-notice-icon .fill {
-  fill: currentColor;
+  border-radius: 5px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
 }
 
 /* done 最有分量：状态色描边 + 图标光晕 + 加粗 */
@@ -695,18 +663,8 @@ onBeforeUnmount(() => {
   font-weight: 600;
 }
 
-.pet-notice.done .pet-notice-icon {
-  color: var(--color-success, #57ab5a);
-  filter: drop-shadow(0 0 5px rgba(var(--color-success-rgb, 87, 171, 90), 0.55));
-}
-
 .pet-notice.error {
   border-color: rgba(var(--color-error-rgb, 224, 82, 76), 0.4);
-}
-
-.pet-notice.error .pet-notice-icon {
-  color: var(--color-error, #e0524c);
-  filter: drop-shadow(0 0 5px rgba(var(--color-error-rgb, 224, 82, 76), 0.5));
 }
 
 /* spring 弹跳入场（宠物风），收起轻淡出 */

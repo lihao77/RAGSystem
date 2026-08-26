@@ -4,7 +4,7 @@ import { createPetPlugin, PET_PLUGIN_ID } from "./plugin.js";
 
 export const backendPluginModule: BackendPluginModule = {
   apiVersion: 1,
-  manifest: { id: PET_PLUGIN_ID, version: "0.1.0" },
+  manifest: { id: PET_PLUGIN_ID, version: "0.2.0" },
   create({ config }) {
     const parsed = parseInstallConfig(config);
     return createPetPlugin({

@@ -10,7 +10,7 @@ import { BackendPluginManager } from "@ragsystem/backend-core/plugins/plugin-man
 
 import { createPetPlugin, mapToolToAnimation, PetActivityTracker, registerPetAssetRoutes, PET_PLUGIN_ID, createPetSystemConfigExtension, resolvePetConfig, DEFAULT_PET_CONFIG } from "../dist/index.js";
 
-const EMPTY_SNAPSHOT = { activeRuns: 0, lastErrorAt: null, lastCompletedAt: null, lastSummary: null, busyHint: null };
+const EMPTY_SNAPSHOT = { activeRuns: 0, lastErrorAt: null, lastCompletedAt: null, lastSummary: null, busyHint: null, lastInteraction: null };
 
 test("工具名 → 动画映射按子串命中", () => {
   assert.equal(mapToolToAnimation("run_bash_command"), "原地敲击桌面互动");
@@ -98,6 +98,7 @@ test("/state 路由输出活跃度快照，未注入 tracker 时返回空基线"
     lastCompletedAt: null,
     lastSummary: null,
     busyHint: null,
+    lastInteraction: null,
   });
 });
 
@@ -183,8 +184,9 @@ test("systemConfig 扩展注册 pet 组并回灌已存值；resolvePetConfig 非
   assert.deepEqual(resolvePetConfig({ scale: 0.75 }), { default_animation: "idle", scale: 0.75, notice_enabled: true });
 });
 
-test("runtime 注册 systemConfig 扩展并在 dispose 时反注册", async () => {
+test("runtime 注册 systemConfig 扩展、订阅交互通知进快照，dispose 时全部反注册", async () => {
   const registered = [];
+  let notifyInteraction = null;
   const port = {
     getSection: () => undefined,
     registerExtension: (id, ext) => {
@@ -193,13 +195,30 @@ test("runtime 注册 systemConfig 扩展并在 dispose 时反注册", async () =
       return () => registered.push(`unregister:${id}`);
     },
   };
-  const manager = new BackendPluginManager([createPetPlugin()]);
+  const pendingInteractions = {
+    onInteractionRequired: (handler) => {
+      notifyInteraction = handler;
+      return () => registered.push("unsubscribe:interactions");
+    },
+  };
+  const tracker = new PetActivityTracker();
+  const manager = new BackendPluginManager([createPetPlugin({ activityTracker: tracker })]);
   await manager.register();
   const contributions = manager.runtimeContributions();
-  const runtime = await contributions.createRuntime({ systemConfig: port });
-  assert.deepEqual(registered, [PET_PLUGIN_ID]);
+  const runtime = await contributions.createRuntime({ systemConfig: port, pendingInteractions });
+  assert.equal(typeof notifyInteraction, "function");
+
+  // 审批进入 pending → tracker 快照携带 lastInteraction（SSE 推给宠物页弹通知）
+  notifyInteraction({ id: "i-1", kind: "approval", sessionId: "s", runId: "r", tool: "Bash", prompt: null, reason: "高危命令" });
+  const { lastInteraction } = tracker.snapshot();
+  assert.equal(lastInteraction?.id, "i-1");
+  assert.equal(lastInteraction?.kind, "approval");
+  assert.equal(lastInteraction?.tool, "Bash");
+  assert.equal(lastInteraction?.reason, "高危命令");
+  assert.ok(Number.isFinite(lastInteraction?.at));
+
   runtime.dispose();
-  assert.deepEqual(registered, [PET_PLUGIN_ID, `unregister:${PET_PLUGIN_ID}`]);
+  assert.deepEqual(registered, [PET_PLUGIN_ID, "unsubscribe:interactions", `unregister:${PET_PLUGIN_ID}`]);
   await manager.stop();
 });
 

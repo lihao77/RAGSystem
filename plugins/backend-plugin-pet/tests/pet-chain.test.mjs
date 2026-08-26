@@ -3,22 +3,28 @@ import assert from 'node:assert/strict';
 
 import {
   ACTS,
+  BASE_PET_SIZE,
+  CATEGORIES,
   CLICKS,
   DRAG,
   DRAG_THRESHOLD,
   IDLE,
+  MOVE_DEFAULT,
   MOVE_MAX_PX,
   MOVE_MIN_PX,
   MOVES,
+  NO_MIRROR_ACTS,
   TURN,
   buildCatalog,
   feetBottomPad,
   moveProgressRatio,
   pick,
+  pickCategory,
   pickNext,
   pickWeighted,
   planMove,
   randomBetween,
+  resolveMoveParams,
   seasonalWeights,
 } from '../ui/src/petChain.js';
 
@@ -37,39 +43,70 @@ test('buildCatalog 与可用动画求交，待机缺失时返回 null', () => {
   assert.deepEqual(partial.moves, ['螃蟹走路']);
   assert.deepEqual(partial.clicks, []);
   assert.equal(partial.turn, null);
+  // 分类池同步求交：写代码归入「小动作」，其余类被整体丢弃
+  assert.deepEqual(partial.categories.map((c) => c.id), ['小动作']);
+  assert.deepEqual(partial.categories[0].actions, ['写代码']);
   assert.equal(buildCatalog(['写代码']), null);
 });
 
-test('pick 等概率抽取并支持去重，randomBetween 边界正确', () => {
+test('pick 等概率抽取并支持去重，单元素池排除自身时回退原池（不返回 undefined）', () => {
   assert.equal(pick(['a'], { rand: () => 0.9 }), 'a');
   assert.equal(pick(['a', 'b'], { exclude: 'b', rand: () => 0.99 }), 'a');
+  assert.equal(pick(['a'], { exclude: 'a', rand: () => 0.9 }), 'a');
   assert.equal(randomBetween(60, 240, () => 0), 60);
   assert.equal(randomBetween(60, 240, () => 0.99999), 239);
   assert.ok(DRAG_THRESHOLD > 0 && MOVE_MIN_PX < MOVE_MAX_PX);
 });
 
+test('pickCategory 按类权重落点，镜像时排除 noMirror 文字类', () => {
+  // 权重 20/20/16/14/10（合计 80）：rand=0 取首类，接近 1 取末类
+  assert.equal(pickCategory(CATEGORIES, { rand: () => 0 }).id, '小动作');
+  assert.equal(pickCategory(CATEGORIES, { rand: () => 0.999 }).id, '文字');
+  // facing=right（镜像）：文字类被排除，接近 1 落在末个可类（时节）
+  assert.equal(pickCategory(CATEGORIES, { facing: 'right', rand: () => 0.999 }).id, '时节');
+  // 全部为 noMirror 时回退全集，不返回 null
+  const allNoMirror = [{ id: 'x', weight: 1, noMirror: true, actions: ['a'] }];
+  assert.equal(pickCategory(allNoMirror, { facing: 'right', rand: () => 0 }).id, 'x');
+  assert.equal(pickCategory([], { rand: () => 0 }), null);
+  // 空动作分类不参与抽取
+  const withEmpty = [...CATEGORIES, { id: '空', weight: 99, actions: [] }];
+  assert.equal(pickCategory(withEmpty, { rand: () => 0.999 }).id, '文字');
+});
+
 test('pickNext 按概率区间分派：待机 / 转向 / 动作 / 移动', () => {
   assert.deepEqual(pickNext({ current: IDLE, catalog: fullCatalog, rand: () => 0 }), { kind: 'idle', anim: IDLE });
-  assert.deepEqual(pickNext({ current: IDLE, catalog: fullCatalog, rand: () => 0.35 }), { kind: 'turn', anim: TURN });
-  const act = pickNext({ current: IDLE, catalog: fullCatalog, rand: () => 0.5 });
+  assert.deepEqual(pickNext({ current: IDLE, catalog: fullCatalog, rand: seqRand([0.12]) }), { kind: 'turn', anim: TURN });
+
+  // roll<0.95 走动作分支：roll → pickCategory → pickWeighted 共消耗 3 个随机数
+  const act = pickNext({ current: IDLE, catalog: fullCatalog, rand: seqRand([0.5, 0.0, 0.0]) });
   assert.equal(act.kind, 'act');
   assert.ok(ACTS.includes(act.anim));
 
-  // roll>=0.8 走移动分支：planMove 成功 → move；失败 → 回退动作
-  const moveRoll = seqRand([0.9, 0.5, 0.0]); // pickNext、planMove 距离、move 池抽取
+  // roll>=0.95 走移动分支：roll → pick(moves) → planMove 距离
   const viewport = { centerX: 600, centerY: 900, viewportWidth: 1920, viewportHeight: 1080, halfW: 231, halfH: 130 };
-  const move = pickNext({ current: IDLE, catalog: fullCatalog, rand: moveRoll, ...viewport });
+  const move = pickNext({ current: IDLE, catalog: fullCatalog, rand: seqRand([0.97, 0.0, 0.0]), ...viewport });
   assert.equal(move.kind, 'move');
   assert.ok(MOVES.includes(move.anim));
   assert.ok(move.plan.dir === 1 || move.plan.dir === -1);
 
   // 贴右缘（无右侧空间）且朝右：planMove 返回 null → 回退随机动作
-  const fallback = pickNext({ current: IDLE, catalog: fullCatalog, rand: seqRand([0.9, 0.5, 0.0]), facing: 'right', centerX: 1920 - 20 - 231 + 1, centerY: 900, viewportWidth: 1920, viewportHeight: 1080, halfW: 231, halfH: 130 });
+  const fallback = pickNext({
+    current: IDLE,
+    catalog: fullCatalog,
+    rand: seqRand([0.97, 0.5, 0.5, 0.0, 0.0]),
+    facing: 'right',
+    centerX: 1920 - 20 - 231 + 1,
+    centerY: 900,
+    viewportWidth: 1920,
+    viewportHeight: 1080,
+    halfW: 231,
+    halfH: 130,
+  });
   assert.equal(fallback.kind, 'act');
   assert.ok(fallback.fallback);
 });
 
-test('planMove 朝向与转向动画联动，越界返回 null', () => {
+test('planMove 朝向与转向动画联动，支持分动作参数，越界返回 null', () => {
   const base = { current: IDLE, centerY: 900, viewportWidth: 1920, viewportHeight: 1080, halfW: 231, halfH: 130 };
   const right = planMove({ ...base, facing: 'right', centerX: 600, rand: () => 0 });
   assert.equal(right.dir, 1);
@@ -79,12 +116,27 @@ test('planMove 朝向与转向动画联动，越界返回 null', () => {
   const afterTurn = planMove({ ...base, facing: 'right', current: TURN, centerX: 600, rand: () => 0 });
   assert.equal(afterTurn.dir, -1);
 
+  // 分动作参数：左转奔跑 rand=0 → 最短 120px
+  const run = planMove({ ...base, facing: 'right', centerX: 600, move: resolveMoveParams('原地左转奔跑'), rand: () => 0 });
+  assert.equal(run.targetRatio, (600 + 120) / 1920);
+
   assert.equal(planMove({ ...base, facing: 'right', centerX: 1920 - 250, rand: () => 0.99 }), null);
   assert.equal(planMove({ ...base, facing: 'left', centerX: 250, rand: () => 0 }), null);
 
   // centerY 超出安全边距时被钳制
   const clamped = planMove({ ...base, facing: 'right', centerX: 600, centerY: 0, rand: () => 0 });
   assert.equal(clamped.startYRatio, (20 + 130) / 1080);
+});
+
+test('resolveMoveParams 按动作覆盖默认参数，距离随尺寸缩放、边距不缩放', () => {
+  assert.deepEqual(resolveMoveParams('螃蟹走路'), MOVE_DEFAULT);
+  assert.equal(resolveMoveParams('原地漂浮踏步').minDist, 40);
+  assert.equal(resolveMoveParams('原地漂浮踏步').maxDist, 120);
+  const big = resolveMoveParams('原地左转奔跑', 2);
+  assert.equal(big.minDist, 240);
+  assert.equal(big.maxDist, 640);
+  assert.equal(big.margin, MOVE_DEFAULT.margin);
+  assert.equal(BASE_PET_SIZE, 462);
 });
 
 test('moveProgressRatio 头尾不动、中间线性插值', () => {
@@ -97,9 +149,9 @@ test('moveProgressRatio 头尾不动、中间线性插值', () => {
 });
 
 test('busy mood 走工作池且不漫游，idle 保持概率链', () => {
-  const catalog = buildCatalog([IDLE, TURN, '写代码', '吃Token', '吃冰淇淋融化', '螃蟹走路', '被吓一跳（炸毛）', '哈欠连天']);
+  const catalog = buildCatalog([IDLE, TURN, '写代码', '吃Token', '吃冰淇淋融化', '螃蟹走路', '被吓一跳', '哈欠连天']);
   assert.deepEqual(catalog.busy, ['写代码', '吃Token']);
-  assert.equal(catalog.error, '被吓一跳（炸毛）');
+  assert.equal(catalog.error, '被吓一跳');
   assert.deepEqual(catalog.done, ['哈欠连天']);
 
   const busyAct = pickNext({ current: IDLE, catalog, mood: 'busy', rand: () => 0.5 });
@@ -108,9 +160,9 @@ test('busy mood 走工作池且不漫游，idle 保持概率链', () => {
   assert.deepEqual(pickNext({ current: IDLE, catalog, mood: 'busy', rand: () => 0.9 }), { kind: 'idle', anim: IDLE });
 
   const viewport = { centerX: 600, centerY: 900, viewportWidth: 1920, viewportHeight: 1080, halfW: 231, halfH: 130 };
-  assert.equal(pickNext({ current: IDLE, catalog, mood: 'idle', rand: seqRand([0.95, 0.5, 0.0]), ...viewport }).kind, 'move');
+  assert.equal(pickNext({ current: IDLE, catalog, mood: 'idle', rand: seqRand([0.97, 0.0, 0.0]), ...viewport }).kind, 'move');
   // busy 下同样的 roll 永不进入移动分支
-  assert.notEqual(pickNext({ current: IDLE, catalog, mood: 'busy', rand: () => 0.95, ...viewport }).kind, 'move');
+  assert.notEqual(pickNext({ current: IDLE, catalog, mood: 'busy', rand: () => 0.97, ...viewport }).kind, 'move');
 });
 
 test('pickWeighted 按权重落点，seasonalWeights 按月份/时段加成', () => {
@@ -134,6 +186,13 @@ test('pickWeighted 按权重落点，seasonalWeights 按月份/时段加成', ()
 
   // 九月：中秋专属动画
   assert.ok(seasonalWeights(new Date(2026, 8, 20, 10, 0))['中秋赏月吃月饼'] > 0);
+});
+
+test('NO_MIRROR_ACTS 覆盖全部文字类动画（镜像朝向不可播放）', () => {
+  assert.ok(NO_MIRROR_ACTS.has('是啊，吃什么'));
+  assert.ok(NO_MIRROR_ACTS.has('深度思考碎碎念'));
+  assert.equal(NO_MIRROR_ACTS.has('写代码'), false);
+  assert.equal(NO_MIRROR_ACTS.size, 2);
 });
 
 test('feetBottomPad 按 8.33% 画布底距换算', () => {

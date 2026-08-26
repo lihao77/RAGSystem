@@ -76,7 +76,7 @@ fs.cpSync(
   path.join(outputRoot, "plugin-modules", "plugin-assets", "skills"),
   { recursive: true },
 );
-// 桌宠 thumb 动画（约 35MB，不入 git）：已 fetch 时随包拷贝，缺失时跳过（宠物自动隐藏）
+// 桌宠 thumb 动画（dsh-pet 0.2.0 全量 97 个约 49MB，不入 git）：已 fetch 时随包拷贝，缺失时跳过（宠物自动隐藏）
 // 拷贝位置与 resolvePluginAssetDir 桌面布局对齐：plugin-assets/<插件id短名>/assets/thumb
 const petAssetsSource = path.join(repoRoot, "plugins", "backend-plugin-pet", "assets");
 if (fs.existsSync(petAssetsSource)) {

@@ -23,7 +23,7 @@ export interface PetPluginDependencies {
 export function createPetPlugin(dependencies: PetPluginDependencies = {}): BackendPlugin {
   const activity = dependencies.activityTracker ?? new PetActivityTracker();
   return {
-    manifest: { id: PET_PLUGIN_ID, version: "0.1.0" },
+    manifest: { id: PET_PLUGIN_ID, version: "0.2.0" },
     register(context) {
       activity.install(context.hooks);
       const assetsRoot = dependencies.assetsRoot ?? resolveDefaultPetAssetsRoot();
@@ -42,7 +42,8 @@ export function createPetPlugin(dependencies: PetPluginDependencies = {}): Backe
         });
         await app.register(registerPetUiRoutes, { uiRoot });
       });
-      // 本场景 pet 配置：注册 systemConfig 扩展（设置页 schema 驱动表单），读取时机为请求时热读
+      // 本场景 pet 配置：注册 systemConfig 扩展（设置页 schema 驱动表单），读取时机为请求时热读；
+      // 同时订阅"交互进入 pending"（审批/用户输入等待用户）→ 驱动宠物端系统通知
       context.runtimes.register((runtimeContext) => {
         const unregister = runtimeContext.systemConfig
           ? runtimeContext.systemConfig.registerExtension(
@@ -50,7 +51,19 @@ export function createPetPlugin(dependencies: PetPluginDependencies = {}): Backe
             createPetSystemConfigExtension(runtimeContext.systemConfig.getSection("pet")),
           )
           : () => undefined;
-        return { dispose: unregister };
+        const unsubscribeInteractions = runtimeContext.pendingInteractions.onInteractionRequired((notice) => {
+          activity.noteInteractionRequired({
+            id: notice.id,
+            kind: notice.kind,
+            tool: notice.tool,
+            prompt: notice.prompt,
+            reason: notice.reason,
+          });
+        });
+        return { dispose: () => {
+          unsubscribeInteractions();
+          unregister();
+        } };
       });
       // 已登录上下文读取本场景 pet 配置；宠物独立窗无 token，前端请求失败回退默认值
       context.routes.register("tenant", "/api/pet", async (app) => {

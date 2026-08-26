@@ -21,6 +21,7 @@ const EMPTY_ACTIVITY: PetActivitySnapshot = {
   lastCompletedAt: null,
   lastSummary: null,
   busyHint: null,
+  lastInteraction: null,
 };
 
 /**
