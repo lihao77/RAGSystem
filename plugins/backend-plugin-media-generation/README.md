@@ -1,7 +1,7 @@
 # @ragsystem/backend-plugin-media-generation
 
 媒体生成插件：文生图 / 图生图（参考图）、文生视频 / 图生视频（首帧/首尾帧）。
-接入 5 类厂商（智谱、火山方舟、阿里百炼、OpenAI、Google），生成产物立即转存到会话工作区（厂商 URL 有效期仅 1h～24h），经现有 `file_ref` 渲染链路在聊天内展示（图片内联 + lightbox，视频播放器）。
+接入 6 类厂商（智谱、火山方舟、阿里百炼、魔搭社区、OpenAI、Google），生成产物立即转存到会话工作区（厂商 URL 有效期仅 1h～24h），经现有 `file_ref` 渲染链路在聊天内展示（图片内联 + lightbox，视频播放器）。
 
 ## 提供的 Agent 工具
 
@@ -18,8 +18,8 @@
 插件按厂商注册 provider type（类型即厂商，自带默认 Endpoint 与 API 协议路由），每个类型声明自己的模型映射任务：`image`（生图模型）/ `video`（生视频模型）。
 
 1. **创建媒体 Provider 条目**：模型 Provider 管理页 → 添加 → 类型选"xx · 媒体生成（插件）"：
-   - 智谱（`https://open.bigmodel.cn`）/ 火山方舟（`https://ark.cn-beijing.volces.com`）/ 阿里百炼（`https://dashscope.aliyuncs.com`）/ OpenAI（需海外网络）/ Google（需海外网络）
-   - 填 API Key（Endpoint 留空用厂商默认地址）
+   - 智谱（`https://open.bigmodel.cn`）/ 火山方舟（`https://ark.cn-beijing.volces.com`）/ 阿里百炼（`https://dashscope.aliyuncs.com`）/ 魔搭社区（`https://api-inference.modelscope.cn`，仅生图）/ OpenAI（需海外网络）/ Google（需海外网络）
+   - 填 API Key（Endpoint 留空用厂商默认地址；魔搭填访问令牌 Access Token，需绑定阿里云账号并实名认证，每日有免费额度）
    - **模型映射**：任务下拉为"生图模型 / 生视频模型"，把该厂商的生成模型填在对应任务下（如生图模型 `glm-image`、生视频模型 `cogvideox-3`）——一个条目可同时配两类模型
 2. **插件设置**：设置 → 插件设置 → 媒体生成：
    - 「图像生成」组：启用 + 选 Provider + 选该条目上的生图模型（下拉联动）
@@ -33,6 +33,7 @@
 | 智谱 | glm-image（约 0.1 元/张） | cogvideox-3（1 元/次，5/10s） |
 | 火山方舟 | doubao-seedream-5-0-pro / 5-0-lite / 4-0 | doubao-seedance-2-0 / 2-0-mini |
 | 阿里百炼 | wan2.7-image-pro / wan2.7-image | wan2.7-t2v / wan2.7-i2v / wan2.6-i2v-flash |
+| 魔搭社区 | Qwen/Qwen-Image / Tongyi-MAI/Z-Image-Turbo（免费额度） | 官方未开放视频 API |
 | OpenAI | gpt-image-1 / gpt-image-1-mini | sora-2 / sora-2-pro |
 | Google | gemini-3.1-flash-image / gemini-3-pro-image | veo-3.1(-fast)-generate-preview |
 
@@ -40,6 +41,7 @@
 
 - **产物转存**：生成完成立即下载到工作区 `media/images/`、`media/videos/`（含封面），聊天内以 `<file_ref path="..." presentation="inline"/>` 内联展示；模型已被告知该标记语法。
 - **参数夹取**：比例/分辨率/时长超出所选模型能力时自动夹到最近合法档并在结果中说明。
+- **魔搭生图**：厂商侧为异步任务，adapter 内同步提交并轮询（整体上限 10 分钟，3s 间隔）；超出模型单边分辨率上限（Qwen-Image 1664 / FLUX 1024 / 其余 2048）时等比缩入。
 - **取消**：run 取消（AbortSignal）即停止轮询；远端任务不取消（成功才计费），可稍后 `check_video_task` 续查。
 - **进度事件**（ephemeral，前端按 `plugin_id + event` 消费）：`media.image_started/completed/failed`、`media.video_started/progress/completed/failed`。
 - **依赖核心扩展**：`context.providerTypes.register()` 注册面（backend-core 提供插件 Provider 类型基础设施）。

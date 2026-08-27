@@ -2,6 +2,7 @@ import { adapterDefaultCaps, findModelEntry, type ModelCaps } from "../model-cat
 import type { MediaAdapterId } from "../provider-types.js";
 import { createDashscopeAdapter } from "./dashscope.js";
 import { createGoogleAdapter } from "./google.js";
+import { createModelscopeAdapter } from "./modelscope.js";
 import { createOpenAiAdapter } from "./openai.js";
 import type { MediaGenAdapter } from "./types.js";
 import { createVolcengineAdapter } from "./volcengine.js";
@@ -12,6 +13,7 @@ const ADAPTERS: Readonly<Record<MediaAdapterId, () => MediaGenAdapter>> = {
   volcengine: createVolcengineAdapter,
   zhipu: createZhipuAdapter,
   dashscope: createDashscopeAdapter,
+  modelscope: createModelscopeAdapter,
   openai: createOpenAiAdapter,
   google: createGoogleAdapter,
 };

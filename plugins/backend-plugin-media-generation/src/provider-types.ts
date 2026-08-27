@@ -1,7 +1,7 @@
 import type { ModelProviderConfig, ProviderTypeInfo } from "@ragsystem/backend-core/contracts/integrations/model-adapter.js";
 
 /** 媒体生成适配器 id（与 providers/registry 的 adapter 一一对应）。 */
-export type MediaAdapterId = "zhipu" | "volcengine" | "dashscope" | "openai" | "google";
+export type MediaAdapterId = "zhipu" | "volcengine" | "dashscope" | "modelscope" | "openai" | "google";
 
 /** 模型映射任务键（类型注册的 model_map 任务类型）。 */
 export const IMAGE_MODEL_TASK = "image";
@@ -56,6 +56,15 @@ export const MEDIA_PROVIDER_TYPES: readonly ProviderTypeInfo[] = [
     model_tasks: MEDIA_MODEL_TASKS,
   },
   {
+    value: "media_modelscope",
+    label: "魔搭社区 · 媒体生成（仅生图）",
+    default_endpoint: "https://api-inference.modelscope.cn",
+    supports_embedding: false,
+    supports_rerank: false,
+    config_fields: [TIMEOUT_FIELD],
+    model_tasks: MEDIA_MODEL_TASKS,
+  },
+  {
     value: "media_openai",
     label: "OpenAI · 媒体生成",
     default_endpoint: "https://api.openai.com/v1",
@@ -81,6 +90,7 @@ export const PROVIDER_TYPE_TO_ADAPTER: Readonly<Record<string, MediaAdapterId>> 
   media_zhipu: "zhipu",
   media_ark: "volcengine",
   media_dashscope: "dashscope",
+  media_modelscope: "modelscope",
   media_openai: "openai",
   media_google: "google",
 };

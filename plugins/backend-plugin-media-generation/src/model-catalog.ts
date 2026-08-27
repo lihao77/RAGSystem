@@ -232,6 +232,33 @@ export const MODEL_CATALOG: readonly CatalogModelEntry[] = [
       supportsLastFrame: true,
     },
   },
+  /* ── 魔搭社区（ModelScope API-Inference，仅生图；官方未开放视频 API） ── */
+  {
+    id: "Qwen/Qwen-Image",
+    adapter: "modelscope",
+    kind: "image",
+    label: "Qwen/Qwen-Image（魔搭·免费额度，单边≤1664px，支持编辑参考图）",
+    caps: {
+      kind: "image",
+      aspectRatios: STANDARD_IMAGE_RATIOS,
+      resolutionTiers: ["1k"],
+      maxRefImages: 3,
+      maxBatch: 4,
+    },
+  },
+  {
+    id: "Tongyi-MAI/Z-Image-Turbo",
+    adapter: "modelscope",
+    kind: "image",
+    label: "Tongyi-MAI/Z-Image-Turbo（魔搭·免费额度快档，单边≤2048px）",
+    caps: {
+      kind: "image",
+      aspectRatios: STANDARD_IMAGE_RATIOS,
+      resolutionTiers: ["1k", "2k"],
+      maxRefImages: 0,
+      maxBatch: 4,
+    },
+  },
   /* ── OpenAI ── */
   {
     id: "gpt-image-1",
@@ -366,7 +393,7 @@ export function findModelEntry(model: string): CatalogModelEntry | null {
 /** custom_model 目录外模型的能力兜底：按 adapter 取宽松默认。 */
 export function adapterDefaultCaps(adapter: MediaAdapterId, kind: "image" | "video"): ModelCaps {
   if (kind === "image") {
-    const maxRefImages = adapter === "zhipu" ? 0 : adapter === "volcengine" ? 10 : adapter === "dashscope" ? 9 : adapter === "openai" ? 16 : 10;
+    const maxRefImages = adapter === "zhipu" ? 0 : adapter === "volcengine" ? 10 : adapter === "dashscope" ? 9 : adapter === "modelscope" ? 3 : adapter === "openai" ? 16 : 10;
     return { kind: "image", aspectRatios: ALL_ASPECT_RATIOS, resolutionTiers: ALL_IMAGE_TIERS, maxRefImages, maxBatch: adapter === "google" ? 1 : 4 };
   }
   return {

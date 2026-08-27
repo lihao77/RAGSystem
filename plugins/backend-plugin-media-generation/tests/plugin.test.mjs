@@ -41,6 +41,7 @@ test("provider type 即厂商路由；model_map 任务归一", async () => {
     assert.equal(adapterIdForProviderType(typeValue), adapter);
     assert.ok(isMediaProviderType(typeValue));
   }
+  assert.equal(adapterIdForProviderType("media_modelscope"), "modelscope");
   assert.equal(adapterIdForProviderType("openai_chat"), null);
   assert.equal(isMediaProviderType("media_generation"), false);
 

@@ -129,6 +129,85 @@ test("dashscope 生图：multimodal messages 结构 + 参考图 data URL", async
   assert.equal(body.parameters.size, "1408x1056");
 });
 
+test("modelscope 生图：异步任务提交 + 轮询映射、参考图 data URL 与 Qwen-Image 尺寸夹取", async () => {
+  const adapter = getMediaAdapter("modelscope");
+  const stub = makeStub([
+    { task_id: "ms-1" },
+    { task_status: "SUCCEED", output_images: ["https://ms.example.com/a.png"] },
+  ]);
+  const outputs = await adapter.generateImage(
+    {
+      prompt: "赛博城市",
+      aspectRatio: "16:9",
+      resolutionTier: "1k",
+      n: 1,
+      refImages: [{ bytes: new Uint8Array([7, 7]), mime: "image/png" }],
+      watermark: false,
+    },
+    "Qwen/Qwen-Image",
+    ctxBase(stub.fn, { provider_type: "media_modelscope" }),
+  );
+  assert.equal(outputs.length, 1);
+  assert.equal(outputs[0].type, "url");
+  assert.equal(outputs[0].url, "https://ms.example.com/a.png");
+
+  const submit = stub.calls[0];
+  assert.ok(submit.url.endsWith("/v1/images/generations"));
+  assert.equal(submit.init.headers["x-modelscope-async-mode"], "true");
+  assert.equal(submit.init.headers.authorization, "Bearer sk-test");
+  const body = JSON.parse(submit.init.body);
+  assert.equal(body.model, "Qwen/Qwen-Image");
+  // 16:9@1k = 1728x960，Qwen-Image 系单边上限 1664 → 等比缩入
+  assert.equal(body.size, "1664x924");
+  assert.ok(Array.isArray(body.image_url) && body.image_url[0].startsWith("data:image/png;base64,"));
+
+  const poll = stub.calls[1];
+  assert.ok(poll.url.endsWith("/v1/tasks/ms-1"));
+  assert.equal(poll.init.headers["x-modelscope-task-type"], "image_generation");
+});
+
+test("modelscope 生图：任务 FAILED 抛可读错误", async () => {
+  const adapter = getMediaAdapter("modelscope");
+  const stub = makeStub([
+    { task_id: "ms-2" },
+    { task_status: "FAILED", errors: "safety check failed" },
+  ]);
+  await assert.rejects(
+    adapter.generateImage(
+      { prompt: "x", aspectRatio: "1:1", resolutionTier: "1k", n: 1, refImages: [], watermark: false },
+      "Tongyi-MAI/Z-Image-Turbo",
+      ctxBase(stub.fn, { provider_type: "media_modelscope" }),
+    ),
+    /safety check failed/,
+  );
+});
+
+test("modelscope 生图 n=2 部分失败：保留成功的一张（allSettled 并发任务）", async () => {
+  const adapter = getMediaAdapter("modelscope");
+  const stub = makeStub([
+    { task_id: "ms-a" },
+    new Response(JSON.stringify({ message: "quota exceeded" }), { status: 429, headers: { "content-type": "application/json" } }),
+    { task_status: "SUCCEED", output_images: ["https://ms.example.com/ok.png"] },
+  ]);
+  const outputs = await adapter.generateImage(
+    { prompt: "对比", aspectRatio: "1:1", resolutionTier: "1k", n: 2, refImages: [], watermark: false },
+    "Tongyi-MAI/Z-Image-Turbo",
+    ctxBase(stub.fn, { provider_type: "media_modelscope" }),
+  );
+  assert.equal(outputs.length, 1);
+  assert.equal(outputs[0].url, "https://ms.example.com/ok.png");
+});
+
+test("modelscope 视频：官方未开放 API，明确报不支持", async () => {
+  const adapter = getMediaAdapter("modelscope");
+  const ctx = ctxBase(makeStub([]).fn, { provider_type: "media_modelscope" });
+  await assert.rejects(
+    adapter.submitVideoJob({ prompt: "x", durationSeconds: 5, resolution: "720p", aspectRatio: "16:9", withAudio: true }, "any", ctx),
+    /暂未开放视频/,
+  );
+  await assert.rejects(adapter.pollVideoJob("t", "any", ctx), /暂未开放视频/);
+});
+
 test("dashscope 视频：异步头 + tasks 轮询", async () => {
   const adapter = getMediaAdapter("dashscope");
   const stub = makeStub([

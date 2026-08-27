@@ -53,3 +53,19 @@ test("custom 模型：adapter 宽松默认能力", () => {
   const video = adapterDefaultCaps("openai", "video");
   assert.equal(video.minDurationSeconds, 8);
 });
+
+test("魔搭目录条目与 custom 兜底能力", () => {
+  const qwen = findModelEntry("Qwen/Qwen-Image");
+  assert.equal(qwen.adapter, "modelscope");
+  assert.equal(qwen.kind, "image");
+  assert.equal(qwen.caps.maxRefImages, 3);
+  assert.deepEqual(qwen.caps.resolutionTiers, ["1k"]);
+
+  const zimage = findModelEntry("Tongyi-MAI/Z-Image-Turbo");
+  assert.equal(zimage.caps.maxRefImages, 0);
+  assert.deepEqual(zimage.caps.resolutionTiers, ["1k", "2k"]);
+
+  const custom = adapterDefaultCaps("modelscope", "image");
+  assert.equal(custom.maxRefImages, 3);
+  assert.equal(custom.maxBatch, 4);
+});
