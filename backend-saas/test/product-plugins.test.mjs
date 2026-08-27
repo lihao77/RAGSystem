@@ -10,12 +10,14 @@ const ALL_IDS = [
   "@ragsystem/backend-plugin-execution-tools",
   "@ragsystem/backend-plugin-document-tools",
   "@ragsystem/backend-plugin-daemon-feishu",
+  "@ragsystem/backend-plugin-scheduler",
   "@ragsystem/backend-plugin-knowledge",
   "@ragsystem/backend-plugin-memory",
   "@ragsystem/backend-plugin-mcp",
   "@ragsystem/backend-plugin-skills",
   "@ragsystem/backend-plugin-agent-builder",
   "@ragsystem/backend-plugin-widget",
+  "@ragsystem/backend-plugin-media-generation",
 ];
 
 test("SaaS product loads the configured plugins by default", async () => {

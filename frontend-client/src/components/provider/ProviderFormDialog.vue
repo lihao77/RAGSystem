@@ -36,7 +36,7 @@
           </FieldGroup>
         </section>
 
-        <section v-if="form.provider_type !== 'rerank_api'" class="dialog-form-section">
+        <section v-if="form.provider_type !== 'rerank_api' && !pluginManagedType" class="dialog-form-section">
           <div class="dialog-form-section__head"><h3>运行参数</h3><p>配置温度与 token 上限等模型运行参数。</p></div>
           <FieldGroup class="form-grid">
             <Field><FieldLabel for="provider-temperature">温度</FieldLabel><Input id="provider-temperature" v-model.number="form.temperature" type="number" step="0.1" min="0" max="2" placeholder="0.7" /></Field>
@@ -102,7 +102,6 @@
           </template>
           <FieldSet :data-invalid="!!formErrors.model_map">
             <FieldLegend variant="label">模型映射 (model_map)</FieldLegend>
-            <FieldDescription>按 Chat、Embedding、Rerank 任务分别配置真实模型名；同一任务可添加多个模型。</FieldDescription>
             <div class="model-map-editor">
               <div v-for="(entry, idx) in modelMapEntries" :key="idx" class="model-map-row">
                 <CustomSelect v-model="entry.task" :options="modelTaskOptions" placeholder="任务类型" />
@@ -153,6 +152,7 @@ defineProps({
   providerKeyPreview: { type: String, default: '' },
   resilienceProviderConfigFields: { type: Array, default: () => [] },
   extensionProviderConfigFields: { type: Array, default: () => [] },
+  pluginManagedType: { type: Boolean, default: false },
   modelMapEntries: { type: Array, default: () => [] },
   modelTaskOptions: { type: Array, default: () => [] },
   saving: { type: Boolean, default: false },

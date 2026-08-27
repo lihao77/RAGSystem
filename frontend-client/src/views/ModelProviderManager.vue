@@ -121,13 +121,14 @@
                   <Button
                     variant="action-success"
                     size="action"
-                    :disabled="isTesting(provider) || providerTestTargets(provider).length === 0"
-                    :aria-label="providerTestTargets(provider).length === 0 ? '未配置可测试任务' : '选择真实测试任务'"
+                    :disabled="isTesting(provider) || isPluginProviderEntry(provider) || providerTestTargets(provider).length === 0"
+                    :title="isPluginProviderEntry(provider) ? '该 Provider 类型由插件注册，在线测试请在插件功能内验证' : ''"
+                    :aria-label="isPluginProviderEntry(provider) ? '插件类型暂不支持在线测试' : providerTestTargets(provider).length === 0 ? '未配置可测试任务' : '选择真实测试任务'"
                   >
                     <IconRefresh v-if="isTesting(provider)" data-icon="inline-start" class="spin" />
                     <Play v-else data-icon="inline-start" />
-                    {{ isTesting(provider) ? '测试中' : providerTestTargets(provider).length ? '真实测试' : '无可测任务' }}
-                    <ChevronDown v-if="!isTesting(provider) && providerTestTargets(provider).length" data-icon="inline-end" />
+                    {{ isTesting(provider) ? '测试中' : isPluginProviderEntry(provider) ? '暂不支持测试' : providerTestTargets(provider).length ? '真实测试' : '无可测任务' }}
+                    <ChevronDown v-if="!isTesting(provider) && !isPluginProviderEntry(provider) && providerTestTargets(provider).length" data-icon="inline-end" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" class="min-w-[250px]">
@@ -180,6 +181,7 @@
       :provider-key-preview="providerKeyPreview"
       :resilience-provider-config-fields="resilienceProviderConfigFields"
       :extension-provider-config-fields="extensionProviderConfigFields"
+      :plugin-managed-type="isPluginManagedType"
       :model-map-entries="modelMapEntries"
       :model-task-options="modelTaskOptions"
       :saving="saving"
@@ -295,10 +297,10 @@ const FALLBACK_PROVIDER_TYPES = [
 async function loadProviderTypes() {
   try {
     const types = await getProviderTypes();
-    providerTypeMeta.value = Object.fromEntries(types.map((t) => [t.value, { label: t.label, default_endpoint: t.default_endpoint || '', supports_embedding: t.supports_embedding === true, supports_rerank: t.supports_rerank === true, config_fields: t.config_fields || [] }]));
-    providerTypeOptions.value = types.map((t) => ({ value: t.value, label: t.label }));
+    providerTypeMeta.value = Object.fromEntries(types.map((t) => [t.value, { label: t.label, default_endpoint: t.default_endpoint || '', supports_embedding: t.supports_embedding === true, supports_rerank: t.supports_rerank === true, extension_id: t.extension_id || '', model_tasks: Array.isArray(t.model_tasks) ? t.model_tasks : [], config_fields: t.config_fields || [] }]));
+    providerTypeOptions.value = types.map((t) => ({ value: t.value, label: t.extension_id ? `${t.label}（插件）` : t.label }));
   } catch {
-    providerTypeMeta.value = Object.fromEntries(FALLBACK_PROVIDER_TYPES.map((t) => [t.value, { label: t.label, default_endpoint: t.default_endpoint, supports_embedding: t.supports_embedding, supports_rerank: t.supports_rerank, config_fields: t.config_fields || [] }]));
+    providerTypeMeta.value = Object.fromEntries(FALLBACK_PROVIDER_TYPES.map((t) => [t.value, { label: t.label, default_endpoint: t.default_endpoint, supports_embedding: t.supports_embedding, supports_rerank: t.supports_rerank, extension_id: '', model_tasks: [], config_fields: t.config_fields || [] }]));
     providerTypeOptions.value = FALLBACK_PROVIDER_TYPES.map((t) => ({ value: t.value, label: t.label }));
   }
 }
@@ -353,6 +355,8 @@ function providerModelEntries(provider) {
 function visibleModelEntries(provider) { return providerModelEntries(provider).slice(0, 5); }
 function hiddenModelCount(provider) { return Math.max(0, providerModelEntries(provider).length - 5); }
 function isTesting(provider) { return testingKeys.value.has(getProviderKey(provider)); }
+// 插件注册的类型没有 chat/embedding/rerank 语义，真实测试入口直接关闭（后端 testProvider 也会拒绝）
+function isPluginProviderEntry(provider) { return Boolean(providerTypeMeta.value[provider.provider_type]?.extension_id); }
 function providerTestTargets(provider) { return getProviderTestTargets(provider); }
 const testResultTimers = new Map();
 function dismissTestResult(provider) {
@@ -596,6 +600,10 @@ const modelTaskOptions = computed(() => {
   if (!providerType) return allModelTaskOptions;
   if (providerType === 'rerank_api') return allModelTaskOptions.filter((option) => option.value === 'rerank');
   const metadata = providerTypeMeta.value[providerType];
+  // 插件类型自带模型映射任务定义（含 label），任务下拉按其渲染——宿主不认识具体任务语义
+  if (metadata?.model_tasks?.length) {
+    return metadata.model_tasks.map((task) => ({ value: task.value, label: task.label || task.value }));
+  }
   return allModelTaskOptions.filter((option) => (
     option.value !== 'embedding' || metadata?.supports_embedding === true
   ) && (
@@ -609,6 +617,8 @@ const apiEndpointPlaceholder = computed(() => {
   return providerTypeMeta.value[providerType]?.default_endpoint || '由后端返回默认 API Endpoint';
 });
 const activeProviderConfigFields = computed(() => providerTypeMeta.value[form.value.provider_type]?.config_fields || []);
+// 插件注册的 Provider 类型：chat 运行参数对其无意义，表单不展示该区（模型映射仍按注册任务正常配置）。
+const isPluginManagedType = computed(() => Boolean(providerTypeMeta.value[form.value.provider_type]?.extension_id));
 const RESILIENCE_FIELD_KEYS = new Set(['timeout', 'retry_attempts', 'retry_delay', 'retry_backoff_factor']);
 const resilienceProviderConfigFields = computed(() => activeProviderConfigFields.value.filter((field) => RESILIENCE_FIELD_KEYS.has(field.key)));
 const extensionProviderConfigFields = computed(() => activeProviderConfigFields.value.filter((field) => !RESILIENCE_FIELD_KEYS.has(field.key)));
@@ -668,12 +678,14 @@ function handleProviderTypeChange(providerType) {
   }
   if (providerType !== 'rerank_api') {
     const metadata = providerTypeMeta.value[providerType];
-    modelMapEntries.value = modelMapEntries.value.filter((entry) => (
-      entry.task !== 'embedding' || metadata?.supports_embedding === true
-    ) && (
-      entry.task !== 'rerank' || metadata?.supports_rerank === true
-    ));
-    if (modelMapEntries.value.length === 0) modelMapEntries.value = [{ task: 'chat', model: '' }];
+    const allowedTasks = new Set(modelTaskOptions.value.map((option) => option.value));
+    modelMapEntries.value = modelMapEntries.value.filter((entry) => {
+      const taskAllowed = !entry.task || allowedTasks.has(entry.task);
+      const capsAllowed = (entry.task !== 'embedding' || metadata?.supports_embedding === true)
+        && (entry.task !== 'rerank' || metadata?.supports_rerank === true);
+      return taskAllowed && capsAllowed;
+    });
+    if (modelMapEntries.value.length === 0) modelMapEntries.value = [{ task: modelTaskOptions.value[0]?.value || 'chat', model: '' }];
   }
 }
 function closeDialog() { dialog.value.visible = false; formErrors.value = {}; }

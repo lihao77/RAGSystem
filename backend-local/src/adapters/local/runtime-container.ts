@@ -26,6 +26,7 @@ import type { LocalRuntimeContainer } from "@ragsystem/backend-core/contracts/ru
 import type { LocalRuntimeContainerOptions } from "./runtime-options.js";
 import { provideBackendResource } from "@ragsystem/backend-core/plugins/resource-registry.js";
 import { BACKEND_HOST_RESOURCES } from "@ragsystem/backend-core/plugins/host-resources.js";
+import { registerPluginProviderTypes } from "@ragsystem/backend-core/plugins/apply-provider-types.js";
 import { SessionNotificationQueue } from "@ragsystem/backend-core/services/runtime/session-notification-queue.js";
 import { createLocalExecutionStorage } from "./local-execution-storage.js";
 import { LocalGoalStore } from "./local-goal-store.js";
@@ -118,6 +119,8 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
     dataRoot: options.dataRoot,
     providersConfigPath: options.modelAdapterProvidersConfigPath,
   });
+  // 插件 Provider 类型先于 provider 水合/请求注入；providers.yaml 中该类型条目随之装载。
+  registerPluginProviderTypes(modelAdapter, options.plugins);
   const systemConfig = new SystemConfigService(new FileSystemConfigStore({
     dataRoot: options.dataRoot,
     configPath: options.systemConfigPath,

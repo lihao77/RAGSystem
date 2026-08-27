@@ -10,3 +10,4 @@ plugins:
   - module: "@ragsystem/backend-plugin-skills/module.js"
   - module: "@ragsystem/backend-plugin-agent-builder/module.js"
   - module: "@ragsystem/backend-plugin-widget/module.js"
+  - module: "@ragsystem/backend-plugin-media-generation/module.js"

@@ -17,6 +17,7 @@ const PRODUCT_IDS = [
   "@ragsystem/backend-plugin-agent-builder",
   "@ragsystem/backend-plugin-widget",
   "@ragsystem/backend-plugin-image-tools",
+  "@ragsystem/backend-plugin-media-generation",
   "@ragsystem/backend-plugin-pet",
   "@ragsystem/backend-plugin-local-scenes",
 ];
