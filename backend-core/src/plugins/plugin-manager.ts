@@ -31,6 +31,8 @@ import type {
   PluginUiRegistrar,
   PluginUiManifest,
   BackendUiContribution,
+  BackendProviderTypeContribution,
+  PluginProviderTypeRegistrar,
   UserMessageTransformInput,
   UserMessageTransformer,
 } from "./backend-plugin.js";
@@ -82,6 +84,39 @@ class BackendUiRegistry {
     return this.contributions.map((contribution) => ({
       pluginId: contribution.pluginId,
       manifest: structuredClone(contribution.manifest),
+    }));
+  }
+
+  removePlugin(pluginId: string): void {
+    for (let index = this.contributions.length - 1; index >= 0; index -= 1) {
+      if (this.contributions[index]?.pluginId === pluginId) this.contributions.splice(index, 1);
+    }
+  }
+}
+
+class BackendProviderTypeRegistry {
+  private readonly contributions: BackendProviderTypeContribution[] = [];
+
+  forPlugin(pluginId: string): PluginProviderTypeRegistrar {
+    return {
+      register: (types) => {
+        const stamped: BackendProviderTypeContribution = {
+          pluginId,
+          types: types.map((type) => ({ ...type, extension_id: pluginId })),
+        };
+        this.contributions.push(stamped);
+        return () => {
+          const index = this.contributions.indexOf(stamped);
+          if (index >= 0) this.contributions.splice(index, 1);
+        };
+      },
+    };
+  }
+
+  list(): readonly BackendProviderTypeContribution[] {
+    return this.contributions.map((contribution) => ({
+      pluginId: contribution.pluginId,
+      types: contribution.types.map((type) => ({ ...type })),
     }));
   }
 
@@ -472,6 +507,7 @@ export class BackendPluginManager {
   private readonly applicationEventRegistry = new BackendApplicationEventRegistry();
   private readonly userMessageTransformerRegistry = new BackendUserMessageTransformerRegistry();
   private readonly uiRegistry = new BackendUiRegistry();
+  private readonly providerTypeRegistry = new BackendProviderTypeRegistry();
   private registered = false;
   private startedPlugins: BackendPlugin[] = [];
   private applicationRuntime: BackendPluginApplicationRuntimeHandle | null = null;
@@ -499,6 +535,7 @@ export class BackendPluginManager {
         events: this.applicationEventRegistry.forPlugin(plugin.manifest.id),
         transformers: this.userMessageTransformerRegistry.forPlugin(plugin.manifest.id),
         ui: this.uiRegistry.forPlugin(plugin.manifest.id),
+        providerTypes: this.providerTypeRegistry.forPlugin(plugin.manifest.id),
       };
       await plugin.register(context);
     }
@@ -569,6 +606,7 @@ export class BackendPluginManager {
       createTools: (context) => manager.toolRegistry.create(context),
       listTools: () => manager.toolRegistry.list(),
       transformUserMessage: (input) => manager.transformUserMessage(input),
+      listProviderTypes: () => manager.providerTypeRegistry.list(),
     };
   }
 
@@ -605,6 +643,7 @@ export class BackendPluginManager {
         this.applicationEventRegistry.removePlugin(plugin.manifest.id);
         this.userMessageTransformerRegistry.removePlugin(plugin.manifest.id);
         this.uiRegistry.removePlugin(plugin.manifest.id);
+        this.providerTypeRegistry.removePlugin(plugin.manifest.id);
       }
     }
     try {

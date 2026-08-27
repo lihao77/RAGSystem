@@ -1,4 +1,5 @@
 export * from "./backend-plugin.js";
+export * from "./apply-provider-types.js";
 export * from "./capability-registry.js";
 export * from "./host-resources.js";
 export * from "./plugin-manager.js";

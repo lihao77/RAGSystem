@@ -37,6 +37,12 @@ export interface ProviderConfigField {
   step?: number;
 }
 
+/** 插件注册的模型映射任务类型（provider 条目 model_map 的自定义任务键）。 */
+export interface ProviderModelTaskInfo {
+  value: string;
+  label: string;
+}
+
 export interface ProviderTypeInfo {
   value: string;
   label: string;
@@ -44,6 +50,15 @@ export interface ProviderTypeInfo {
   supports_embedding: boolean;
   supports_rerank: boolean;
   config_fields: ProviderConfigField[];
+  /** 该类型条目可配置的模型映射任务（插件类型声明，自带 label；内置类型缺省 chat/embedding/rerank）。 */
+  model_tasks?: readonly ProviderModelTaskInfo[];
+  /** 插件贡献的类型：来源插件 manifest id；内置类型无此字段。 */
+  extension_id?: string;
+}
+
+/** 插件注册的 Provider 类型（宿主盖章 extension_id 后的形态）。 */
+export interface RegisteredProviderType extends ProviderTypeInfo {
+  extension_id: string;
 }
 
 export type ModelMapValue = z.infer<typeof ModelMapValueSchema>;

@@ -1,6 +1,10 @@
-import { describe, expect, it } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
-import type { ModelProviderConfig } from "../src/contracts/integrations/model-adapter.js";
+import { afterEach, describe, expect, it } from "vitest";
+
+import type { ModelProviderConfig, ProviderTypeInfo } from "../src/contracts/integrations/model-adapter.js";
 import {
   ModelAdapterService,
   ModelAdapterServiceError,
@@ -100,5 +104,195 @@ describe("ModelAdapterService provider type updates", () => {
       model: "text-embedding-model",
       prompt: "hello",
     })).rejects.toThrowError(new ModelAdapterServiceError("Provider 类型 gemini 不支持 Embedding", 400));
+  });
+});
+
+const mediaType: ProviderTypeInfo = {
+  value: "media_generation",
+  label: "媒体生成",
+  default_endpoint: "",
+  supports_embedding: false,
+  supports_rerank: false,
+  config_fields: [
+    { key: "vendor", label: "厂商", type: "select", default: "", help: "", options: [{ value: "zhipu", label: "智谱" }] },
+  ],
+  model_tasks: [
+    { value: "image", label: "生图模型" },
+    { value: "video", label: "生视频模型" },
+  ],
+};
+
+const tempDirs: string[] = [];
+
+afterEach(() => {
+  for (const dir of tempDirs.splice(0)) {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+function makeTempProvidersFile(initialYaml?: string): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-provider-types-"));
+  tempDirs.push(dir);
+  const filePath = path.join(dir, "providers.yaml");
+  if (initialYaml !== undefined) {
+    fs.writeFileSync(filePath, initialYaml, "utf8");
+  }
+  return filePath;
+}
+
+describe("ModelAdapterService plugin provider types", () => {
+  it("merges plugin types into listProviderTypes with extension stamps", () => {
+    const service = new ModelAdapterService();
+    service.registerProviderTypes("@ragsystem/backend-plugin-media-generation", [mediaType]);
+
+    const listed = service.listProviderTypes().find((item) => item.value === "media_generation");
+    expect(listed?.extension_id).toBe("@ragsystem/backend-plugin-media-generation");
+    expect(listed?.label).toBe("媒体生成");
+    expect(listed?.model_tasks).toEqual([{ value: "image", label: "生图模型" }, { value: "video", label: "生视频模型" }]);
+    // 内置类型不带 extension_id
+    expect(service.listProviderTypes().find((item) => item.value === "openai_chat")?.extension_id).toBeUndefined();
+  });
+
+  it("rejects conflicts with builtin types and other extensions", () => {
+    const service = new ModelAdapterService();
+    expect(() => service.registerProviderTypes("ext-a", [{ ...mediaType, value: "openai_chat" }]))
+      .toThrowError(ModelAdapterServiceError);
+    expect(() => service.registerProviderTypes("ext-a", [{ ...mediaType, value: "bad-type" }]))
+      .toThrowError(ModelAdapterServiceError);
+
+    service.registerProviderTypes("ext-a", [mediaType]);
+    expect(() => service.registerProviderTypes("ext-b", [mediaType])).toThrowError(ModelAdapterServiceError);
+  });
+
+  it("lets the same extension re-register and unregister its types", () => {
+    const service = new ModelAdapterService();
+    service.registerProviderTypes("ext-a", [mediaType]);
+    service.registerProviderTypes("ext-a", [{ ...mediaType, value: "media_ark", label: "火山方舟 · 图像/视频生成" }]);
+
+    expect(service.listProviderTypes().some((item) => item.value === "media_generation")).toBe(false);
+    expect(service.listProviderTypes().some((item) => item.value === "media_ark")).toBe(true);
+
+    const unregister = service.registerProviderTypes("ext-a", [mediaType]);
+    expect(service.isPluginProviderType("media_generation")).toBe(true);
+    unregister();
+    expect(service.isPluginProviderType("media_generation")).toBe(false);
+    expect(service.listProviderTypes().some((item) => item.value === "media_generation")).toBe(false);
+  });
+
+  it("creates plugin-typed providers without model_map and reports them available", () => {
+    const service = new ModelAdapterService();
+    service.registerProviderTypes("ext-a", [mediaType]);
+
+    const { config } = service.buildCreateProvider({
+      name: "智谱媒体",
+      provider_type: "media_generation",
+      api_key: "secret",
+    });
+    expect(config.provider_type).toBe("media_generation");
+    expect(config.models).toEqual([]);
+
+    service.createProvider({ name: "智谱媒体", provider_type: "media_generation", api_key: "secret", vendor: "zhipu", model_map: { image: "glm-image", video: "cogvideox-3" } });
+    const availability = service.checkProviderAvailability("智谱媒体_media_generation");
+    expect(availability.is_available).toBe(true);
+    expect(availability.error).toBeNull();
+  });
+
+  it("rejects online testing for plugin-managed provider types", async () => {
+    const service = new ModelAdapterService();
+    service.registerProviderTypes("ext-a", [mediaType]);
+    service.createProvider({ name: "智谱媒体", provider_type: "media_generation", api_key: "secret", model_map: { image: "glm-image", video: "cogvideox-3" } });
+
+    await expect(service.testProvider({ provider: "智谱媒体", prompt: "hello" }))
+      .rejects.toThrowError(new ModelAdapterServiceError("该 Provider 类型由 ext-a 提供，暂不支持在线测试", 400));
+  });
+
+  it("accepts plugin-typed providers in runtime hydration", () => {
+    const service = new ModelAdapterService();
+    service.registerProviderTypes("ext-a", [mediaType]);
+
+    expect(() => service.replaceRuntimeProviders([{
+      key: "media",
+      name: "智谱媒体",
+      provider_type: "media_generation",
+      api_key: "secret",
+      model_map: { image: "glm-image" },
+    }])).not.toThrow();
+    expect(service.getProvider("media")?.provider_type).toBe("media_generation");
+  });
+
+  it("skips (not throws) stale plugin-typed entries after the plugin is gone", () => {
+    // 插件禁用/移除后其类型未注册：残留条目必须被跳过，水合失败会让整个租户不可用
+    const service = new ModelAdapterService();
+    expect(() => service.replaceRuntimeProviders([
+      {
+        key: "media",
+        name: "智谱媒体",
+        provider_type: "media_generation",
+        api_key: "secret",
+        model_map: { image: "glm-image" },
+      },
+      {
+        key: "chat",
+        name: "Chat",
+        provider_type: "openai_chat",
+        api_key: "secret",
+        model_map: { chat: "gpt-4.1" },
+      },
+    ])).not.toThrow();
+    expect(service.hasProvider("media")).toBe(false);
+    expect(service.hasProvider("chat")).toBe(true);
+  });
+
+  it("reloads providers.yaml entries skipped before plugin types were registered", () => {
+    const filePath = makeTempProvidersFile([
+      "media:",
+      "  name: 智谱媒体",
+      "  provider_type: media_generation",
+      "  api_key: secret",
+      "  vendor: zhipu",
+      "  model_map:",
+      "    image: glm-image",
+      "",
+    ].join("\n"));
+
+    const service = new ModelAdapterService({ providersConfigPath: filePath });
+    // 类型未注册时该条目被跳过
+    expect(service.hasProvider("media")).toBe(false);
+
+    service.registerProviderTypes("ext-a", [mediaType]);
+    const provider = service.getProvider("media");
+    expect(provider?.provider_type).toBe("media_generation");
+    expect(provider?.api_key).toBe("secret");
+    expect(provider?.vendor).toBe("zhipu");
+    expect(provider?.models).toContain("glm-image");
+  });
+
+  it("passes plugin-declared extension fields through provider updates", () => {
+    const service = new ModelAdapterService();
+    service.registerProviderTypes("ext-a", [mediaType]);
+    const key = service.createProvider({
+      name: "智谱媒体",
+      provider_type: "media_generation",
+      api_key: "secret",
+      vendor: "zhipu",
+      model_map: { image: "glm-image", video: "cogvideox-3" },
+    });
+
+    service.updateProvider(key, { vendor: "volcengine", api_endpoint: "https://ark.cn-beijing.volces.com" });
+    const provider = service.getProvider(key);
+    // 白名单外的插件扩展字段（vendor）在更新后保留且生效
+    expect(provider?.vendor).toBe("volcengine");
+    expect(provider?.api_endpoint).toBe("https://ark.cn-beijing.volces.com");
+    expect(provider?.models).toContain("glm-image");
+  });
+
+  it("reports plugin-typed providers without models as not available", () => {
+    const service = new ModelAdapterService();
+    service.registerProviderTypes("ext-a", [mediaType]);
+    service.createProvider({ name: "智谱媒体", provider_type: "media_generation", api_key: "secret" });
+
+    const availability = service.checkProviderAvailability("智谱媒体_media_generation");
+    expect(availability.is_available).toBe(false);
+    expect(availability.error).toContain("模型");
   });
 });

@@ -11,6 +11,7 @@ import type {
   ModelProviderConfig,
   ProviderPayload,
   ProviderTypeInfo,
+  RegisteredProviderType,
   TestProviderRequest,
 } from "../../contracts/integrations/model-adapter.js";
 import {
@@ -61,6 +62,9 @@ export class ModelAdapterServiceError extends Error {
 export class ModelAdapterService {
   private readonly providers = new Map<string, ModelProviderConfig>();
   private readonly providersConfigPath: string | null;
+  /** 插件贡献的 Provider 类型（key = 类型 value；同一插件重复注册覆盖自身）。 */
+  private readonly pluginProviderTypes = new Map<string, RegisteredProviderType>();
+  private readonly pluginProviderTypesByExtension = new Map<string, Set<string>>();
 
   constructor(options: {
     dataRoot?: string | undefined;
@@ -70,8 +74,106 @@ export class ModelAdapterService {
     this.loadProvidersFromDisk();
   }
 
+  /**
+   * 注册插件贡献的 Provider 类型。类型 value 不得与内置类型或其他插件冲突；
+   * 注册后重读 providers.yaml，装载此前因类型未知被跳过的条目。
+   * 返回注销函数（同插件重复注册为覆盖语义）。
+   */
+  registerProviderTypes(extensionId: string, types: readonly ProviderTypeInfo[]): () => void {
+    const normalizedExtension = String(extensionId ?? "").trim();
+    if (!normalizedExtension) {
+      throw new ModelAdapterServiceError("插件 Provider 类型注册缺少 extension id", 400);
+    }
+    const incoming = new Map<string, ProviderTypeInfo>();
+    for (const type of types) {
+      const value = String(type?.value ?? "").trim().toLowerCase();
+      const label = String(type?.label ?? "").trim();
+      if (!/^[a-z][a-z0-9_]*$/.test(value)) {
+        throw new ModelAdapterServiceError(`插件 Provider 类型 value 非法（小写字母开头的 snake_case）: ${value || "(空)"}`, 400);
+      }
+      if (!label) {
+        throw new ModelAdapterServiceError(`插件 Provider 类型 ${value} 缺少 label`, 400);
+      }
+      if (PROVIDER_TYPE_SET.has(value)) {
+        throw new ModelAdapterServiceError(`插件 Provider 类型与内置类型冲突: ${value}`, 400);
+      }
+      const existing = this.pluginProviderTypes.get(value);
+      if (existing && existing.extension_id !== normalizedExtension) {
+        throw new ModelAdapterServiceError(
+          `插件 Provider 类型 ${value} 已被 ${existing.extension_id} 注册`,
+          400,
+        );
+      }
+      if (incoming.has(value)) {
+        throw new ModelAdapterServiceError(`插件 Provider 类型重复: ${value}`, 400);
+      }
+      incoming.set(value, {
+        value,
+        label,
+        default_endpoint: String(type?.default_endpoint ?? ""),
+        supports_embedding: type?.supports_embedding === true,
+        supports_rerank: type?.supports_rerank === true,
+        config_fields: (type?.config_fields ?? []).map((field) => ({ ...field, options: [...(field.options ?? [])] })),
+        ...(Array.isArray(type?.model_tasks) && type.model_tasks.length > 0
+          ? {
+              model_tasks: type.model_tasks
+                .map((task) => ({
+                  value: String(task?.value ?? "").trim(),
+                  label: String(task?.label ?? "").trim() || String(task?.value ?? "").trim(),
+                }))
+                .filter((task) => task.value),
+            }
+          : {}),
+      });
+    }
+
+    const owned = this.pluginProviderTypesByExtension.get(normalizedExtension) ?? new Set<string>();
+    for (const value of owned) {
+      if (!incoming.has(value)) {
+        this.pluginProviderTypes.delete(value);
+        owned.delete(value);
+      }
+    }
+    for (const [value, type] of incoming) {
+      this.pluginProviderTypes.set(value, { ...type, extension_id: normalizedExtension });
+      owned.add(value);
+    }
+    this.pluginProviderTypesByExtension.set(normalizedExtension, owned);
+
+    this.loadProvidersFromDisk();
+
+    const manager = this;
+    return () => {
+      if (manager.pluginProviderTypesByExtension.get(normalizedExtension) !== owned) return;
+      for (const value of owned) {
+        manager.pluginProviderTypes.delete(value);
+      }
+      manager.pluginProviderTypesByExtension.delete(normalizedExtension);
+    };
+  }
+
+  /** 类型是否为指定插件贡献（供路由/应用层判定"插件托管类型"）。 */
+  isPluginProviderType(providerType: string): boolean {
+    return this.pluginProviderTypes.has(String(providerType ?? "").trim().toLowerCase());
+  }
+
+  private isKnownProviderType(providerType: string): boolean {
+    return PROVIDER_TYPE_SET.has(providerType) || this.pluginProviderTypes.has(providerType);
+  }
+
+  /** 插件类型声明的自定义字段 key 集合（白名单外的透传字段）。 */
+  private pluginConfigFieldKeys(providerTypes: readonly string[]): Set<string> {
+    const keys = new Set<string>();
+    for (const providerType of providerTypes) {
+      const info = this.pluginProviderTypes.get(String(providerType ?? "").trim().toLowerCase());
+      if (!info) continue;
+      for (const field of info.config_fields) keys.add(field.key);
+    }
+    return keys;
+  }
+
   listProviderTypes(): ProviderTypeInfo[] {
-    return PROVIDER_TYPES.map((providerType) => ({
+    const builtin = PROVIDER_TYPES.map((providerType) => ({
       value: providerType,
       label: labelProviderType(providerType),
       default_endpoint: DEFAULT_ENDPOINTS[providerType] ?? "",
@@ -79,6 +181,19 @@ export class ModelAdapterService {
       supports_rerank: providerTypeSpec(providerType)?.supportsRerank ?? false,
       config_fields: providerConfigFields(providerType),
     }));
+    const plugin = Array.from(this.pluginProviderTypes.values())
+      .sort((a, b) => a.label.localeCompare(b.label, "zh-Hans-CN"))
+      .map((type) => ({
+        value: type.value,
+        label: type.label,
+        default_endpoint: type.default_endpoint,
+        supports_embedding: type.supports_embedding,
+        supports_rerank: type.supports_rerank,
+        config_fields: type.config_fields.map((field) => ({ ...field })),
+        ...(type.model_tasks ? { model_tasks: type.model_tasks } : {}),
+        extension_id: type.extension_id,
+      }));
+    return [...builtin, ...plugin];
   }
 
   listProviders(): ModelProviderConfig[] {
@@ -95,8 +210,13 @@ export class ModelAdapterService {
       config.name = String(config.name ?? "").trim();
       config.provider_type = String(config.provider_type ?? "").trim().toLowerCase();
       const providerKey = String(value.key ?? "").trim() || makeProviderKey(config);
-      if (!providerKey || !config.name || !PROVIDER_TYPE_SET.has(config.provider_type)) {
+      if (!providerKey || !config.name) {
         throw new ModelAdapterServiceError(`无效的运行时 Provider 配置: ${providerKey || config.name || "unknown"}`, 500);
+      }
+      // 未知类型跳过而非抛错：插件禁用/移除后其类型随之消失，持久化条目残留属正常状态，
+      // 水合失败会让整个租户不可用。create/update 路径仍严格校验（400）。
+      if (!this.isKnownProviderType(config.provider_type)) {
+        continue;
       }
       rebuildModelsFromModelMap(config);
       this.ensureProviderRuntimeShape(config);
@@ -177,9 +297,20 @@ export class ModelAdapterService {
       assignProviderField(config, field, value);
     }
 
+    // 插件类型的自定义扩展字段（config_fields 声明，如媒体条目的 vendor）：
+    // 不在 UPDATE_FIELDS 白名单内，按新旧类型声明并集透传，否则更新即丢失。
+    const extensionKeys = new Set([
+      ...this.pluginConfigFieldKeys([config.provider_type, String(data.provider_type ?? "")]),
+    ]);
+    for (const key of extensionKeys) {
+      if ((UPDATE_FIELDS as readonly string[]).includes(key)) continue;
+      if (!Object.prototype.hasOwnProperty.call(data, key)) continue;
+      assignProviderExtensionField(config, key, data[key]);
+    }
+
     rebuildModelsFromModelMap(config);
     config.provider_type = canonicalizeProviderType(config.provider_type, undefined);
-    if (!PROVIDER_TYPE_SET.has(config.provider_type)) {
+    if (!this.isKnownProviderType(config.provider_type)) {
       throw new ModelAdapterServiceError(`不支持的 Provider 类型: ${config.provider_type}`, 400);
     }
     this.ensureProviderRuntimeShape(config);
@@ -285,21 +416,24 @@ export class ModelAdapterService {
     }
     const supportsEmbedding = providerTypeSpec(provider.provider_type)?.supportsEmbedding ?? false;
     const supportsRerank = providerTypeSpec(provider.provider_type)?.supportsRerank ?? false;
+    const pluginManaged = this.isPluginProviderType(provider.provider_type);
+    const pluginModelConfigured = pluginManaged ? (provider.models?.length ?? 0) > 0 : true;
     const checks = {
       provider_exists: true,
-      provider_type_supported: PROVIDER_TYPE_SET.has(provider.provider_type),
+      provider_type_supported: this.isKnownProviderType(provider.provider_type),
       api_key_configured: Boolean(String(provider.api_key ?? "").trim()),
       endpoint_configured: provider.provider_type !== "rerank_api" || Boolean(String(provider.api_endpoint ?? "").trim()),
-      chat_model_configured: Boolean(firstModelForTask(provider, "chat")),
+      chat_model_configured: pluginManaged ? pluginModelConfigured : Boolean(firstModelForTask(provider, "chat")),
       embedding_supported: supportsEmbedding,
       embedding_model_configured: supportsEmbedding && Boolean(firstModelForTask(provider, "embedding")),
       rerank_supported: supportsRerank,
       rerank_model_configured: supportsRerank && Boolean(firstModelForTask(provider, "rerank")),
     };
-    const taskReady =
-      provider.provider_type === "rerank_api"
-        ? checks.rerank_model_configured
-        : checks.chat_model_configured || checks.embedding_model_configured || checks.rerank_model_configured;
+    // 插件托管类型：模型在 Provider 条目上配置（model_map/models），可用性看凭证 + 至少一个模型。
+    const taskReady = pluginManaged ? pluginModelConfigured : (() => {
+      if (provider.provider_type === "rerank_api") return checks.rerank_model_configured;
+      return checks.chat_model_configured || checks.embedding_model_configured || checks.rerank_model_configured;
+    })();
     const isAvailable =
       checks.provider_type_supported &&
       checks.api_key_configured &&
@@ -316,6 +450,10 @@ export class ModelAdapterService {
   async testProvider(data: TestProviderRequest): Promise<Record<string, unknown>> {
     this.validateTestProviderRequest(data);
     const provider = this.resolveProviderForTest(data);
+    if (this.isPluginProviderType(provider.provider_type)) {
+      const extensionId = this.pluginProviderTypes.get(provider.provider_type)?.extension_id ?? "插件";
+      throw new ModelAdapterServiceError(`该 Provider 类型由 ${extensionId} 提供，暂不支持在线测试`, 400);
+    }
     const task = data.task ?? "chat";
     if (task === "embedding" && providerTypeSpec(provider.provider_type)?.supportsEmbedding !== true) {
       throw new ModelAdapterServiceError(`Provider 类型 ${provider.provider_type} 不支持 Embedding`, 400);
@@ -455,7 +593,7 @@ export class ModelAdapterService {
     const config = normalized as ModelProviderConfig;
     config.name = String(config.name);
     config.provider_type = String(config.provider_type).toLowerCase();
-    if (!PROVIDER_TYPE_SET.has(config.provider_type)) {
+    if (!this.isKnownProviderType(config.provider_type)) {
       throw new ModelAdapterServiceError(`不支持的 Provider 类型: ${config.provider_type}`, 400);
     }
     rebuildModelsFromModelMap(config);
@@ -534,7 +672,7 @@ export class ModelAdapterService {
       const config = normalized as ModelProviderConfig;
       config.name = String(config.name ?? "");
       config.provider_type = String(config.provider_type ?? "").toLowerCase();
-      if (!config.name || !PROVIDER_TYPE_SET.has(config.provider_type)) {
+      if (!config.name || !this.isKnownProviderType(config.provider_type)) {
         continue;
       }
       rebuildModelsFromModelMap(config);
@@ -816,6 +954,14 @@ function assignProviderField(config: ModelProviderConfig, field: (typeof UPDATE_
       }
       break;
   }
+}
+
+function assignProviderExtensionField(config: ModelProviderConfig, key: string, value: unknown): void {
+  if (value === undefined || value === null || value === "") {
+    delete config[key];
+    return;
+  }
+  config[key] = typeof value === "boolean" ? value : typeof value === "number" ? value : String(value);
 }
 
 function setNumberField(
