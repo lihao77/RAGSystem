@@ -32,6 +32,7 @@ export function createSkillsPlugin(dependencies: SkillsPluginDependencies): Back
               provideAgentCapability({
                 id: "skills",
                 display_name: "技能",
+                usage_note: "为 Agent 绑定 Skill 后，运行时会自动注入 activate_skill / load_skill_resource / execute_skill_script 工具（无需也无法在 tools 中声明它们）；注入形态是 3 个工具定义，占用固定少量 token，SKILL.md 正文不常驻系统提示词，仅在 Agent 调用 activate_skill 时按需加载。未绑定 Skill 的 Agent 不会看到这些工具入口。",
                 listItems: async () => {
                   const items = await runtime.library.listSkills();
                   const infos = new Map(

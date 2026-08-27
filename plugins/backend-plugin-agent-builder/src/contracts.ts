@@ -88,16 +88,28 @@ export const PublishAgentDraftRequestSchema = z.object({
   expected_revision: z.number().int().positive(),
 }).strict();
 
+export const RollbackAgentDraftRequestSchema = z.object({
+  expected_revision: z.number().int().positive(),
+  to_revision: z.number().int().positive(),
+}).strict();
+
 export type AgentBlueprint = z.infer<typeof AgentBlueprintSchema>;
 export type AgentBlueprintAgent = z.infer<typeof AgentBlueprintAgentSchema>;
 export type AgentBuilderValidationIssue = z.infer<typeof AgentBuilderValidationIssueSchema>;
 export type AgentBuilderValidationReport = z.infer<typeof AgentBuilderValidationReportSchema>;
 export type AgentDraft = z.infer<typeof AgentDraftSchema>;
 
+export interface AgentBuilderLlmProviderInfo {
+  readonly provider_type: string;
+  readonly models: readonly string[];
+}
+
 export interface AgentBuilderCapabilityInventory {
   readonly tools?: ReadonlySet<string>;
   /** 提供方 id → 可用能力名集合；缺失的提供方跳过校验（与插件未安装语义一致）。 */
   readonly providers?: ReadonlyMap<string, ReadonlySet<string>>;
+  /** provider 名 → 模型目录；缺失时跳过 llm_tiers.provider 校验（与模型适配层不可用语义一致）。 */
+  readonly llm_providers?: ReadonlyMap<string, AgentBuilderLlmProviderInfo>;
 }
 
 /**

@@ -11,6 +11,7 @@ import { AgentConfigService } from "@ragsystem/backend-core/services/agent/confi
 import { BackendPluginManager } from "@ragsystem/backend-core/plugins/plugin-manager.js";
 import {
   AgentBuilderConflictError,
+  AgentBuilderNotFoundError,
   AgentBuilderService,
   AgentBuilderValidationError,
   AGENT_BUILDER_RUNTIME_CAPABILITY,
@@ -689,6 +690,7 @@ test("Builder template migration adds Skill authoring tools without replacing us
         "list_agent_drafts",
         "get_agent_draft",
         "create_agent_draft",
+        "validate_agent_draft",
         "publish_agent_draft",
       ],
     );
@@ -696,7 +698,9 @@ test("Builder template migration adds Skill authoring tools without replacing us
     assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /publish_skill_draft/);
     assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /Skill authoring runtime contract:/);
     assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /current Skill runtime executes Python only/);
-    assert.equal(configs.builder_orchestrator.custom_params.behavior.builder_template_version, 10);
+    assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /validate_agent_draft/);
+    assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /artifacts parameter/);
+    assert.equal(configs.builder_orchestrator.custom_params.behavior.builder_template_version, 11);
     assert.equal(await ensureAgentBuilderTeam(fixture.agentConfig), false);
   } finally {
     fixture.cleanup();
@@ -717,7 +721,7 @@ test("Builder template migration adds the workspace draft workflow", async () =>
     assert.match(orchestrator.custom_params.behavior.system_prompt, /publish_skill_draft/);
     assert.match(orchestrator.custom_params.behavior.system_prompt, /current Session workspace/);
     assert.match(orchestrator.custom_params.behavior.system_prompt, /execute_skill_script can run only a published, visible Skill/);
-    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 10);
+    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 11);
   } finally {
     fixture.cleanup();
   }
@@ -737,7 +741,7 @@ test("Builder template migration upgrades a version 7 Skill authoring prompt", a
     assert.match(orchestrator.custom_params.behavior.system_prompt, /^Keep this version 7 instruction\./);
     assert.match(orchestrator.custom_params.behavior.system_prompt, /Skill authoring runtime contract:/);
     assert.match(orchestrator.custom_params.behavior.system_prompt, /current Skill runtime executes Python only/);
-    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 10);
+    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 11);
   } finally {
     fixture.cleanup();
   }
@@ -762,10 +766,10 @@ test("Builder template migration removes stale Artifact authoring instructions a
     const prompt = orchestrator.custom_params.behavior.system_prompt;
     assert.match(prompt, /^Keep this builder instruction\./);
     assert.match(prompt, /Skill authoring runtime contract:/);
-    assert.doesNotMatch(prompt, /Artifact|RAGSYSTEM_ARTIFACT_OUTPUT_DIR|submit_skill_artifact|search_skill_drafts/i);
+    assert.doesNotMatch(prompt, /kind=skill Artifact|\[artifact:|RAGSYSTEM_ARTIFACT_OUTPUT_DIR|submit_skill_artifact|create_skill_artifact|search_skill_drafts/i);
     assert.equal(orchestrator.tools.enabled_tools.includes("submit_skill_artifact"), false);
     assert.equal(orchestrator.tools.enabled_tools.includes("create_skill_artifact"), false);
-    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 10);
+    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 11);
   } finally {
     fixture.cleanup();
   }
@@ -807,6 +811,7 @@ test("Builder-only draft tools are visible only to the Builder entry Agent", asy
         "list_agent_builder_capabilities",
         "list_agent_drafts",
         "publish_agent_draft",
+        "validate_agent_draft",
       ]);
       assert.deepEqual(ordinaryTools, []);
 
@@ -1028,7 +1033,7 @@ test("Builder template opts its orchestrator into Skill authoring tools explicit
   assert.match(prompt, /Never instruct an Agent to run python, python3, a shell, execute_code/);
   assert.match(prompt, /publish action validates and synchronizes bundle structure but does not execute scripts/);
   assert.match(prompt, /choose workspace cwd or copy the deliverable into workspace/);
-  assert.doesNotMatch(prompt, /Artifact|RAGSYSTEM_ARTIFACT_OUTPUT_DIR|submit_skill_artifact/i);
+  assert.doesNotMatch(prompt, /kind=skill Artifact|\[artifact:|RAGSYSTEM_ARTIFACT_OUTPUT_DIR|submit_skill_artifact|create_skill_artifact/i);
 });
 
 async function createFixture(pluginTools = [], systemConfig = null) {
@@ -1101,3 +1106,62 @@ function runtimeContext(fixture, systemConfig = null) {
     ...(systemConfig ? { systemConfig } : {}),
   };
 }
+
+test("Builder template migration replaces the v10 draft workflow sentence in place", async () => {
+  const fixture = await createFixture();
+  try {
+    const legacy = buildAgentBuilderTeam();
+    legacy.builder_orchestrator.custom_params.behavior.system_prompt = [
+      "You are the Agent Builder Orchestrator.",
+      "Use list_agent_drafts, with a query when needed, to find a Draft; use get to copy it into the current Session workspace, or create to start a new workspace Draft. Edit blueprint.json with file tools, then call publish; publish performs validation and synchronization automatically.",
+    ].join(" ");
+    legacy.builder_orchestrator.custom_params.behavior.builder_template_version = 10;
+    await fixture.agentConfig.applyTeamPayload(AGENT_BUILDER_TEAM_NAME, legacy);
+
+    assert.equal(await ensureAgentBuilderTeam(fixture.agentConfig), true);
+    const orchestrator = fixture.agentConfig.getConfig("builder_orchestrator", { teamName: AGENT_BUILDER_TEAM_NAME });
+    const prompt = orchestrator.custom_params.behavior.system_prompt;
+    assert.match(prompt, /validate_agent_draft/);
+    assert.match(prompt, /blueprint\.schema\.md/);
+    assert.match(prompt, /artifacts parameter/);
+    assert.doesNotMatch(prompt, /then call publish; publish performs validation and synchronization automatically/);
+    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 11);
+    assert.equal(await ensureAgentBuilderTeam(fixture.agentConfig), false);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("draft revisions are archived and rollback restores an older blueprint", async () => {
+  const fixture = await createFixture();
+  try {
+    const original = await fixture.service.createDraft(blueprint());
+    const edited = await fixture.service.updateDraft(original.id, original.revision, blueprint({
+      description: "Edited description",
+    }));
+    assert.equal(edited.revision, 2);
+    assert.deepEqual(await fixture.service.listDraftRevisions(edited.id), [1]);
+
+    const rolledBack = await fixture.service.rollbackDraft(edited.id, edited.revision, 1);
+    assert.equal(rolledBack.revision, 3);
+    assert.equal(rolledBack.status, "draft");
+    assert.equal(rolledBack.published_at, null);
+    assert.equal(rolledBack.blueprint.description, original.blueprint.description);
+    assert.deepEqual(await fixture.service.listDraftRevisions(edited.id), [2, 1]);
+
+    await assert.rejects(
+      () => fixture.service.rollbackDraft(edited.id, rolledBack.revision, 3),
+      AgentBuilderConflictError,
+    );
+    await assert.rejects(
+      () => fixture.service.rollbackDraft(edited.id, rolledBack.revision, 99),
+      AgentBuilderConflictError,
+    );
+    await assert.rejects(
+      () => fixture.service.rollbackDraft(edited.id, rolledBack.revision, 0),
+      AgentBuilderNotFoundError,
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});

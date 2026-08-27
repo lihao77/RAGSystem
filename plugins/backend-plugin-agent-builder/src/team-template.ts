@@ -4,7 +4,7 @@ import { isRecord } from "@ragsystem/backend-core/utils/guards.js";
 
 /** Reserved tenant Team installed by the Agent Builder plugin. */
 export const AGENT_BUILDER_TEAM_NAME = "agent-builder";
-export const AGENT_BUILDER_TEAM_TEMPLATE_VERSION = 10;
+export const AGENT_BUILDER_TEAM_TEMPLATE_VERSION = 11;
 
 const CAPABILITY_INVENTORY_TOOL = "list_agent_builder_capabilities";
 
@@ -16,6 +16,12 @@ const SKILL_AUTHORING_TOOLS = [
 ] as const;
 
 const CAPABILITY_DISCOVERY_PROMPT = "Before creating or updating a Draft, call list_agent_builder_capabilities and bind only the returned Tool, Skill, and MCP Server names. Never invent capability names.";
+
+const DRAFT_WORKFLOW_PROMPT = "Use list_agent_drafts, with a query when needed, to find a Draft (summaries by default; pass include_blueprint=true or use get_agent_draft for the full blueprint). Use get or create to open a workspace Draft; blueprint.schema.md in the workspace documents every field, enum, and the manifest revision lock. Edit blueprint.json with file tools and call validate_agent_draft to check it at any time; publish validates, synchronizes, and auto-publishes when enabled.";
+
+const LEGACY_DRAFT_WORKFLOW_SENTENCE = "Use list_agent_drafts, with a query when needed, to find a Draft; use get to copy it into the current Session workspace, or create to start a new workspace Draft. Edit blueprint.json with file tools, then call publish; publish performs validation and synchronization automatically.";
+
+const DELEGATION_ARTIFACTS_PROMPT = "When delegating research or review, pass input file paths through the agent tool's artifacts parameter instead of pasting file contents into the message; the receiving Agent reads them with file tools.";
 const LEGACY_SKILL_AUTHORING_PROMPT = `Use list_skill_drafts, with a query when needed, to find reusable Skill drafts. Use get_skill_draft to copy a draft into the current Session workspace, or create_skill_draft to create one from scratch. Edit SKILL.md and its resources with file tools, then call publish_skill_draft. Publishing validates the local bundle; on failure, fix the files and retry. Do not call separate validate or approve tools. A Skill is not available to Agents until publication succeeds.`;
 const SKILL_AUTHORING_PROMPT_MARKER = "Skill authoring runtime contract:";
 const SKILL_AUTHORING_PROMPT = [
@@ -67,6 +73,7 @@ export function buildAgentBuilderTeam(): Record<string, AgentConfig> {
         "list_agent_drafts",
         "get_agent_draft",
         "create_agent_draft",
+        "validate_agent_draft",
         "publish_agent_draft",
         ...SKILL_AUTHORING_TOOLS,
       ],
@@ -85,7 +92,8 @@ export function buildAgentBuilderTeam(): Record<string, AgentConfig> {
         "First clarify the outcome, users, inputs, outputs, constraints, and acceptance criteria.",
         "Delegate research, architecture, evaluation, and optimization to the specialized Agents in this Team.",
         CAPABILITY_DISCOVERY_PROMPT,
-        "Use list_agent_drafts, with a query when needed, to find a Draft; use get to copy it into the current Session workspace, or create to start a new workspace Draft. Edit blueprint.json with file tools, then call publish; publish performs validation and synchronization automatically.",
+        DRAFT_WORKFLOW_PROMPT,
+        DELEGATION_ARTIFACTS_PROMPT,
         SKILL_AUTHORING_PROMPT,
         "Do not bypass the publish tool or change runtime files. The platform may auto-publish validated drafts when tenant automation is enabled; report whether the draft remained pending or was published to its Team, and never auto-activate a Team.",
         "Keep optimization bounded: at most three revisions per build request unless the user explicitly asks to continue.",
@@ -167,20 +175,30 @@ function migrateAgentBuilderTeam(configs: Record<string, AgentConfig>): Record<s
   for (const tool of ["list_skill_drafts", "get_skill_draft", "create_skill_draft", "publish_skill_draft"] as const) {
     if (!enabledTools.includes(tool)) enabledTools.push(tool);
   }
-  for (const tool of ["list_agent_drafts", "get_agent_draft", "create_agent_draft", "publish_agent_draft"] as const) {
+  for (const tool of ["list_agent_drafts", "get_agent_draft", "create_agent_draft", "validate_agent_draft", "publish_agent_draft"] as const) {
     if (!enabledTools.includes(tool)) enabledTools.push(tool);
   }
   const promptBase = hasLegacyArtifactPrompt ? stripLegacySkillAuthoringPrompt(prompt) : prompt;
   const withCapabilityDiscovery = promptBase.includes("list_agent_builder_capabilities")
     ? promptBase
     : `${promptBase} ${CAPABILITY_DISCOVERY_PROMPT}`.trim();
+  // v11：草稿工作流升级为摘要清单 + schema 指南 + 随时校验，并补充委派 artifacts 用法。
+  let workflowPrompt = withCapabilityDiscovery;
+  if (!workflowPrompt.includes("validate_agent_draft")) {
+    workflowPrompt = workflowPrompt.includes(LEGACY_DRAFT_WORKFLOW_SENTENCE)
+      ? workflowPrompt.replace(LEGACY_DRAFT_WORKFLOW_SENTENCE, DRAFT_WORKFLOW_PROMPT)
+      : `${workflowPrompt} ${DRAFT_WORKFLOW_PROMPT}`.trim();
+  }
+  if (!workflowPrompt.includes("artifacts parameter")) {
+    workflowPrompt = `${workflowPrompt} ${DELEGATION_ARTIFACTS_PROMPT}`.trim();
+  }
   const nextPrompt = hasLegacyArtifactPrompt
-    ? `${withCapabilityDiscovery} ${SKILL_AUTHORING_PROMPT}`.trim()
-    : withCapabilityDiscovery.includes(SKILL_AUTHORING_PROMPT_MARKER)
-      ? withCapabilityDiscovery
-      : withCapabilityDiscovery.includes(LEGACY_SKILL_AUTHORING_PROMPT)
-        ? withCapabilityDiscovery.replace(LEGACY_SKILL_AUTHORING_PROMPT, SKILL_AUTHORING_PROMPT)
-        : `${withCapabilityDiscovery} ${SKILL_AUTHORING_PROMPT}`.trim();
+    ? `${workflowPrompt} ${SKILL_AUTHORING_PROMPT}`.trim()
+    : workflowPrompt.includes(SKILL_AUTHORING_PROMPT_MARKER)
+      ? workflowPrompt
+      : workflowPrompt.includes(LEGACY_SKILL_AUTHORING_PROMPT)
+        ? workflowPrompt.replace(LEGACY_SKILL_AUTHORING_PROMPT, SKILL_AUTHORING_PROMPT)
+        : `${workflowPrompt} ${SKILL_AUTHORING_PROMPT}`.trim();
   return {
     ...configs,
     builder_orchestrator: {

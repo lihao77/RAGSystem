@@ -2,6 +2,7 @@ import { isRecord } from "../../../utils/guards.js";
 export { isRecord };
 import type { AgentConfig, AgentInfo, CreateAgentRequest } from "../../../contracts/agent/agent-config.js";
 import {
+  assertCreatableTeamName,
   cloneConfig,
   cloneConfigMap,
   configsToRecord,
@@ -12,6 +13,7 @@ import type { AgentConfigTeam } from "../../../contracts/agent/team-store.js";
 
 export type TeamConfigs = AgentConfigTeam;
 export {
+  assertCreatableTeamName,
   cloneConfig,
   cloneConfigMap,
   configsToRecord,

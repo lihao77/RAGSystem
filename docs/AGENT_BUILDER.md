@@ -29,7 +29,7 @@ Agent Builder 将自然语言中的 Agent 需求转换为可审查、可校验�
 
 用户从 Team 列表激活 `agent-builder`，然后返回聊天页与 Builder Team 对话。它包含一个编排入口 Agent，以及需求调研、能力调研、Agent 架构、评估和优化五个专职 Agent。入口 Agent 会按工作流委派这些子 Agent，汇总结果后创建或更新一个 Draft。管理员仍可直接进入 Agent 配置页修改当前 Team，不需要经过 Builder Draft 流程。
 
-Builder Team 的工具包括能力盘点、`list_agent_drafts`、`get_agent_draft`、`create_agent_draft` 和 `publish_agent_draft`。`list_agent_drafts` 接受可选关键词；`get` 或 `create` 会把 `manifest.json` 与 `blueprint.json` 放到当前 Session 工作区，模型使用文件工具编辑，`publish` 负责校验、同步和按配置自动发布。独立的 update、validate、approve 工具不对 Agent 暴露。Skill 使用同样的 `list_skill_drafts`、`get_skill_draft`、`create_skill_draft`、`publish_skill_draft` 工作流。
+Builder Team 的工具包括能力盘点、`list_agent_drafts`、`get_agent_draft`、`create_agent_draft`、`validate_agent_draft` 和 `publish_agent_draft`。`list_agent_drafts` 接受可选关键词，默认返回摘要字段（不含蓝图全文），需要全文时传 `include_blueprint=true` 或用 `get_agent_draft`；`get` 或 `create` 会把 `manifest.json`、`blueprint.json` 与只读的 `blueprint.schema.md`（字段必填性、枚举、manifest 乐观锁机制说明）放到当前 Session 工作区，模型使用文件工具编辑，`validate_agent_draft` 随时返回与 publish 同款的校验报告而不发布，`publish` 负责校验、同步和按配置自动发布（返回中直接回 `team_name` 与激活提示）。独立的 update、approve 工具不对 Agent 暴露。Skill 使用同样的 `list_skill_drafts`、`get_skill_draft`、`create_skill_draft`、`publish_skill_draft` 工作流；`publish_skill_draft` 的返回含 `available_for_binding`，发布成功即确认已进入能力清单，无需二次查询。
 
 ### 2. 在 Builder Team 中创建草稿
 
@@ -55,12 +55,12 @@ Blueprint v1 包含：
 
 ### 自动审批
 
-租户 Owner 可以在 `/system-config` 的 Agent Builder 审批和 Skills 审批配置组中开启：
+租户 Owner 可以在 `/system-config` 的 Agent Builder 审批和 Skills 审批配置组中调整：
 
 - `agent_builder.approval.auto_publish_candidates`：Agent Draft 通过结构、能力和委派拓扑校验后自动发布到对应 Team。
 - `skills.approval.auto_publish_candidates`：Skill Draft 完成 bundle 和 `SKILL.md` 校验后自动发布到 Skill 库。
 
-两个开关默认关闭。自动审批不会绕过校验，也不会自动激活 Agent Team。新 Draft 首次发布时不会覆盖同名的既有 Team；已经关联 Team 的 Draft 可以重新发布到原 Team。关闭开关后恢复人工校验和发布流程，Draft 使用 `revision` 进行并发控制。
+两个开关默认开启：Draft 校验通过即发布生效，不进入人工审核。自动审批不会绕过校验，也不会自动激活 Agent Team。新 Draft 首次发布时不会覆盖同名的既有 Team；已经关联 Team 的 Draft 可以重新发布到原 Team。需要审核门禁的租户可关闭开关，恢复人工校验和发布流程，Draft 使用 `revision` 进行并发控制。
 
 审批字段由各自插件注册到统一的系统配置页面；卸载对应插件后，其业务配置不再参与运行。
 
@@ -85,7 +85,11 @@ Blueprint v1 包含：
 
 Skill 发布由 Skills 插件单独负责，入口为 Builder 的 `publish_skill_draft` 或 `/api/skills/drafts/:id/publish`。已发布 Skill 的工作区修改会先形成待发布 Draft，自动发布开启时替换现有用户 Skill 包；删除正式 Skill 后，原 Draft 会恢复为可编辑状态。Draft 可以单独删除而不影响正式 Skill；管理员再次编辑，或 Builder 用同名 `create_skill_draft` 继续开发时，系统会从正式 bundle 重建完整 Draft。
 
-管理员直接修改 Team 配置时，插件会把线上配置同步回同一个 `published` Draft。删除 Team 后，如果关联 Draft 仍存在，它会清空 `source_team_name` 并恢复为可编辑的 `draft`；草稿也可以单独删除，不影响线上 Team。线上 Team 后续再次被修改时，系统会重新创建一份 `published` Draft。
+管理员直接修改 Team 配置时，插件会把线上配置同步回同一个 `published` Draft（蓝图中 `instructions` 是提示词唯一来源，`custom_params.behavior.system_prompt` 不再双写）。删除 Team 后，如果关联 Draft 仍存在，它会清空 `source_team_name` 并恢复为可编辑的 `draft`；草稿也可以单独删除，不影响线上 Team。线上 Team 后续再次被修改时，系统会重新创建一份 `published` Draft。
+
+通过 HTTP API 新建或重命名 Team 时，名称须匹配 `^[a-z0-9][a-z0-9_-]*$` 且不超过 64 字符（与蓝图命名一致）；存量不规范名称仍可正常读取。`PUT /drafts/:id` 保存草稿时会即时执行蓝图校验并把报告随草稿持久化，不必等到发布时刻。校验还包含两个警告级检查：Agent 未配置 `llm_tiers`/`llm`（将运行在租户默认模型上），以及 `llm_tiers` 引用了模型目录之外的 provider（合法 provider 与模型枚举经能力清单 `llm_providers` 字段暴露）。
+
+**版本历史与回滚**：每次 Draft 修改覆盖前，上一 revision 会归档到 `<data-root>/agent-builder/drafts/.revisions/<draft_id>/`。`POST /drafts/:id/rollback` 按 `expected_revision` + `to_revision` 把历史蓝图恢复为新的当前 revision（编辑态，revision 继续递增，历史档保留）；回滚后如需上线，走正常发布流程。
 
 ## API
 
@@ -96,8 +100,10 @@ Skill 发布由 Skills 插件单独负责，入口为 Builder 的 `publish_skill
 | `GET` | `/drafts` | 列出 Draft |
 | `GET` | `/drafts/:id` | 获取 Draft |
 | `POST` | `/drafts` | 创建 Draft |
-| `PUT` | `/drafts/:id` | 按 `expected_revision` 更新 Draft |
+| `PUT` | `/drafts/:id` | 按 `expected_revision` 更新 Draft（保存即校验并持久化报告） |
 | `POST` | `/drafts/:id/publish` | 按 `expected_revision` 发布到 Team |
+| `GET` | `/drafts/:id/revisions` | 列出已归档的历史 revision |
+| `POST` | `/drafts/:id/rollback` | 按 `expected_revision` + `to_revision` 回滚到历史版本 |
 
 ## 存储与部署边界
 

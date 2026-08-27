@@ -6,10 +6,12 @@ import type { AgentBuilderStore } from "./store.js";
 
 export class FilesystemAgentBuilderStore implements AgentBuilderStore {
   private readonly draftsRoot: string;
+  private readonly revisionsRoot: string;
 
   constructor(dataRoot: string) {
     const root = path.join(path.resolve(dataRoot), "agent-builder");
     this.draftsRoot = path.join(root, "drafts");
+    this.revisionsRoot = path.join(root, "drafts", ".revisions");
   }
 
   async listDrafts(): Promise<AgentDraft[]> {
@@ -22,15 +24,38 @@ export class FilesystemAgentBuilderStore implements AgentBuilderStore {
   }
 
   async putDraft(draft: AgentDraft): Promise<void> {
+    const previous = await readRecord(this.draftPath(draft.id), parseAgentDraft);
+    // 版本历史：覆盖前把上一版归档到 .revisions/，回滚按 revision 取档。
+    if (previous && previous.revision !== draft.revision) {
+      await writeJson(this.revisionPath(draft.id, previous.revision), previous);
+    }
     await writeJson(this.draftPath(draft.id), AgentDraftSchema.parse(draft));
+  }
+
+  async listRevisions(id: string): Promise<number[]> {
+    const names = await listFileNames(path.join(this.revisionsRoot, safeSegment(id)));
+    return names
+      .map((name) => Number.parseInt(name, 10))
+      .filter((revision) => Number.isInteger(revision) && revision > 0)
+      .sort((left, right) => right - left);
+  }
+
+  async getRevision(id: string, revision: number): Promise<AgentDraft | null> {
+    if (!Number.isInteger(revision) || revision < 1) return null;
+    return readRecord(this.revisionPath(id, revision), parseAgentDraft);
   }
 
   async deleteDraft(id: string): Promise<void> {
     await rm(this.draftPath(id), { force: true });
+    await rm(path.join(this.revisionsRoot, safeSegment(id)), { recursive: true, force: true });
   }
 
   private draftPath(id: string): string {
     return path.join(this.draftsRoot, `${safeSegment(id)}.json`);
+  }
+
+  private revisionPath(id: string, revision: number): string {
+    return path.join(this.revisionsRoot, safeSegment(id), `${revision}.json`);
   }
 }
 

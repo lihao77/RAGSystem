@@ -154,8 +154,17 @@ export class TaskToolService {
       const result = await this.goals.update(sessionId, current.id, updates);
       if (!result) return toolError(toolName, `Goal ${current.id} 不存在`);
       const statusChange = current.status !== result.status ? { from: current.status, to: result.status } : null;
+      // 精简回显：只投影更新后需要继续编排的摘要字段，完整 Goal 由 goal_get 获取。
       return toolSuccess(
-        { goal: result, updated_fields: updatedFields, status_change: statusChange },
+        {
+          goal_id: result.id,
+          objective: result.objective,
+          status: result.status,
+          total_steps: result.steps.length,
+          completed_steps: result.steps.filter((step) => step.status === "completed").length,
+          updated_fields: updatedFields,
+          status_change: statusChange,
+        },
         {
           toolName,
           summary: `已更新 Goal（${updatedFields.join(", ") || "无变更"}）`,

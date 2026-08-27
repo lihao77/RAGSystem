@@ -45,6 +45,7 @@ export function createAgentBuilderPlugin(): BackendPlugin {
             runtimeContext.agentConfig,
             runtimeContext.listPluginTools?.() ?? [],
             runtimeContext.systemConfig,
+            runtimeContext.modelAdapter,
           );
           return {
             capabilities: [provideCapability(AGENT_BUILDER_RUNTIME_CAPABILITY, { service: builder })],
@@ -80,6 +81,7 @@ export function createAgentBuilderPlugin(): BackendPlugin {
               agentConfig: builder.getAgentConfigPort(),
               capabilities: runtime.pluginCapabilities,
               pluginTools: builder.listAvailableTools(),
+              modelAdapter: builder.getModelAdapterPort(),
             }),
             previousTeamName ? { previousTeamName } : {},
           );
@@ -100,6 +102,7 @@ export function createAgentBuilderPlugin(): BackendPlugin {
             agentConfig: builder.getAgentConfigPort(),
             capabilities,
             pluginTools: builder.listAvailableTools(),
+            modelAdapter: builder.getModelAdapterPort(),
           }),
         })
           .filter((tool) => enabledTools.has(tool.name));

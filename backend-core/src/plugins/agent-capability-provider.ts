@@ -25,6 +25,8 @@ export interface AgentCapabilityProvider {
   readonly id: string;
   /** 配置页展示名（如「技能」、「MCP 服务器」）。 */
   readonly display_name: string;
+  /** 面向构建者的绑定语义说明（如 Skill 绑定后运行时自动注入的工具），随能力清单透出。 */
+  readonly usage_note?: string;
   listItems(): Promise<readonly AgentCapabilityItem[]> | readonly AgentCapabilityItem[];
   /** 读取某 (team, agent) 当前启用的能力名清单。 */
   getAgentConfig(teamName: string, agentName: string): Promise<readonly string[]>;

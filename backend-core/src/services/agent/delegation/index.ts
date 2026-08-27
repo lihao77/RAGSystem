@@ -26,6 +26,7 @@ import type {
 } from "./port.js";
 import { buildAgentCallStart } from "./events.js";
 import {
+  appendArtifacts,
   applyWorkspaceOverride,
   buildChildMetadata,
   buildDelegatedTask,
@@ -1312,7 +1313,8 @@ export class AgentDelegationService implements DelegationPort, ParticipantRunLif
       success: outcome.success,
       ...(outcome.interrupted ? { interrupted: true } : {}),
       content: outcome.content,
-      summary: outcome.content.slice(0, 500),
+      // summary 会被 observation 渲染成 content 之前的前缀，截断版与全文重复，留空。
+      summary: "",
       outputType: outcome.success ? "text" : "error",
       metadata: {
         run_id: childRunId,
@@ -1480,13 +1482,13 @@ function parseAgentCommand(
 ): AgentCollaborationCommand {
   const agentName = normalizeString(input.agentName);
   const childAgentId = normalizeString(input.childAgentId);
-  const message = normalizeString(input.message);
-  if (!message) return { type: "error", message: "agent 缺少 message" };
+  const rawMessage = normalizeString(input.message);
+  if (!rawMessage) return { type: "error", message: "agent 缺少 message" };
   if (agentName && childAgentId) {
     return { type: "error", message: "agent 不能同时指定 agent_name 和 child_agent_id" };
   }
   const fields: CollaborationMessageFields = {
-    message,
+    message: appendArtifacts(rawMessage, input.artifacts),
     kind: input.kind,
     correlationId: input.correlationId,
     replyToMessageId: input.replyToMessageId,

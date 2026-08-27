@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import type { AgentConfig, AgentConfigPort, AgentLlmConfig } from "@ragsystem/backend-core/contracts/agent/agent-config.js";
+import type { ModelProviderCatalogPort } from "@ragsystem/backend-core/contracts/integrations/model-adapter.js";
 import type { AgentCapabilityProvider } from "@ragsystem/backend-core/plugins/agent-capability-provider.js";
 import type { BackendToolDescriptor } from "@ragsystem/backend-core/plugins/backend-plugin.js";
 import type { SystemConfigPort } from "@ragsystem/backend-core/contracts/runtime/system-config.js";
@@ -21,6 +22,7 @@ import {
   type AgentDraft,
 } from "./contracts.js";
 import type { AgentBuilderStore } from "./store.js";
+import { BLUEPRINT_SCHEMA_GUIDE } from "./schema-guide.js";
 import { resolveAgentBuilderApprovalConfig } from "./config.js";
 
 export interface AgentBuilderBindings {
@@ -44,10 +46,15 @@ export class AgentBuilderService {
     private readonly agentConfig: AgentConfigPort,
     private readonly pluginTools: readonly BackendToolDescriptor[] = [],
     private readonly systemConfig: SystemConfigPort | null = null,
+    private readonly modelAdapter: ModelProviderCatalogPort | null = null,
   ) {}
 
   getAgentConfigPort(): AgentConfigPort {
     return this.agentConfig;
+  }
+
+  getModelAdapterPort(): ModelProviderCatalogPort | null {
+    return this.modelAdapter;
   }
 
   listAvailableTools(): BackendToolDescriptor[] {
@@ -253,7 +260,36 @@ export class AgentBuilderService {
       name: draft.blueprint.name,
     });
     await writeWorkspaceJson(workspacePath, "blueprint.json", draft.blueprint);
+    await writeFile(path.join(workspacePath, "blueprint.schema.md"), BLUEPRINT_SCHEMA_GUIDE, "utf8");
     return { draft, workspacePath };
+  }
+
+  /** 只校验不发布：读取工作区蓝图并返回 publish 同款校验报告，供编辑过程中随时自查。 */
+  async validateWorkspaceDraft(
+    draftId: string,
+    workspaceRoot: string,
+    bindings: AgentBuilderBindings,
+  ): Promise<AgentBuilderValidationReport> {
+    const current = await this.getDraft(draftId);
+    const workspacePath = agentDraftWorkspacePath(workspaceRoot, draftId);
+    const manifest = parseWorkspaceManifest(await readWorkspaceJson(workspacePath, "manifest.json"));
+    if (manifest.draft_id !== draftId) throw new AgentBuilderConflictError("Workspace manifest draft_id does not match the requested draft");
+    assertRevision(current, manifest.expected_revision);
+    try {
+      const blueprint = parseBlueprint(await readWorkspaceJson(workspacePath, "blueprint.json"));
+      return validateBlueprint(blueprint, bindings.inventory);
+    } catch (error) {
+      return {
+        valid: false,
+        checked_at: new Date().toISOString(),
+        issues: [{
+          level: "error",
+          code: "invalid_blueprint",
+          path: "blueprint.json",
+          message: error instanceof Error ? error.message : String(error),
+        }],
+      };
+    }
   }
 
   async publishWorkspaceDraft(
@@ -327,6 +363,41 @@ export class AgentBuilderService {
       await this.getDraft(id);
       await this.store.deleteDraft(id);
       return { id };
+    });
+  }
+
+  listDraftRevisions(id: string): Promise<number[]> {
+    return this.exclusive(async () => {
+      await this.getDraft(id);
+      return this.store.listRevisions(id);
+    });
+  }
+
+  /** 回滚 = 以历史 revision 的蓝图生成新的当前 revision（编辑态），历史档不删，可继续回滚。 */
+  rollbackDraft(id: string, expectedRevision: number, toRevision: number): Promise<AgentDraft> {
+    return this.exclusive(async () => {
+      const current = await this.getDraft(id);
+      assertRevision(current, expectedRevision);
+      if (toRevision >= current.revision) {
+        throw new AgentBuilderConflictError(
+          `Revision ${toRevision} is not older than the current revision ${current.revision}`,
+        );
+      }
+      const snapshot = await this.store.getRevision(id, toRevision);
+      if (!snapshot) {
+        throw new AgentBuilderNotFoundError(`Revision ${toRevision} of Agent draft '${id}' does not exist`);
+      }
+      const restored = AgentDraftSchema.parse({
+        ...current,
+        revision: current.revision + 1,
+        status: "draft",
+        blueprint: snapshot.blueprint,
+        validation: null,
+        published_at: null,
+        updated_at: new Date().toISOString(),
+      });
+      await this.store.putDraft(restored);
+      return restored;
     });
   }
 
@@ -488,7 +559,8 @@ export class AgentBuilderService {
       const teams = await this.agentConfig.listTeams();
       const wasActive = teams.active_team === teamName;
       await this.agentConfig.deleteTeam(teamName);
-      await this.agentConfig.createTeam(teamName);
+      // 遗留非规范名存量团队也必须能完整回滚，跳过创建通道的命名校验。
+      await this.agentConfig.createTeam(teamName, null, { allowLegacyName: true });
       if (wasActive) await this.agentConfig.activateTeam(teamName);
     }
     const agentNames = new Set([
@@ -576,6 +648,29 @@ export function validateBlueprint(
       }
     }
     checkBindings(issues, inventory.tools, agent.tools, `agents.${index}.tools`, "unknown_tool", "tool");
+    if (agent.llm_tiers == null && agent.llm == null) {
+      issues.push(issue(
+        "warning",
+        "missing_llm_tiers",
+        `agents.${index}.llm_tiers`,
+        `Agent '${agent.name}' has no llm_tiers or llm configured and will run on the tenant default model`,
+      ));
+    }
+    const llmProviders = inventory.llm_providers;
+    if (llmProviders && llmProviders.size > 0 && agent.llm_tiers) {
+      for (const [tier, config] of Object.entries(agent.llm_tiers)) {
+        // 与运行时 findProviderByRef 同语义：trim+小写后按 name/key 匹配，避免对合法引用误报。
+        const provider = config.provider?.trim().toLowerCase();
+        if (provider && !llmProviders.has(provider)) {
+          issues.push(issue(
+            "warning",
+            "unknown_llm_provider",
+            `agents.${index}.llm_tiers.${tier}`,
+            `Provider '${config.provider}' is not in the tenant model catalog (${[...new Set([...llmProviders.keys()])].join(", ")})`,
+          ));
+        }
+      }
+    }
     for (const [providerId, requested] of Object.entries(agent.capabilities)) {
       const available = inventory.providers?.get(providerId);
       if (!available) {
@@ -638,7 +733,7 @@ async function teamConfigToBlueprint(
       delegates: config.delegation.enabled_agents,
       goals_enabled: config.goals.enabled,
       background_tasks: config.tasks.background,
-      custom_params: config.custom_params,
+      custom_params: blueprintCustomParams(config.custom_params),
     });
   }));
   return AgentBlueprintSchema.parse({
@@ -658,6 +753,17 @@ function agentInstructions(config: AgentConfig): string {
     ? behavior.system_prompt.trim()
     : "";
   return prompt || config.description?.trim() || `Act as ${config.display_name?.trim() || config.agent_name}.`;
+}
+
+/**
+ * 蓝图中 instructions 是提示词唯一来源：同步 Team 配置时从 custom_params.behavior
+ * 剥离 system_prompt（保留压缩参数等其他字段），避免同一提示词双写两处失同步。
+ */
+function blueprintCustomParams(value: unknown): Record<string, unknown> {
+  if (!isRecord(value)) return {};
+  if (!isRecord(value.behavior)) return { ...value };
+  const { system_prompt: _dropped, ...behavior } = value.behavior;
+  return { ...value, behavior };
 }
 
 function blueprintNameFromTeam(teamName: string): string {
@@ -705,7 +811,10 @@ function toRuntimeAgent(agent: AgentBlueprintAgent, isEntry: boolean): AgentConf
 
 function assertRevision(draft: AgentDraft, expectedRevision: number): void {
   if (draft.revision !== expectedRevision) {
-    throw new AgentBuilderConflictError(`Draft revision conflict: expected ${expectedRevision}, current ${draft.revision}`);
+    throw new AgentBuilderConflictError(
+      `Draft revision conflict: workspace expects revision ${expectedRevision}, current is ${draft.revision}. `
+        + "The draft changed elsewhere; call get_agent_draft to refresh this workspace before editing or publishing again",
+    );
   }
 }
 

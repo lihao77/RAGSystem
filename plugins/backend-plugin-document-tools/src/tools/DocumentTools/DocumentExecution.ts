@@ -187,7 +187,7 @@ export class LocalDocumentToolService {
         customParams: agent.custom_params,
       }, pathService);
       if (!fs.existsSync(resolvedPath)) {
-        return errorResult(`文件不存在: ${input.filePath}`, toolName);
+        return errorResult(`文件不存在: ${input.filePath}${suggestNearbyFiles(resolvedPath)}`, toolName);
       }
       const stat = fs.statSync(resolvedPath);
       if (!stat.isFile()) {
@@ -335,4 +335,42 @@ function successResult<T>(
 
 function errorResult(message: string, toolName: string): ToolExecutionResult {
   return toolError(toolName, message);
+}
+
+/** 路径笔误时的就近提示：在同目录文件里按名称相似度给出候选，避免只报"文件不存在"。 */
+function suggestNearbyFiles(resolvedPath: string, limit = 3): string {
+  const target = path.basename(resolvedPath).toLowerCase();
+  let names: string[];
+  try {
+    names = fs.readdirSync(path.dirname(resolvedPath), { withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.toLowerCase() !== target)
+      .map((entry) => entry.name);
+  } catch {
+    return "";
+  }
+  const scored = names
+    .map((name) => ({ name, score: 1 - levenshtein(target, name.toLowerCase()) / Math.max(target.length, name.length) }))
+    .filter((item) => item.score >= 0.4)
+    .sort((left, right) => right.score - left.score)
+    .slice(0, limit);
+  return scored.length ? `；最接近的候选: ${scored.map((item) => item.name).join(", ")}` : "";
+}
+
+function levenshtein(left: string, right: string): number {
+  if (left === right) return 0;
+  const cols = right.length + 1;
+  let previous = Array.from({ length: cols }, (_, j) => j);
+  for (let i = 1; i <= left.length; i++) {
+    const current = new Array<number>(cols);
+    current[0] = i;
+    for (let j = 1; j < cols; j++) {
+      current[j] = Math.min(
+        previous[j]! + 1,
+        current[j - 1]! + 1,
+        previous[j - 1]! + (left.charCodeAt(i - 1) === right.charCodeAt(j - 1) ? 0 : 1),
+      );
+    }
+    previous = current;
+  }
+  return previous[cols - 1]!;
 }

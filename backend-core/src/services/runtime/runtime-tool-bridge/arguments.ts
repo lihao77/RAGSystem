@@ -67,6 +67,7 @@ export function readAgentArguments(value: Record<string, unknown> | undefined, c
   childAgentId?: string | null;
   message: string;
   contextHint?: string | null;
+  artifacts?: string[] | null;
   kind?: import("../../../contracts/storage/agent-mailbox-repository.js").AgentMailboxMessageKind | null;
   correlationId?: string | null;
   replyToMessageId?: string | null;
@@ -74,11 +75,17 @@ export function readAgentArguments(value: Record<string, unknown> | undefined, c
   runInBackground?: boolean | null;
   callId?: string | null;
 } {
+  const artifacts = Array.isArray(value?.artifacts)
+    ? value.artifacts
+      .filter((item): item is string => typeof item === "string" && item.trim().length > 0 && item.length <= 512)
+      .slice(0, 20)
+    : null;
   return {
     agentName: asString(value?.agent_name),
     childAgentId: asString(value?.child_agent_id),
     message: asString(value?.message) ?? "",
     contextHint: asString(value?.context_hint),
+    ...(artifacts && artifacts.length > 0 ? { artifacts } : {}),
     kind: asMailboxKind(value?.kind),
     correlationId: asString(value?.correlation_id),
     replyToMessageId: asString(value?.reply_to_message_id),

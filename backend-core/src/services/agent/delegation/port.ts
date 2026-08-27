@@ -22,6 +22,8 @@ export interface AgentToolInput {
   childAgentId?: string | null | undefined;
   message: string;
   contextHint?: string | null | undefined;
+  /** 委派涉及的产物文件路径（workspace 相对路径）；以 [Artifacts] 段附于消息，供对端直接 read_file。 */
+  artifacts?: readonly string[] | null | undefined;
   kind?: AgentMailboxMessageKind | null | undefined;
   correlationId?: string | null | undefined;
   replyToMessageId?: string | null | undefined;

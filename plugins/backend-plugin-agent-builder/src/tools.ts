@@ -9,7 +9,10 @@ import type { AgentDraft } from "./contracts.js";
 import type { AgentBuilderService } from "./service.js";
 
 const EmptyToolInputSchema = z.object({}).strict();
-const SearchDraftToolInputSchema = z.object({ query: z.string().trim().max(200).optional().default("") }).strict();
+const SearchDraftToolInputSchema = z.object({
+  query: z.string().trim().max(200).optional().default(""),
+  include_blueprint: z.boolean().optional().default(false),
+}).strict();
 const CreateDraftToolInputSchema = z.object({
   name: z.string().trim().min(1).max(64).regex(/^[a-z0-9][a-z0-9_-]*$/),
   description: z.string().trim().min(1).max(1_000),
@@ -48,9 +51,17 @@ export function createAgentBuilderTools(
           const capabilityProviders = await Promise.all(providers.map(async (provider) => ({
             id: provider.id,
             display_name: provider.display_name,
+            ...(provider.usage_note ? { usage_note: provider.usage_note } : {}),
             items: await provider.listItems(),
           })));
           const tools = service.listAvailableTools();
+          const llmProviders = service.getModelAdapterPort()?.listProviders()
+            .map((provider) => ({
+              name: provider.name,
+              ...(provider.key ? { key: provider.key } : {}),
+              provider_type: provider.provider_type,
+              models: provider.models,
+            })) ?? [];
           const itemCount = capabilityProviders.reduce((sum, section) => sum + section.items.length, 0);
           return toolSuccess({
             tools: tools.map((tool) => ({
@@ -60,6 +71,7 @@ export function createAgentBuilderTools(
               risk_level: tool.risk_level,
             })),
             capability_providers: capabilityProviders,
+            ...(llmProviders.length > 0 ? { llm_providers: llmProviders } : {}),
           }, {
             toolName: "list_agent_builder_capabilities",
             summary: `Found ${tools.length} Tool(s) and ${itemCount} capability item(s) across ${capabilityProviders.length} provider(s)`,
@@ -72,12 +84,15 @@ export function createAgentBuilderTools(
     }),
     buildTool({
       name: "list_agent_drafts",
-      description: "List Agent Builder drafts, optionally filtering by id, name, description, or agent name.",
+      description: "List Agent Builder drafts in summary form (id, name, status, revision, agent count, validation state), optionally filtering by id, name, description, or agent name. Set include_blueprint=true or use get_agent_draft when the full blueprint is needed.",
       inputSchema: SearchDraftToolInputSchema,
       parameters: {
         type: "object",
         additionalProperties: false,
-        properties: { query: { type: "string", maxLength: 200 } },
+        properties: {
+          query: { type: "string", maxLength: 200 },
+          include_blueprint: { type: "boolean", description: "Include the complete blueprint of each draft; omitted from summaries by default." },
+        },
       },
       riskLevel: "low",
       source: "agent_tool",
@@ -87,7 +102,11 @@ export function createAgentBuilderTools(
       async call(input) {
         try {
           const drafts = await service.searchDrafts(input.query ?? "");
-          return toolSuccess(drafts, {
+          const items = drafts.map((draft) => ({
+            ...draftSummary(draft),
+            ...(input.include_blueprint ? { blueprint: draft.blueprint } : {}),
+          }));
+          return toolSuccess(items, {
             toolName: "list_agent_drafts",
             summary: `${drafts.length} Agent draft(s) found`,
             outputType: "json",
@@ -168,6 +187,43 @@ export function createAgentBuilderTools(
       },
     }),
     buildTool({
+      name: "validate_agent_draft",
+      description: "Read the local Agent draft workspace and return the same validation report publish would enforce, without publishing. Errors block publish; warnings (missing llm_tiers, unknown llm provider) do not. Use it freely while editing blueprint.json.",
+      inputSchema: DraftIdToolInputSchema,
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        required: ["draft_id"],
+        properties: {
+          draft_id: { type: "string", minLength: 1 },
+        },
+      },
+      riskLevel: "low",
+      source: "agent_tool",
+      category: "agent_builder",
+      isReadOnly: () => true,
+      isConcurrencySafe: () => true,
+      async call(input, context: ToolExecContext) {
+        try {
+          const bindings = options.bindingsProvider ? await options.bindingsProvider() : undefined;
+          if (!bindings) throw new Error("Agent Builder bindings are unavailable");
+          const report = await service.validateWorkspaceDraft(input.draft_id, workspaceRoot(context), bindings);
+          return toolSuccess({
+            draft_id: input.draft_id,
+            ...report,
+          }, {
+            toolName: "validate_agent_draft",
+            summary: report.valid
+              ? `Agent draft '${input.draft_id}' is valid${report.issues.length ? ` (${report.issues.length} warning(s))` : ""}`
+              : `Agent draft '${input.draft_id}' has ${report.issues.length} issue(s), ${report.issues.filter((item) => item.level === "error").length} blocking`,
+            outputType: "json",
+          });
+        } catch (error) {
+          return toolError("validate_agent_draft", errorMessage(error));
+        }
+      },
+    }),
+    buildTool({
       name: "publish_agent_draft",
       description: "Read the local Agent draft workspace, validate its blueprint, synchronize it to the system Draft, and publish automatically when enabled. Validation failures return an error and do not change the system Draft.",
       inputSchema: DraftIdToolInputSchema,
@@ -195,10 +251,14 @@ export function createAgentBuilderTools(
             ...result.draft,
             auto_published: result.auto_published,
             workspace_path: result.workspacePath,
+            team_name: result.draft.source_team_name,
+            activation: result.auto_published
+              ? "published to its Team; activate the Team from the team list to run it (never auto-activated)"
+              : "awaiting administrator publication",
           }, {
             toolName: "publish_agent_draft",
             summary: result.auto_published
-              ? `Agent draft '${result.draft.id}' published to Team '${result.draft.source_team_name}'`
+              ? `Agent draft '${result.draft.id}' published to Team '${result.draft.source_team_name}' (activate it from the team list to run it)`
               : `Agent draft '${result.draft.id}' synchronized and is awaiting administrator publication`,
             outputType: "json",
           });
@@ -214,6 +274,26 @@ function workspaceRoot(context: ToolExecContext): string {
   const root = context.executionPaths?.workspace ?? context.workspaceRoot;
   if (!root?.trim()) throw new Error("Current Agent Session has no workspace");
   return root;
+}
+
+/** 草稿清单的摘要视图：不含 blueprint 全文，全文经 get_agent_draft 或 include_blueprint 获取。 */
+function draftSummary(draft: AgentDraft): Record<string, unknown> {
+  return {
+    id: draft.id,
+    name: draft.blueprint.name,
+    description: draft.blueprint.description,
+    status: draft.status,
+    revision: draft.revision,
+    source_team_name: draft.source_team_name,
+    entry_agent: draft.blueprint.entry_agent,
+    agent_count: draft.blueprint.agents.length,
+    validation: draft.validation === null ? null : {
+      valid: draft.validation.valid,
+      issue_count: draft.validation.issues.length,
+    },
+    published_at: draft.published_at,
+    updated_at: draft.updated_at,
+  };
 }
 
 function errorMessage(error: unknown): string {

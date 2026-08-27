@@ -26,6 +26,18 @@ export function buildDelegatedTask(task: string, contextHint: string | null | un
   return parts.join("\n\n");
 }
 
+/**
+ * 委派协议的产物路径段：结构化传递"本次协作涉及的文件在哪"，对端（子 Agent /
+ * 父 Agent）可直接 read_file，而不必在 message 正文中转述文件内容或口头描述位置。
+ */
+export function appendArtifacts(message: string, artifacts: readonly string[] | null | undefined): string {
+  const paths = (artifacts ?? [])
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+  if (paths.length === 0) return message;
+  return `${message}\n\n[Artifacts]\n${paths.map((item) => `- ${item}`).join("\n")}`;
+}
+
 export function buildChildMetadata(
   context: ToolExecContext,
   createdVia: "agent",

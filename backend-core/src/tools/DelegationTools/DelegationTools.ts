@@ -53,6 +53,7 @@ const agentSchema = z.object({
   child_agent_id: optionalString,
   message: z.string(),
   context_hint: optionalString,
+  artifacts: z.array(z.string().trim().min(1).max(512)).max(20).optional(),
   kind: z.enum(["progress", "request", "response", "result"]).optional(),
   correlation_id: z.string().optional(),
   reply_to_message_id: z.string().optional(),
@@ -105,6 +106,12 @@ const AGENT_DELEGATION_TOOLS: RuntimeToolDefinition[] = [
         context_hint: {
           type: "string",
           description: "Optional extra constraints, output format, or background. Without an explicit output format, the child's final reply follows the default result contract: conclusion, artifacts, caveats.",
+        },
+        artifacts: {
+          type: "array",
+          items: { type: "string", minLength: 1 },
+          maxItems: 20,
+          description: "Workspace-relative paths of input artifacts for this delegation (for example a blueprint.json to review). Delivered as an [Artifacts] list the receiving Agent can read_file directly, instead of pasting file contents into the message.",
         },
         kind: {
           type: "string",

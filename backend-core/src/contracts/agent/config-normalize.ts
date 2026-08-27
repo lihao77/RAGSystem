@@ -59,10 +59,22 @@ export function normalizeConfig(config: AgentConfig): AgentConfig {
   };
 }
 
+/** 新建 Team 的命名 pattern，与 agent-builder 蓝图 IdentifierSchema 一致；存量非规范名仍可读取。 */
+export const TEAM_NAME_PATTERN = /^[a-z0-9][a-z0-9_-]*$/;
+
 export function normalizeTeamName(teamName: string): string {
   const normalized = teamName.trim();
   if (!normalized) {
     throw new Error("team_name 不能为空");
+  }
+  return normalized;
+}
+
+/** 创建通道的命名校验：直建 HTTP、applyTeamPayload 等都经 createTeam 收口到这里。 */
+export function assertCreatableTeamName(teamName: string): string {
+  const normalized = normalizeTeamName(teamName);
+  if (normalized.length > 64 || !TEAM_NAME_PATTERN.test(normalized)) {
+    throw new Error(`team_name '${normalized}' 不合法：须匹配 ${TEAM_NAME_PATTERN.source} 且不超过 64 字符`);
   }
   return normalized;
 }

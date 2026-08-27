@@ -24,6 +24,7 @@ import {
   normalizeAgentName,
   normalizeConfig,
   normalizeTeamName,
+  assertCreatableTeamName,
   type TeamConfigs,
 } from "./configs.js";
 import type { IAgentConfigTeamStore } from "../../../contracts/agent/team-store.js";
@@ -288,9 +289,16 @@ export class AgentConfigService {
     };
   }
 
-  async createTeam(teamName: string, sourceTeam?: string | null): Promise<TeamSummary> {
+  async createTeam(
+    teamName: string,
+    sourceTeam?: string | null,
+    options?: { allowLegacyName?: boolean },
+  ): Promise<TeamSummary> {
     await this.ensureInitialized();
-    const normalized = normalizeTeamName(teamName);
+    // allowLegacyName 仅供回滚/恢复路径重建遗留非规范名存量团队；正常创建一律校验。
+    const normalized = options?.allowLegacyName
+      ? normalizeTeamName(teamName)
+      : assertCreatableTeamName(teamName);
     if (this.teams.has(normalized)) {
       throw new Error(`team '${normalized}' 已存在`);
     }
@@ -336,7 +344,7 @@ export class AgentConfigService {
   async renameTeam(teamName: string, newTeamName: string): Promise<TeamSummary> {
     await this.ensureInitialized();
     const current = normalizeTeamName(teamName);
-    const next = normalizeTeamName(newTeamName);
+    const next = assertCreatableTeamName(newTeamName);
     if (!this.teams.has(current)) {
       throw new Error(`team '${current}' 不存在`);
     }

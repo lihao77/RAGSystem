@@ -132,25 +132,27 @@ export function createSkillAuthoringTools(input: {
       riskLevel: "low",
       isReadOnly: () => false,
       isConcurrencySafe: () => false,
-      async call(args, context: ToolExecContext) {
-        try {
-          const result = await input.authoring.publishWorkspaceDraft(args.draft_id, workspaceRoot(context));
-          return toolSuccess({
-            ...draftSummary(result.draft),
-            published: result.published,
-            awaiting_review: !result.published,
-            workspace_path: result.workspacePath,
-          }, {
-            toolName: "publish_skill_draft",
-            summary: result.published
-              ? `Skill draft '${result.draft.id}' published successfully`
-              : `Skill draft '${result.draft.id}' synchronized and is awaiting administrator publication`,
-            outputType: "json",
-          });
-        } catch (error) {
-          return toolError("publish_skill_draft", errorMessage(error));
-        }
-      },
+        async call(args, context: ToolExecContext) {
+          try {
+            const result = await input.authoring.publishWorkspaceDraft(args.draft_id, workspaceRoot(context));
+            return toolSuccess({
+              ...draftSummary(result.draft),
+              published: result.published,
+              awaiting_review: !result.published,
+              // 发布即生效时直接确认可绑定，免去二次查询能力清单
+              available_for_binding: result.published,
+              workspace_path: result.workspacePath,
+            }, {
+              toolName: "publish_skill_draft",
+              summary: result.published
+                ? `Skill draft '${result.draft.id}' published and now bindable via capabilities.skills in the capability inventory`
+                : `Skill draft '${result.draft.id}' synchronized and is awaiting administrator publication`,
+              outputType: "json",
+            });
+          } catch (error) {
+            return toolError("publish_skill_draft", errorMessage(error));
+          }
+        },
     }),
   ];
 }

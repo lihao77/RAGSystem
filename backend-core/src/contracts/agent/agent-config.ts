@@ -149,7 +149,7 @@ export interface AgentConfigPort {
   listAvailableTools(): AvailableToolInfo[];
   getConfig(agentName: string, options?: { teamName?: string | null }): AgentConfig | null;
   listTeams(): Promise<TeamSummary>;
-  createTeam(teamName: string, sourceTeam?: string | null): Promise<TeamSummary>;
+  createTeam(teamName: string, sourceTeam?: string | null, options?: { allowLegacyName?: boolean }): Promise<TeamSummary>;
   activateTeam(teamName: string): Promise<TeamSummary>;
   deleteTeam(teamName: string): Promise<TeamSummary>;
   applyTeamPayload(
