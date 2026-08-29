@@ -318,11 +318,9 @@ function selectProviders(configs, selection) {
 
 function collectModels(config) {
   const models = [];
-  if (Array.isArray(config.models)) models.push(...config.models.map(String));
-  if (config.model_map && typeof config.model_map === "object" && !Array.isArray(config.model_map)) {
-    for (const value of Object.values(config.model_map)) {
-      if (Array.isArray(value)) models.push(...value.map(String));
-      else if (typeof value === "string") models.push(value);
+  if (Array.isArray(config.models)) {
+    for (const item of config.models) {
+      models.push(typeof item === "string" ? item : String(item?.name ?? ""));
     }
   }
   return [...new Set(models.map((value) => value.trim()).filter(Boolean))];

@@ -57,7 +57,7 @@ const BUDGET_BY_LEVEL: Readonly<Partial<Record<ThinkingLevel, number>>> = {
 /**
  * provider_type 默认思考能力。openai 系三家走 effort；anthropic 走 budget；
  * deepseek 官方 API 用 thinking map 包 effort（off 显式 disabled）；openrouter 用 reasoning map；
- * modelscope/qwen 系仅 enable_thinking 开关。rerank_api 无 chat 能力。
+ * modelscope/qwen 系仅 enable_thinking 开关。
  */
 const THINKING_KIND_BY_PROVIDER_TYPE: Readonly<Record<string, ThinkingParamKind>> = {
   openai_resp: "effort",
@@ -70,7 +70,6 @@ const THINKING_KIND_BY_PROVIDER_TYPE: Readonly<Record<string, ThinkingParamKind>
   deepseek: "effort",
   openrouter: "effort",
   modelscope: "toggle",
-  rerank_api: "none",
 };
 
 function normalizeKindOverride(value: unknown): ThinkingParamKind | null {

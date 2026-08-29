@@ -96,6 +96,22 @@ export async function indexFile(body) {
 /**
  * 列出所有向量化器
  */
+/**
+ * 自管模型服务（embedding / rerank Provider，插件自有存储，不进 core Provider 体系）
+ */
+export async function listModelProviders(kind = '') {
+  const query = kind ? `?kind=${encodeURIComponent(kind)}` : '';
+  return http.get(`/api/knowledge-bases/model-providers${query}`);
+}
+
+export async function upsertModelProvider(body) {
+  return http.post('/api/knowledge-bases/model-providers', body);
+}
+
+export async function deleteModelProvider(key) {
+  return http.delete(`/api/knowledge-bases/model-providers/${encodeURIComponent(key)}`);
+}
+
 export async function listVectorizers() {
   return http.get('/api/knowledge-bases/vectorizers');
 }

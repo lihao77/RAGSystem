@@ -106,11 +106,16 @@
                 </Badge>
                 <span class="provider-endpoint font-mono" :title="provider.api_endpoint || ''">{{ provider.api_endpoint || '使用默认 Endpoint' }}</span>
               </div>
-              <div class="provider-models" :aria-label="`${provider.name || provider.key} 的模型映射`">
-                <Badge v-for="entry in visibleModelEntries(provider)" :key="`${entry.task}:${entry.model}`" variant="outline">
-                  {{ entry.task }} · {{ entry.model }}
+              <div class="provider-models" :aria-label="`${provider.name || provider.key} 的模型`">
+                <Badge
+                  v-for="model in visibleModelEntries(provider)"
+                  :key="model.name"
+                  variant="outline"
+                  :title="modelCapabilityTitle(model)"
+                >
+                  {{ model.name }}<span v-if="model.supports_vision" class="model-cap-mark">V</span><span v-if="model.supports_function_calling" class="model-cap-mark">F</span>
                 </Badge>
-                <span v-if="providerModelEntries(provider).length === 0" class="provider-models-empty">未配置模型映射</span>
+                <span v-if="providerModelEntries(provider).length === 0" class="provider-models-empty">未配置模型</span>
                 <Badge v-else-if="hiddenModelCount(provider) > 0" variant="secondary">+{{ hiddenModelCount(provider) }}</Badge>
               </div>
             </div>
@@ -121,14 +126,13 @@
                   <Button
                     variant="action-success"
                     size="action"
-                    :disabled="isTesting(provider) || isPluginProviderEntry(provider) || providerTestTargets(provider).length === 0"
-                    :title="isPluginProviderEntry(provider) ? '该 Provider 类型由插件注册，在线测试请在插件功能内验证' : ''"
-                    :aria-label="isPluginProviderEntry(provider) ? '插件类型暂不支持在线测试' : providerTestTargets(provider).length === 0 ? '未配置可测试任务' : '选择真实测试任务'"
+                    :disabled="isTesting(provider) || providerTestTargets(provider).length === 0"
+                    :aria-label="providerTestTargets(provider).length === 0 ? '未配置可测试任务' : '选择真实测试任务'"
                   >
                     <IconRefresh v-if="isTesting(provider)" data-icon="inline-start" class="spin" />
                     <Play v-else data-icon="inline-start" />
-                    {{ isTesting(provider) ? '测试中' : isPluginProviderEntry(provider) ? '暂不支持测试' : providerTestTargets(provider).length ? '真实测试' : '无可测任务' }}
-                    <ChevronDown v-if="!isTesting(provider) && !isPluginProviderEntry(provider) && providerTestTargets(provider).length" data-icon="inline-end" />
+                    {{ isTesting(provider) ? '测试中' : providerTestTargets(provider).length ? '真实测试' : '无可测任务' }}
+                    <ChevronDown v-if="!isTesting(provider) && providerTestTargets(provider).length" data-icon="inline-end" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" class="min-w-[250px]">
@@ -136,7 +140,7 @@
                     <DropdownMenuLabel>选择真实调用任务</DropdownMenuLabel>
                     <DropdownMenuItem
                       v-for="target in providerTestTargets(provider)"
-                      :key="target.task"
+                      :key="target.model"
                       @click="quickTest(provider, target)"
                     >
                       <span class="test-task-option">
@@ -181,15 +185,23 @@
       :provider-key-preview="providerKeyPreview"
       :resilience-provider-config-fields="resilienceProviderConfigFields"
       :extension-provider-config-fields="extensionProviderConfigFields"
-      :plugin-managed-type="isPluginManagedType"
-      :model-map-entries="modelMapEntries"
-      :model-task-options="modelTaskOptions"
+      :model-entries="modelEntries"
       :saving="saving"
       @close="closeDialog"
       @submit="handleSubmit"
       @provider-type-change="handleProviderTypeChange"
-      @add-model-map-entry="addModelMapEntry"
-      @remove-model-map-entry="removeModelMapEntry"
+      @add-model="openModelCreate"
+      @edit-model="openModelEdit"
+      @remove-model="removeModelEntry"
+      @move-model="moveModelEntry"
+    />
+
+    <ProviderModelDialog
+      :dialog="modelDialog"
+      :form="modelForm"
+      :form-errors="modelFormErrors"
+      @close="closeModelDialog"
+      @submit="handleModelSubmit"
     />
 
     <ProviderDeleteDialog
@@ -209,7 +221,6 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
 import { ChevronDown, Clock, GripVertical, Play } from 'lucide-vue-next';
-import { normalizeModelList } from '../utils/modelList.js';
 import {
   getProviderTestTargets,
   providerTestTaskLabel,
@@ -234,6 +245,7 @@ import IconPlus from '../components/icons/IconPlus.vue';
 import IconTrash from '../components/icons/IconTrash.vue';
 import IconEdit from '../components/icons/IconEdit.vue';
 import ProviderFormDialog from '../components/provider/ProviderFormDialog.vue';
+import ProviderModelDialog from '../components/provider/ProviderModelDialog.vue';
 import ProviderDeleteDialog from '../components/provider/ProviderDeleteDialog.vue';
 import '../components/provider/provider-dialogs.css';
 import { Button } from '../components/ui/button';
@@ -280,27 +292,26 @@ function fallbackConfigFields(providerType) {
 }
 
 const FALLBACK_PROVIDER_TYPES = [
-  { value: 'openai_resp', label: 'OpenAI Responses', default_endpoint: 'https://api.openai.com/v1', supports_embedding: true, supports_rerank: false },
-  { value: 'openai_chat', label: 'OpenAI Chat', default_endpoint: 'https://api.openai.com/v1', supports_embedding: true, supports_rerank: false },
-  { value: 'openai_proxy', label: 'OpenAI Compatible', default_endpoint: 'https://api.openai.com/v1', supports_embedding: true, supports_rerank: false },
-  { value: 'anthropic', label: 'Anthropic', default_endpoint: 'https://api.anthropic.com', supports_embedding: false, supports_rerank: false },
-  { value: 'gemini', label: 'Google Gemini', default_endpoint: 'https://generativelanguage.googleapis.com/v1beta', supports_embedding: false, supports_rerank: false },
-  { value: 'mistral', label: 'Mistral AI', default_endpoint: 'https://api.mistral.ai/v1', supports_embedding: true, supports_rerank: false },
-  { value: 'groq', label: 'Groq', default_endpoint: 'https://api.groq.com/openai/v1', supports_embedding: false, supports_rerank: false },
-  { value: 'qwen', label: 'Alibaba Qwen', default_endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1', supports_embedding: true, supports_rerank: false },
-  { value: 'deepseek', label: 'DeepSeek', default_endpoint: 'https://api.deepseek.com/v1', supports_embedding: false, supports_rerank: false },
-  { value: 'openrouter', label: 'OpenRouter', default_endpoint: 'https://openrouter.ai/api/v1', supports_embedding: true, supports_rerank: true },
-  { value: 'modelscope', label: 'ModelScope', default_endpoint: 'https://api-inference.modelscope.cn/v1', supports_embedding: true, supports_rerank: false },
-  { value: 'rerank_api', label: 'Rerank API', default_endpoint: '', supports_embedding: false, supports_rerank: true },
+  { value: 'openai_resp', label: 'OpenAI Responses', default_endpoint: 'https://api.openai.com/v1' },
+  { value: 'openai_chat', label: 'OpenAI Chat', default_endpoint: 'https://api.openai.com/v1' },
+  { value: 'openai_proxy', label: 'OpenAI Compatible', default_endpoint: 'https://api.openai.com/v1' },
+  { value: 'anthropic', label: 'Anthropic', default_endpoint: 'https://api.anthropic.com' },
+  { value: 'gemini', label: 'Google Gemini', default_endpoint: 'https://generativelanguage.googleapis.com/v1beta' },
+  { value: 'mistral', label: 'Mistral AI', default_endpoint: 'https://api.mistral.ai/v1' },
+  { value: 'groq', label: 'Groq', default_endpoint: 'https://api.groq.com/openai/v1' },
+  { value: 'qwen', label: 'Alibaba Qwen', default_endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1' },
+  { value: 'deepseek', label: 'DeepSeek', default_endpoint: 'https://api.deepseek.com/v1' },
+  { value: 'openrouter', label: 'OpenRouter', default_endpoint: 'https://openrouter.ai/api/v1' },
+  { value: 'modelscope', label: 'ModelScope', default_endpoint: 'https://api-inference.modelscope.cn/v1' },
 ].map((item) => ({ ...item, config_fields: fallbackConfigFields(item.value) }));
 
 async function loadProviderTypes() {
   try {
     const types = await getProviderTypes();
-    providerTypeMeta.value = Object.fromEntries(types.map((t) => [t.value, { label: t.label, default_endpoint: t.default_endpoint || '', supports_embedding: t.supports_embedding === true, supports_rerank: t.supports_rerank === true, extension_id: t.extension_id || '', model_tasks: Array.isArray(t.model_tasks) ? t.model_tasks : [], config_fields: t.config_fields || [] }]));
-    providerTypeOptions.value = types.map((t) => ({ value: t.value, label: t.extension_id ? `${t.label}（插件）` : t.label }));
+    providerTypeMeta.value = Object.fromEntries(types.map((t) => [t.value, { label: t.label, default_endpoint: t.default_endpoint || '', config_fields: t.config_fields || [] }]));
+    providerTypeOptions.value = types.map((t) => ({ value: t.value, label: t.label }));
   } catch {
-    providerTypeMeta.value = Object.fromEntries(FALLBACK_PROVIDER_TYPES.map((t) => [t.value, { label: t.label, default_endpoint: t.default_endpoint, supports_embedding: t.supports_embedding, supports_rerank: t.supports_rerank, extension_id: '', model_tasks: [], config_fields: t.config_fields || [] }]));
+    providerTypeMeta.value = Object.fromEntries(FALLBACK_PROVIDER_TYPES.map((t) => [t.value, { label: t.label, default_endpoint: t.default_endpoint, config_fields: t.config_fields || [] }]));
     providerTypeOptions.value = FALLBACK_PROVIDER_TYPES.map((t) => ({ value: t.value, label: t.label }));
   }
 }
@@ -338,7 +349,7 @@ const filteredProviders = computed(() => {
   return providers.value.filter((provider) => {
     if (typeFilter.value && provider.provider_type !== typeFilter.value) return false;
     if (!query) return true;
-    const modelText = providerModelEntries(provider).map((entry) => `${entry.task} ${entry.model}`).join(' ');
+    const modelText = providerModelEntries(provider).map((model) => model.name).join(' ');
     return [provider.name, provider.key, provider.provider_type, provider.api_endpoint, modelText]
       .some((value) => String(value || '').toLowerCase().includes(query));
   });
@@ -350,14 +361,16 @@ const successfulTestCount = computed(() => Object.values(testResults.value).filt
 function getProviderKey(provider) { return provider.key || `${provider.name}_${provider.provider_type}`; }
 function providerOrder(provider) { return providers.value.findIndex((item) => getProviderKey(item) === getProviderKey(provider)) + 1; }
 function providerModelEntries(provider) {
-  return Object.entries(provider.model_map || {}).flatMap(([task, value]) => normalizeModelList(value).map((model) => ({ task, model })));
+  if (!Array.isArray(provider.models)) return [];
+  return provider.models.filter((model) => model && String(model.name || '').trim());
 }
 function visibleModelEntries(provider) { return providerModelEntries(provider).slice(0, 5); }
 function hiddenModelCount(provider) { return Math.max(0, providerModelEntries(provider).length - 5); }
-function isTesting(provider) { return testingKeys.value.has(getProviderKey(provider)); }
-// 插件注册的类型没有 chat/embedding/rerank 语义，真实测试入口直接关闭（后端 testProvider 也会拒绝）
-function isPluginProviderEntry(provider) { return Boolean(providerTypeMeta.value[provider.provider_type]?.extension_id); }
-function providerTestTargets(provider) { return getProviderTestTargets(provider); }
+function modelCapabilityTitle(model) {
+  const caps = [model.supports_vision && '图片输入', model.supports_function_calling && 'Function Calling'].filter(Boolean);
+  return caps.length ? `${model.name}（${caps.join(' / ')}）` : model.name;
+}
+function isTesting(provider) { return testingKeys.value.has(getProviderKey(provider)); }function providerTestTargets(provider) { return getProviderTestTargets(provider); }
 const testResultTimers = new Map();
 function dismissTestResult(provider) {
   const key = getProviderKey(provider);
@@ -588,37 +601,17 @@ async function quickTest(provider, target) {
 const dialog = ref({ visible: false, mode: 'create', error: '' });
 const editingKey = ref('');
 const form = ref({});
-const modelMapEntries = ref([]);
+// 模型条目（模型级运行参数挂模型上；首个模型即默认模型，数组序即优先级）。
+const modelEntries = ref([]);
 const formErrors = ref({});
-const allModelTaskOptions = [
-  { value: 'chat', label: 'Chat' },
-  { value: 'embedding', label: 'Embedding' },
-  { value: 'rerank', label: 'Rerank' },
-];
-const modelTaskOptions = computed(() => {
-  const providerType = form.value.provider_type;
-  if (!providerType) return allModelTaskOptions;
-  if (providerType === 'rerank_api') return allModelTaskOptions.filter((option) => option.value === 'rerank');
-  const metadata = providerTypeMeta.value[providerType];
-  // 插件类型自带模型映射任务定义（含 label），任务下拉按其渲染——宿主不认识具体任务语义
-  if (metadata?.model_tasks?.length) {
-    return metadata.model_tasks.map((task) => ({ value: task.value, label: task.label || task.value }));
-  }
-  return allModelTaskOptions.filter((option) => (
-    option.value !== 'embedding' || metadata?.supports_embedding === true
-  ) && (
-    option.value !== 'rerank' || metadata?.supports_rerank === true
-  ));
-});
+const modelDialog = ref({ visible: false, mode: 'create', index: -1, error: '' });
+const modelForm = ref({});
+const modelFormErrors = ref({});
 
-const apiEndpointPlaceholder = computed(() => {
-  const providerType = form.value.provider_type;
-  if (providerType === 'rerank_api') return '例如: https://api.jina.ai/v1/rerank';
-  return providerTypeMeta.value[providerType]?.default_endpoint || '由后端返回默认 API Endpoint';
-});
+const apiEndpointPlaceholder = computed(() => (
+  providerTypeMeta.value[form.value.provider_type]?.default_endpoint || '由后端返回默认 API Endpoint'
+));
 const activeProviderConfigFields = computed(() => providerTypeMeta.value[form.value.provider_type]?.config_fields || []);
-// 插件注册的 Provider 类型：chat 运行参数对其无意义，表单不展示该区（模型映射仍按注册任务正常配置）。
-const isPluginManagedType = computed(() => Boolean(providerTypeMeta.value[form.value.provider_type]?.extension_id));
 const RESILIENCE_FIELD_KEYS = new Set(['timeout', 'retry_attempts', 'retry_delay', 'retry_backoff_factor']);
 const resilienceProviderConfigFields = computed(() => activeProviderConfigFields.value.filter((field) => RESILIENCE_FIELD_KEYS.has(field.key)));
 const extensionProviderConfigFields = computed(() => activeProviderConfigFields.value.filter((field) => !RESILIENCE_FIELD_KEYS.has(field.key)));
@@ -629,27 +622,29 @@ const providerKeyPreview = computed(() => {
 });
 
 function buildFormDefaults() {
-  return { name: '', provider_type: '', api_key: '', api_endpoint: '', temperature: 0.7, max_completion_tokens: 4096, max_context_tokens: 128000, timeout: 120, supports_function_calling: false, supports_vision: false };
+  return { name: '', provider_type: '', api_key: '', api_endpoint: '' };
+}
+function buildModelDefaults() {
+  return { name: '', temperature: 0.7, max_completion_tokens: 4096, max_context_tokens: 128000, supports_function_calling: false, supports_vision: false };
 }
 function openCreateDialog() {
   form.value = buildFormDefaults();
-  modelMapEntries.value = [{ task: 'chat', model: '' }];
+  modelEntries.value = [];
   formErrors.value = {};
   dialog.value = { visible: true, mode: 'create', error: '' };
   editingKey.value = '';
 }
 function openEditDialog(provider) {
-  const mm = provider.model_map || {};
-  modelMapEntries.value = Object.entries(mm).flatMap(([task, value]) => {
-    const models = normalizeModelList(value);
-    return models.length ? models.map((model) => ({ task, model })) : [{ task, model: '' }];
-  });
-  if (modelMapEntries.value.length === 0) modelMapEntries.value = [{ task: 'chat', model: '' }];
+  modelEntries.value = providerModelEntries(provider).map((model) => ({
+    name: String(model.name || '').trim(),
+    ...(model.temperature != null ? { temperature: model.temperature } : {}),
+    ...(model.max_completion_tokens != null ? { max_completion_tokens: model.max_completion_tokens } : {}),
+    ...(model.max_context_tokens != null ? { max_context_tokens: model.max_context_tokens } : {}),
+    supports_function_calling: model.supports_function_calling === true,
+    supports_vision: model.supports_vision === true,
+  }));
   const nextForm = {
     provider_type: provider.provider_type || '', api_key: '', api_endpoint: provider.api_endpoint || '',
-    temperature: provider.temperature ?? 0.7, max_completion_tokens: provider.max_completion_tokens || 4096,
-    max_context_tokens: provider.max_context_tokens || 128000, timeout: provider.timeout || 120,
-    supports_function_calling: provider.supports_function_calling ?? false, supports_vision: provider.supports_vision ?? false,
   };
   for (const field of getProviderConfigFields(nextForm.provider_type)) nextForm[field.key] = provider[field.key] ?? field.default ?? '';
   form.value = nextForm;
@@ -668,39 +663,46 @@ function handleProviderTypeChange(providerType) {
     const prevDef = previousFields.find((item) => item.key === field.key)?.default;
     if (form.value[field.key] === undefined || form.value[field.key] === prevDef) form.value[field.key] = field.default ?? '';
   }
-  if (providerType === 'rerank_api') {
-    modelMapEntries.value = [{ task: 'rerank', model: '' }];
-    form.value.temperature = undefined;
-    form.value.max_completion_tokens = undefined;
-    form.value.max_context_tokens = undefined;
-  } else if (previousType === 'rerank_api' && modelMapEntries.value.length === 1 && modelMapEntries.value[0].task === 'rerank' && !modelMapEntries.value[0].model) {
-    modelMapEntries.value = [{ task: 'chat', model: '' }];
-  }
-  if (providerType !== 'rerank_api') {
-    const metadata = providerTypeMeta.value[providerType];
-    const allowedTasks = new Set(modelTaskOptions.value.map((option) => option.value));
-    modelMapEntries.value = modelMapEntries.value.filter((entry) => {
-      const taskAllowed = !entry.task || allowedTasks.has(entry.task);
-      const capsAllowed = (entry.task !== 'embedding' || metadata?.supports_embedding === true)
-        && (entry.task !== 'rerank' || metadata?.supports_rerank === true);
-      return taskAllowed && capsAllowed;
-    });
-    if (modelMapEntries.value.length === 0) modelMapEntries.value = [{ task: modelTaskOptions.value[0]?.value || 'chat', model: '' }];
-  }
 }
 function closeDialog() { dialog.value.visible = false; formErrors.value = {}; }
-function addModelMapEntry() { modelMapEntries.value.push({ task: '', model: '' }); }
-function removeModelMapEntry(idx) { modelMapEntries.value.splice(idx, 1); }
-function buildModelMap() {
-  const grouped = {};
-  for (const entry of modelMapEntries.value) {
-    const task = String(entry.task || '').trim();
-    const model = String(entry.model || '').trim();
-    if (!task || !model) continue;
-    if (!grouped[task]) grouped[task] = [];
-    if (!grouped[task].includes(model)) grouped[task].push(model);
+
+/* ── 模型条目弹窗（新增/编辑）：名称唯一性校验 + 数值/能力位归一 ── */
+function openModelCreate() {
+  modelForm.value = buildModelDefaults();
+  modelFormErrors.value = {};
+  modelDialog.value = { visible: true, mode: 'create', index: -1, error: '' };
+}
+function openModelEdit(index) {
+  modelForm.value = { ...modelEntries.value[index] };
+  modelFormErrors.value = {};
+  modelDialog.value = { visible: true, mode: 'edit', index, error: '' };
+}
+function closeModelDialog() { modelDialog.value.visible = false; modelFormErrors.value = {}; }
+function handleModelSubmit() {
+  const name = String(modelForm.value.name || '').trim();
+  const errors = {};
+  if (!name) errors.name = '请填写模型名';
+  else if (modelEntries.value.some((entry, idx) => idx !== modelDialog.value.index && entry.name === name)) errors.name = '模型名已存在';
+  modelFormErrors.value = errors;
+  if (Object.values(errors).some(Boolean)) return;
+  const entry = { name, supports_function_calling: modelForm.value.supports_function_calling === true, supports_vision: modelForm.value.supports_vision === true };
+  for (const key of ['temperature', 'max_completion_tokens', 'max_context_tokens']) {
+    const raw = modelForm.value[key];
+    const value = Number(raw);
+    if (raw !== '' && raw != null && Number.isFinite(value)) entry[key] = value;
   }
-  return Object.fromEntries(Object.entries(grouped).map(([task, models]) => [task, models.length === 1 ? models[0] : models]));
+  if (modelDialog.value.mode === 'edit') modelEntries.value.splice(modelDialog.value.index, 1, entry);
+  else modelEntries.value.push(entry);
+  closeModelDialog();
+}
+function removeModelEntry(index) { modelEntries.value.splice(index, 1); }
+function moveModelEntry(index, offset) {
+  const target = index + offset;
+  if (target < 0 || target >= modelEntries.value.length) return;
+  const next = [...modelEntries.value];
+  const [moved] = next.splice(index, 1);
+  next.splice(target, 0, moved);
+  modelEntries.value = next;
 }
 function getProviderConfigFields(providerType) { return providerTypeMeta.value[providerType]?.config_fields || []; }
 function normalizeProviderPayload(payload) {
@@ -712,41 +714,32 @@ function normalizeProviderPayload(payload) {
 
 function validateProviderForm() {
   const errors = {};
-  const mm = buildModelMap();
   if (!form.value.provider_type) errors.provider_type = '请选择 Provider 类型';
   if (dialog.value.mode === 'create') {
     if (!form.value.name?.trim()) errors.name = '请填写 Provider 名称';
     if (!form.value.api_key?.trim()) errors.api_key = '请填写 API Key 或环境变量引用';
   }
   const endpoint = String(form.value.api_endpoint || '').trim();
-  if (form.value.provider_type === 'rerank_api' && !endpoint) errors.api_endpoint = 'Rerank API 必须填写 Endpoint';
   if (endpoint && !endpoint.includes('${')) {
     try { new URL(endpoint); } catch { errors.api_endpoint = '请输入完整的 http:// 或 https:// 地址'; }
   }
-  const hasIncompleteRow = modelMapEntries.value.some((entry) => Boolean(String(entry.task || '').trim()) !== Boolean(String(entry.model || '').trim()));
-  if (hasIncompleteRow) errors.model_map = '每条模型映射都需要同时选择任务并填写模型名';
-  else if (Object.keys(mm).length === 0) errors.model_map = '至少配置一个任务模型';
-  else if (form.value.provider_type === 'rerank_api' && !mm.rerank) errors.model_map = 'Rerank API 必须配置 Rerank 模型';
-  else if (mm.embedding && providerTypeMeta.value[form.value.provider_type]?.supports_embedding !== true) errors.model_map = '当前 Provider 类型不支持 Embedding';
-  else if (mm.rerank && providerTypeMeta.value[form.value.provider_type]?.supports_rerank !== true) errors.model_map = '当前 Provider 类型不支持 Rerank';
+  if (modelEntries.value.length === 0) errors.models = '至少配置一个模型';
   return errors;
 }
 
 const { run: runSubmit, loading: saving } = useAsyncAction(
   async () => {
-    const mm = buildModelMap();
     if (!form.value.provider_type) throw new Error('请选择 Provider 类型');
     if (dialog.value.mode === 'create') {
       if (!form.value.name?.trim()) throw new Error('请填写名称');
       if (!form.value.api_key?.trim()) throw new Error('请填写 API Key');
     }
-    if (Object.keys(mm).length === 0) throw new Error('请至少配置一个任务模型');
-    if (form.value.provider_type === 'rerank_api') {
-      if (!form.value.api_endpoint?.trim()) throw new Error('请填写 API Endpoint');
-      if (!mm.rerank) throw new Error('请配置 model_map.rerank');
-    }
+    const models = modelEntries.value
+      .map((entry) => ({ ...entry, name: String(entry.name || '').trim() }))
+      .filter((entry) => entry.name);
+    if (models.length === 0) throw new Error('请至少配置一个模型');
     const isCreate = dialog.value.mode === 'create';
-    const payload = normalizeProviderPayload({ ...form.value, model_map: mm });
+    const payload = normalizeProviderPayload({ ...form.value, models });
     if (isCreate) await createProvider(payload);
     else {
       if (!payload.api_key?.trim()) delete payload.api_key;
@@ -843,6 +836,7 @@ onBeforeUnmount(() => {
 .provider-type-text { flex-shrink: 0; color: var(--color-text-secondary); font-size: 12px; font-weight: 500; letter-spacing: 0.02em; }
 .provider-endpoint { min-width: 120px; max-width: min(420px, 55vw); color: var(--color-text-secondary); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .provider-models-empty { color: var(--color-text-muted); font-size: 12px; }
+.model-cap-mark { margin-left: 3px; color: var(--color-text-muted); font-size: 10px; font-weight: 600; }
 .provider-row-actions { display: inline-flex; align-items: center; justify-content: flex-end; gap: 5px; flex-wrap: nowrap; }
 .test-task-option { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
 .test-task-option small { max-width: 220px; overflow: hidden; color: var(--color-text-secondary); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }

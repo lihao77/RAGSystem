@@ -8,6 +8,7 @@ import type {
   VectorizerConfig,
   VectorizerCreate,
 } from "./knowledge/knowledge-base.js";
+import type { KnowledgeModelProviderInfo, KnowledgeModelProviderKind } from "./knowledge/model-providers.js";
 import type { KnowledgeSearchResponse } from "./knowledge/knowledge-query.js";
 import type { KnowledgeCollectionSummary } from "./knowledge/knowledge-query.js";
 import type { KnowledgeFile } from "./vector-store/knowledge-file-store.js";
@@ -39,6 +40,17 @@ export interface KnowledgeApplication {
   download(fileId: string): Promise<KnowledgeDownload | null>;
   fileStatus(): Promise<VectorFileStatusResponse>;
   indexFile(input: IndexFileRequest): Promise<Record<string, unknown>>;
+  listModelProviders(kind?: KnowledgeModelProviderKind): Promise<KnowledgeModelProviderInfo[]>;
+  upsertModelProvider(input: {
+    provider_key?: string;
+    kind: KnowledgeModelProviderKind;
+    name: string;
+    api_endpoint: string;
+    api_key?: string | null;
+    model_name: string;
+    is_active?: boolean;
+  }): Promise<KnowledgeModelProviderInfo>;
+  deleteModelProvider(providerKey: string): Promise<{ deleted_provider_key: string }>;
   listVectorizers(): Promise<VectorizerConfig[]>;
   addVectorizer(input: VectorizerCreate): Promise<unknown>;
   activateVectorizer(key: string): Promise<unknown>;

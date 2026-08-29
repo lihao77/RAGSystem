@@ -1,7 +1,5 @@
 import { computed, h, onMounted, reactive, ref } from 'vue';
-import { Database, Hash, Layers, Search } from 'lucide-vue-next';
-import { useDictionariesStore } from '../stores/dictionaries.js';
-import { normalizeModelList } from '../utils/modelList.js';
+import { Database, Hash, Layers, Search, Server } from 'lucide-vue-next';
 import { parseKnowledgeSearchFilters } from '../utils/knowledgeSearch.js';
 import {
     activateVectorizer,
@@ -11,14 +9,17 @@ import {
     deleteFile,
     deleteReranker,
     deleteVectorizer,
+    deleteModelProvider,
     getFileStatus,
     indexFile,
     ingestFileToCollection,
     listFiles,
+    listModelProviders,
     listRerankers,
     listVectorizers,
     migrateVectorizer,
     searchVectors,
+    upsertModelProvider,
     uploadFiles,
 } from '../api/knowledgeBase';
 import { showToast } from '../composables/useToast.js';
@@ -26,7 +27,6 @@ import { useConfirm } from '../composables/useConfirm.js';
 
 export function useKnowledgeBaseManager() {
   const { confirm } = useConfirm();
-  const dictStore = useDictionariesStore();
 
   const SVG = { xmlns: 'http://www.w3.org/2000/svg', width: 20, height: 20, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': 2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' };
   const IconFiles = () => h('svg', SVG, [h('path', { d: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z' }), h('polyline', { points: '14 2 14 8 20 8' })]);
@@ -45,6 +45,7 @@ export function useKnowledgeBaseManager() {
   // 顶部视图切换项（SegmentedControl options；icon 为 lucide 组件）
   const tabs = computed(() => [
       { value: 'store', label: '文件与索引', badge: uploadedFiles.value.length || null, icon: Layers },
+      { value: 'model-providers', label: '模型服务', badge: modelProviders.value.length || null, icon: Server },
       { value: 'vectorizers', label: '向量化器', badge: vectorizers.value.length || null, icon: Database },
       { value: 'rerankers', label: '重排序器', badge: rerankers.value.length || null, icon: Hash },
       { value: 'search', label: '搜索测试', icon: Search },
@@ -439,7 +440,7 @@ export function useKnowledgeBaseManager() {
   const addFormRecommendedModel = ref('');
   const addFormModelList = ref([]);
   const availableProviderSelectOptions = computed(() =>
-      availableProviders.value.map(p => ({ value: p.key, label: `${p.name} (${p.provider_type})` }))
+      availableProviders.value.map(p => ({ value: p.key, label: `${p.name} · ${p.model_name || '未配模型'}` }))
   );
 
   async function openAddVectorizerDialog() {
@@ -447,40 +448,131 @@ export function useKnowledgeBaseManager() {
       if (availableProviders.value.length === 0) await loadProviders();
   }
 
-  async function loadProviders(force = false) {
+  // ── 模型服务管理（插件自管 Provider CRUD）──────────────────
+  const modelProviders = ref([]);
+  const modelProvidersLoading = ref(false);
+  const showModelProviderDialog = ref(false);
+  const savingModelProvider = ref(false);
+  const deletingModelProviderKey = ref('');
+  const modelProviderForm = reactive({
+      provider_key: '',
+      kind: 'embedding',
+      name: '',
+      api_endpoint: '',
+      api_key: '',
+      model_name: '',
+  });
+
+  const modelProviderKindOptions = [
+      { value: 'embedding', label: 'Embedding（向量化）' },
+      { value: 'rerank', label: 'Rerank（重排序）' },
+  ];
+
+  const modelProviderFormValid = computed(() => (
+      Boolean(modelProviderForm.name.trim())
+      && Boolean(modelProviderForm.api_endpoint.trim())
+      && Boolean(modelProviderForm.model_name.trim())
+      && (modelProviderForm.provider_key !== '' || modelProviderForm.api_key.trim() !== '')
+  ));
+
+  async function refreshModelProviders() {
+      modelProvidersLoading.value = true;
       try {
-          const providers = await dictStore.ensureProviders(force);
-          availableProviders.value = providers.filter(p => {
-              const emb = p.model_map?.embedding;
-              const embeddingModels = normalizeModelList(emb);
-              return embeddingModels.length > 0 || p.models?.length > 0;
-          });
-          availableRerankProviders.value = providers.filter(p => (
-              normalizeModelList(p.model_map?.rerank).length > 0
-              && Boolean(String(p.api_endpoint || '').trim())
-              && p.api_key_configured === true
-          ));
+          const res = await listModelProviders();
+          modelProviders.value = res.data || [];
       } catch (e) {
-          showToast('加载 Provider 列表失败');
+          showToast(e.message || '加载模型服务失败');
+      } finally {
+          modelProvidersLoading.value = false;
+      }
+  }
+
+  function openAddModelProviderDialog(kind = 'embedding') {
+      modelProviderForm.provider_key = '';
+      modelProviderForm.kind = kind;
+      modelProviderForm.name = '';
+      modelProviderForm.api_endpoint = '';
+      modelProviderForm.api_key = '';
+      modelProviderForm.model_name = '';
+      showModelProviderDialog.value = true;
+  }
+
+  function openEditModelProviderDialog(provider) {
+      modelProviderForm.provider_key = provider.provider_key;
+      modelProviderForm.kind = provider.kind;
+      modelProviderForm.name = provider.name;
+      modelProviderForm.api_endpoint = provider.api_endpoint;
+      modelProviderForm.api_key = '';
+      modelProviderForm.model_name = provider.model_name;
+      showModelProviderDialog.value = true;
+  }
+
+  async function handleSaveModelProvider() {
+      savingModelProvider.value = true;
+      try {
+          const body = {
+              provider_key: modelProviderForm.provider_key || undefined,
+              kind: modelProviderForm.kind,
+              name: modelProviderForm.name.trim(),
+              api_endpoint: modelProviderForm.api_endpoint.trim(),
+              api_key: modelProviderForm.api_key.trim() || null,
+              model_name: modelProviderForm.model_name.trim(),
+          };
+          await upsertModelProvider(body);
+          showModelProviderDialog.value = false;
+          showToast('模型服务已保存', 'success');
+          await Promise.all([refreshModelProviders(), loadProviders()]);
+      } catch (e) {
+          showToast(e.message || '保存模型服务失败');
+      } finally {
+          savingModelProvider.value = false;
+      }
+  }
+
+  async function handleDeleteModelProvider(key) {
+      deletingModelProviderKey.value = key;
+      try {
+          await deleteModelProvider(key);
+          showToast('模型服务已删除', 'success');
+          await Promise.all([refreshModelProviders(), loadProviders()]);
+      } catch (e) {
+          showToast(e.message || '删除失败');
+      } finally {
+          deletingModelProviderKey.value = '';
+      }
+  }
+
+  // 模型服务（embedding/rerank Provider）为知识库插件自管：凭证存插件自有表，不再读 core Provider 列表。
+  async function loadProviders() {
+      try {
+          const [embeddingRes, rerankRes] = await Promise.all([
+              listModelProviders('embedding'),
+              listModelProviders('rerank'),
+          ]);
+          availableProviders.value = (embeddingRes.data || []).map(p => ({
+              key: p.provider_key,
+              name: p.name,
+              kind: p.kind,
+              model_name: p.model_name || '',
+              api_key_configured: p.api_key_configured,
+          }));
+          availableRerankProviders.value = (rerankRes.data || []).map(p => ({
+              key: p.provider_key,
+              name: p.name,
+              kind: p.kind,
+              model_name: p.model_name || '',
+              api_endpoint: p.api_endpoint || '',
+              api_key_configured: p.api_key_configured,
+          }));
+      } catch (e) {
+          showToast('加载模型服务列表失败');
       }
   }
 
   function onAddFormProviderChange(key) {
       const p = availableProviders.value.find(x => x.key === key);
-      if (!p) {
-          addFormRecommendedModel.value = '';
-          addFormModelList.value = [];
-          return;
-      }
-      const emb = p.model_map?.embedding;
-      addFormRecommendedModel.value = normalizeModelList(emb)[0] || '';
-      const all = new Set((p.models || []).map(item => String(item || '').trim()).filter(Boolean));
-      if (p.model_map) {
-          Object.values(p.model_map).forEach(m => {
-              normalizeModelList(m).forEach(model => all.add(model));
-          });
-      }
-      addFormModelList.value = [...all];
+      addFormRecommendedModel.value = p?.model_name || '';
+      addFormModelList.value = p?.model_name ? [p.model_name] : [];
       if (!addVectorizerForm.model_name && addFormRecommendedModel.value) {
           addVectorizerForm.model_name = addFormRecommendedModel.value;
       }
@@ -576,14 +668,14 @@ export function useKnowledgeBaseManager() {
           )))
           .map(provider => ({
               value: provider.key,
-              label: `${provider.name} · ${normalizeModelList(provider.model_map?.rerank)[0]}`,
+              label: `${provider.name} · ${provider.model_name || '未配模型'}`,
           }))
   ));
   const selectedRerankProvider = computed(() => (
       availableRerankProviders.value.find(provider => provider.key === addRerankerForm.provider_key) || null
   ));
   const selectedRerankModel = computed(() => (
-      normalizeModelList(selectedRerankProvider.value?.model_map?.rerank)[0] || ''
+      selectedRerankProvider.value?.model_name || ''
   ));
   const hasReadyRerankProviders = computed(() => availableRerankProviders.value.length > 0);
 
@@ -619,7 +711,7 @@ export function useKnowledgeBaseManager() {
       addRerankerForm.mode = 'model';
       addRerankerForm.provider_key = '';
       showAddRerankerDialog.value = true;
-      await loadProviders(true);
+      if (availableRerankProviders.value.length === 0) await loadProviders();
   }
 
   async function handleAddReranker() {
@@ -785,7 +877,7 @@ export function useKnowledgeBaseManager() {
   // ── 全局刷新 & 初始化 ─────────────────────────────────────
   async function refreshAll() {
       globalLoading.value = true;
-      await Promise.all([loadUploadedFiles(), refreshFileStatus(), refreshVectorizers(), refreshRerankers()]);
+      await Promise.all([loadUploadedFiles(), refreshFileStatus(), refreshVectorizers(), refreshRerankers(), refreshModelProviders(), loadProviders()]);
       globalLoading.value = false;
   }
 
@@ -793,5 +885,5 @@ export function useKnowledgeBaseManager() {
       refreshAll();
   });
 
-    return { context: { activeTab, showMarkdownPreview, previewFile, previewAnchor, globalLoading, refreshAll, tabs, kpiItems, deletingFileId, deletingUploadedFile, formatScore, refreshVectorizers, refreshRerankers, handleAddVectorizer, activeVectorizerDisplay, isDragOver, fileInputRef, handleFileDrop, triggerFileInput, handleFileSelect, mergedFilesLoading, refreshFilesAndStatus, filterCollection, collectionSelectOptions, showIndexDialog, fileStatusVectorizers, uploadedFiles, mergedFileList, formatFileSize, formatTime, openMarkdownPreview, openSearchTest, indexingFileKey, handleIndexFileWithVectorizer, downloadFile, handleDeleteMergedFile, searchCollection, searchResults, searchResponse, searchQuery, handleSearch, searchLoading, searchTopK, searchMode, searchModeOptions, searchRerank, searchRerankerOptions, searchRerankSelection, searchFiltersText, resultSimilarity, scoreClass, resultSimilarityLabel, searchPerformed, vectorizersLoading, vectorizers, openAddVectorizerDialog, handleActivateVectorizer, activatingVectorizer, openMigrateDialog, deletingVectorizer, handleDeleteVectorizer, rerankersLoading, rerankers, openAddRerankerDialog, activeRerankerDisplay, activatingReranker, deletingReranker, handleActivateReranker, handleDeleteReranker, indexModes, indexMode, indexFileInputRef, triggerIndexFileInput, handleIndexFileSelect, handleIndexFileDrop, indexForm, uploadedFileSelectOptions, loadUploadedFilesIfEmpty, autoSetCollectionName, documentTypeOptions, indexing, handleIndexDocument, showAddVectorizerDialog, addVectorizerForm, availableProviderSelectOptions, onAddFormProviderChange, addFormRecommendedModel, addFormModelList, addingVectorizer, showMigrateDialog, migrateFromKey, migrateToKey, migrateTargetOptions, migrating, handleMigrate, showAddRerankerDialog, addRerankerForm, rerankerModeSelectOptions, availableRerankProviderSelectOptions, selectedRerankProvider, selectedRerankModel, hasReadyRerankProviders, addRerankerFormValid, addingReranker, handleAddReranker, handleMarkdownNotify, handlePreviewCitation, showToast } };
+    return { context: { activeTab, showMarkdownPreview, previewFile, previewAnchor, globalLoading, refreshAll, tabs, kpiItems, deletingFileId, deletingUploadedFile, formatScore, refreshVectorizers, refreshRerankers, handleAddVectorizer, activeVectorizerDisplay, isDragOver, fileInputRef, handleFileDrop, triggerFileInput, handleFileSelect, mergedFilesLoading, refreshFilesAndStatus, filterCollection, collectionSelectOptions, showIndexDialog, fileStatusVectorizers, uploadedFiles, mergedFileList, formatFileSize, formatTime, openMarkdownPreview, openSearchTest, indexingFileKey, handleIndexFileWithVectorizer, downloadFile, handleDeleteMergedFile, searchCollection, searchResults, searchResponse, searchQuery, handleSearch, searchLoading, searchTopK, searchMode, searchModeOptions, searchRerank, searchRerankerOptions, searchRerankSelection, searchFiltersText, resultSimilarity, scoreClass, resultSimilarityLabel, searchPerformed, vectorizersLoading, vectorizers, openAddVectorizerDialog, handleActivateVectorizer, activatingVectorizer, openMigrateDialog, deletingVectorizer, handleDeleteVectorizer, rerankersLoading, rerankers, openAddRerankerDialog, activeRerankerDisplay, activatingReranker, deletingReranker, handleActivateReranker, handleDeleteReranker, indexModes, indexMode, indexFileInputRef, triggerIndexFileInput, handleIndexFileSelect, handleIndexFileDrop, indexForm, uploadedFileSelectOptions, loadUploadedFilesIfEmpty, autoSetCollectionName, documentTypeOptions, indexing, handleIndexDocument, showAddVectorizerDialog, addVectorizerForm, availableProviderSelectOptions, onAddFormProviderChange, addFormRecommendedModel, addFormModelList, addingVectorizer, showMigrateDialog, migrateFromKey, migrateToKey, migrateTargetOptions, migrating, handleMigrate, showAddRerankerDialog, addRerankerForm, rerankerModeSelectOptions, availableRerankProviderSelectOptions, selectedRerankProvider, selectedRerankModel, hasReadyRerankProviders, addRerankerFormValid, addingReranker, handleAddReranker, handleMarkdownNotify, handlePreviewCitation, showToast, modelProviders, modelProvidersLoading, showModelProviderDialog, savingModelProvider, deletingModelProviderKey, modelProviderForm, modelProviderKindOptions, modelProviderFormValid, refreshModelProviders, openAddModelProviderDialog, openEditModelProviderDialog, handleSaveModelProvider, handleDeleteModelProvider } };
 }

@@ -1,19 +1,18 @@
+/** OpenAI 兼容 rerank 客户端（知识库插件自管 Provider 的调用端；自 core 搬入）。 */
 import { externalCallPolicy, isRetryableHttpStatus, RetryableHttpError } from "@ragsystem/agent-llm";
+
+import type { RerankClientPort, RerankRequest } from "../../contracts/knowledge/model-providers.js";
 import { resolveEnvPlaceholder } from "./embedding-client.js";
-import type { RerankClientPort, RerankRequest as ContractRerankRequest } from "../../contracts/integrations/model-adapter.js";
 
-export type RerankerEndpointConfig = ContractRerankRequest["reranker"];
-export type RerankClient = RerankClientPort;
-export type RerankRequest = ContractRerankRequest;
+export type RerankerEndpointConfig = RerankRequest["reranker"];
 
-/** OpenAI 兼容 rerank 客户端。 */
 export class OpenAiCompatibleRerankClient implements RerankClientPort {
   async rerank(request: RerankRequest): Promise<number[]> {
     if (request.documents.length === 0) return [];
     const endpoint = resolveRerankEndpoint(request.reranker);
     const apiKey = resolveApiKey(request.reranker);
     const { response, body } = await externalCallPolicy.execute({
-      key: `reranker:${request.reranker.reranker_key}`,
+      key: `knowledge-reranker:${request.reranker.reranker_key}`,
       operation: async ({ signal }) => {
         const response = await fetch(endpoint, {
           method: "POST",
@@ -40,14 +39,14 @@ export class OpenAiCompatibleRerankClient implements RerankClientPort {
 
 function resolveRerankEndpoint(reranker: RerankerEndpointConfig): string {
   const raw = resolveEnvPlaceholder(reranker.api_endpoint).trim();
-  if (!raw) throw new Error(`Reranker '${reranker.reranker_key}' is missing api_endpoint`);
+  if (!raw) throw new Error(`重排序器 '${reranker.reranker_key}' 未配置 api_endpoint`);
   const normalized = raw.replace(/\/+$/, "");
   return normalized.endsWith("/rerank") || normalized.endsWith("/reranks") ? normalized : `${normalized}/rerank`;
 }
 
 function resolveApiKey(reranker: RerankerEndpointConfig): string {
   const apiKey = resolveEnvPlaceholder(reranker.api_key ?? "").trim();
-  if (!apiKey) throw new Error("Reranker API key is required");
+  if (!apiKey) throw new Error("重排序器未配置 API Key");
   return apiKey;
 }
 

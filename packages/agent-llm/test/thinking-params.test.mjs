@@ -30,7 +30,6 @@ test("档位集合按厂商枚举返回（describeThinking）", () => {
   assert.deepEqual(describeThinking("qwen").levels, ["off", "on"]);
   assert.deepEqual(describeThinking("mistral").levels, ["off", "minimal", "low", "medium", "high", "xhigh"]);
   assert.deepEqual(describeThinking("groq").levels, ["off", "on", "low", "medium", "high"]);
-  assert.deepEqual(describeThinking("rerank_api").levels, []);
 });
 
 test("deepseek 档位序列化为 thinking map（off 显式 disabled，max 直通）", () => {

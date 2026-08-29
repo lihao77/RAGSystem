@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 
 import { DocumentExtractDispatcher } from "../dist/services/knowledge/document-extract/dispatcher.js";
-import { EMBEDDER_REGISTRY } from "../dist/services/integrations/embedder-registry.js";
+import { createEmbedder, HashFallbackEmbedder, RemoteEmbedder } from "../dist/services/integrations/embedder-registry.js";
 import {
   keywordOverlapScore,
   reciprocalRankFusionScore,
@@ -29,11 +29,12 @@ test("Knowledge scoring supports mixed Chinese and Latin queries", () => {
   assert.equal(keywordOverlapScore("unrelated", "广西发生洪水预警"), 0);
 });
 
-test("Knowledge embedding registry includes supported providers but not Groq or DeepSeek", () => {
-  assert.equal(EMBEDDER_REGISTRY.has("mistral"), true);
-  assert.equal(EMBEDDER_REGISTRY.has("qwen"), true);
-  assert.equal(EMBEDDER_REGISTRY.has("groq"), false);
-  assert.equal(EMBEDDER_REGISTRY.has("deepseek"), false);
+test("embedder 工厂：自管 provider → RemoteEmbedder；无 provider → Hash 降级", () => {
+  const provider = { provider_key: "bce", kind: "embedding", name: "BCE", api_endpoint: "https://bce.example.com", api_key: "k", model_name: "bce-embed", is_active: true };
+  const remote = createEmbedder(provider, "bce-embed", { embed: async () => [] });
+  assert.ok(remote instanceof RemoteEmbedder);
+  assert.equal(remote.key, "remote:bce/bce-embed");
+  assert.ok(createEmbedder(null, "any") instanceof HashFallbackEmbedder);
 });
 
 test("normalized reciprocal-rank fusion stays bounded and rewards both sources", () => {

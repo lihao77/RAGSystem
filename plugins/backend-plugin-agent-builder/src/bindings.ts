@@ -29,7 +29,7 @@ export async function createAgentBuilderBindings(input: {
   // 与运行时 findProviderByRef 同一匹配语义：name 与 key 均可引用同一 provider（归一化后索引）。
   const llmProviders = input.modelAdapter
     ? new Map(input.modelAdapter.listProviders().flatMap((provider) => {
-        const info = { provider_type: provider.provider_type, models: provider.models };
+        const info = { provider_type: provider.provider_type, models: provider.models.map((model) => model.name) };
         return [provider.name, provider.key]
           .map((value) => normalizeProviderKey(value))
           .filter((value, index, list) => value && list.indexOf(value) === index)

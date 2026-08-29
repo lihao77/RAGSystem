@@ -228,7 +228,6 @@ function systemProvider(): ModelProviderConfig {
     name: "system",
     provider_type: "deepseek",
     api_key: "sk-test",
-    model_map: { chat: "system-model" },
-    models: ["system-model"],
+    models: [{ name: "system-model" }],
   };
 }

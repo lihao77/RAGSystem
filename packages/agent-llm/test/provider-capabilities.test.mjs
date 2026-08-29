@@ -4,7 +4,6 @@ import test from "node:test";
 import {
   PROVIDER_TYPE_SET,
   parseProviderContinuationState,
-  providerEmbeddingDefaultEndpoint,
   providerTypeSpec,
   providerUsesNativeFunctionCalling,
 } from "../dist/index.js";
@@ -15,8 +14,6 @@ test("Gemini is registered with native chat, automatic cache, and Gemini usage c
     type: "gemini",
     defaultEndpoint: "https://generativelanguage.googleapis.com/v1beta",
     chatKind: "gemini",
-    supportsEmbedding: false,
-    supportsRerank: false,
     promptCacheMode: "automatic_prefix",
     usageFormat: "gemini",
     supportsPromptCacheKey: false,
@@ -28,12 +25,6 @@ test("Gemini is registered with native chat, automatic cache, and Gemini usage c
   assert.equal(providerTypeSpec("mistral").defaultEndpoint, "https://api.mistral.ai/v1");
   assert.equal(providerTypeSpec("groq").defaultEndpoint, "https://api.groq.com/openai/v1");
   assert.equal(providerTypeSpec("qwen").defaultEndpoint, "https://dashscope.aliyuncs.com/compatible-mode/v1");
-  assert.equal(providerEmbeddingDefaultEndpoint("mistral"), "https://api.mistral.ai/v1");
-  assert.equal(providerEmbeddingDefaultEndpoint("qwen"), "https://dashscope.aliyuncs.com/compatible-mode/v1");
-  assert.equal(providerEmbeddingDefaultEndpoint("deepseek"), "");
-  assert.equal(providerEmbeddingDefaultEndpoint("groq"), "");
-  assert.equal(providerTypeSpec("openrouter").supportsRerank, true);
-  assert.equal(providerTypeSpec("qwen").supportsRerank, false);
   assert.equal(providerUsesNativeFunctionCalling("gemini", true), true);
   assert.equal(providerUsesNativeFunctionCalling("gemini", false), false);
   assert.equal(providerUsesNativeFunctionCalling("anthropic", false), true);

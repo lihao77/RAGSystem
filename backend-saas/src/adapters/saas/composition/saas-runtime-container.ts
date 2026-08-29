@@ -33,7 +33,6 @@ import type { SaaSConversationRuntimeHandle } from "./saas-conversation-runtime.
 import type { SandboxDriver } from "@ragsystem/backend-core/contracts/sandbox/sandbox-provider.js";
 import { provideBackendResource } from "@ragsystem/backend-core/plugins/resource-registry.js";
 import { BACKEND_HOST_RESOURCES } from "@ragsystem/backend-core/plugins/host-resources.js";
-import { registerPluginProviderTypes } from "@ragsystem/backend-core/plugins/apply-provider-types.js";
 import { SaaSSandboxFileBridge } from "../sandbox/sandbox-file-bridge.js";
 export interface SaaSRuntimeContainerOptions {
   tenantId: TenantId;
@@ -100,7 +99,6 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
     providersConfigPath: options.modelAdapterProvidersConfigPath ?? "",
   });
   // 插件 Provider 类型先于租户 provider 水合（prepareSaaSRuntimeContainer）注入。
-  registerPluginProviderTypes(modelAdapter, options.plugins);
   // SaaS system config is Postgres-backed; SystemConfigService is an in-process projection.
   const systemConfig = new SystemConfigService(
     conversationRuntime.createSystemConfigStore(tenantId),

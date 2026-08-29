@@ -1,10 +1,10 @@
-<!-- eslint-disable vue/no-mutating-props -- form/modelMapEntries 为视图持有的 reactive 表单对象，弹窗内改写属有意的表单模型架构 -->
+<!-- eslint-disable vue/no-mutating-props -- form 为视图持有的 reactive 表单对象，弹窗内改写属有意的表单模型架构 -->
 <template>
   <Dialog :open="dialog.visible" @update:open="(v) => { if (!v) emit('close') }">
     <DialogContent class="max-w-[720px]">
       <DialogHeader>
         <DialogTitle>{{ dialog.mode === 'create' ? '添加 Provider' : '编辑 Provider' }}</DialogTitle>
-        <DialogDescription v-if="dialog.mode === 'create'">配置接入信息、运行参数和任务模型映射。</DialogDescription>
+        <DialogDescription v-if="dialog.mode === 'create'">配置接入信息与模型列表；运行参数在单个模型上配置。</DialogDescription>
       </DialogHeader>
       <div class="dialog-form">
         <section class="dialog-form-section">
@@ -36,34 +36,44 @@
           </FieldGroup>
         </section>
 
-        <section v-if="form.provider_type !== 'rerank_api' && !pluginManagedType" class="dialog-form-section">
-          <div class="dialog-form-section__head"><h3>运行参数</h3><p>配置温度与 token 上限等模型运行参数。</p></div>
-          <FieldGroup class="form-grid">
-            <Field><FieldLabel for="provider-temperature">温度</FieldLabel><Input id="provider-temperature" v-model.number="form.temperature" type="number" step="0.1" min="0" max="2" placeholder="0.7" /></Field>
-            <Field><FieldLabel for="provider-completion-tokens">Max Completion Tokens</FieldLabel><Input id="provider-completion-tokens" v-model.number="form.max_completion_tokens" type="number" step="256" min="256" placeholder="4096" /></Field>
-            <Field><FieldLabel for="provider-context-tokens">Max Context Tokens</FieldLabel><Input id="provider-context-tokens" v-model.number="form.max_context_tokens" type="number" step="1024" min="1024" placeholder="128000" /></Field>
-          </FieldGroup>
-          <FieldSet>
-            <FieldLegend variant="label">模型能力</FieldLegend>
-            <FieldGroup class="capability-fields">
-              <Field orientation="horizontal">
-                <FieldLabel>
-                  <Switch v-model:checked="form.supports_function_calling" />
-                  <FieldContent><FieldTitle>原生 Function Calling</FieldTitle><FieldDescription>OpenAI 兼容模型启用厂商原生工具调用；Anthropic 自动使用 tool_use。</FieldDescription></FieldContent>
-                </FieldLabel>
-              </Field>
-              <Field orientation="horizontal">
-                <FieldLabel>
-                  <Switch v-model:checked="form.supports_vision" />
-                  <FieldContent><FieldTitle>图片输入（Vision）</FieldTitle><FieldDescription>标记此 Provider 的 Chat 模型能够识别图片。</FieldDescription></FieldContent>
-                </FieldLabel>
-              </Field>
-            </FieldGroup>
-          </FieldSet>
+        <section class="dialog-form-section">
+          <div class="dialog-form-section__head">
+            <h3>模型</h3>
+            <p>添加模型并逐个配置运行参数与能力位；首个模型为默认模型。</p>
+          </div>
+          <div class="provider-model-list">
+            <div v-for="(model, idx) in modelEntries" :key="`${model.name}:${idx}`" class="provider-model-row">
+              <span class="provider-model-name font-mono" :title="model.name">
+                {{ model.name }}
+                <span v-if="idx === 0" class="provider-model-default">默认</span>
+              </span>
+              <span class="provider-model-summary">{{ modelSummary(model) }}</span>
+              <span class="provider-model-caps">
+                <Badge v-if="model.supports_function_calling" variant="outline">FC</Badge>
+                <Badge v-if="model.supports_vision" variant="outline">Vision</Badge>
+              </span>
+              <span class="provider-model-actions">
+                <Button variant="ghost" size="icon" aria-label="上移模型" title="上移（越靠前越优先）" :disabled="idx === 0" @click="emit('moveModel', idx, -1)">
+                  <ChevronUp :size="15" />
+                </Button>
+                <Button variant="ghost" size="icon" aria-label="下移模型" title="下移" :disabled="idx === modelEntries.length - 1" @click="emit('moveModel', idx, 1)">
+                  <ChevronDown :size="15" />
+                </Button>
+                <Button variant="ghost" size="icon" aria-label="编辑模型" title="编辑模型" @click="emit('editModel', idx)">
+                  <IconEdit :size="14" />
+                </Button>
+                <Button variant="ghost" size="icon" aria-label="删除模型" title="删除模型" @click="emit('removeModel', idx)">
+                  <IconClose />
+                </Button>
+              </span>
+            </div>
+            <Button variant="outline" class="w-full" @click="emit('addModel')"><IconPlus data-icon="inline-start" />添加模型</Button>
+            <FieldError v-if="formErrors.models">{{ formErrors.models }}</FieldError>
+          </div>
         </section>
 
         <section class="dialog-form-section">
-          <div class="dialog-form-section__head"><h3>模型与扩展</h3><p>管理 Provider 的扩展字段与任务模型映射。</p></div>
+          <div class="dialog-form-section__head"><h3>连接与扩展</h3><p>超时重试与 Provider 级扩展配置（与具体模型无关）。</p></div>
           <template v-if="resilienceProviderConfigFields.length > 0">
             <div class="form-section-title">超时与重试</div>
             <FieldGroup class="form-grid">
@@ -100,21 +110,6 @@
               </Field>
             </FieldGroup>
           </template>
-          <FieldSet :data-invalid="!!formErrors.model_map">
-            <FieldLegend variant="label">模型映射 (model_map)</FieldLegend>
-            <div class="model-map-editor">
-              <div v-for="(entry, idx) in modelMapEntries" :key="idx" class="model-map-row">
-                <CustomSelect v-model="entry.task" :options="modelTaskOptions" placeholder="任务类型" />
-                <span class="map-arrow"><IconChevronRight /></span>
-                <Input v-model="entry.model" :aria-label="`${entry.task || '任务'} 模型名`" placeholder="例如：gpt-4.1" />
-                <Button variant="ghost" size="icon" aria-label="删除映射" title="删除映射" :disabled="modelMapEntries.length === 1" @click="emit('removeModelMapEntry', idx)">
-                  <IconClose />
-                </Button>
-              </div>
-              <Button variant="outline" class="w-full" @click="emit('addModelMapEntry')"><IconPlus data-icon="inline-start" />添加映射</Button>
-              <FieldError v-if="formErrors.model_map">{{ formErrors.model_map }}</FieldError>
-            </div>
-          </FieldSet>
         </section>
 
         <FieldError v-if="dialog.error">{{ dialog.error }}</FieldError>
@@ -128,17 +123,19 @@
 </template>
 
 <script setup>
-// Provider 新建/编辑弹窗：基础配置 + 运行参数 + 扩展字段（schema 驱动）+ 模型映射。
+// Provider 新建/编辑弹窗：基础配置 + 模型列表（模型级参数经 ProviderModelDialog 配置）+ 扩展字段（schema 驱动）。
 import CustomSelect from '../ui/CustomSelect.vue';
-import IconChevronRight from '../icons/IconChevronRight.vue';
+import { ChevronDown, ChevronUp } from 'lucide-vue-next';
 import IconClose from '../icons/IconClose.vue';
+import IconEdit from '../icons/IconEdit.vue';
 import IconPlus from '../icons/IconPlus.vue';
 import IconRefresh from '../icons/IconRefresh.vue';
+import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
 import {
   Field, FieldContent, FieldDescription, FieldError, FieldGroup,
-  FieldLabel, FieldLegend, FieldSet, FieldTitle,
+  FieldLabel, FieldTitle,
 } from '../ui/field';
 import { Input } from '../ui/input';
 import { Switch } from '../ui/switch';
@@ -152,11 +149,17 @@ defineProps({
   providerKeyPreview: { type: String, default: '' },
   resilienceProviderConfigFields: { type: Array, default: () => [] },
   extensionProviderConfigFields: { type: Array, default: () => [] },
-  pluginManagedType: { type: Boolean, default: false },
-  modelMapEntries: { type: Array, default: () => [] },
-  modelTaskOptions: { type: Array, default: () => [] },
+  modelEntries: { type: Array, default: () => [] },
   saving: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(['close', 'submit', 'providerTypeChange', 'addModelMapEntry', 'removeModelMapEntry']);
+const emit = defineEmits(['close', 'submit', 'providerTypeChange', 'addModel', 'editModel', 'removeModel', 'moveModel']);
+
+function modelSummary(model) {
+  const parts = [];
+  if (model.temperature !== '' && model.temperature != null) parts.push(`温度 ${model.temperature}`);
+  if (model.max_completion_tokens) parts.push(`输出 ${model.max_completion_tokens}`);
+  if (model.max_context_tokens) parts.push(`上下文 ${model.max_context_tokens}`);
+  return parts.length ? parts.join(' · ') : '默认参数';
+}
 </script>

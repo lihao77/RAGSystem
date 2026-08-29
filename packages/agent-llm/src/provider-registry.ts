@@ -16,8 +16,7 @@ export type ProviderType =
   | "qwen"
   | "deepseek"
   | "openrouter"
-  | "modelscope"
-  | "rerank_api";
+  | "modelscope";
 
 /** Chat request dispatch kind; null means the provider has no chat capability. */
 export type ChatDispatchKind = "openai_responses" | "anthropic" | "gemini" | "openai_compatible" | null;
@@ -35,8 +34,6 @@ export interface ProviderTypeSpec {
   type: ProviderType;
   defaultEndpoint: string;
   chatKind: ChatDispatchKind;
-  supportsEmbedding: boolean;
-  supportsRerank: boolean;
   promptCacheMode: PromptCacheMode;
   usageFormat: UsageFormat;
   supportsPromptCacheKey: boolean;
@@ -53,65 +50,60 @@ export interface ProviderTypeSpec {
 
 export const PROVIDER_TYPE_SPECS: readonly ProviderTypeSpec[] = [
   {
-    type: "openai_resp", defaultEndpoint: "https://api.openai.com/v1", chatKind: "openai_responses", supportsEmbedding: true, supportsRerank: false,
+    type: "openai_resp", defaultEndpoint: "https://api.openai.com/v1", chatKind: "openai_responses",
     promptCacheMode: "automatic_prefix", usageFormat: "openai", supportsPromptCacheKey: true,
     supportsPromptCacheTtl: false, exposesPromptCacheToggle: false, supportsStreamUsageOptions: true, nativeFunctionCalling: "configurable",
   },
   {
-    type: "openai_chat", defaultEndpoint: "https://api.openai.com/v1", chatKind: "openai_compatible", supportsEmbedding: true, supportsRerank: false,
+    type: "openai_chat", defaultEndpoint: "https://api.openai.com/v1", chatKind: "openai_compatible",
     promptCacheMode: "automatic_prefix", usageFormat: "openai", supportsPromptCacheKey: true,
     supportsPromptCacheTtl: false, exposesPromptCacheToggle: false, supportsStreamUsageOptions: true, nativeFunctionCalling: "configurable",
   },
   {
-    type: "openai_proxy", defaultEndpoint: "https://api.openai.com/v1", chatKind: "openai_compatible", supportsEmbedding: true, supportsRerank: false,
+    type: "openai_proxy", defaultEndpoint: "https://api.openai.com/v1", chatKind: "openai_compatible",
     promptCacheMode: "none", usageFormat: "openai", supportsPromptCacheKey: false,
     supportsPromptCacheTtl: false, exposesPromptCacheToggle: false, supportsStreamUsageOptions: true, nativeFunctionCalling: "configurable",
   },
   {
-    type: "anthropic", defaultEndpoint: "https://api.anthropic.com", chatKind: "anthropic", supportsEmbedding: false, supportsRerank: false,
+    type: "anthropic", defaultEndpoint: "https://api.anthropic.com", chatKind: "anthropic",
     promptCacheMode: "explicit_blocks", usageFormat: "anthropic", supportsPromptCacheKey: false,
     supportsPromptCacheTtl: true, exposesPromptCacheToggle: true, supportsStreamUsageOptions: false, nativeFunctionCalling: "always",
   },
   {
-    type: "gemini", defaultEndpoint: "https://generativelanguage.googleapis.com/v1beta", chatKind: "gemini", supportsEmbedding: false, supportsRerank: false,
+    type: "gemini", defaultEndpoint: "https://generativelanguage.googleapis.com/v1beta", chatKind: "gemini",
     promptCacheMode: "automatic_prefix", usageFormat: "gemini", supportsPromptCacheKey: false,
     supportsPromptCacheTtl: false, exposesPromptCacheToggle: false, supportsStreamUsageOptions: false, nativeFunctionCalling: "configurable",
   },
   {
-    type: "mistral", defaultEndpoint: "https://api.mistral.ai/v1", chatKind: "openai_compatible", supportsEmbedding: true, supportsRerank: false,
+    type: "mistral", defaultEndpoint: "https://api.mistral.ai/v1", chatKind: "openai_compatible",
     promptCacheMode: "automatic_prefix", usageFormat: "openai", supportsPromptCacheKey: false,
     supportsPromptCacheTtl: false, exposesPromptCacheToggle: false, supportsStreamUsageOptions: false, nativeFunctionCalling: "configurable",
   },
   {
-    type: "groq", defaultEndpoint: "https://api.groq.com/openai/v1", chatKind: "openai_compatible", supportsEmbedding: false, supportsRerank: false,
+    type: "groq", defaultEndpoint: "https://api.groq.com/openai/v1", chatKind: "openai_compatible",
     promptCacheMode: "automatic_prefix", usageFormat: "openai", supportsPromptCacheKey: false,
     supportsPromptCacheTtl: false, exposesPromptCacheToggle: false, supportsStreamUsageOptions: true, nativeFunctionCalling: "configurable",
   },
   {
-    type: "qwen", defaultEndpoint: "https://dashscope.aliyuncs.com/compatible-mode/v1", chatKind: "openai_compatible", supportsEmbedding: true, supportsRerank: false,
+    type: "qwen", defaultEndpoint: "https://dashscope.aliyuncs.com/compatible-mode/v1", chatKind: "openai_compatible",
     promptCacheMode: "automatic_prefix", usageFormat: "openai", supportsPromptCacheKey: false,
     supportsPromptCacheTtl: false, exposesPromptCacheToggle: false, supportsStreamUsageOptions: true, nativeFunctionCalling: "configurable",
   },
   {
-    type: "deepseek", defaultEndpoint: "https://api.deepseek.com/v1", chatKind: "openai_compatible", supportsEmbedding: false, supportsRerank: false,
+    type: "deepseek", defaultEndpoint: "https://api.deepseek.com/v1", chatKind: "openai_compatible",
     promptCacheMode: "automatic_prefix", usageFormat: "deepseek", supportsPromptCacheKey: false,
     supportsPromptCacheTtl: false, exposesPromptCacheToggle: false, supportsStreamUsageOptions: true, nativeFunctionCalling: "configurable",
     requiresReasoningContentOnAssistantMessages: true,
   },
   {
-    type: "openrouter", defaultEndpoint: "https://openrouter.ai/api/v1", chatKind: "openai_compatible", supportsEmbedding: true, supportsRerank: true,
+    type: "openrouter", defaultEndpoint: "https://openrouter.ai/api/v1", chatKind: "openai_compatible",
     promptCacheMode: "explicit_blocks", usageFormat: "openai", supportsPromptCacheKey: true,
     supportsPromptCacheTtl: false, exposesPromptCacheToggle: true, supportsStreamUsageOptions: true, nativeFunctionCalling: "configurable",
   },
   {
-    type: "modelscope", defaultEndpoint: "https://api-inference.modelscope.cn/v1", chatKind: "openai_compatible", supportsEmbedding: true, supportsRerank: false,
+    type: "modelscope", defaultEndpoint: "https://api-inference.modelscope.cn/v1", chatKind: "openai_compatible",
     promptCacheMode: "none", usageFormat: "openai", supportsPromptCacheKey: false,
     supportsPromptCacheTtl: false, exposesPromptCacheToggle: false, supportsStreamUsageOptions: true, nativeFunctionCalling: "configurable",
-  },
-  {
-    type: "rerank_api", defaultEndpoint: "", chatKind: null, supportsEmbedding: false, supportsRerank: true,
-    promptCacheMode: "none", usageFormat: "none", supportsPromptCacheKey: false,
-    supportsPromptCacheTtl: false, exposesPromptCacheToggle: false, supportsStreamUsageOptions: false, nativeFunctionCalling: "none",
   },
 ];
 
@@ -133,12 +125,6 @@ export const OPENAI_COMPATIBLE_TYPES: ReadonlySet<string> = new Set(
 /** provider_type → 默认 endpoint（未知类型回退 ""）。 */
 export function providerDefaultEndpoint(providerType: string): string {
   return SPEC_BY_TYPE.get(providerType)?.defaultEndpoint ?? "";
-}
-
-/** embedding endpoint 默认值：仅 embedding-capable 类型有默认，其余返回 ""。 */
-export function providerEmbeddingDefaultEndpoint(providerType: string): string {
-  const spec = SPEC_BY_TYPE.get(providerType);
-  return spec?.supportsEmbedding ? spec.defaultEndpoint : "";
 }
 
 /** provider_type -> complete capability description; unknown types return null. */

@@ -5,44 +5,46 @@ export function normalizeModelList(value) {
 }
 
 /**
- * Return the models configured for a provider, keeping chat first and removing duplicates.
- * Model providers may expose task-specific entries in model_map or legacy models/model fields.
+ * Provider 模型目录（模型条目对象数组）→ 模型名列表；保持配置顺序（首个即默认模型）。
  */
 export function getProviderModels(provider) {
-  if (!provider) return [];
-
+  if (!provider || !Array.isArray(provider.models)) return [];
   const models = [];
   const seen = new Set();
-  const addModels = (value) => {
-    for (const model of normalizeModelList(value)) {
-      if (!seen.has(model)) {
-        models.push(model);
-        seen.add(model);
-      }
+  for (const entry of provider.models) {
+    const name = String(entry?.name || '').trim();
+    if (name && !seen.has(name)) {
+      models.push(name);
+      seen.add(name);
     }
-  };
-
-  if (provider.model_map && typeof provider.model_map === 'object') {
-    addModels(provider.model_map.chat);
-    Object.entries(provider.model_map).forEach(([task, value]) => {
-      if (task !== 'chat') addModels(value);
-    });
   }
-  addModels(provider.models);
-  addModels(provider.model);
   return models;
 }
 
+/** 按名称取 provider 的模型条目（含模型级运行参数与能力位）；找不到返回 null。 */
+export function getProviderModelEntry(provider, modelName) {
+  if (!provider || !Array.isArray(provider.models)) return null;
+  const target = String(modelName || '').trim();
+  if (!target) return null;
+  return provider.models.find((entry) => String(entry?.name || '').trim() === target) || null;
+}
+
+/**
+ * 切换 provider 时回填 agent tier：选该 provider 的首个模型，并镜像模型条目的运行参数。
+ */
 export function applyProviderToLlm(llm, provider) {
+  const entry = Array.isArray(provider?.models)
+    ? provider.models.find((item) => String(item?.name || '').trim())
+    : null;
   const next = {
     ...llm,
-    provider: provider.name || provider.key || '',
-    provider_type: provider.provider_type || '',
-    model_name: getProviderModels(provider)[0] || '',
+    provider: provider?.name || provider?.key || '',
+    provider_type: provider?.provider_type || '',
+    model_name: entry ? String(entry.name).trim() : '',
   };
-  if (provider.temperature != null) next.temperature = Number(provider.temperature);
-  if (provider.max_completion_tokens != null) next.max_completion_tokens = Number(provider.max_completion_tokens);
-  if (provider.max_context_tokens != null) next.max_context_tokens = Number(provider.max_context_tokens);
+  if (entry?.temperature != null) next.temperature = Number(entry.temperature);
+  if (entry?.max_completion_tokens != null) next.max_completion_tokens = Number(entry.max_completion_tokens);
+  if (entry?.max_context_tokens != null) next.max_context_tokens = Number(entry.max_context_tokens);
   return next;
 }
 

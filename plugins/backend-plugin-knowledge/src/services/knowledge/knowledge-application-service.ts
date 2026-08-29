@@ -7,10 +7,14 @@ import type { StoredReranker, StoredVectorizer } from "../../contracts/vector-st
 import type { IEmbedder } from "../../contracts/vector-store/embedder.js";
 import type {
   EmbeddingClientPort,
-  ModelProviderConfig,
-  ModelProviderCatalogPort,
+  KnowledgeModelProvider,
+  KnowledgeModelProviderInfo,
+  KnowledgeModelProviderKind,
+  KnowledgeModelProviderStore,
   RerankClientPort,
-} from "@ragsystem/backend-core/contracts/integrations/model-adapter.js";
+} from "../../contracts/knowledge/model-providers.js";
+import { OpenAiCompatibleEmbeddingClient } from "../integrations/embedding-client.js";
+import { OpenAiCompatibleRerankClient } from "../integrations/reranker-client.js";
 import { createEmbedder } from "../integrations/embedder-registry.js";
 import { createReranker, type IReranker } from "../integrations/reranker-registry.js";
 import { lexicalRerank } from "./rerank/lexical-rerank.js";
@@ -18,7 +22,7 @@ import { reciprocalRankFusionScore, RRF_K } from "../vector-store/scoring.js";
 import { KnowledgeBaseError } from "../../contracts/knowledge/knowledge-base.js";
 
 export type KnowledgeEmbedderFactory = (
-  provider: ModelProviderConfig | null | undefined,
+  provider: KnowledgeModelProvider | null,
   modelName: string,
 ) => IEmbedder;
 
@@ -32,7 +36,7 @@ export class KnowledgeApplicationService {
 
   constructor(
     private readonly tenantId: string,
-    private readonly modelAdapter: ModelProviderCatalogPort,
+    private readonly modelProviders: KnowledgeModelProviderStore,
     private readonly config: AsyncKnowledgeConfigStore,
     private readonly vectors: AsyncKnowledgeVectorStore,
     embedderFactory?: KnowledgeEmbedderFactory,
@@ -40,10 +44,12 @@ export class KnowledgeApplicationService {
     embeddingClient?: EmbeddingClientPort,
     rerankClient?: RerankClientPort,
   ) {
+    const embedding = embeddingClient ?? new OpenAiCompatibleEmbeddingClient();
+    const rerank = rerankClient ?? new OpenAiCompatibleRerankClient();
     this.embedderFactory = embedderFactory
-      ?? ((provider, modelName) => createEmbedder(provider, modelName, embeddingClient));
+      ?? ((provider, modelName) => createEmbedder(provider, modelName, embedding));
     this.rerankerFactory = rerankerFactory
-      ?? ((stored) => createReranker(stored, rerankClient));
+      ?? ((stored) => createReranker(stored, rerank));
   }
 
   async listCollections(): Promise<KnowledgeCollectionSummary[]> {
@@ -100,8 +106,66 @@ export class KnowledgeApplicationService {
     return { files: fileStatuses, vectorizers: statusVectorizers };
   }
 
+  /* ── 自管模型服务（embedding / rerank Provider 的 CRUD，不进 core Provider 体系） ── */
+
+  async listModelProviders(kind?: KnowledgeModelProviderKind): Promise<KnowledgeModelProviderInfo[]> {
+    const providers = await this.modelProviders.listProviders(this.tenantId);
+    return providers
+      .filter((provider) => !kind || provider.kind === kind)
+      .map((provider) => ({ ...provider, api_key_configured: Boolean(provider.api_key.trim()) }));
+  }
+
+  async upsertModelProvider(input: {
+    provider_key?: string;
+    kind: KnowledgeModelProviderKind;
+    name: string;
+    api_endpoint: string;
+    api_key?: string | null;
+    model_name: string;
+    is_active?: boolean;
+  }): Promise<KnowledgeModelProviderInfo> {
+    const kind = input.kind === "rerank" ? "rerank" : input.kind === "embedding" ? "embedding" : null;
+    if (!kind) throw new KnowledgeBaseError("kind 必须是 embedding 或 rerank", 400);
+    const name = input.name.trim();
+    if (!name) throw new KnowledgeBaseError("名称不能为空", 400);
+    const apiEndpoint = input.api_endpoint.trim();
+    if (!apiEndpoint) throw new KnowledgeBaseError("API Endpoint 不能为空", 400);
+    const modelName = input.model_name.trim();
+    if (!modelName) throw new KnowledgeBaseError("模型名不能为空", 400);
+    const providerKey = (input.provider_key?.trim() || slugifyProviderKey(name)) || `provider_${Date.now()}`;
+    const apiKey = typeof input.api_key === "string" ? input.api_key.trim() : "";
+    const upserted = await this.modelProviders.upsertProvider(this.tenantId, {
+      provider_key: providerKey,
+      kind,
+      name,
+      api_endpoint: apiEndpoint,
+      api_key: apiKey,
+      model_name: modelName,
+      is_active: input.is_active !== false,
+    }, { keepExistingApiKey: !apiKey });
+    return { ...upserted, api_key_configured: Boolean(upserted.api_key.trim()) };
+  }
+
+  async deleteModelProvider(providerKey: string): Promise<{ deleted_provider_key: string }> {
+    const existing = await this.modelProviders.getProvider(this.tenantId, providerKey);
+    if (!existing) throw new KnowledgeBaseError(`模型服务不存在: ${providerKey}`, 404);
+    const [vectorizers, rerankers] = await Promise.all([
+      this.config.listVectorizers(this.tenantId),
+      this.config.listRerankers(this.tenantId),
+    ]);
+    if (vectorizers.some((vectorizer) => vectorizer.provider_key === providerKey)) {
+      throw new KnowledgeBaseError(`模型服务正被向量化器引用: ${providerKey}，请先删除或迁移相关向量化器`, 400);
+    }
+    if (rerankers.some((reranker) => reranker.mode === "model" && reranker.provider_key === providerKey)) {
+      throw new KnowledgeBaseError(`模型服务正被重排序器引用: ${providerKey}，请先删除相关重排序器`, 400);
+    }
+    await this.modelProviders.deleteProvider(this.tenantId, providerKey);
+    return { deleted_provider_key: providerKey };
+  }
+
   async listRerankers(): Promise<RerankerConfig[]> {
-    return (await this.config.listRerankers(this.tenantId)).map((reranker) => this.toRerankerConfig(reranker));
+    const providers = await this.providerIndex();
+    return (await this.config.listRerankers(this.tenantId)).map((reranker) => this.toRerankerConfig(reranker, providers));
   }
 
   async addReranker(input: RerankerCreate): Promise<{ reranker_key: string }> {
@@ -111,9 +175,9 @@ export class KnowledgeApplicationService {
     let providerType: string | null = null;
     if (mode === "model") {
       if (!providerKey) throw new KnowledgeBaseError("model 模式的重排序器必须提供 provider_key", 400);
-      const provider = this.requireRerankProvider(providerKey);
-      keyModelName = firstProviderTaskModel(provider, "rerank");
-      providerType = provider.provider_type;
+      const provider = await this.requireRerankProvider(providerKey);
+      keyModelName = provider.model_name;
+      providerType = "rerank";
     }
     const key = input.reranker_key?.trim() || normalizeRerankerKey(mode, providerKey, keyModelName);
     if (await this.config.getReranker(this.tenantId, key)) throw new KnowledgeBaseError(`重排序器键已存在: ${key}`, 400);
@@ -131,13 +195,15 @@ export class KnowledgeApplicationService {
 
   async getReranker(key: string): Promise<RerankerConfig | null> {
     const reranker = await this.config.getReranker(this.tenantId, key);
-    return reranker ? this.toRerankerConfig(reranker) : null;
+    const providers = await this.providerIndex();
+    return reranker ? this.toRerankerConfig(reranker, providers) : null;
   }
 
   async activateReranker(key: string): Promise<{ active_reranker_key: string }> {
     const stored = await this.config.getReranker(this.tenantId, key);
     if (!stored) throw new KnowledgeBaseError(`重排序器不存在: ${key}`, 404);
-    const reranker = this.toRerankerConfig(stored);
+    const providers = await this.providerIndex();
+    const reranker = this.toRerankerConfig(stored, providers);
     if (reranker.provider_managed && !reranker.provider_available) {
       throw new KnowledgeBaseError(`重排序器引用的 Provider 当前不可用: ${reranker.provider_key}`, 400);
     }
@@ -153,7 +219,10 @@ export class KnowledgeApplicationService {
 
   async addVectorizer(input: VectorizerCreate): Promise<Pick<VectorizerConfig, "vectorizer_key" | "vector_dimension" | "model_id">> {
     const providerKey = input.provider_key.trim();
-    if (providerKey !== "local" && !this.modelAdapter.hasProvider(providerKey)) throw new KnowledgeBaseError(`向量化器引用的 Provider 不存在: ${providerKey}`, 400);
+    if (providerKey !== "local") {
+      const provider = await this.modelProviders.getProvider(this.tenantId, providerKey);
+      if (!provider || provider.kind !== "embedding") throw new KnowledgeBaseError(`向量化器引用的模型服务不存在或不是 embedding 类型: ${providerKey}`, 400);
+    }
     const modelName = input.model_name.trim();
     const key = input.vectorizer_key?.trim() || `${providerKey}_${modelName.replace(/[^\w.-]/g, "_").slice(0, 120)}`;
     if (await this.config.getVectorizerByKey(this.tenantId, key)) throw new KnowledgeBaseError(`向量化器键已存在: ${key}`, 400);
@@ -348,7 +417,7 @@ export class KnowledgeApplicationService {
     if (rerankRequested && selectedReranker) {
       const rerankStarted = performance.now();
       try {
-        const executableReranker = this.resolveRerankerForExecution(selectedReranker);
+        const executableReranker = await this.resolveRerankerForExecution(selectedReranker);
         rerankerDiagnostic = searchRerankerDiagnostic(executableReranker);
         const reranker = this.rerankerFactory(executableReranker);
         const reranked = await reranker.rerank(query, candidates);
@@ -559,37 +628,45 @@ export class KnowledgeApplicationService {
   private async resolveEmbedder(vectorizer: StoredVectorizer) {
     const cached = this.embedderCache.get(vectorizer.vectorizer_key);
     if (cached) return cached;
-    const provider = vectorizer.provider_key !== "local" ? this.modelAdapter.getProvider(vectorizer.provider_key) : null;
+    const provider = vectorizer.provider_key !== "local"
+      ? await this.modelProviders.getProvider(this.tenantId, vectorizer.provider_key)
+      : null;
     const embedder = this.embedderFactory(provider, vectorizer.model_name);
     this.embedderCache.set(vectorizer.vectorizer_key, embedder);
     return embedder;
   }
-  private requireRerankProvider(providerKey: string): ModelProviderConfig {
-    const provider = this.modelAdapter.getProvider(providerKey);
-    if (!provider) throw new KnowledgeBaseError(`重排序器引用的 Provider 不存在: ${providerKey}`, 400);
-    if (!firstProviderTaskModel(provider, "rerank")) {
-      throw new KnowledgeBaseError(`Provider 未配置 Rerank 模型: ${providerKey}`, 400);
+  private async requireRerankProvider(providerKey: string): Promise<KnowledgeModelProvider> {
+    const provider = await this.modelProviders.getProvider(this.tenantId, providerKey);
+    if (!provider || provider.kind !== "rerank") {
+      throw new KnowledgeBaseError(`重排序器引用的模型服务不存在或不是 rerank 类型: ${providerKey}`, 400);
     }
-    if (!String(provider.api_endpoint ?? "").trim()) {
-      throw new KnowledgeBaseError(`Provider 未配置 Rerank API Endpoint: ${providerKey}`, 400);
+    if (!provider.model_name.trim()) {
+      throw new KnowledgeBaseError(`模型服务未配置 Rerank 模型: ${providerKey}`, 400);
     }
-    if (!String(provider.api_key ?? "").trim()) {
-      throw new KnowledgeBaseError(`Provider 未配置 API key: ${providerKey}`, 400);
+    if (!provider.api_endpoint.trim()) {
+      throw new KnowledgeBaseError(`模型服务未配置 API Endpoint: ${providerKey}`, 400);
+    }
+    if (!provider.api_key.trim()) {
+      throw new KnowledgeBaseError(`模型服务未配置 API key: ${providerKey}`, 400);
     }
     return provider;
   }
-  private resolveRerankerForExecution(reranker: StoredReranker): StoredReranker {
+  private async resolveRerankerForExecution(reranker: StoredReranker): Promise<StoredReranker> {
     if (reranker.mode !== "model") return reranker;
-    const provider = this.requireRerankProvider(reranker.provider_key);
+    const provider = await this.requireRerankProvider(reranker.provider_key);
     return {
       ...reranker,
-      provider_type: provider.provider_type,
-      model_name: firstProviderTaskModel(provider, "rerank"),
-      api_endpoint: String(provider.api_endpoint ?? "").trim(),
-      api_key: String(provider.api_key ?? ""),
+      provider_type: "rerank",
+      model_name: provider.model_name,
+      api_endpoint: provider.api_endpoint,
+      api_key: provider.api_key,
     };
   }
-  private toRerankerConfig(reranker: StoredReranker): RerankerConfig {
+  /** 全量自管 provider 索引（列表渲染用；一次查询避免 N+1）。 */
+  private async providerIndex(): Promise<Map<string, KnowledgeModelProvider>> {
+    return new Map((await this.modelProviders.listProviders(this.tenantId)).map((provider) => [provider.provider_key, provider]));
+  }
+  private toRerankerConfig(reranker: StoredReranker, providers: Map<string, KnowledgeModelProvider>): RerankerConfig {
     const providerManaged = reranker.mode === "model";
     if (!providerManaged) {
       return {
@@ -606,28 +683,27 @@ export class KnowledgeApplicationService {
         provider_available: true,
       };
     }
-    const provider = this.modelAdapter.getProvider(reranker.provider_key);
-    const modelName = provider ? firstProviderTaskModel(provider, "rerank") : "";
-    const apiEndpoint = String(provider?.api_endpoint ?? "").trim();
-    const apiKeySet = Boolean(String(provider?.api_key ?? "").trim());
+    const provider = providers.get(reranker.provider_key) ?? null;
     return {
       reranker_key: reranker.reranker_key,
       mode: reranker.mode,
       provider_key: reranker.provider_key,
-      provider_type: provider?.provider_type ?? reranker.provider_type,
-      model_name: modelName,
-      api_endpoint: apiEndpoint,
+      provider_type: provider ? "rerank" : reranker.provider_type,
+      model_name: provider?.model_name ?? "",
+      api_endpoint: provider?.api_endpoint ?? "",
       created_at: reranker.created_at,
       is_active: reranker.is_active,
-      api_key_set: apiKeySet,
+      api_key_set: Boolean(provider?.api_key),
       provider_managed: true,
-      provider_available: Boolean(provider && modelName && apiEndpoint && apiKeySet),
+      provider_available: Boolean(provider && provider.model_name && provider.api_endpoint && provider.api_key),
     };
   }
   private async toVectorizerConfig(vectorizer: StoredVectorizer): Promise<VectorizerConfig> {
     const stats = await this.getModelStats(vectorizer.model_id);
     const dimension = await this.vectors.getDimension({ tenant_id: this.tenantId, model_id: vectorizer.model_id });
-    return { ...vectorizer, vector_dimension: dimension ?? vectorizer.vector_dimension, provider_available: vectorizer.provider_key === "local" || this.modelAdapter.hasProvider(vectorizer.provider_key), vector_count: stats.vector_count };
+    const providerAvailable = vectorizer.provider_key === "local"
+      || Boolean(await this.modelProviders.getProvider(this.tenantId, vectorizer.provider_key));
+    return { ...vectorizer, vector_dimension: dimension ?? vectorizer.vector_dimension, provider_available: providerAvailable, vector_count: stats.vector_count };
   }
 
   private async indexTextDocument(input: { collection: string; documentId: string; markdown: string; metadata: Record<string, unknown>; vectorizer: StoredVectorizer; chunkSize: number; overlap: number }): Promise<number> {
@@ -680,10 +756,8 @@ function normalizeRerankerKey(mode: StoredReranker["mode"], providerKey: string,
   return `${providerKey}_${modelName.replace(/[^\w.-]/g, "_").slice(0, 120)}`;
 }
 
-function firstProviderTaskModel(provider: ModelProviderConfig, task: string): string {
-  const value = provider.model_map?.[task];
-  const models = Array.isArray(value) ? value : [value];
-  return models.map((item) => String(item ?? "").trim()).find(Boolean) ?? "";
+function slugifyProviderKey(name: string): string {
+  return name.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 80);
 }
 
 interface MarkdownChunk { content: string; charStart: number; charEnd: number; }

@@ -25,7 +25,7 @@ type LlmParamSource = {
  *   [场景 tier] → [default（= selectedLlm 或 agent.default）] → [systemConfig.llm]
  *
  * - default 位置：runModel 是 agent 默认层模型时取 `agent.llm_tiers.default`；
- *   否则（前端 selectedLlm 替换了 default）取 runModel.provider 自带参数——
+ *   否则（前端 selectedLlm 替换了 default）取 runModel 模型条目自带参数——
  *   selectedLlm 连模型带参数一起替换 default 位置，不影响其它 tier（如摘要的 fast）。
  * - 场景 tier：主运行/子 agent 传 "default"（直接用 default 位置）；摘要传 "fast"
  *   等具体 tier，取 `agent.llm_tiers[tier]` 配置。
@@ -59,7 +59,7 @@ export function resolveTierLlmParams(input: {
   };
 }
 
-/** default 位置参数源：runModel 是 agent 默认层模型 → agent.llm_tiers.default；否则（selectedLlm）→ provider。 */
+/** default 位置参数源：runModel 是 agent 默认层模型 → agent.llm_tiers.default；否则（selectedLlm）→ 模型条目。 */
 function resolveDefaultSource(
   agent: AgentConfig,
   runModel: { provider: ModelProviderConfig; modelName: string },
@@ -68,15 +68,15 @@ function resolveDefaultSource(
   if (defaultTier && isDefaultTierModel(defaultTier, runModel.provider, runModel.modelName)) {
     return asParamSource(defaultTier) ?? {};
   }
-  return providerAsParamSource(runModel.provider);
+  return providerAsParamSource(runModel.provider, runModel.modelName);
 }
 
-/** provider → 同构参数源（selectedLlm 替换 default 时，参数取自该 provider）。 */
-function providerAsParamSource(provider: ModelProviderConfig): LlmParamSource {
+/** provider + 模型名 → 同构参数源（selectedLlm 替换 default 时，参数取自该模型条目）。 */
+function providerAsParamSource(provider: ModelProviderConfig, modelName: string): LlmParamSource {
+  const entry = provider.models.find((model) => model.name === modelName.trim());
   return {
-    temperature: provider.temperature,
-    max_completion_tokens: provider.max_completion_tokens,
-    max_tokens: provider.max_tokens,
+    temperature: entry?.temperature,
+    max_completion_tokens: entry?.max_completion_tokens,
     extra_params: (provider as Record<string, unknown>).extra_params,
   };
 }

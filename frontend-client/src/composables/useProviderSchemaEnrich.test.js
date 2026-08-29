@@ -13,14 +13,14 @@ function setup(providers = []) {
 
 test('enrich:provider/model 字段动态化为下拉，provider_type 禁用', () => {
   const { enrichSchemaWithProviderSelection } = setup([
-    { name: 'openai', key: 'openai', provider_type: 'openai', models: ['gpt-4o', 'gpt-4o-mini'] },
+    { name: 'openai', key: 'openai', provider_type: 'openai', models: [{ name: 'gpt-4o' }, { name: 'gpt-4o-mini' }] },
   ]);
   const schema = {
     groups: [providerSchema('llm', [
       { key: 'provider', type: 'string' },
       { key: 'provider_type', type: 'string' },
       { key: 'model_name', type: 'string' },
-    ], { providerSelect: { autoSelectModel: true, applyProviderFields: ['temperature'] } })],
+    ], { providerSelect: { autoSelectModel: true } })],
   };
   const config = { llm: { provider: 'openai', provider_type: 'openai', model_name: 'gpt-4o' } };
 
@@ -40,10 +40,10 @@ test('enrich:provider/model 字段动态化为下拉，provider_type 禁用', ()
   assert.equal(schema.groups[0].fields[0].type, 'string');
 });
 
-test('enrich:visionOnly 提示只列支持视觉的 provider，与组名无关', () => {
+test('enrich:visionOnly 提示只列拥有视觉模型的 provider，与组名无关', () => {
   const { enrichSchemaWithProviderSelection } = setup([
-    { name: 'openai', supports_vision: true },
-    { name: 'text-only', supports_vision: false },
+    { name: 'openai', models: [{ name: 'gpt-4o', supports_vision: true }, { name: 'gpt-4o-mini' }] },
+    { name: 'text-only', models: [{ name: 'deepseek-chat' }] },
   ]);
   const schema = {
     groups: [providerSchema('ocr_helper', [
@@ -63,8 +63,8 @@ test('enrich:visionOnly 提示只列支持视觉的 provider，与组名无关',
 
 test('enrich:未声明 visionOnly 时列出全部 provider', () => {
   const { enrichSchemaWithProviderSelection } = setup([
-    { name: 'openai', supports_vision: true },
-    { name: 'text-only', supports_vision: false },
+    { name: 'openai', models: [{ name: 'gpt-4o', supports_vision: true }] },
+    { name: 'text-only', models: [{ name: 'deepseek-chat' }] },
   ]);
   const schema = {
     groups: [providerSchema('llm', [{ key: 'provider', type: 'string' }, { key: 'model_name', type: 'string' }])],
@@ -90,16 +90,16 @@ test('enrich:无 provider/model 字段的组与无配置值的组原样跳过', 
   assert.equal(next.groups[1].fields[0].type, 'string');
 });
 
-test('cascade:autoSelectModel 提示切换 provider 自动选第一个模型并回填 applyProviderFields', () => {
+test('cascade:autoSelectModel 提示切换 provider 自动选第一个模型（运行参数归模型，不再回填）', () => {
   const { applyProviderCascade } = setup([
-    { name: 'openai', provider_type: 'openai', models: ['gpt-4o', 'gpt-4o-mini'], temperature: 0.3, max_context_tokens: 200000 },
+    { name: 'openai', provider_type: 'openai', models: [{ name: 'gpt-4o', temperature: 0.3 }, { name: 'gpt-4o-mini' }] },
   ]);
   const schema = {
     groups: [providerSchema('llm', [
       { key: 'provider' },
       { key: 'provider_type' },
       { key: 'model_name' },
-    ], { providerSelect: { autoSelectModel: true, applyProviderFields: ['temperature', 'max_completion_tokens', 'max_context_tokens'] } })],
+    ], { providerSelect: { autoSelectModel: true } })],
   };
   const prev = { llm: { provider: '', provider_type: '', model_name: '', temperature: 0.7 } };
   const next = { llm: { provider: 'openai', provider_type: '', model_name: '', temperature: 0.7 } };
@@ -108,15 +108,13 @@ test('cascade:autoSelectModel 提示切换 provider 自动选第一个模型并�
   assert.equal(result.llm.provider, 'openai');
   assert.equal(result.llm.provider_type, 'openai');
   assert.equal(result.llm.model_name, 'gpt-4o');
-  assert.equal(result.llm.temperature, 0.3);
-  assert.equal(result.llm.max_context_tokens, 200000);
-  // Provider 未提供的字段保持原值
-  assert.equal(result.llm.max_completion_tokens, undefined);
+  // 模型级参数不随 provider 切换回填，保持组内原值
+  assert.equal(result.llm.temperature, 0.7);
 });
 
 test('cascade:未声明 autoSelectModel 的组切换 provider 时清空 model_name', () => {
   const { applyProviderCascade } = setup([
-    { name: 'openai', key: 'openai', provider_type: 'openai', models: ['gpt-4o'] },
+    { name: 'openai', key: 'openai', provider_type: 'openai', models: [{ name: 'gpt-4o' }] },
   ]);
   const schema = {
     groups: [providerSchema('vision_helper', [

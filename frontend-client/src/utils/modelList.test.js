@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   applyProviderToLlm,
+  getProviderModelEntry,
   getProviderModels,
   normalizeModelList,
   parseExtraParamEntries,
@@ -13,26 +14,35 @@ test('normalizeModelList trims and ignores empty model names', () => {
   assert.deepEqual(normalizeModelList(' chat '), ['chat']);
 });
 
-test('getProviderModels follows chat-first model map order and deduplicates legacy fields', () => {
+test('getProviderModels 按配置顺序返回模型名并去重', () => {
   assert.deepEqual(getProviderModels({
-    model_map: {
-      embedding: ['embed-1', 'chat-model'],
-      chat: [' chat-model ', 'chat-model-2'],
-      rerank: 'rerank-1',
-    },
-    models: ['chat-model-2', 'legacy-model'],
-    model: 'legacy-model-2',
-  }), ['chat-model', 'chat-model-2', 'embed-1', 'rerank-1', 'legacy-model', 'legacy-model-2']);
+    models: [
+      { name: ' chat-model ' },
+      { name: 'chat-model', temperature: 0.2 },
+      { name: '', supports_vision: true },
+      { name: 'chat-model-2' },
+    ],
+  }), ['chat-model', 'chat-model-2']);
+  assert.deepEqual(getProviderModels(null), []);
+  assert.deepEqual(getProviderModels({ models: 'legacy' }), []);
 });
 
-test('applyProviderToLlm mirrors provider-managed model parameters', () => {
+test('getProviderModelEntry 按名称取模型条目', () => {
+  const provider = { models: [{ name: 'gpt-4o', temperature: 0.3, supports_vision: true }, { name: 'gpt-4o-mini' }] };
+  assert.deepEqual(getProviderModelEntry(provider, ' gpt-4o '), { name: 'gpt-4o', temperature: 0.3, supports_vision: true });
+  assert.equal(getProviderModelEntry(provider, 'missing'), null);
+  assert.equal(getProviderModelEntry(provider, ''), null);
+  assert.equal(getProviderModelEntry(null, 'gpt-4o'), null);
+});
+
+test('applyProviderToLlm 选首个模型并镜像模型条目运行参数', () => {
   assert.deepEqual(applyProviderToLlm({ temperature: 0.7, max_context_tokens: null }, {
     name: 'managed',
     provider_type: 'openai',
-    model_map: { chat: 'managed-chat' },
-    temperature: 0.2,
-    max_completion_tokens: 2048,
-    max_context_tokens: 64000,
+    models: [
+      { name: 'managed-chat', temperature: 0.2, max_completion_tokens: 2048, max_context_tokens: 64000 },
+      { name: 'managed-backup' },
+    ],
   }), {
     provider: 'managed',
     provider_type: 'openai',
@@ -41,6 +51,17 @@ test('applyProviderToLlm mirrors provider-managed model parameters', () => {
     max_completion_tokens: 2048,
     max_context_tokens: 64000,
   });
+});
+
+test('模型条目未配置的参数保持原值', () => {
+  const result = applyProviderToLlm({ temperature: 0.9, max_completion_tokens: 1024 }, {
+    name: 'bare',
+    provider_type: 'qwen',
+    models: [{ name: 'bare-chat' }],
+  });
+  assert.equal(result.model_name, 'bare-chat');
+  assert.equal(result.temperature, 0.9);
+  assert.equal(result.max_completion_tokens, 1024);
 });
 
 test('extra LLM parameters round-trip Agent and system editor value types', () => {

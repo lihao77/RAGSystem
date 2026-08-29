@@ -47,7 +47,7 @@ export class OpenAiVisionHelper implements VisionHelper {
 
   constructor(deps: VisionHelperDeps) {
     this.client = deps.client ?? new LlmProviderClient();
-    this.provider = toProviderConfig(deps.provider);
+    this.provider = toProviderConfig(deps.provider, deps.modelName);
     this.modelName = deps.modelName;
     this.maxCompletionTokens = deps.maxCompletionTokens;
     this.timeoutSeconds = deps.timeoutSeconds;
@@ -115,30 +115,24 @@ function normalizeImageMime(mime: string): string {
   return normalized.startsWith("image/") ? normalized : "image/png";
 }
 
-/** ModelProviderConfig（backend-core 超集）→ ProviderConfig（agent-llm 最小集）。 */
-export function toProviderConfig(provider: ModelProviderConfig): ProviderConfig {
-  const {
-    key,
-    name,
-    provider_type,
-    api_endpoint,
-    api_key,
-    supports_vision,
-    supports_function_calling,
-    max_completion_tokens,
-    temperature,
-    ...rest
-  } = provider;
+/**
+ * ModelProviderConfig（backend-core 超集）→ ProviderConfig（agent-llm 最小集）。
+ * 运行参数与能力位挂在模型条目上：提供 modelName 时，把该条目的值提升到返回的 ProviderConfig。
+ */
+export function toProviderConfig(provider: ModelProviderConfig, modelName?: string): ProviderConfig {
+  const { key, name, provider_type, api_endpoint, api_key, models, ...rest } = provider;
+  const entry = modelName ? models.find((model) => model.name === modelName.trim()) : undefined;
   return {
     key: key ?? null,
     name,
     provider_type,
     ...(api_endpoint ? { api_endpoint } : {}),
     ...(api_key ? { api_key } : {}),
-    ...(supports_vision !== undefined ? { supports_vision } : {}),
-    ...(supports_function_calling !== undefined ? { supports_function_calling } : {}),
-    ...(max_completion_tokens !== undefined ? { max_completion_tokens } : {}),
-    ...(temperature !== undefined ? { temperature } : {}),
+    ...(entry?.supports_vision !== undefined ? { supports_vision: entry.supports_vision } : {}),
+    ...(entry?.supports_function_calling !== undefined
+      ? { supports_function_calling: entry.supports_function_calling }
+      : {}),
+    ...(entry?.temperature !== undefined ? { temperature: entry.temperature } : {}),
     ...rest,
   };
 }

@@ -92,7 +92,7 @@ const error = ref('');
 const open = ref(false);
 
 // 按 provider 分组（保持接口返回顺序）；组内首个模型即该 provider 的默认模型
-// （collectProviderModels 以 model_map 的 chat 任务列表开头，顺序即用户配置的优先级）。
+// （models 数组序即用户配置的优先级，首个为默认）。
 const providerGroups = computed(() => {
   const groups = [];
   const byKey = new Map();

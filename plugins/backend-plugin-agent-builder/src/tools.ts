@@ -60,7 +60,7 @@ export function createAgentBuilderTools(
               name: provider.name,
               ...(provider.key ? { key: provider.key } : {}),
               provider_type: provider.provider_type,
-              models: provider.models,
+              models: provider.models.map((model) => model.name),
             })) ?? [];
           const itemCount = capabilityProviders.reduce((sum, section) => sum + section.items.length, 0);
           return toolSuccess({

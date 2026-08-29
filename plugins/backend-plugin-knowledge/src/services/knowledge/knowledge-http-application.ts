@@ -98,6 +98,9 @@ export class KnowledgeHttpApplication implements KnowledgeApplication {
     return this.knowledge.indexExternalFile(input, file, (await this.resolveMarkdown(file.id)).markdown);
   }
 
+  listModelProviders(kind?: Parameters<KnowledgeApplicationService["listModelProviders"]>[0]) { return this.knowledge.listModelProviders(kind); }
+  upsertModelProvider(input: Parameters<KnowledgeApplicationService["upsertModelProvider"]>[0]) { return this.knowledge.upsertModelProvider(input); }
+  deleteModelProvider(providerKey: string) { return this.knowledge.deleteModelProvider(providerKey); }
   listVectorizers() { return this.knowledge.listVectorizers(); }
   addVectorizer(input: Parameters<KnowledgeApplicationService["addVectorizer"]>[0]) { return this.knowledge.addVectorizer(input); }
   activateVectorizer(key: string) { return this.knowledge.activateVectorizer(key); }

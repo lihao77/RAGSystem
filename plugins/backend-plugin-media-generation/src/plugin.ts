@@ -1,7 +1,6 @@
 import type { BackendPlugin, BackendToolDescriptor } from "@ragsystem/backend-core/plugins/backend-plugin.js";
 
 import { MEDIA_IMAGE_CONFIG_KEY, MEDIA_SYSTEM_CONFIG_EXTENSION, MEDIA_VIDEO_CONFIG_KEY, resolveImageConfig, resolveVideoConfig } from "./config.js";
-import { MEDIA_PROVIDER_TYPES } from "./provider-types.js";
 import { buildCheckVideoTaskTool, CHECK_VIDEO_TASK_TOOL_NAME } from "./tools/CheckVideoTaskTool.js";
 import { buildGenerateImageTool, GENERATE_IMAGE_TOOL_NAME } from "./tools/GenerateImageTool.js";
 import { buildGenerateVideoTool, GENERATE_VIDEO_TOOL_NAME } from "./tools/GenerateVideoTool.js";
@@ -33,10 +32,8 @@ export function createMediaGenerationPlugin(): BackendPlugin {
   return {
     manifest: { id: PLUGIN_ID, version: "0.1.0" },
     register(context) {
-      // 1) Provider 类型注册：Provider 管理页出现“xx · 图像/视频生成”类型（key/endpoint 由系统统一管理）。
-      context.providerTypes.register(MEDIA_PROVIDER_TYPES);
-
-      // 2) Agent 工具（各 agent 在 enabled_tools 中勾选启用）。
+      // 1) Agent 工具（各 agent 在 enabled_tools 中勾选启用）。厂商凭证在插件配置段自管，
+      //    不向 core 的模型 Provider 体系注册任何类型/条目。
       context.tools.register((factoryContext) => {
         const enabled = new Set(factoryContext.agent.tools.enabled_tools ?? []);
         const tools = [];
@@ -46,7 +43,7 @@ export function createMediaGenerationPlugin(): BackendPlugin {
         return tools;
       }, TOOL_DESCRIPTORS);
 
-      // 3) 设置页配置组（注册时回灌已存值，避免 rebuildProjection 丢配置——skills/pet 同款模式）。
+      // 2) 设置页配置组（注册时回灌已存值，避免 rebuildProjection 丢配置——skills/pet 同款模式）。
       context.runtimes.register((runtimeContext) => {
         const unregister = runtimeContext.systemConfig.registerExtension(PLUGIN_ID, {
           ...MEDIA_SYSTEM_CONFIG_EXTENSION,

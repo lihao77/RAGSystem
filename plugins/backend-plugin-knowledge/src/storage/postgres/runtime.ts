@@ -4,7 +4,6 @@ import os from "node:os";
 import path from "node:path";
 
 import type { ObjectStorage } from "@ragsystem/backend-core/contracts/storage/object-storage.js";
-import type { ModelProviderCatalogPort } from "@ragsystem/backend-core/contracts/integrations/model-adapter.js";
 
 import type { KnowledgeApplication } from "../../contracts/knowledge-application.js";
 import { TenantKnowledgeMarkdownPipeline } from "../../contracts/knowledge/async-knowledge-markdown-pipeline.js";
@@ -19,13 +18,13 @@ import { SaaSKnowledgeFileStorage } from "./knowledge-file-storage.js";
 import { PostgresPgVectorRepository } from "./pgvector-repository.js";
 import { KnowledgeAgentConfigService } from "../../agent-config.js";
 import { PostgresKnowledgeAgentConfigStore } from "./agent-config-store.js";
+import { PostgresKnowledgeModelProviderStore } from "./model-provider-store.js";
 import { resolveDocumentExtractionConfig, type DocumentExtractionConfig } from "../../system-config.js";
 
 export interface PostgresKnowledgeRuntimeOptions {
   tenantId: string;
   executor: KnowledgePostgresExecutor;
   objects: ObjectStorage;
-  modelAdapter: ModelProviderCatalogPort;
   documentExtraction: DocumentExtractionConfig;
 }
 
@@ -46,7 +45,6 @@ export function createPostgresKnowledgeRuntimeFactory(
         tenantId: context.tenantId,
         executor: options.executor,
         objects: options.objects,
-        modelAdapter: context.modelAdapter,
         documentExtraction: resolveDocumentExtractionConfig(
           context.systemConfig.getSection("document_extraction"),
         ),
@@ -63,13 +61,9 @@ export function createPostgresKnowledgeApplication(
 ): KnowledgeApplication {
   const service = new KnowledgeApplicationService(
     options.tenantId,
-    options.modelAdapter,
+    new PostgresKnowledgeModelProviderStore(options.executor),
     new PostgresKnowledgeConfigRepository(options.executor),
     new PostgresPgVectorRepository(options.executor),
-    undefined,
-    undefined,
-    options.modelAdapter.createEmbeddingClient(),
-    options.modelAdapter.createRerankClient(),
   );
   const files = new SaaSKnowledgeFileStorage(
     options.tenantId,

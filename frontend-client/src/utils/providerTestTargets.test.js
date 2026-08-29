@@ -7,54 +7,35 @@ import {
   summarizeProviderTestResult,
 } from './providerTestTargets.js';
 
-test('exposes each configured provider task instead of choosing one implicitly', () => {
+// 模型即测试单元：每个已配置模型一个 chat 目标（运行参数取自模型条目）。
+test('每个已配置模型生成一个 chat 测试目标', () => {
   const targets = getProviderTestTargets({
-    model_map: {
-      chat: 'chat-model',
-      embedding: ['embed-model', 'embed-backup'],
-      rerank: 'rerank-model',
-    },
+    models: [
+      { name: 'gpt-4o', temperature: 0.2 },
+      { name: 'gpt-4o-mini', supports_vision: true },
+      { name: '  ' },
+    ],
   });
   assert.deepEqual(targets.map(({ task, model }) => ({ task, model })), [
-    { task: 'chat', model: 'chat-model' },
-    { task: 'embedding', model: 'embed-model' },
-    { task: 'rerank', model: 'rerank-model' },
+    { task: 'chat', model: 'gpt-4o' },
+    { task: 'chat', model: 'gpt-4o-mini' },
   ]);
-  assert.equal(providerTestTaskLabel('embedding'), 'Embedding');
+  assert.equal(providerTestTaskLabel('chat'), 'Chat');
 });
 
-test('validates embedding vector shape', () => {
+test('未配置模型时无测试目标', () => {
+  assert.deepEqual(getProviderTestTargets({}), []);
+  assert.deepEqual(getProviderTestTargets({ models: [] }), []);
+  assert.deepEqual(getProviderTestTargets({ models: [{ name: '' }] }), []);
+});
+
+test('chat 结果摘要截断响应内容并附时延', () => {
   assert.equal(
-    summarizeProviderTestResult(
-      { task: 'embedding' },
-      { embeddings: [[0.1, 0.2, 0.3]], latency: 0.125 },
-    ),
-    '返回 3 维向量 · 0.13s',
+    summarizeProviderTestResult({ task: 'chat' }, { content: 'pong', latency: 0.125 }),
+    '响应：pong · 0.13s',
   );
-  assert.throws(
-    () => summarizeProviderTestResult({ task: 'embedding' }, { embeddings: [[]] }),
-    /未返回有效向量/,
-  );
-});
-
-test('checks rerank relevance instead of only counting results', () => {
-  const target = { task: 'rerank' };
-  assert.match(
-    summarizeProviderTestResult(target, {
-      results: [
-        { id: 'rerank-relevant', score: 0.91 },
-        { id: 'rerank-unrelated', score: 0.08 },
-      ],
-    }),
-    /排序正确/,
-  );
-  assert.throws(
-    () => summarizeProviderTestResult(target, {
-      results: [
-        { id: 'rerank-relevant', score: 0.1 },
-        { id: 'rerank-unrelated', score: 0.8 },
-      ],
-    }),
-    /未高于无关文档/,
+  assert.equal(
+    summarizeProviderTestResult({ task: 'chat' }, {}),
+    '响应：调用成功',
   );
 });

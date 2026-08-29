@@ -1,64 +1,24 @@
 /**
- * Embedder 注册表 + 工厂(可插拔 embedding 后端)——仿 Python `_PROVIDER_CLASSES`(dict + 工厂),避开 if/else。
+ * Embedder 工厂（可插拔 embedding 后端）。
  *
- * 深合约:
- * - createEmbedder 按 provider.provider_type 查 EMBEDDER_REGISTRY;命中 → 对应 factory 创建;
- *   未命中 / 无 provider → HashFallbackEmbedder(semantic:false,降级);
- * - RemoteEmbedder 走 OpenAI 兼容 /embeddings,dimension 惰性缓存(首次 embed 后有效,此前为 0);
- * - HashFallbackEmbedder 固定 64 维 hash,semantic:false;
+ * 深合约：
+ * - 有 provider（知识库自管的 embedding 模型服务，OpenAI 兼容 /embeddings）→ RemoteEmbedder；
+ *   无 provider（"local" 向量化器）→ HashFallbackEmbedder(semantic:false, 降级)；
+ * - RemoteEmbedder dimension 惰性缓存（首次 embed 后有效，此前为 0）；
+ * - HashFallbackEmbedder 固定 64 维 hash，semantic:false，仅供开发/降级。
  */
 import type { IEmbedder } from "../../contracts/vector-store/index.js";
-import type {
-  EmbeddingClientPort,
-  ModelProviderConfig,
-} from "@ragsystem/backend-core/contracts/integrations/model-adapter.js";
+import type { EmbeddingClientPort, KnowledgeModelProvider } from "../../contracts/knowledge/model-providers.js";
 
-export interface EmbedderFactory {
-  create(provider: ModelProviderConfig, modelName: string, client?: EmbeddingClientPort): IEmbedder;
-}
-
-export const EMBEDDER_REGISTRY: Map<string, EmbedderFactory> = new Map();
-
-export function registerEmbedder(providerType: string, factory: EmbedderFactory): void {
-  EMBEDDER_REGISTRY.set(providerType, factory);
-}
-
-/** OpenAI 兼容 embedding provider_type(POST /embeddings)。 */
-const OPENAI_COMPATIBLE_EMBEDDER_TYPES = [
-  "openai_chat",
-  "openai_proxy",
-  "openrouter",
-  "modelscope",
-  "openai_resp",
-  "mistral",
-  "qwen",
-];
-
-for (const providerType of OPENAI_COMPATIBLE_EMBEDDER_TYPES) {
-  registerEmbedder(providerType, {
-      create: (provider, modelName, client) => new RemoteEmbedder(provider, modelName, client),
-  });
-}
-
-/**
- * 按 provider 配置创建 embedder。无 provider / 未知 provider_type → HashFallbackEmbedder(降级)。
- * 加新 embedder 类型 = registerEmbedder,不改分发逻辑(开闭原则)。
- */
 export function createEmbedder(
-  provider: ModelProviderConfig | null | undefined,
+  provider: KnowledgeModelProvider | null,
   modelName: string,
   client?: EmbeddingClientPort,
 ): IEmbedder {
-  if (provider) {
-    const factory = EMBEDDER_REGISTRY.get(provider.provider_type);
-    if (factory) {
-      return factory.create(provider, modelName, client);
-    }
-  }
-  return new HashFallbackEmbedder();
+  return provider ? new RemoteEmbedder(provider, modelName, client) : new HashFallbackEmbedder();
 }
 
-/** 远程 embedding(OpenAI 兼容 /embeddings)。dimension 惰性:首次 embed 后缓存,此前为 0(未探测)。 */
+/** 远程 embedding(OpenAI 兼容 /embeddings)。 */
 export class RemoteEmbedder implements IEmbedder {
   private readonly client: EmbeddingClientPort;
   private cachedDimension = 0;
@@ -66,13 +26,13 @@ export class RemoteEmbedder implements IEmbedder {
   readonly semantic = true;
 
   constructor(
-    private readonly provider: ModelProviderConfig,
+    private readonly provider: KnowledgeModelProvider,
     private readonly modelName: string,
     client?: EmbeddingClientPort,
   ) {
-    if (!client) throw new Error("Knowledge embedding requires a Model Adapter embedding client");
+    if (!client) throw new Error("Knowledge embedding requires an embedding client");
     this.client = client;
-    this.key = `remote:${provider.key ?? provider.name}/${modelName}`;
+    this.key = `remote:${provider.provider_key}/${modelName}`;
   }
 
   get dimension(): number {

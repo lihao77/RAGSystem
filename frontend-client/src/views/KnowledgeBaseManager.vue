@@ -31,6 +31,7 @@
 
                 <!-- ══ Tab 1: 知识库管理 ══════════════════════════ -->
                 <KnowledgeBaseStorePanel :context="context" />
+                <KnowledgeBaseModelProvidersPanel :context="context" />
                 <KnowledgeBaseVectorizersPanel :context="context" />
                 <KnowledgeBaseRerankersPanel :context="context" />
                 <KnowledgeBaseSearchPanel :context="context" />
@@ -47,6 +48,7 @@ import SegmentedControl from '../components/SegmentedControl.vue';
 import { Button } from '../components/ui/button';
 import { useKnowledgeBaseManager } from '../composables/useKnowledgeBaseManager.js';
 import KnowledgeBaseStorePanel from '../components/knowledge-base/KnowledgeBaseStorePanel.vue';
+import KnowledgeBaseModelProvidersPanel from '../components/knowledge-base/KnowledgeBaseModelProvidersPanel.vue';
 import KnowledgeBaseVectorizersPanel from '../components/knowledge-base/KnowledgeBaseVectorizersPanel.vue';
 import KnowledgeBaseRerankersPanel from '../components/knowledge-base/KnowledgeBaseRerankersPanel.vue';
 import KnowledgeBaseSearchPanel from '../components/knowledge-base/KnowledgeBaseSearchPanel.vue';

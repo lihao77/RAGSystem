@@ -10,7 +10,7 @@ import type { BackgroundTaskPort } from "../contracts/runtime/background-tasks.j
 import type { PendingInteractionPort } from "../contracts/runtime/pending-interactions.js";
 import type { TenantId } from "../identity/types.js";
 import type { ClientEventPublisherPort } from "../contracts/runtime/core-runtime-ports.js";
-import type { ModelProviderCatalogPort, ProviderTypeInfo, RegisteredProviderType } from "../contracts/integrations/model-adapter.js";
+import type { ModelProviderCatalogPort } from "../contracts/integrations/model-adapter.js";
 import type { SystemConfigPort } from "../contracts/runtime/system-config.js";
 import type { CapabilityProvider, CapabilityRegistry } from "./capability-registry.js";
 import type { RuntimeContainerRegistry } from "../services/runtime/runtime-container-registry.js";
@@ -100,25 +100,6 @@ export interface PluginEventRegistrar {
 
 export interface PluginResourceRegistrar {
   register<Value>(token: BackendResourceToken<Value>, value: Value): () => void;
-}
-
-/* ============================================================
- * 插件 Provider 类型（模型 Provider 子系统的类型扩展面）
- * ========================================================== */
-
-/**
- * 插件向模型 Provider 子系统注册自定义 provider_type（label/默认 endpoint/表单字段）。
- * 注册后用户可在 Provider 管理页创建该类型条目（api_key/endpoint 由系统统一存储与脱敏），
- * 插件经 ModelProviderCatalogPort 按类型读取使用。类型 value 冲突（内置/其他插件）在注册时抛错。
- */
-export interface PluginProviderTypeRegistrar {
-  register(types: readonly ProviderTypeInfo[]): () => void;
-}
-
-/** 一个插件注册的 Provider 类型集合（宿主盖章 pluginId，与其它 contribution 一致）。 */
-export interface BackendProviderTypeContribution {
-  readonly pluginId: string;
-  readonly types: readonly RegisteredProviderType[];
 }
 
 /* ============================================================
@@ -316,7 +297,6 @@ export interface BackendRuntimeContributions {
   /** 顺序管道变换用户消息；无 transformer 或全部返回 null 时结果为 null（保持原样）。 */
   transformUserMessage(input: UserMessageTransformInput): Promise<MessageContentPart[] | null>;
   /** 全部插件注册的 Provider 类型（部署容器创建 ModelAdapterService 后注入）。 */
-  listProviderTypes(): readonly BackendProviderTypeContribution[];
 }
 
 export interface BackendPluginContext {
@@ -330,7 +310,6 @@ export interface BackendPluginContext {
   readonly events: PluginEventRegistrar;
   readonly transformers: PluginUserMessageTransformerRegistrar;
   readonly ui: PluginUiRegistrar;
-  readonly providerTypes: PluginProviderTypeRegistrar;
 }
 
 export interface BackendPluginManifest {

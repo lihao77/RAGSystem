@@ -5,13 +5,10 @@ import path from "node:path";
 import YAML from "yaml";
 
 import type {
-  EmbeddingClientPort,
-  ModelMap,
-  ModelMapValue,
   ModelProviderConfig,
+  ProviderModelEntry,
   ProviderPayload,
   ProviderTypeInfo,
-  RegisteredProviderType,
   TestProviderRequest,
 } from "../../contracts/integrations/model-adapter.js";
 import {
@@ -25,28 +22,32 @@ import {
   type ProviderConfig,
 } from "@ragsystem/agent-llm";
 import { DEFAULT_ENDPOINTS, PROVIDER_TYPES, PROVIDER_TYPE_SET, providerTypeSpec } from "@ragsystem/agent-llm";
-import { OpenAiCompatibleEmbeddingClient } from "./embedding-client.js";
-import { OpenAiCompatibleRerankClient, type RerankerEndpointConfig } from "./reranker-client.js";
 
 const PROVIDERS_CONFIG_RELATIVE_PATH = path.join("config", "model_adapter", "providers.yaml");
 
 const UPDATE_FIELDS = [
   "provider_type",
   "api_key",
-  "temperature",
-  "max_tokens",
-  "max_completion_tokens",
-  "max_context_tokens",
   "timeout",
   "retry_attempts",
   "retry_delay",
   "retry_backoff_factor",
-  "supports_function_calling",
-  "supports_vision",
   "supports_prompt_caching",
   "cache_ttl_seconds",
-  "model_map",
+  "models",
   "api_endpoint",
+] as const;
+
+/** 已废弃的 provider 级字段（模型映射/运行参数已下沉到模型条目），加载/写入时剥离。 */
+const LEGACY_PROVIDER_FIELDS = [
+  "model",
+  "model_map",
+  "temperature",
+  "max_tokens",
+  "max_completion_tokens",
+  "max_context_tokens",
+  "supports_function_calling",
+  "supports_vision",
 ] as const;
 
 export class ModelAdapterServiceError extends Error {
@@ -62,9 +63,6 @@ export class ModelAdapterServiceError extends Error {
 export class ModelAdapterService {
   private readonly providers = new Map<string, ModelProviderConfig>();
   private readonly providersConfigPath: string | null;
-  /** 插件贡献的 Provider 类型（key = 类型 value；同一插件重复注册覆盖自身）。 */
-  private readonly pluginProviderTypes = new Map<string, RegisteredProviderType>();
-  private readonly pluginProviderTypesByExtension = new Map<string, Set<string>>();
 
   constructor(options: {
     dataRoot?: string | undefined;
@@ -74,126 +72,17 @@ export class ModelAdapterService {
     this.loadProvidersFromDisk();
   }
 
-  /**
-   * 注册插件贡献的 Provider 类型。类型 value 不得与内置类型或其他插件冲突；
-   * 注册后重读 providers.yaml，装载此前因类型未知被跳过的条目。
-   * 返回注销函数（同插件重复注册为覆盖语义）。
-   */
-  registerProviderTypes(extensionId: string, types: readonly ProviderTypeInfo[]): () => void {
-    const normalizedExtension = String(extensionId ?? "").trim();
-    if (!normalizedExtension) {
-      throw new ModelAdapterServiceError("插件 Provider 类型注册缺少 extension id", 400);
-    }
-    const incoming = new Map<string, ProviderTypeInfo>();
-    for (const type of types) {
-      const value = String(type?.value ?? "").trim().toLowerCase();
-      const label = String(type?.label ?? "").trim();
-      if (!/^[a-z][a-z0-9_]*$/.test(value)) {
-        throw new ModelAdapterServiceError(`插件 Provider 类型 value 非法（小写字母开头的 snake_case）: ${value || "(空)"}`, 400);
-      }
-      if (!label) {
-        throw new ModelAdapterServiceError(`插件 Provider 类型 ${value} 缺少 label`, 400);
-      }
-      if (PROVIDER_TYPE_SET.has(value)) {
-        throw new ModelAdapterServiceError(`插件 Provider 类型与内置类型冲突: ${value}`, 400);
-      }
-      const existing = this.pluginProviderTypes.get(value);
-      if (existing && existing.extension_id !== normalizedExtension) {
-        throw new ModelAdapterServiceError(
-          `插件 Provider 类型 ${value} 已被 ${existing.extension_id} 注册`,
-          400,
-        );
-      }
-      if (incoming.has(value)) {
-        throw new ModelAdapterServiceError(`插件 Provider 类型重复: ${value}`, 400);
-      }
-      incoming.set(value, {
-        value,
-        label,
-        default_endpoint: String(type?.default_endpoint ?? ""),
-        supports_embedding: type?.supports_embedding === true,
-        supports_rerank: type?.supports_rerank === true,
-        config_fields: (type?.config_fields ?? []).map((field) => ({ ...field, options: [...(field.options ?? [])] })),
-        ...(Array.isArray(type?.model_tasks) && type.model_tasks.length > 0
-          ? {
-              model_tasks: type.model_tasks
-                .map((task) => ({
-                  value: String(task?.value ?? "").trim(),
-                  label: String(task?.label ?? "").trim() || String(task?.value ?? "").trim(),
-                }))
-                .filter((task) => task.value),
-            }
-          : {}),
-      });
-    }
-
-    const owned = this.pluginProviderTypesByExtension.get(normalizedExtension) ?? new Set<string>();
-    for (const value of owned) {
-      if (!incoming.has(value)) {
-        this.pluginProviderTypes.delete(value);
-        owned.delete(value);
-      }
-    }
-    for (const [value, type] of incoming) {
-      this.pluginProviderTypes.set(value, { ...type, extension_id: normalizedExtension });
-      owned.add(value);
-    }
-    this.pluginProviderTypesByExtension.set(normalizedExtension, owned);
-
-    this.loadProvidersFromDisk();
-
-    const manager = this;
-    return () => {
-      if (manager.pluginProviderTypesByExtension.get(normalizedExtension) !== owned) return;
-      for (const value of owned) {
-        manager.pluginProviderTypes.delete(value);
-      }
-      manager.pluginProviderTypesByExtension.delete(normalizedExtension);
-    };
-  }
-
-  /** 类型是否为指定插件贡献（供路由/应用层判定"插件托管类型"）。 */
-  isPluginProviderType(providerType: string): boolean {
-    return this.pluginProviderTypes.has(String(providerType ?? "").trim().toLowerCase());
-  }
-
   private isKnownProviderType(providerType: string): boolean {
-    return PROVIDER_TYPE_SET.has(providerType) || this.pluginProviderTypes.has(providerType);
-  }
-
-  /** 插件类型声明的自定义字段 key 集合（白名单外的透传字段）。 */
-  private pluginConfigFieldKeys(providerTypes: readonly string[]): Set<string> {
-    const keys = new Set<string>();
-    for (const providerType of providerTypes) {
-      const info = this.pluginProviderTypes.get(String(providerType ?? "").trim().toLowerCase());
-      if (!info) continue;
-      for (const field of info.config_fields) keys.add(field.key);
-    }
-    return keys;
+    return PROVIDER_TYPE_SET.has(providerType);
   }
 
   listProviderTypes(): ProviderTypeInfo[] {
-    const builtin = PROVIDER_TYPES.map((providerType) => ({
+    return PROVIDER_TYPES.map((providerType) => ({
       value: providerType,
       label: labelProviderType(providerType),
       default_endpoint: DEFAULT_ENDPOINTS[providerType] ?? "",
-      supports_embedding: providerTypeSpec(providerType)?.supportsEmbedding ?? false,
-      supports_rerank: providerTypeSpec(providerType)?.supportsRerank ?? false,
       config_fields: providerConfigFields(providerType),
     }));
-    const plugin = Array.from(this.pluginProviderTypes.values())
-      .sort((a, b) => a.label.localeCompare(b.label, "zh-Hans-CN"))
-      .map((type) => ({
-        value: type.value,
-        label: type.label,
-        default_endpoint: type.default_endpoint,
-        supports_embedding: type.supports_embedding,
-        supports_rerank: type.supports_rerank,
-        config_fields: type.config_fields.map((field) => ({ ...field })),
-        ...(type.model_tasks ? { model_tasks: type.model_tasks } : {}),
-        extension_id: type.extension_id,
-      }));
-    return [...builtin, ...plugin];
   }
 
   listProviders(): ModelProviderConfig[] {
@@ -218,8 +107,7 @@ export class ModelAdapterService {
       if (!this.isKnownProviderType(config.provider_type)) {
         continue;
       }
-      rebuildModelsFromModelMap(config);
-      this.ensureProviderRuntimeShape(config);
+      normalizeProviderRuntimeConfig(config);
       next.set(providerKey, config);
     }
     this.providers.clear();
@@ -232,20 +120,11 @@ export class ModelAdapterService {
 
   /**
    * 按 key 取单个 provider 配置（克隆，避免外部 mutate 内部状态）。无则 null。
-   * 对应 hasProvider 的值读取口：embedder/reranker 等按 provider_key 解析配置时用，
-   * 避免每次 listProviders() 克隆全部 provider。
+   * 对应 hasProvider 的值读取口，避免每次 listProviders() 克隆全部 provider。
    */
   getProvider(providerKey: string): ModelProviderConfig | null {
     const config = this.providers.get(providerKey);
     return config ? cloneProviderConfig(config) : null;
-  }
-
-  createEmbeddingClient(): EmbeddingClientPort {
-    return new OpenAiCompatibleEmbeddingClient();
-  }
-
-  createRerankClient() {
-    return new OpenAiCompatibleRerankClient();
   }
 
   getProviderMetrics(providerKey: string): { provider_key: string; resilience: ExternalCallMetrics | null } {
@@ -283,7 +162,7 @@ export class ModelAdapterService {
     if (Object.keys(data).length === 0) {
       throw new ModelAdapterServiceError("请求数据不能为空", 400);
     }
-    this.ensureProviderRequestShape(data);
+    this.ensureProviderRequestShape(data, { requireModels: false });
 
     const config = cloneProviderConfig(existing);
     for (const field of UPDATE_FIELDS) {
@@ -297,23 +176,11 @@ export class ModelAdapterService {
       assignProviderField(config, field, value);
     }
 
-    // 插件类型的自定义扩展字段（config_fields 声明，如媒体条目的 vendor）：
-    // 不在 UPDATE_FIELDS 白名单内，按新旧类型声明并集透传，否则更新即丢失。
-    const extensionKeys = new Set([
-      ...this.pluginConfigFieldKeys([config.provider_type, String(data.provider_type ?? "")]),
-    ]);
-    for (const key of extensionKeys) {
-      if ((UPDATE_FIELDS as readonly string[]).includes(key)) continue;
-      if (!Object.prototype.hasOwnProperty.call(data, key)) continue;
-      assignProviderExtensionField(config, key, data[key]);
-    }
-
-    rebuildModelsFromModelMap(config);
+    normalizeProviderRuntimeConfig(config);
     config.provider_type = canonicalizeProviderType(config.provider_type, undefined);
     if (!this.isKnownProviderType(config.provider_type)) {
       throw new ModelAdapterServiceError(`不支持的 Provider 类型: ${config.provider_type}`, 400);
     }
-    this.ensureProviderRuntimeShape(config);
     return { key: providerKey, config };
   }
 
@@ -398,10 +265,6 @@ export class ModelAdapterService {
     if (!String(data.prompt ?? "").trim()) {
       throw new ModelAdapterServiceError("请提供测试内容", 400);
     }
-    const task = data.task ?? "chat";
-    if (!["chat", "embedding", "rerank"].includes(task)) {
-      throw new ModelAdapterServiceError(`不支持的任务类型: ${task}`, 400);
-    }
   }
 
   checkProviderAvailability(providerKey: string): {
@@ -414,150 +277,66 @@ export class ModelAdapterService {
     if (!provider) {
       throw new ModelAdapterServiceError(`Provider 不存在: ${providerKey}`, 404);
     }
-    const supportsEmbedding = providerTypeSpec(provider.provider_type)?.supportsEmbedding ?? false;
-    const supportsRerank = providerTypeSpec(provider.provider_type)?.supportsRerank ?? false;
-    const pluginManaged = this.isPluginProviderType(provider.provider_type);
-    const pluginModelConfigured = pluginManaged ? (provider.models?.length ?? 0) > 0 : true;
     const checks = {
       provider_exists: true,
       provider_type_supported: this.isKnownProviderType(provider.provider_type),
       api_key_configured: Boolean(String(provider.api_key ?? "").trim()),
-      endpoint_configured: provider.provider_type !== "rerank_api" || Boolean(String(provider.api_endpoint ?? "").trim()),
-      chat_model_configured: pluginManaged ? pluginModelConfigured : Boolean(firstModelForTask(provider, "chat")),
-      embedding_supported: supportsEmbedding,
-      embedding_model_configured: supportsEmbedding && Boolean(firstModelForTask(provider, "embedding")),
-      rerank_supported: supportsRerank,
-      rerank_model_configured: supportsRerank && Boolean(firstModelForTask(provider, "rerank")),
+      chat_model_configured: provider.models.some((model) => Boolean(model.name)),
     };
-    // 插件托管类型：模型在 Provider 条目上配置（model_map/models），可用性看凭证 + 至少一个模型。
-    const taskReady = pluginManaged ? pluginModelConfigured : (() => {
-      if (provider.provider_type === "rerank_api") return checks.rerank_model_configured;
-      return checks.chat_model_configured || checks.embedding_model_configured || checks.rerank_model_configured;
-    })();
     const isAvailable =
       checks.provider_type_supported &&
       checks.api_key_configured &&
-      checks.endpoint_configured &&
-      taskReady;
+      checks.chat_model_configured;
     return {
       provider_key: providerKey,
       is_available: isAvailable,
       checks,
-      error: isAvailable ? null : summarizeAvailabilityFailure(provider, checks, taskReady),
+      error: isAvailable ? null : summarizeAvailabilityFailure(provider, checks, checks.chat_model_configured),
     };
   }
 
   async testProvider(data: TestProviderRequest): Promise<Record<string, unknown>> {
     this.validateTestProviderRequest(data);
     const provider = this.resolveProviderForTest(data);
-    if (this.isPluginProviderType(provider.provider_type)) {
-      const extensionId = this.pluginProviderTypes.get(provider.provider_type)?.extension_id ?? "插件";
-      throw new ModelAdapterServiceError(`该 Provider 类型由 ${extensionId} 提供，暂不支持在线测试`, 400);
-    }
-    const task = data.task ?? "chat";
-    if (task === "embedding" && providerTypeSpec(provider.provider_type)?.supportsEmbedding !== true) {
-      throw new ModelAdapterServiceError(`Provider 类型 ${provider.provider_type} 不支持 Embedding`, 400);
-    }
-    if (task === "rerank" && providerTypeSpec(provider.provider_type)?.supportsRerank !== true) {
-      throw new ModelAdapterServiceError(`Provider 类型 ${provider.provider_type} 不支持 Rerank`, 400);
-    }
-    const model = firstModelFromValue(data.model) ?? firstModelForTask(provider, task);
+    const requestedModel = firstModelFromValue(data.model);
+    const entry = requestedModel ? findModelEntryByName(provider, requestedModel) : provider.models[0] ?? null;
+    const model = requestedModel ?? entry?.name ?? null;
     if (!model) {
-      throw new ModelAdapterServiceError(`Provider 未配置 ${task} 模型`, 400);
+      throw new ModelAdapterServiceError("Provider 未配置 chat 模型", 400);
     }
 
-    if (task === "chat") {
-      const startedAt = Date.now();
-      try {
-        // 测连通性用真实 agent-llm client（LlmProviderClient 无状态）；mock 假响应无意义。
-        const response = await new LlmProviderClient().complete({
-          messages: [{ role: "user", content: data.prompt ?? "" }],
-          model,
-          provider: provider as unknown as ProviderConfig,
-          temperature: 0.7,
-          maxCompletionTokens: 500,
-        });
-        return {
-          content: response.content,
-          error: null,
-          model,
-          provider: provider.name,
-          cost: null,
-          latency: (Date.now() - startedAt) / 1000,
-          usage: null,
-          finish_reason: response.finishReason ?? null,
-        };
-      } catch (error) {
-        return {
-          content: null,
-          error: error instanceof Error ? error.message : String(error),
-          model,
-          provider: provider.name,
-          cost: null,
-          latency: (Date.now() - startedAt) / 1000,
-          usage: null,
-          finish_reason: null,
-        };
-      }
+    const startedAt = Date.now();
+    try {
+      // 测连通性用真实 agent-llm client（LlmProviderClient 无状态）；mock 假响应无意义。
+      const response = await new LlmProviderClient().complete({
+        messages: [{ role: "user", content: data.prompt ?? "" }],
+        model,
+        provider: provider as unknown as ProviderConfig,
+        temperature: entry?.temperature ?? 0.7,
+        maxCompletionTokens: entry?.max_completion_tokens ?? 500,
+      });
+      return {
+        content: response.content,
+        error: null,
+        model,
+        provider: provider.name,
+        cost: null,
+        latency: (Date.now() - startedAt) / 1000,
+        usage: null,
+        finish_reason: response.finishReason ?? null,
+      };
+    } catch (error) {
+      return {
+        content: null,
+        error: error instanceof Error ? error.message : String(error),
+        model,
+        provider: provider.name,
+        cost: null,
+        latency: (Date.now() - startedAt) / 1000,
+        usage: null,
+        finish_reason: null,
+      };
     }
-
-    if (task === "embedding") {
-      const startedAt = Date.now();
-      try {
-        const embeddings = await new OpenAiCompatibleEmbeddingClient().embed({
-          texts: [data.prompt ?? ""],
-          model,
-          provider,
-        });
-        return {
-          embeddings,
-          error: null,
-          model,
-          provider: provider.name,
-          latency: (Date.now() - startedAt) / 1000,
-          usage: null,
-        };
-      } catch (error) {
-        return {
-          embeddings: null,
-          error: error instanceof Error ? error.message : String(error),
-          model,
-          provider: provider.name,
-          latency: (Date.now() - startedAt) / 1000,
-          usage: null,
-        };
-      }
-    }
-
-    if (task === "rerank") {
-      const startedAt = Date.now();
-      const documents = normalizeRerankDocuments(data.documents, data.prompt ?? "");
-      try {
-        const scores = await new OpenAiCompatibleRerankClient().rerank({
-          query: data.prompt ?? "",
-          documents: documents.map((document) => document.text),
-          reranker: providerAsStoredReranker(provider, model),
-          topN: documents.length,
-        });
-        return {
-          results: documents.map((document, index) => ({ ...document, score: scores[index] })),
-          error: null,
-          model,
-          provider: provider.name,
-          latency: (Date.now() - startedAt) / 1000,
-        };
-      } catch (error) {
-        return {
-          results: null,
-          error: error instanceof Error ? error.message : String(error),
-          model,
-          provider: provider.name,
-          latency: (Date.now() - startedAt) / 1000,
-        };
-      }
-    }
-
-    throw new ModelAdapterServiceError(`不支持的任务类型: ${task}`, 400);
   }
 
   private resolveProviderForTest(data: TestProviderRequest): ModelProviderConfig {
@@ -589,59 +368,35 @@ export class ModelAdapterService {
       }
     }
 
-    this.ensureProviderRequestShape(normalized);
+    this.ensureProviderRequestShape(normalized, { requireModels: true });
     const config = normalized as ModelProviderConfig;
     config.name = String(config.name);
     config.provider_type = String(config.provider_type).toLowerCase();
     if (!this.isKnownProviderType(config.provider_type)) {
       throw new ModelAdapterServiceError(`不支持的 Provider 类型: ${config.provider_type}`, 400);
     }
-    rebuildModelsFromModelMap(config);
-    this.ensureProviderRuntimeShape(config);
+    normalizeProviderRuntimeConfig(config);
     return cloneProviderConfig(config);
   }
 
-  private ensureProviderRequestShape(data: ProviderPayload): void {
+  private ensureProviderRequestShape(data: ProviderPayload, options: { requireModels: boolean }): void {
     const normalized = canonicalizeProviderConfig(data);
-    const modelMap = normalized.model_map;
-    if (modelMap !== undefined && !isRecord(modelMap)) {
-      throw new ModelAdapterServiceError("model_map 必须是对象", 400);
+    const models = normalized.models;
+    if (models !== undefined && !Array.isArray(models)) {
+      throw new ModelAdapterServiceError("models 必须是数组", 400);
     }
-    if (Array.isArray(normalized.model)) {
-      throw new ModelAdapterServiceError("model 必须是字符串", 400);
-    }
-
-    for (const [task, value] of Object.entries(isRecord(modelMap) ? modelMap : {})) {
-      if (!String(task).trim()) {
-        throw new ModelAdapterServiceError("model_map 不能包含空任务名", 400);
-      }
-      if (Array.isArray(value)) {
-        if (!value.some((item) => String(item ?? "").trim())) {
-          throw new ModelAdapterServiceError(`model_map.${task} 至少需要一个模型`, 400);
-        }
-        continue;
-      }
-      if (!String(value ?? "").trim()) {
-        throw new ModelAdapterServiceError(`model_map.${task} 不能为空`, 400);
+    const entries = Array.isArray(models) ? models : [];
+    for (const entry of entries) {
+      if (!isRecord(entry) || !String(entry.name ?? "").trim()) {
+        throw new ModelAdapterServiceError("每条模型必须包含非空 name", 400);
       }
     }
-  }
-
-  private ensureProviderRuntimeShape(config: ModelProviderConfig): void {
-    if (normalizeModelValue(config.model_map.embedding) && providerTypeSpec(config.provider_type)?.supportsEmbedding !== true) {
-      throw new ModelAdapterServiceError(`Provider 类型 ${config.provider_type} 不支持 model_map.embedding`, 400);
+    const names = entries.map((entry) => String((entry as Record<string, unknown>).name ?? "").trim());
+    if (new Set(names).size !== names.length) {
+      throw new ModelAdapterServiceError("模型名不能重复", 400);
     }
-    if (normalizeModelValue(config.model_map.rerank) && providerTypeSpec(config.provider_type)?.supportsRerank !== true) {
-      throw new ModelAdapterServiceError(`Provider 类型 ${config.provider_type} 不支持 model_map.rerank`, 400);
-    }
-    if (config.provider_type !== "rerank_api") {
-      return;
-    }
-    if (!String(config.api_endpoint ?? "").trim()) {
-      throw new ModelAdapterServiceError("rerank_api Provider 必须填写 API Endpoint", 400);
-    }
-    if (!normalizeModelValue(config.model_map.rerank)) {
-      throw new ModelAdapterServiceError("rerank_api Provider 必须配置 model_map.rerank", 400);
+    if (options.requireModels && entries.length === 0) {
+      throw new ModelAdapterServiceError("至少配置一个模型", 400);
     }
   }
 
@@ -675,8 +430,7 @@ export class ModelAdapterService {
       if (!config.name || !this.isKnownProviderType(config.provider_type)) {
         continue;
       }
-      rebuildModelsFromModelMap(config);
-      this.ensureProviderRuntimeShape(config);
+      normalizeProviderRuntimeConfig(config);
       this.providers.set(providerKey, cloneProviderConfig(config));
     }
   }
@@ -728,9 +482,6 @@ function canonicalizeProviderType(providerType: unknown, apiMode: unknown): stri
   if (rawProviderType === "openai_compatible_chat" || rawProviderType === "openai_proxy") {
     return "openai_proxy";
   }
-  if (rawProviderType === "rerank" || rawProviderType === "reranker" || rawProviderType === "rerank_api") {
-    return "rerank_api";
-  }
   return rawProviderType;
 }
 
@@ -743,7 +494,6 @@ function labelProviderType(providerType: string): string {
     mistral: "Mistral AI",
     groq: "Groq",
     qwen: "Alibaba Qwen",
-    rerank_api: "Rerank API",
   };
   return labels[providerType] ?? providerType.charAt(0).toUpperCase() + providerType.slice(1);
 }
@@ -823,72 +573,51 @@ function makeProviderKey(config: Pick<ModelProviderConfig, "name" | "provider_ty
   return name && providerType ? `${name}_${providerType}` : "";
 }
 
-function rebuildModelsFromModelMap(config: ModelProviderConfig): void {
-  const modelMap = normalizeModelMap(config.model_map);
-  const fallbackModel = String(config.model ?? "").trim();
-  const fallbackModels = normalizeModelValue(config.models);
-
-  if (!Object.prototype.hasOwnProperty.call(modelMap, "chat") && fallbackModel) {
-    modelMap.chat = fallbackModel;
-  } else if (Object.keys(modelMap).length === 0 && fallbackModels) {
-    modelMap.chat = fallbackModels;
+/**
+ * 运行时形态归一：剥离已废弃的 provider 级字段（模型映射/运行参数），models 归一为模型条目数组。
+ * create/update/load/replaceRuntime 四个入口共用，保证内存与磁盘上的 provider 恒为新形态。
+ */
+function normalizeProviderRuntimeConfig(config: ModelProviderConfig): void {
+  for (const field of LEGACY_PROVIDER_FIELDS) {
+    delete config[field];
   }
-
-  config.model_map = modelMap;
-  config.models = uniqueModelsFromMap(modelMap);
+  config.models = normalizeModels(config.models);
 }
 
-function normalizeModelMap(modelMap: unknown): ModelMap {
-  if (!isRecord(modelMap)) {
-    return {};
+/** 模型条目数组归一：只保留已知键，name trim 非空去重，数值/布尔非法值丢弃；非数组 → []。 */
+function normalizeModels(value: unknown): ProviderModelEntry[] {
+  if (!Array.isArray(value)) {
+    return [];
   }
-
-  const normalized: ModelMap = {};
-  for (const [task, value] of Object.entries(modelMap)) {
-    const taskName = String(task ?? "").trim();
-    if (!taskName) {
+  const models: ProviderModelEntry[] = [];
+  const seen = new Set<string>();
+  for (const item of value) {
+    if (!isRecord(item)) {
       continue;
     }
-    const modelValue = normalizeModelValue(value);
-    if (modelValue) {
-      normalized[taskName] = modelValue;
+    const name = String(item.name ?? "").trim();
+    if (!name || seen.has(name)) {
+      continue;
     }
-  }
-  return normalized;
-}
-
-function normalizeModelValue(value: unknown): ModelMapValue | null {
-  if (Array.isArray(value)) {
-    const models: string[] = [];
-    const seen = new Set<string>();
-    for (const item of value) {
-      const model = String(item ?? "").trim();
-      if (model && !seen.has(model)) {
-        models.push(model);
-        seen.add(model);
-      }
-    }
-    return models.length ? models : null;
-  }
-
-  const model = String(value ?? "").trim();
-  return model ? model : null;
-}
-
-function uniqueModelsFromMap(modelMap: ModelMap): string[] {
-  const models: string[] = [];
-  const seen = new Set<string>();
-  for (const value of Object.values(modelMap)) {
-    const values = Array.isArray(value) ? value : [value];
-    for (const item of values) {
-      const model = String(item ?? "").trim();
-      if (model && !seen.has(model)) {
-        models.push(model);
-        seen.add(model);
-      }
-    }
+    const entry: ProviderModelEntry = { name };
+    const temperature = asOptionalNumber(item.temperature);
+    if (temperature !== undefined) entry.temperature = temperature;
+    const maxCompletionTokens = asOptionalNumber(item.max_completion_tokens);
+    if (maxCompletionTokens !== undefined) entry.max_completion_tokens = maxCompletionTokens;
+    const maxContextTokens = asOptionalNumber(item.max_context_tokens);
+    if (maxContextTokens !== undefined) entry.max_context_tokens = maxContextTokens;
+    if (item.supports_function_calling === true) entry.supports_function_calling = true;
+    if (item.supports_vision === true) entry.supports_vision = true;
+    models.push(entry);
+    seen.add(name);
   }
   return models;
+}
+
+/** 按名称查模型条目（trim 精确匹配）；找不到返回 null（模型未在目录中不算错误）。 */
+function findModelEntryByName(provider: ModelProviderConfig, modelName: string): ProviderModelEntry | null {
+  const target = modelName.trim();
+  return provider.models.find((model) => model.name === target) ?? null;
 }
 
 function assignProviderField(config: ModelProviderConfig, field: (typeof UPDATE_FIELDS)[number], value: unknown): void {
@@ -903,18 +632,6 @@ function assignProviderField(config: ModelProviderConfig, field: (typeof UPDATE_
         config.api_key = String(value ?? "");
       }
       break;
-    case "temperature":
-      setNumberField(config, "temperature", value);
-      break;
-    case "max_tokens":
-      setNumberField(config, "max_tokens", value);
-      break;
-    case "max_completion_tokens":
-      setNumberField(config, "max_completion_tokens", value);
-      break;
-    case "max_context_tokens":
-      setNumberField(config, "max_context_tokens", value);
-      break;
     case "timeout":
       setNumberField(config, "timeout", value);
       break;
@@ -927,12 +644,6 @@ function assignProviderField(config: ModelProviderConfig, field: (typeof UPDATE_
     case "retry_backoff_factor":
       setNumberField(config, "retry_backoff_factor", value);
       break;
-    case "supports_function_calling":
-      config.supports_function_calling = Boolean(value);
-      break;
-    case "supports_vision":
-      config.supports_vision = Boolean(value);
-      break;
     case "supports_prompt_caching":
       config.supports_prompt_caching = Boolean(value);
       break;
@@ -943,8 +654,8 @@ function assignProviderField(config: ModelProviderConfig, field: (typeof UPDATE_
         delete config.cache_ttl_seconds;
       }
       break;
-    case "model_map":
-      config.model_map = normalizeModelMap(value);
+    case "models":
+      config.models = normalizeModels(value);
       break;
     case "api_endpoint":
       if (value === undefined) {
@@ -956,21 +667,9 @@ function assignProviderField(config: ModelProviderConfig, field: (typeof UPDATE_
   }
 }
 
-function assignProviderExtensionField(config: ModelProviderConfig, key: string, value: unknown): void {
-  if (value === undefined || value === null || value === "") {
-    delete config[key];
-    return;
-  }
-  config[key] = typeof value === "boolean" ? value : typeof value === "number" ? value : String(value);
-}
-
 function setNumberField(
   config: ModelProviderConfig,
   field:
-    | "temperature"
-    | "max_tokens"
-    | "max_completion_tokens"
-    | "max_context_tokens"
     | "timeout"
     | "retry_attempts"
     | "retry_delay"
@@ -995,10 +694,6 @@ function asOptionalNumber(value: unknown): number | undefined {
 
 function cloneProviderConfig(config: ModelProviderConfig): ModelProviderConfig {
   return structuredClone(config) as ModelProviderConfig;
-}
-
-function firstModelForTask(provider: ModelProviderConfig, task: string): string | null {
-  return firstModelFromValue(provider.model_map[task]) ?? (task === "chat" ? firstModelFromValue(provider.models) : null);
 }
 
 function firstModelFromValue(value: unknown): string | null {
@@ -1033,39 +728,6 @@ function summarizeAvailabilityFailure(
     return "Provider 未配置可用模型";
   }
   return "Provider 不可用";
-}
-
-function normalizeRerankDocuments(documents: unknown, prompt: string): Array<{ id: string; text: string; metadata: Record<string, unknown> }> {
-  if (!Array.isArray(documents) || documents.length === 0) {
-    return [
-      { id: "rerank-test-1", text: prompt, metadata: {} },
-      { id: "rerank-test-2", text: "unrelated test document", metadata: {} },
-    ];
-  }
-  return documents.map((item, index) => {
-    if (isRecord(item)) {
-      return {
-        id: String(item.id ?? `doc-${index + 1}`),
-        text: String(item.text ?? item.content ?? ""),
-        metadata: isRecord(item.metadata) ? item.metadata : {},
-      };
-    }
-    return {
-      id: `doc-${index + 1}`,
-      text: String(item ?? ""),
-      metadata: {},
-    };
-  });
-}
-
-function providerAsStoredReranker(provider: ModelProviderConfig, model: string): RerankerEndpointConfig {
-  const providerKey = provider.key ?? provider.name;
-  return {
-    reranker_key: providerKey,
-    model_name: model,
-    api_endpoint: String(provider.api_endpoint ?? DEFAULT_ENDPOINTS[provider.provider_type] ?? ""),
-    api_key: provider.api_key == null ? null : String(provider.api_key),
-  };
 }
 
 function normalizeProviderRef(value: string): string {

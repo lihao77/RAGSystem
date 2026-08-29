@@ -55,4 +55,21 @@ export const POSTGRES_KNOWLEDGE_CONFIG_MIGRATIONS: PostgresKnowledgeConfigMigrat
       PRIMARY KEY (tenant_id, team_name, agent_name)
     );
   `,
+}, {
+  version: 4,
+  name: "knowledge_model_providers",
+  sql: `
+    CREATE TABLE IF NOT EXISTS knowledge_model_providers (
+      tenant_id TEXT NOT NULL,
+      provider_key TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK (kind IN ('embedding', 'rerank')),
+      name TEXT NOT NULL,
+      api_endpoint TEXT NOT NULL,
+      api_key TEXT NOT NULL DEFAULT '',
+      model_name TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      PRIMARY KEY (tenant_id, provider_key)
+    );
+  `,
 }];

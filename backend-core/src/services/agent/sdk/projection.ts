@@ -18,7 +18,7 @@ import { asRecord, normalizeString } from "../../../utils/guards.js";
 import type { AgentProfile, ResolvedTier, TierMap } from "@ragsystem/agent-sdk";
 import { ALL_THINKING_LEVELS, type ProviderConfig, type ThinkingLevel } from "@ragsystem/agent-llm";
 import type { AgentConfig, AgentLlmConfig } from "../../../contracts/agent/agent-config.js";
-import type { ModelProviderConfig } from "../../../contracts/integrations/model-adapter.js";
+import type { ModelProviderConfig, ProviderModelEntry } from "../../../contracts/integrations/model-adapter.js";
 import { findProviderByRef } from "../../runtime/provider-lookup.js";
 import { compactRecord } from "../llm-params.js";
 
@@ -28,7 +28,7 @@ export interface ProjectionInput {
   providers: ModelProviderConfig[];
   /**
    * 前端 selectLlm 解析结果（optional）：整体替换 default 档。
-   * 指向 input.providers 中的某一条 provider + 其 model_map/models 中的一个模型。
+   * 指向 input.providers 中的某一条 provider + 其 models 中的一个模型。
    */
   selectedLlm?: {
     provider: ModelProviderConfig;
@@ -162,18 +162,40 @@ function resolveTierWithProviderRef(
 }
 
 /**
- * provider → ResolvedTier：provider 自带参数作为底座。
- * 参数来源：provider.temperature / max_completion_tokens / max_context_tokens / extra_params。
+ * provider → ResolvedTier：所选模型条目的参数作为底座。
+ * 参数来源：模型条目 temperature / max_completion_tokens / max_context_tokens + provider extra_params。
+ * 条目能力位（supports_function_calling / supports_vision）随参数一并下沉到内联 provider 副本，
+ * SDK 协议选择与视觉门控等读 tier.provider 的消费点无需感知模型级配置。
  */
 function buildTierFromProvider(provider: ModelProviderConfig, modelName: string): ResolvedTier {
+  const entry = findModelEntry(provider, modelName);
   return {
-    provider: provider as unknown as ProviderConfig,
+    provider: mergeModelEntryIntoProvider(provider, entry),
     modelName,
-    temperature: pickNumber(provider.temperature, null),
-    maxCompletionTokens: pickNumber(provider.max_completion_tokens ?? provider.max_tokens, null),
-    maxContextTokens: pickNumber(provider.max_context_tokens, null),
+    temperature: pickNumber(entry?.temperature, null),
+    maxCompletionTokens: pickNumber(entry?.max_completion_tokens, null),
+    maxContextTokens: pickNumber(entry?.max_context_tokens, null),
     extraParams: compactRecord((provider as Record<string, unknown>).extra_params),
   };
+}
+
+function findModelEntry(provider: ModelProviderConfig, modelName: string): ProviderModelEntry | null {
+  const target = modelName.trim();
+  return provider.models.find((model) => model.name === target) ?? null;
+}
+
+/**
+ * 模型条目的参数/能力位显式写入内联 provider 副本；条目未配置的键置 null，
+ * 避免 provider 透传字段里的残留旧值在模型切换后继续生效。
+ */
+function mergeModelEntryIntoProvider(provider: ModelProviderConfig, entry: ProviderModelEntry | null): ProviderConfig {
+  const merged: Record<string, unknown> = { ...provider };
+  merged.temperature = entry?.temperature ?? null;
+  merged.max_completion_tokens = entry?.max_completion_tokens ?? null;
+  merged.max_context_tokens = entry?.max_context_tokens ?? null;
+  merged.supports_function_calling = entry?.supports_function_calling ?? null;
+  merged.supports_vision = entry?.supports_vision ?? null;
+  return merged as unknown as ProviderConfig;
 }
 
 // ────────────────────────────── behavior 投影 ──────────────────────────────

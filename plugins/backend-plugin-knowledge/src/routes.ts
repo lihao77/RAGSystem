@@ -12,6 +12,7 @@ import {
 } from "./contracts/knowledge/knowledge-base.js";
 import { ok } from "@ragsystem/backend-core/contracts/common.js";
 import { KnowledgeBaseError } from "./contracts/knowledge/knowledge-base.js";
+import type { KnowledgeApplicationService } from "./services/knowledge/knowledge-application-service.js";
 import type { KnowledgeFile } from "./contracts/vector-store/index.js";
 import { HttpError, httpErrorFrom, statusHttpError } from "@ragsystem/backend-core/utils/errors.js";
 import { matchesFileFilters } from "@ragsystem/backend-core/utils/file-filter.js";
@@ -48,6 +49,7 @@ export const registerKnowledgeBaseRoutes: FastifyPluginAsync = async (app) => {
       || (pathname.includes("/vectorizers") && request.method !== "GET")
       || pathname.endsWith("/migrate")
       || (pathname.includes("/rerankers") && request.method !== "GET")
+      || (pathname.includes("/model-providers") && request.method !== "GET")
       || (pathname.includes("/collections/") && request.method === "DELETE")
       || pathname.endsWith("/index")
       || (pathname.includes("/documents/") && request.method === "DELETE")
@@ -142,6 +144,39 @@ export const registerKnowledgeBaseRoutes: FastifyPluginAsync = async (app) => {
     const payload = IndexFileRequestSchema.parse(request.body);
     try {
       return ok(await (await resolveKnowledge(request)).indexFile(payload));
+    } catch (error) {
+      throw toHttpError(error);
+    }
+  });
+
+  /* ── 自管模型服务（embedding / rerank Provider，凭证存插件自有表，不进 core Provider 体系） ── */
+
+  app.get<{ Querystring: { kind?: string } }>("/model-providers", async (request) => {
+    const kind = request.query.kind === "embedding" || request.query.kind === "rerank" ? request.query.kind : undefined;
+    return ok(await (await resolveKnowledge(request)).listModelProviders(kind));
+  });
+
+  app.post("/model-providers", async (request) => {
+    const body = isRecord(request.body) ? request.body : {};
+    try {
+      const input: Parameters<KnowledgeApplicationService["upsertModelProvider"]>[0] = {
+        kind: body.kind === "rerank" ? "rerank" : "embedding",
+        name: String(body.name ?? ""),
+        api_endpoint: String(body.api_endpoint ?? ""),
+        api_key: typeof body.api_key === "string" ? body.api_key : null,
+        model_name: String(body.model_name ?? ""),
+        is_active: body.is_active !== false,
+      };
+      if (typeof body.provider_key === "string" && body.provider_key.trim()) input.provider_key = body.provider_key;
+      return ok(await (await resolveKnowledge(request)).upsertModelProvider(input));
+    } catch (error) {
+      throw toHttpError(error);
+    }
+  });
+
+  app.delete<{ Params: KeyParams }>("/model-providers/:key", async (request) => {
+    try {
+      return ok(await (await resolveKnowledge(request)).deleteModelProvider(request.params.key));
     } catch (error) {
       throw toHttpError(error);
     }

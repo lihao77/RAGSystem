@@ -3,7 +3,6 @@
  */
 
 import { http } from './http.js';
-import { normalizeModelList } from '../utils/modelList.js';
 import { normalizeProviderTestResult } from '../utils/providerTestResult.js';
 
 const API_BASE = '/api/model-adapter'
@@ -23,60 +22,39 @@ export async function getProviders() {
   }
 }
 
-function collectProviderModels(provider, task = 'chat') {
+function collectProviderModels(provider) {
   const result = []
   const seen = new Set()
-  const add = (modelName, taskName = '') => {
-    const model = String(modelName || '').trim()
-    if (!model || seen.has(model)) return
-    result.push({ task: taskName, model })
+  if (!Array.isArray(provider.models)) return result
+  for (const entry of provider.models) {
+    const model = String(entry?.name || '').trim()
+    if (!model || seen.has(model)) continue
+    result.push({ model })
     seen.add(model)
   }
-
-  const modelMap = provider.model_map && typeof provider.model_map === 'object' ? provider.model_map : null
-  const hasModelMap = modelMap && Object.keys(modelMap).length > 0
-  if (modelMap) {
-    Object.entries(modelMap).forEach(([taskName, value]) => {
-      if (task !== null && taskName !== task) return
-      normalizeModelList(value).forEach(model => add(model, taskName))
-    })
-  }
-
-  if (task === null || (result.length === 0 && !hasModelMap)) {
-    const fallbackTask = task === null ? '' : task
-    normalizeModelList(provider.models).forEach(model => add(model, fallbackTask))
-    normalizeModelList(provider.model).forEach(model => add(model, fallbackTask))
-  }
-
   return result
 }
 
-export async function getAvailableModels(options = {}) {
+export async function getAvailableModels() {
   try {
     const providers = await getProviders()
     const models = []
     const seen = new Set()
-    const effectiveTask = options.allTasks
-      ? null
-      : (Object.prototype.hasOwnProperty.call(options, 'task') ? options.task : 'chat')
-    const includeTaskLabel = effectiveTask === null
 
     providers.forEach(provider => {
       const name = provider.name || provider.key || ''
       const ptype = provider.provider_type || ''
       const displayName = name + (ptype ? ` (${ptype})` : '')
-      const providerModels = collectProviderModels(provider, effectiveTask)
 
-      providerModels.forEach(({ task, model }) => {
+      collectProviderModels(provider).forEach(({ model }) => {
         const value = `${name}|${ptype}|${model}`
         if (seen.has(value)) return
         seen.add(value)
         models.push({
-          label: `${displayName} / ${includeTaskLabel && task ? `${task}: ` : ''}${model}`,
+          label: `${displayName} / ${model}`,
           value,
           provider: name,
           provider_type: ptype,
-          task,
           model
         })
       })
@@ -144,7 +122,7 @@ export async function testProvider(provider, model, prompt = 'Hello', providerTy
     const data = await http.post(`${API_BASE}/test`, {
       provider,
       provider_type: providerType,
-      model: normalizeModelList(model)[0] || '',
+      model: String(model || '').trim(),
       prompt,
       task,
       ...(documents ? { documents } : {})

@@ -30,10 +30,6 @@ test("Knowledge module owns SaaS runtime wiring and migrations", async () => {
   const runtime = await manager.runtimeContributions(hostResources).createRuntime({
     deploymentKind: "saas",
     tenantId: "tenant-a",
-    modelAdapter: {
-      createEmbeddingClient: () => ({ embed: async () => [] }),
-      createRerankClient: () => ({ rerank: async () => [] }),
-    },
     systemConfig: {
       getSection: (key) => key === "document_extraction"
         ? {

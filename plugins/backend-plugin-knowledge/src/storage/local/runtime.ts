@@ -2,8 +2,6 @@ import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
 
-import type { ModelProviderCatalogPort } from "@ragsystem/backend-core/contracts/integrations/model-adapter.js";
-
 import type { KnowledgeApplication } from "../../contracts/knowledge-application.js";
 import type { KnowledgePluginRuntimeFactory } from "../../dependencies.js";
 import { resolveDocumentExtractionConfig, type DocumentExtractionConfig } from "../../system-config.js";
@@ -17,6 +15,7 @@ import { LocalAsyncKnowledgeMarkdownPipeline } from "./local-async-knowledge-mar
 import { createLocalVectorStore } from "./vector-store/vector-store-factory.js";
 import { KnowledgeAgentConfigService } from "../../agent-config.js";
 import { SqliteKnowledgeAgentConfigStore } from "./agent-config-store.js";
+import { SqliteKnowledgeModelProviderStore } from "./model-provider-store.js";
 
 const require = createRequire(import.meta.url);
 const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
@@ -25,7 +24,6 @@ export interface LocalKnowledgeRuntimeOptions {
   tenantId: string;
   dataRoot: string;
   inMemory: boolean;
-  modelAdapter: ModelProviderCatalogPort;
   documentExtraction: DocumentExtractionConfig;
   embedderFactory?: KnowledgeEmbedderFactory;
 }
@@ -51,7 +49,6 @@ export function createLocalKnowledgeRuntimeFactory(
       tenantId: context.tenantId,
       dataRoot: context.dataRoot,
       inMemory: false,
-      modelAdapter: context.modelAdapter,
       documentExtraction: resolveDocumentExtractionConfig(
         context.systemConfig.getSection("document_extraction"),
       ),
@@ -76,13 +73,10 @@ export function createLocalKnowledgeRuntime(options: LocalKnowledgeRuntimeOption
   );
   const service = new KnowledgeApplicationService(
     options.tenantId,
-    options.modelAdapter,
+    new SqliteKnowledgeModelProviderStore(configDb),
     driver,
     driver,
     options.embedderFactory,
-    undefined,
-    options.modelAdapter.createEmbeddingClient(),
-    options.modelAdapter.createRerankClient(),
   );
   const markdown = new LocalAsyncKnowledgeMarkdownPipeline(
     driver,

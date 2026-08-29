@@ -1,6 +1,6 @@
 import type { RerankResultMode, VectorSearchResult } from "../../contracts/knowledge/knowledge-base.js";
 import type { StoredReranker } from "../../contracts/vector-store/index.js";
-import type { RerankClientPort } from "@ragsystem/backend-core/contracts/integrations/model-adapter.js";
+import type { RerankClientPort } from "../../contracts/knowledge/model-providers.js";
 import { lexicalRerank } from "../knowledge/rerank/lexical-rerank.js";
 
 export interface IReranker {

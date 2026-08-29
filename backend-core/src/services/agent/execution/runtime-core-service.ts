@@ -1,7 +1,7 @@
 import { isRecord, normalizeString } from "../../../utils/guards.js";
 import type { AgentConfig, AgentLlmConfig } from "../../../contracts/agent/agent-config.js";
 import type { RuntimeCoreReadiness, RuntimeCoreRequirement } from "../../../contracts/runtime/runtime-core.js";
-import type { ModelProviderConfig, ModelMapValue } from "../../../contracts/integrations/model-adapter.js";
+import type { ModelProviderConfig } from "../../../contracts/integrations/model-adapter.js";
 import type { SystemLlmConfig } from "../../../contracts/runtime/system-config.js";
 import { findProviderByRef, normalizeProviderKey } from "../../runtime/provider-lookup.js";
 import type { SessionTeamSnapshot } from "../../../contracts/session/session.js";
@@ -309,28 +309,7 @@ function isModelAvailable(provider: ModelProviderConfig, modelName: string | nul
     return false;
   }
   const target = normalizeProviderKey(modelName);
-  return listChatModels(provider).some((model) => normalizeProviderKey(model) === target);
-}
-
-function listChatModels(provider: ModelProviderConfig): string[] {
-  const values: string[] = [];
-  collectModelValues(provider.model_map.chat, values);
-  collectModelValues(provider.model, values);
-  collectModelValues(provider.models, values);
-  return values;
-}
-
-function collectModelValues(value: ModelMapValue | string[] | string | undefined, output: string[]): void {
-  if (Array.isArray(value)) {
-    for (const item of value) {
-      collectModelValues(item, output);
-    }
-    return;
-  }
-  const normalized = normalizeString(value);
-  if (normalized) {
-    output.push(normalized);
-  }
+  return provider.models.some((model) => normalizeProviderKey(model.name) === target);
 }
 
 function hasSystemPrompt(agent: AgentConfig | null): boolean {

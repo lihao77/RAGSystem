@@ -4,7 +4,7 @@ import { getProviderModels } from '../utils/modelList.js';
  * SchemaForm 的 provider/model 下拉增强，供系统配置页（内置组）与插件设置页
  * （插件贡献的组）共用。含 provider/model_name 字段的组自动动态化为下拉；
  * 过滤与联动行为由组定义自带的 providerSelect 提示声明（visionOnly /
- * autoSelectModel / applyProviderFields），本模块不认识任何具体组名。
+ * autoSelectModel），本模块不认识任何具体组名。
  *
  * providers 传 ref，选项来自系统模型 Provider 配置；model 选项来自所选
  * Provider 的模型列表；provider_type 由所选 Provider 自动带出。
@@ -44,7 +44,8 @@ export function useProviderSchemaEnrich(providers) {
       const currentModel = String(groupConfig.model_name || '').trim();
       const visionOnly = group.providerSelect?.visionOnly === true;
       const providerOptions = providers.value
-        .filter((provider) => !visionOnly || provider.supports_vision === true)
+        .filter((provider) => !visionOnly
+          || (Array.isArray(provider.models) && provider.models.some((entry) => entry?.supports_vision === true)))
         .map((provider) => ({
           value: provider.name || provider.key || '',
           label: `${provider.name || provider.key || '未命名'}${provider.provider_type ? ` (${provider.provider_type})` : ''}`,
@@ -78,9 +79,9 @@ export function useProviderSchemaEnrich(providers) {
   }
 
   // provider 切换/清空的级联，按组定义的 providerSelect 提示联动：
-  // autoSelectModel 自动选第一个模型（缺省清空 model_name 等待手选），
-  // applyProviderFields 从 Provider 回填同名字段；未涉及的组原样透传。
-  // prevConfig 为切换前的完整配置值。
+  // autoSelectModel 自动选第一个模型（缺省清空 model_name 等待手选）；
+  // 运行参数挂在模型条目上，不再从 provider 回填同名字段。
+  // 未涉及的组原样透传；prevConfig 为切换前的完整配置值。
   function applyProviderCascade(prevConfig, nextConfig, schema) {
     let result = nextConfig;
     for (const group of providerGroups(schema)) {
@@ -106,9 +107,6 @@ export function useProviderSchemaEnrich(providers) {
         provider_type: selected.provider_type || '',
         model_name: hints?.autoSelectModel ? (getProviderModels(selected)[0] || '') : '',
       };
-      for (const fieldKey of hints?.applyProviderFields ?? []) {
-        if (selected[fieldKey] != null) applied[fieldKey] = Number(selected[fieldKey]);
-      }
       result = { ...result, [groupKey]: applied };
     }
     return result;

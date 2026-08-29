@@ -11,6 +11,7 @@ import {
   findModelEntry,
 } from "../dist/index.js";
 
+/** 媒体 Provider 完全插件自管：配置段即凭证源（vendor/api_key/endpoint/model）。 */
 function makeContext(sectionValue) {
   return {
     tenantId: "t1",
@@ -20,10 +21,6 @@ function makeContext(sectionValue) {
     systemConfig: {
       getSection: (key) => (key === "media_image" || key === "media_video" ? sectionValue : undefined),
     },
-    providers: [
-      { name: "智谱媒体", key: "zhipu_media", provider_type: "media_zhipu", api_key: "sk-test", model_map: { image: "glm-image", video: "cogvideox-3" }, models: ["glm-image", "cogvideox-3"] },
-      { name: "火山媒体", key: "ark_media", provider_type: "media_ark", api_key: "sk-ark", model_map: { image: "doubao-seedream-4-0", video: "doubao-seedance-2-0" }, models: ["doubao-seedream-4-0", "doubao-seedance-2-0"] },
-    ],
   };
 }
 
@@ -56,12 +53,16 @@ test("未启用配置 → 返回带指引的错误", async () => {
   assert.ok(result.summary.includes("插件设置"));
 });
 
-test("Provider 类型不匹配 → 指引切换媒体类型条目", async () => {
-  const context = makeContext({ enabled: true, provider: "智谱媒体", provider_type: "", model_name: "glm-image" });
-  context.providers = [{ name: "智谱媒体", key: "chat_zhipu", provider_type: "openai_chat", api_key: "sk", model_map: { chat: "gpt-4" }, models: ["gpt-4"] }];
-  const result = await executeGenerateImage({ prompt: "猫" }, makeToolCtx(tempWorkspace()), context);
-  assert.equal(result.success, false);
-  assert.ok(result.summary.includes("媒体生成类型"));
+test("厂商与模型目录不符 / 缺 API Key → 指引文案", async () => {
+  const mismatch = makeContext({ enabled: true, vendor: "zhipu", api_key: "sk", model_name: "doubao-seedream-4-0" });
+  const mismatchResult = await executeGenerateImage({ prompt: "猫" }, makeToolCtx(tempWorkspace()), mismatch);
+  assert.equal(mismatchResult.success, false);
+  assert.ok(mismatchResult.summary.includes("属于其他厂商"));
+
+  const noKey = makeContext({ enabled: true, vendor: "zhipu", api_key: "  ", model_name: "glm-image" });
+  const noKeyResult = await executeGenerateImage({ prompt: "猫" }, makeToolCtx(tempWorkspace()), noKey);
+  assert.equal(noKeyResult.success, false);
+  assert.ok(noKeyResult.summary.includes("API Key"));
 });
 
 test("generate_image 成功：落盘 + 内联 media + file_ref 提示", async () => {
