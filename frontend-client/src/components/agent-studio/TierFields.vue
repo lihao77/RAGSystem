@@ -80,7 +80,6 @@
 
 <script setup>
 /* eslint-disable vue/no-mutating-props -- 同上：tier 为 useAgentForm 表单模型的层级子对象，脚本内改写属有意架构 */
-import { computed } from 'vue';
 import { Input } from '../ui/input';
 import { Button } from '../ui/button';
 import { Switch } from '../ui/switch';
@@ -89,7 +88,6 @@ import CustomSelect from '../ui/CustomSelect.vue';
 import NumberInput from '../NumberInput.vue';
 import { createExtraParamEntry } from '../../utils/modelList.js';
 import { extraParamTypeOptions } from './agentFormModel.js';
-import { thinkingOptionsFor } from '../../utils/thinkingLevels.js';
 
 const props = defineProps({
   tier: { type: Object, default: null },
@@ -101,12 +99,11 @@ const props = defineProps({
   providerKey: { type: String, default: '' },
   providerOptions: { type: Array, default: () => [] },
   modelOptions: { type: Array, default: () => [] },
+  // 可选思考档位：provider descriptor × 模型条目子集（父级 useTierModels 推导）
+  thinkingOptions: { type: Array, default: () => [{ value: '', label: '模型默认' }] },
 });
 
 defineEmits(['provider-change', 'toggle']);
-
-/** 按当前 tier 的 provider_type 给出可选思考档位（provider 变化时自动联动）。 */
-const thinkingOptions = computed(() => thinkingOptionsFor(props.tier?.provider_type));
 
 function addExtraParam() {
   if (!props.tier.extra_params_entries) props.tier.extra_params_entries = [];

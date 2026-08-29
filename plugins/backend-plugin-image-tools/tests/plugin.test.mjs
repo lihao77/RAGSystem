@@ -8,6 +8,7 @@ import { BackendPluginManager } from "@ragsystem/backend-core/plugins/plugin-man
 import {
   backendPluginModule,
   createImageToolsPlugin,
+  toProviderConfig,
   VIEW_IMAGE_TOOL_NAME,
 } from "../dist/index.js";
 import { describeUserMessageImagesWithHelper } from "../dist/index.js";
@@ -447,4 +448,37 @@ test("view_image describe emits nothing when the helper is not configured", asyn
 
   assert.equal(description, null);
   assert.deepEqual(calls, []);
+});
+
+/* ── toProviderConfig：模型条目输入模态 → agent-llm 能力位 ── */
+
+test("toProviderConfig derives supports_vision from the model entry input modalities", () => {
+  const provider = {
+    key: "vision-1",
+    name: "vision",
+    provider_type: "zhipuai",
+    api_format: "openai_chat",
+    api_key: "sk-test",
+    api_endpoint: "https://api.openai.com/v1",
+    models: [
+      { name: "gpt-4o", input_modalities: ["text", "image"], supports_function_calling: true, temperature: 0.2 },
+      { name: "gpt-4.1-mini", input_modalities: ["text"] },
+    ],
+    // 旧 provider 级残留：不得覆盖模型级派生值
+    supports_vision: true,
+  };
+
+  const vision = toProviderConfig(provider, "gpt-4o");
+  // agent-llm 按 API 格式分发：provider_type 由 api_format 带出，厂商不透传为分发键
+  assert.equal(vision.provider_type, "openai_chat");
+  assert.equal(vision.supports_vision, true);
+  assert.equal(vision.supports_function_calling, true);
+  assert.equal(vision.temperature, 0.2);
+
+  const text = toProviderConfig(provider, "gpt-4.1-mini");
+  assert.equal(text.supports_vision, false);
+
+  // 未指定模型时不注入能力位（旧 provider 级残留也被剥离）
+  const noEntry = toProviderConfig(provider);
+  assert.equal("supports_vision" in noEntry, false);
 });

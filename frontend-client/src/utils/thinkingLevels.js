@@ -1,6 +1,7 @@
 /**
- * 思考档位表（agent 配置表单用）—— 与 agent-llm describeThinking 的档位集合保持一致。
- * 档位配置入口在 agent 的 llm_tiers（provider 不定义思考强度）。
+ * 思考档位工具：档位文案 + provider 思考 descriptor（后端注入，API 格式 + thinking_kind）
+ * 与模型级 thinking_levels 子集（目录 reasoning_options 的 effort 值域）的合成。
+ * 可选档位以 descriptor 为准（agent-llm describeThinking 同源规则），不出现厂商名键表。
  */
 
 export const THINKING_LEVEL_OPTIONS = [
@@ -15,27 +16,45 @@ export const THINKING_LEVEL_OPTIONS = [
   { value: 'max', label: '最大', description: '最大强度思考，适合极限复杂任务' },
 ];
 
-/** provider_type → 可选档位（不含"模型默认"；与 agent-llm THINKING_LEVELS_BY_PROVIDER_TYPE 一致）。 */
-export const REASONING_LEVELS_BY_TYPE = {
-  openai_resp: ['off', 'minimal', 'low', 'medium', 'high'],
-  openai_chat: ['off', 'minimal', 'low', 'medium', 'high'],
-  openai_proxy: ['off', 'minimal', 'low', 'medium', 'high'],
-  anthropic: ['off', 'low', 'medium', 'high'],
-  deepseek: ['off', 'low', 'high', 'max'],
-  openrouter: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'],
-  modelscope: ['off', 'on'],
-};
+/** effort 系强度档位全集（模型级 thinking_levels 子集的合法值域）；off 是通用开关不入子集。 */
+export const THINKING_STRENGTH_LEVELS = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
+
+/** 思考档位子集归一：小写 trim、只留已知强度档位、按全集顺序输出；非数组/过滤后为空 → []。 */
+export function normalizeThinkingLevels(value) {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set();
+  for (const item of value) {
+    const token = String(item || '').trim().toLowerCase();
+    if (THINKING_STRENGTH_LEVELS.includes(token)) seen.add(token);
+  }
+  return THINKING_STRENGTH_LEVELS.filter((token) => seen.has(token));
+}
 
 /**
- * 按 provider_type 生成思考档位下拉选项（含"模型默认"）。
- * 未知类型返回仅"模型默认"的选项。
+ * provider 思考 descriptor + 模型条目子集 → 可选档位：
+ * effort 形状且模型声明子集时，强度档位以子集（厂商真实枚举）为准，off 恒可用；
+ * 其余形状（budget/toggle）直接用 descriptor 档位。
  */
-export function thinkingOptionsFor(providerType) {
-  const levels = REASONING_LEVELS_BY_TYPE[providerType] || [];
+export function thinkingCapabilityFor(provider, modelName) {
+  const thinking = provider && provider.thinking && typeof provider.thinking === 'object' ? provider.thinking : null;
+  if (!thinking || thinking.kind === 'none') return { kind: 'none', levels: [] };
+  let levels = Array.isArray(thinking.levels) ? [...thinking.levels] : [];
+  if (thinking.kind === 'effort' && modelName) {
+    const entry = Array.isArray(provider.models)
+      ? provider.models.find((item) => String(item?.name || '') === modelName)
+      : null;
+    const subset = normalizeThinkingLevels(entry?.thinking_levels);
+    if (subset.length) levels = ['off', ...subset];
+  }
+  return { kind: thinking.kind, levels };
+}
+
+/** 档位集合 → 下拉选项（含"模型默认"首位；档位缺失时仅"模型默认"）。 */
+export function thinkingOptionsFromLevels(levels) {
   return [
     { value: '', label: '模型默认' },
-    ...levels
-      .map(level => THINKING_LEVEL_OPTIONS.find(option => option.value === level))
+    ...(Array.isArray(levels) ? levels : [])
+      .map((level) => THINKING_LEVEL_OPTIONS.find((option) => option.value === level))
       .filter(Boolean),
   ];
 }

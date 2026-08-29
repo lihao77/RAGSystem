@@ -5,12 +5,17 @@ import path from "node:path";
 import YAML from "yaml";
 
 import type {
+  CatalogModelsResult,
+  CatalogProvidersResult,
+  ModelModality,
   ModelProviderConfig,
   ProviderModelEntry,
   ProviderPayload,
   ProviderTypeInfo,
   TestProviderRequest,
 } from "../../contracts/integrations/model-adapter.js";
+import { MODEL_MODALITIES, THINKING_STRENGTH_LEVELS, type ThinkingStrengthLevel } from "../../contracts/integrations/model-adapter.js";
+import { ModelsDevCatalog } from "./models-dev-catalog.js";
 import {
   DEFAULT_PROVIDER_RETRY_ATTEMPTS,
   DEFAULT_PROVIDER_RETRY_BACKOFF_FACTOR,
@@ -27,6 +32,8 @@ const PROVIDERS_CONFIG_RELATIVE_PATH = path.join("config", "model_adapter", "pro
 
 const UPDATE_FIELDS = [
   "provider_type",
+  "api_format",
+  "thinking_kind",
   "api_key",
   "timeout",
   "retry_attempts",
@@ -38,7 +45,10 @@ const UPDATE_FIELDS = [
   "api_endpoint",
 ] as const;
 
-/** 已废弃的 provider 级字段（模型映射/运行参数已下沉到模型条目），加载/写入时剥离。 */
+/** 厂商思考形状合法值（透传 agent-llm describeThinking 覆盖）。 */
+const THINKING_KINDS = new Set(["effort", "budget", "toggle", "none"]);
+
+/** 已废弃的 provider 级字段（模型映射/运行参数已下沉到模型条目/厂商目录临时补丁），加载/写入时剥离。 */
 const LEGACY_PROVIDER_FIELDS = [
   "model",
   "model_map",
@@ -48,6 +58,7 @@ const LEGACY_PROVIDER_FIELDS = [
   "max_context_tokens",
   "supports_function_calling",
   "supports_vision",
+  "catalog_provider_id",
 ] as const;
 
 export class ModelAdapterServiceError extends Error {
@@ -63,25 +74,43 @@ export class ModelAdapterServiceError extends Error {
 export class ModelAdapterService {
   private readonly providers = new Map<string, ModelProviderConfig>();
   private readonly providersConfigPath: string | null;
+  private readonly catalog: ModelsDevCatalog;
 
   constructor(options: {
     dataRoot?: string | undefined;
     providersConfigPath?: string | undefined;
   } = {}) {
     this.providersConfigPath = resolveProvidersConfigPath(options);
+    this.catalog = new ModelsDevCatalog({ dataRoot: options.dataRoot });
     this.loadProvidersFromDisk();
   }
 
-  private isKnownProviderType(providerType: string): boolean {
-    return PROVIDER_TYPE_SET.has(providerType);
+  /** Models.dev 目录厂商摘要（配置界面建议/自动填充用；拉不到时 available:false 降级）。 */
+  async listCatalogProviders(): Promise<CatalogProvidersResult> {
+    return this.catalog.listProviders();
   }
 
-  listProviderTypes(): ProviderTypeInfo[] {
-    return PROVIDER_TYPES.map((providerType) => ({
-      value: providerType,
-      label: labelProviderType(providerType),
-      default_endpoint: DEFAULT_ENDPOINTS[providerType] ?? "",
-      config_fields: providerConfigFields(providerType),
+  /** Models.dev 目录单厂商模型列表；未知厂商 id → 404。 */
+  async listCatalogModels(catalogProviderId: string): Promise<CatalogModelsResult> {
+    const providerId = String(catalogProviderId ?? "").trim();
+    const result = await this.catalog.listModels(providerId);
+    if (!result) {
+      throw new ModelAdapterServiceError(`目录厂商不存在: ${providerId}`, 404);
+    }
+    return result;
+  }
+
+  private isKnownApiFormat(apiFormat: string): boolean {
+    return PROVIDER_TYPE_SET.has(apiFormat);
+  }
+
+  /** API 格式封闭清单（agent-llm 协议方言），供前端格式下拉与端点/扩展字段元数据。 */
+  listApiFormats(): ProviderTypeInfo[] {
+    return PROVIDER_TYPES.map((apiFormat) => ({
+      value: apiFormat,
+      label: labelProviderType(apiFormat),
+      default_endpoint: DEFAULT_ENDPOINTS[apiFormat] ?? "",
+      config_fields: providerConfigFields(apiFormat),
     }));
   }
 
@@ -98,13 +127,15 @@ export class ModelAdapterService {
       const config = cloneProviderConfig(value);
       config.name = String(config.name ?? "").trim();
       config.provider_type = String(config.provider_type ?? "").trim().toLowerCase();
+      // 与磁盘水合同规：runtime 快照也走别名归一（openai_compatible_chat 等），避免同一条目两条路径判定不一
+      config.api_format = canonicalizeProviderType(config.api_format, undefined);
       const providerKey = String(value.key ?? "").trim() || makeProviderKey(config);
       if (!providerKey || !config.name) {
         throw new ModelAdapterServiceError(`无效的运行时 Provider 配置: ${providerKey || config.name || "unknown"}`, 500);
       }
-      // 未知类型跳过而非抛错：插件禁用/移除后其类型随之消失，持久化条目残留属正常状态，
+      // 无效 API 格式跳过而非抛错：持久化条目残留（旧形态/未配置）属正常状态，
       // 水合失败会让整个租户不可用。create/update 路径仍严格校验（400）。
-      if (!this.isKnownProviderType(config.provider_type)) {
+      if (!isChatProviderConfig(config, (format) => this.isKnownApiFormat(format))) {
         continue;
       }
       normalizeProviderRuntimeConfig(config);
@@ -177,9 +208,12 @@ export class ModelAdapterService {
     }
 
     normalizeProviderRuntimeConfig(config);
-    config.provider_type = canonicalizeProviderType(config.provider_type, undefined);
-    if (!this.isKnownProviderType(config.provider_type)) {
-      throw new ModelAdapterServiceError(`不支持的 Provider 类型: ${config.provider_type}`, 400);
+    if (!String(config.provider_type ?? "").trim()) {
+      throw new ModelAdapterServiceError("缺少必需字段: provider_type", 400);
+    }
+    config.api_format = canonicalizeProviderType(config.api_format, undefined);
+    if (!this.isKnownApiFormat(config.api_format)) {
+      throw new ModelAdapterServiceError(`不支持的 API 格式: ${config.api_format || "(空)"}`, 400);
     }
     return { key: providerKey, config };
   }
@@ -279,12 +313,12 @@ export class ModelAdapterService {
     }
     const checks = {
       provider_exists: true,
-      provider_type_supported: this.isKnownProviderType(provider.provider_type),
+      api_format_supported: this.isKnownApiFormat(String(provider.api_format ?? "").trim().toLowerCase()),
       api_key_configured: Boolean(String(provider.api_key ?? "").trim()),
       chat_model_configured: provider.models.some((model) => Boolean(model.name)),
     };
     const isAvailable =
-      checks.provider_type_supported &&
+      checks.api_format_supported &&
       checks.api_key_configured &&
       checks.chat_model_configured;
     return {
@@ -308,10 +342,11 @@ export class ModelAdapterService {
     const startedAt = Date.now();
     try {
       // 测连通性用真实 agent-llm client（LlmProviderClient 无状态）；mock 假响应无意义。
+      // agent-llm 按 API 格式分发：provider_type（厂商）在桥接处替换为 api_format。
       const response = await new LlmProviderClient().complete({
         messages: [{ role: "user", content: data.prompt ?? "" }],
         model,
-        provider: provider as unknown as ProviderConfig,
+        provider: { ...provider, provider_type: provider.api_format ?? provider.provider_type } as unknown as ProviderConfig,
         temperature: entry?.temperature ?? 0.7,
         maxCompletionTokens: entry?.max_completion_tokens ?? 500,
       });
@@ -367,14 +402,19 @@ export class ModelAdapterService {
         throw new ModelAdapterServiceError(`缺少必需字段: ${field}`, 400);
       }
     }
+    if (!this.isKnownApiFormat(String(normalized.api_format ?? ""))) {
+      throw new ModelAdapterServiceError(
+        String(normalized.api_format ?? "").trim()
+          ? `不支持的 API 格式: ${normalized.api_format}`
+          : "缺少必需字段: api_format",
+        400,
+      );
+    }
 
     this.ensureProviderRequestShape(normalized, { requireModels: true });
     const config = normalized as ModelProviderConfig;
     config.name = String(config.name);
-    config.provider_type = String(config.provider_type).toLowerCase();
-    if (!this.isKnownProviderType(config.provider_type)) {
-      throw new ModelAdapterServiceError(`不支持的 Provider 类型: ${config.provider_type}`, 400);
-    }
+    config.provider_type = String(config.provider_type).trim().toLowerCase();
     normalizeProviderRuntimeConfig(config);
     return cloneProviderConfig(config);
   }
@@ -389,6 +429,17 @@ export class ModelAdapterService {
     for (const entry of entries) {
       if (!isRecord(entry) || !String(entry.name ?? "").trim()) {
         throw new ModelAdapterServiceError("每条模型必须包含非空 name", 400);
+      }
+      for (const field of ["input_modalities", "output_modalities"] as const) {
+        if (entry[field] !== undefined && !Array.isArray(entry[field])) {
+          throw new ModelAdapterServiceError(
+            `${field === "input_modalities" ? "输入" : "输出"}模态必须是数组`,
+            400,
+          );
+        }
+      }
+      if (entry.thinking_levels !== undefined && !Array.isArray(entry.thinking_levels)) {
+        throw new ModelAdapterServiceError("思考档位必须是数组", 400);
       }
     }
     const names = entries.map((entry) => String((entry as Record<string, unknown>).name ?? "").trim());
@@ -426,8 +477,8 @@ export class ModelAdapterService {
       const normalized = canonicalizeProviderConfig(value);
       const config = normalized as ModelProviderConfig;
       config.name = String(config.name ?? "");
-      config.provider_type = String(config.provider_type ?? "").toLowerCase();
-      if (!config.name || !this.isKnownProviderType(config.provider_type)) {
+      config.provider_type = String(config.provider_type ?? "").trim().toLowerCase();
+      if (!config.name || !isChatProviderConfig(config, (format) => this.isKnownApiFormat(format))) {
         continue;
       }
       normalizeProviderRuntimeConfig(config);
@@ -463,8 +514,19 @@ function resolveProvidersConfigPath(options: {
 
 function canonicalizeProviderConfig(config: ProviderPayload): ProviderPayload {
   const normalized: ProviderPayload = { ...config };
-  normalized.provider_type = canonicalizeProviderType(normalized.provider_type, normalized.api_mode);
+  // provider_type = 厂商（自由字符串，仅归一大小写/空白）；API 格式别名归一只作用于 api_format。
+  normalized.provider_type = String(normalized.provider_type ?? "").trim().toLowerCase();
+  normalized.api_format = canonicalizeProviderType(normalized.api_format, normalized.api_mode);
   return normalized;
+}
+
+/** chat provider 有效 = 厂商非空 + API 格式在 kernel 封闭清单（水合/加载过滤用）。 */
+function isChatProviderConfig(
+  config: ModelProviderConfig,
+  isKnownApiFormat: (apiFormat: string) => boolean,
+): boolean {
+  return Boolean(String(config.provider_type ?? "").trim())
+    && isKnownApiFormat(String(config.api_format ?? "").trim().toLowerCase());
 }
 
 function canonicalizeProviderType(providerType: unknown, apiMode: unknown): string {
@@ -491,9 +553,6 @@ function labelProviderType(providerType: string): string {
     openai_chat: "OpenAI Chat",
     openai_proxy: "OpenAI Compatible",
     gemini: "Google Gemini",
-    mistral: "Mistral AI",
-    groq: "Groq",
-    qwen: "Alibaba Qwen",
   };
   return labels[providerType] ?? providerType.charAt(0).toUpperCase() + providerType.slice(1);
 }
@@ -581,10 +640,18 @@ function normalizeProviderRuntimeConfig(config: ModelProviderConfig): void {
   for (const field of LEGACY_PROVIDER_FIELDS) {
     delete config[field];
   }
+  const thinkingKind = String(config.thinking_kind ?? "").trim().toLowerCase();
+  // thinking_kind 非法值静默剔除（回落格式默认形状）：形状声明是增强项，拼写错误不应阻断
+  // 连接配置；对比 api_format 是封闭枚举、直接 400。
+  if (thinkingKind && THINKING_KINDS.has(thinkingKind)) {
+    config.thinking_kind = thinkingKind;
+  } else {
+    delete config.thinking_kind;
+  }
   config.models = normalizeModels(config.models);
 }
 
-/** 模型条目数组归一：只保留已知键，name trim 非空去重，数值/布尔非法值丢弃；非数组 → []。 */
+/** 模型条目数组归一：只保留已知键，name trim 非空去重，数值/布尔/模态非法值丢弃；非数组 → []。 */
 function normalizeModels(value: unknown): ProviderModelEntry[] {
   if (!Array.isArray(value)) {
     return [];
@@ -607,11 +674,55 @@ function normalizeModels(value: unknown): ProviderModelEntry[] {
     const maxContextTokens = asOptionalNumber(item.max_context_tokens);
     if (maxContextTokens !== undefined) entry.max_context_tokens = maxContextTokens;
     if (item.supports_function_calling === true) entry.supports_function_calling = true;
-    if (item.supports_vision === true) entry.supports_vision = true;
+    const inputModalities = normalizeModalityList(item.input_modalities);
+    if (inputModalities) entry.input_modalities = inputModalities;
+    const outputModalities = normalizeModalityList(item.output_modalities);
+    if (outputModalities) entry.output_modalities = outputModalities;
+    const thinkingLevels = normalizeThinkingLevelList(item.thinking_levels);
+    if (thinkingLevels) entry.thinking_levels = thinkingLevels;
+    if (item.reasoning_field === "reasoning_content" || item.reasoning_field === "reasoning_details") {
+      entry.reasoning_field = item.reasoning_field;
+    }
     models.push(entry);
     seen.add(name);
   }
   return models;
+}
+
+/** 思考档位子集归一：小写 trim、只留已知强度档位、按全集顺序输出；非数组/过滤后为空 → undefined。 */
+function normalizeThinkingLevelList(value: unknown): ThinkingStrengthLevel[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const known = new Set<string>(THINKING_STRENGTH_LEVELS);
+  const seen = new Set<string>();
+  for (const item of value) {
+    const token = String(item ?? "").trim().toLowerCase();
+    if (token && known.has(token)) {
+      seen.add(token);
+    }
+  }
+  const result = THINKING_STRENGTH_LEVELS.filter((level) => seen.has(level));
+  return result.length > 0 ? [...result] : undefined;
+}
+
+/** 模态数组归一：小写 trim、只留已知值、去重；非数组/过滤后为空 → undefined（键不落盘）。 */
+function normalizeModalityList(value: unknown): ModelModality[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const known = new Set<string>(MODEL_MODALITIES);
+  const result: ModelModality[] = [];
+  const seen = new Set<string>();
+  for (const item of value) {
+    const token = String(item ?? "").trim().toLowerCase();
+    if (!token || !known.has(token) || seen.has(token)) {
+      continue;
+    }
+    seen.add(token);
+    result.push(token as ModelModality);
+  }
+  return result.length > 0 ? result : undefined;
 }
 
 /** 按名称查模型条目（trim 精确匹配）；找不到返回 null（模型未在目录中不算错误）。 */
@@ -623,7 +734,13 @@ function findModelEntryByName(provider: ModelProviderConfig, modelName: string):
 function assignProviderField(config: ModelProviderConfig, field: (typeof UPDATE_FIELDS)[number], value: unknown): void {
   switch (field) {
     case "provider_type":
-      config.provider_type = canonicalizeProviderType(value, undefined);
+      config.provider_type = String(value ?? "").trim().toLowerCase();
+      break;
+    case "api_format":
+      config.api_format = canonicalizeProviderType(value, undefined);
+      break;
+    case "thinking_kind":
+      config.thinking_kind = String(value ?? "").trim().toLowerCase();
       break;
     case "api_key":
       if (value === undefined) {
@@ -715,14 +832,11 @@ function summarizeAvailabilityFailure(
   checks: Record<string, boolean>,
   taskReady: boolean,
 ): string {
-  if (!checks.provider_type_supported) {
-    return `不支持的 Provider 类型: ${provider.provider_type}`;
+  if (!checks.api_format_supported) {
+    return `不支持的 API 格式: ${provider.api_format || "(未配置)"}`;
   }
   if (!checks.api_key_configured) {
     return "缺少 Provider API key";
-  }
-  if (!checks.endpoint_configured) {
-    return "缺少 Provider API endpoint";
   }
   if (!taskReady) {
     return "Provider 未配置可用模型";

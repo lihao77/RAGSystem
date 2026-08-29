@@ -1,4 +1,6 @@
 import type {
+  CatalogModelsResult,
+  CatalogProvidersResult,
   ProviderPayload,
   ProviderTypeInfo,
   TestProviderRequest,
@@ -19,7 +21,7 @@ export interface ProviderMetrics {
 
 /** Tenant-bound provider administration and runtime checks. */
 export interface ProviderApplication {
-  listProviderTypes(): Promise<ProviderTypeInfo[]>;
+  listApiFormats(): Promise<ProviderTypeInfo[]>;
   listProviders(): Promise<ModelProviderConfig[]>;
   createProvider(payload: ProviderPayload): Promise<string>;
   reorderProviders(providerKeys: string[]): Promise<string[]>;
@@ -28,4 +30,7 @@ export interface ProviderApplication {
   checkProviderAvailability(providerKey: string): Promise<ProviderAvailability>;
   getProviderMetrics(providerKey: string): Promise<ProviderMetrics>;
   testProvider(payload: TestProviderRequest): Promise<Record<string, unknown>>;
+  /** Models.dev 目录（进程级只读元数据，供配置界面建议/自动填充；不参与校验）。 */
+  listCatalogProviders(): Promise<CatalogProvidersResult>;
+  listCatalogModels(catalogProviderId: string): Promise<CatalogModelsResult>;
 }

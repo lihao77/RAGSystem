@@ -35,6 +35,7 @@
         :provider-options="providerOptions"
         :provider-key="getTierProviderKey('default')"
         :model-options="getTierModelOptions('default')"
+        :thinking-options="getTierThinkingOptions('default')"
         @provider-change="handleTierProviderChange('default', $event)"
       />
       <TierFields
@@ -49,6 +50,7 @@
         :provider-options="providerOptions"
         :provider-key="getTierProviderKey(tier)"
         :model-options="getTierModelOptions(tier)"
+        :thinking-options="getTierThinkingOptions(tier)"
         @toggle="form.llm_tiers[tier] = form.llm_tiers[tier] ? null : createEmptyLLM()"
         @provider-change="handleTierProviderChange(tier, $event)"
       />
@@ -129,7 +131,7 @@ const props = defineProps({
 });
 
 // form/providers 用 getter 传入：applyConfig 会整体替换 form 对象，需每次取最新引用
-const { getTierProviderKey, getTierModelOptions, handleTierProviderChange } = useTierModels({
+const { getTierProviderKey, getTierModelOptions, getTierThinkingOptions, handleTierProviderChange } = useTierModels({
   form: () => props.form,
   providers: () => props.providers,
 });

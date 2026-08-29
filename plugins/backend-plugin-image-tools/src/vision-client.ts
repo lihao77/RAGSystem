@@ -117,18 +117,23 @@ function normalizeImageMime(mime: string): string {
 
 /**
  * ModelProviderConfig（backend-core 超集）→ ProviderConfig（agent-llm 最小集）。
- * 运行参数与能力位挂在模型条目上：提供 modelName 时，把该条目的值提升到返回的 ProviderConfig。
+ * 运行参数与能力位挂在模型条目上：提供 modelName 时，把该条目的值提升到返回的 ProviderConfig；
+ * supports_vision 由输入模态派生（含 image 即视觉模型）。
+ * provider_type（厂商）→ api_format：agent-llm 按 API 格式分发协议。
  */
 export function toProviderConfig(provider: ModelProviderConfig, modelName?: string): ProviderConfig {
-  const { key, name, provider_type, api_endpoint, api_key, models, ...rest } = provider;
+  const {
+    key, name, provider_type, api_format, api_endpoint, api_key, models,
+    supports_vision: _legacyVision, ...rest
+  } = provider;
   const entry = modelName ? models.find((model) => model.name === modelName.trim()) : undefined;
   return {
     key: key ?? null,
     name,
-    provider_type,
+    provider_type: api_format ?? provider_type,
     ...(api_endpoint ? { api_endpoint } : {}),
     ...(api_key ? { api_key } : {}),
-    ...(entry?.supports_vision !== undefined ? { supports_vision: entry.supports_vision } : {}),
+    ...(entry ? { supports_vision: entry.input_modalities?.includes("image") === true } : {}),
     ...(entry?.supports_function_calling !== undefined
       ? { supports_function_calling: entry.supports_function_calling }
       : {}),

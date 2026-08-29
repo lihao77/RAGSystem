@@ -164,8 +164,8 @@ function resolveTierWithProviderRef(
 /**
  * provider → ResolvedTier：所选模型条目的参数作为底座。
  * 参数来源：模型条目 temperature / max_completion_tokens / max_context_tokens + provider extra_params。
- * 条目能力位（supports_function_calling / supports_vision）随参数一并下沉到内联 provider 副本，
- * SDK 协议选择与视觉门控等读 tier.provider 的消费点无需感知模型级配置。
+ * 条目能力位（supports_function_calling / 输入模态派生的 supports_vision）随参数一并下沉到
+ * 内联 provider 副本，SDK 协议选择与视觉门控等读 tier.provider 的消费点无需感知模型级配置。
  */
 function buildTierFromProvider(provider: ModelProviderConfig, modelName: string): ResolvedTier {
   const entry = findModelEntry(provider, modelName);
@@ -187,14 +187,20 @@ function findModelEntry(provider: ModelProviderConfig, modelName: string): Provi
 /**
  * 模型条目的参数/能力位显式写入内联 provider 副本；条目未配置的键置 null，
  * 避免 provider 透传字段里的残留旧值在模型切换后继续生效。
+ * supports_vision 是派生位：输入模态含 image 即具备图片输入能力（agent-llm 消费点零感知）。
+ * thinking_levels 是模型级思考强度子集（目录 effort 值域），agent-llm 据此收缩可选档位。
+ * provider_type（厂商）→ api_format：agent-llm 按 API 格式分发协议，厂商不是分发键。
  */
 function mergeModelEntryIntoProvider(provider: ModelProviderConfig, entry: ProviderModelEntry | null): ProviderConfig {
   const merged: Record<string, unknown> = { ...provider };
+  merged.provider_type = provider.api_format ?? provider.provider_type;
   merged.temperature = entry?.temperature ?? null;
   merged.max_completion_tokens = entry?.max_completion_tokens ?? null;
   merged.max_context_tokens = entry?.max_context_tokens ?? null;
   merged.supports_function_calling = entry?.supports_function_calling ?? null;
-  merged.supports_vision = entry?.supports_vision ?? null;
+  merged.supports_vision = entry?.input_modalities?.includes("image") ?? null;
+  merged.thinking_levels = entry?.thinking_levels ?? null;
+  merged.reasoning_field = entry?.reasoning_field ?? null;
   return merged as unknown as ProviderConfig;
 }
 

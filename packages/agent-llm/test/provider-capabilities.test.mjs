@@ -22,9 +22,10 @@ test("Gemini is registered with native chat, automatic cache, and Gemini usage c
     supportsStreamUsageOptions: false,
     nativeFunctionCalling: "configurable",
   });
-  assert.equal(providerTypeSpec("mistral").defaultEndpoint, "https://api.mistral.ai/v1");
-  assert.equal(providerTypeSpec("groq").defaultEndpoint, "https://api.groq.com/openai/v1");
-  assert.equal(providerTypeSpec("qwen").defaultEndpoint, "https://dashscope.aliyuncs.com/compatible-mode/v1");
+  // 注册表封闭为 5 种纯协议格式；厂商专属类型已移除（适配在 provider 层声明）
+  assert.equal(PROVIDER_TYPE_SET.has("mistral"), false);
+  assert.equal(PROVIDER_TYPE_SET.has("qwen"), false);
+  assert.equal(PROVIDER_TYPE_SET.has("deepseek"), false);
   assert.equal(providerUsesNativeFunctionCalling("gemini", true), true);
   assert.equal(providerUsesNativeFunctionCalling("gemini", false), false);
   assert.equal(providerUsesNativeFunctionCalling("anthropic", false), true);

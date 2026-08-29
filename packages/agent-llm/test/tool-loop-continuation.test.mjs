@@ -110,9 +110,9 @@ test("Anthropic 缺签名的 thinking 块降级为 <think> 包裹的 text 块而
   assert.equal(body.messages[1].content[0].text, "<think>unsigned thought</think>");
 });
 
-test("DeepSeek thinking + tools：缺 reasoning_content 的 assistant 轮（含纯文字轮）补空串", () => {
+test("思考模式 + tools：缺 reasoning_content 的 assistant 轮（含纯文字轮）补空串", () => {
   const body = buildChatBody({
-    provider: { key: "ds", name: "DeepSeek", provider_type: "deepseek", api_key: "k" },
+    provider: { key: "ds", name: "DeepSeek", provider_type: "openai_proxy", api_key: "k" },
     model: "deepseek-v4-pro",
     thinkingLevel: "low",
     messages: [
@@ -133,21 +133,96 @@ test("DeepSeek thinking + tools：缺 reasoning_content 的 assistant 轮（含�
   assert.equal(assistants[2].reasoning_content, "");
 });
 
-test("DeepSeek 特判走能力位：未标记的兼容厂商不补 reasoning_content", async () => {
-  const { providerTypeSpec } = await import("../dist/provider-registry.js");
-  assert.equal(providerTypeSpec("deepseek").requiresReasoningContentOnAssistantMessages, true);
-  assert.notEqual(providerTypeSpec("qwen").requiresReasoningContentOnAssistantMessages, true);
-
+test("reasoning_field 声明（目录 interleaved.field）：补齐字段跟随方言，已带思考字段的轮不重复补", () => {
   const body = buildChatBody({
-    provider: { key: "qwen", name: "Qwen", provider_type: "qwen", api_key: "k" },
+    // openrouter 部分模型为 reasoning_details 方言（目录模型级声明，投影进 provider）
+    provider: { key: "or", name: "OpenRouter", provider_type: "openai_proxy", api_key: "k", reasoning_field: "reasoning_details" },
+    model: "grok-4",
+    thinkingLevel: "high",
+    messages: [
+      { role: "user", content: "check the file" },
+      { role: "assistant", content: "old answer" },
+      { role: "user", content: "again" },
+      { role: "assistant", content: "", tool_calls: [toolCall("call-1")], provider_continuation: { protocol: "openai_chat", toolCallIds: ["call-1"], assistantFields: { reasoning_details: [{ type: "summary", text: "think one" }] } } },
+      { role: "tool", tool_call_id: "call-1", content: "result" },
+      { role: "assistant", content: "", tool_calls: [toolCall("call-2")] },
+      { role: "tool", tool_call_id: "call-2", content: "more" },
+    ],
+  });
+
+  const assistants = body.messages.filter((message) => message.role === "assistant");
+  // 纯文字轮与无字段的 tool 轮按声明补 reasoning_details（不补 reasoning_content）
+  assert.equal(assistants[0].reasoning_details, "");
+  assert.equal(assistants[0].reasoning_content, undefined);
+  // continuation 带回的厂商原始字段原样保留，不重复补
+  assert.deepEqual(assistants[1].reasoning_details, [{ type: "summary", text: "think one" }]);
+  assert.equal(assistants[2].reasoning_details, "");
+  assert.equal(assistants[2].reasoning_content, undefined);
+});
+
+test("思考补齐：轮内已有任一思考线字段（如 reasoning 字符串方言）则不注入", () => {
+  const body = buildChatBody({
+    provider: { key: "gw", name: "Gateway", provider_type: "openai_proxy", api_key: "k" },
+    model: "some-model",
+    thinkingLevel: "low",
+    messages: [
+      { role: "user", content: "go" },
+      { role: "assistant", content: "", tool_calls: [toolCall("call-1")], provider_continuation: { protocol: "openai_chat", toolCallIds: ["call-1"], assistantFields: { reasoning: "alternate dialect" } } },
+      { role: "tool", tool_call_id: "call-1", content: "result" },
+    ],
+  });
+
+  const assistant = body.messages.find((message) => message.role === "assistant");
+  assert.equal(assistant.reasoning, "alternate dialect");
+  assert.equal(assistant.reasoning_content, undefined);
+});
+
+test("思考补齐激活绑定形状实际生效：kind=none / budget 覆盖 + 陈旧档位不注入任何字段", () => {
+  const messages = [
+    { role: "user", content: "go" },
+    { role: "assistant", content: "old answer" },
+  ];
+  // thinking_kind 声明 none（无思考通道）：tier 残留档位不得触发补齐
+  const noneKind = buildChatBody({
+    provider: { key: "t", name: "T", provider_type: "openai_proxy", api_key: "k", thinking_kind: "none" },
+    model: "m",
+    thinkingLevel: "high",
+    messages,
+  });
+  assert.equal(noneKind.messages[1].reasoning_content, undefined);
+  assert.equal(noneKind.messages[1].reasoning_details, undefined);
+  // budget 覆盖到 openai 系：请求体无思考参数（budget 由 anthropic 适配器消费），同样不补
+  const budgetKind = buildChatBody({
+    provider: { key: "t", name: "T", provider_type: "openai_chat", api_key: "k", thinking_kind: "budget" },
+    model: "m",
+    thinkingLevel: "high",
+    messages,
+  });
+  assert.equal(budgetKind.messages[1].reasoning_content, undefined);
+  assert.equal(budgetKind.reasoning_effort, undefined);
+});
+
+test("思考模式补齐与厂商无关：兼容厂商同样补空串，未开思考不注入", () => {
+  const body = buildChatBody({
+    provider: { key: "qwen", name: "Qwen", provider_type: "openai_proxy", thinking_kind: "toggle", api_key: "k" },
     model: "qwen-plus",
     thinkingLevel: "on",
     messages: multiRoundMessages({}, {}),
   });
 
   const assistants = body.messages.filter((message) => message.role === "assistant" && message.tool_calls);
-  assert.equal(assistants[0].reasoning_content, undefined);
-  assert.equal(assistants[1].reasoning_content, undefined);
+  assert.equal(assistants[0].reasoning_content, "");
+  assert.equal(assistants[1].reasoning_content, "");
+
+  // 未开启思考时不注入，避免给严格网关发送未知消息字段
+  const plain = buildChatBody({
+    provider: { key: "qwen", name: "Qwen", provider_type: "openai_proxy", thinking_kind: "toggle", api_key: "k" },
+    model: "qwen-plus",
+    messages: multiRoundMessages({}, {}),
+  });
+  const plainAssistants = plain.messages.filter((message) => message.role === "assistant" && message.tool_calls);
+  assert.equal(plainAssistants[0].reasoning_content, undefined);
+  assert.equal(plainAssistants[1].reasoning_content, undefined);
 });
 
 test("OpenAI Responses 开启思考时请求 encrypted reasoning 内容", () => {

@@ -5,7 +5,7 @@ import type { ModelAdapterService } from "@ragsystem/backend-core/services/integ
 export class LocalProviderApplication implements ProviderApplication {
   constructor(private readonly service: ModelAdapterService) {}
 
-  async listProviderTypes() { return this.service.listProviderTypes(); }
+  async listApiFormats() { return this.service.listApiFormats(); }
   async listProviders() { return this.service.listProviders(); }
   async createProvider(payload: ProviderPayload) { return this.service.createProvider(payload); }
   async reorderProviders(providerKeys: string[]) { return this.service.reorderProviders({ provider_keys: providerKeys }); }
@@ -14,4 +14,6 @@ export class LocalProviderApplication implements ProviderApplication {
   async checkProviderAvailability(providerKey: string) { return this.service.checkProviderAvailability(providerKey); }
   async getProviderMetrics(providerKey: string) { return this.service.getProviderMetrics(providerKey); }
   async testProvider(payload: TestProviderRequest) { return this.service.testProvider(payload); }
+  async listCatalogProviders() { return this.service.listCatalogProviders(); }
+  async listCatalogModels(catalogProviderId: string) { return this.service.listCatalogModels(catalogProviderId); }
 }

@@ -42,7 +42,7 @@ test('enrich:provider/model 字段动态化为下拉，provider_type 禁用', ()
 
 test('enrich:visionOnly 提示只列拥有视觉模型的 provider，与组名无关', () => {
   const { enrichSchemaWithProviderSelection } = setup([
-    { name: 'openai', models: [{ name: 'gpt-4o', supports_vision: true }, { name: 'gpt-4o-mini' }] },
+    { name: 'openai', models: [{ name: 'gpt-4o', input_modalities: ['text', 'image'] }, { name: 'gpt-4o-mini' }] },
     { name: 'text-only', models: [{ name: 'deepseek-chat' }] },
   ]);
   const schema = {
@@ -63,7 +63,7 @@ test('enrich:visionOnly 提示只列拥有视觉模型的 provider，与组名�
 
 test('enrich:未声明 visionOnly 时列出全部 provider', () => {
   const { enrichSchemaWithProviderSelection } = setup([
-    { name: 'openai', models: [{ name: 'gpt-4o', supports_vision: true }] },
+    { name: 'openai', models: [{ name: 'gpt-4o', input_modalities: ['text', 'image'] }] },
     { name: 'text-only', models: [{ name: 'deepseek-chat' }] },
   ]);
   const schema = {

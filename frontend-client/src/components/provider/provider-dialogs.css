@@ -17,6 +17,16 @@
 .provider-model-summary { min-width: 0; color: var(--color-text-secondary); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .provider-model-caps { display: inline-flex; gap: 4px; }
 .provider-model-actions { display: inline-flex; gap: 2px; }
+.provider-model-catalog__meta { margin: 0; color: var(--color-text-secondary); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.provider-model-catalog__clear { margin-left: 6px; padding: 0; border: none; background: transparent; color: var(--color-brand-accent); font-size: 12px; cursor: pointer; }
+.provider-model-catalog__clear:hover { text-decoration: underline; }
+.modality-field { display: flex; flex-direction: column; gap: 6px; }
+.modality-field__head { font-size: 13px; font-weight: 600; color: var(--color-text-primary); }
+.modality-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.modality-chip { padding: 3px 12px; border: 1px solid var(--color-border); border-radius: 999px; background: transparent; color: var(--color-text-secondary); font-size: 12px; line-height: 1.6; cursor: pointer; transition: color var(--transition-fast), border-color var(--transition-fast), background var(--transition-fast); }
+.modality-chip--on { border-color: var(--color-brand-accent); color: var(--color-brand-accent); background: color-mix(in srgb, var(--color-brand-accent) 8%, transparent); }
+.modality-chip:disabled { cursor: default; opacity: 0.75; }
+.modality-field[data-invalid] .modality-chip { border-color: var(--color-error); }
 .delete-confirm-msg { margin: 0; color: var(--color-text-secondary); line-height: 1.7; }
 .delete-usage-loading { margin: 0; color: var(--color-text-secondary); font-size: 13px; }
 .delete-usage-list { display: flex; flex-direction: column; gap: var(--spacing-sm); padding: 10px; border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-warning-bg); font-size: 13px; }

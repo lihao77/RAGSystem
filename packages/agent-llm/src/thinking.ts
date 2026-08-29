@@ -1,20 +1,21 @@
 /**
  * 思考等级（thinking level）单一信源。
  *
- * 统一 UI 档位（off/minimal/low/medium/high/xhigh/max/on）→ 各厂商协议参数的映射。
- * 档位如何落到请求 body 由本模块决定（buildThinkingParams 按 provider_type 分派），是否
- * 支持由 describeThinking 按 provider_type 描述（provider YAML 的 thinking_kind 字段可
- * 覆盖默认判定）。档位只来自请求级 thinkingLevel / agent tier 默认档位，provider 自身不
- * 定义思考强度。显示文案/i18n 归前端，本模块只输出机器值。
+ * 统一 UI 档位（off/minimal/low/medium/high/xhigh/max/on）→ 协议参数的映射。
+ * 本包只认识通用形状（effort / budget / toggle / none），按 API 格式给默认值；
+ * 厂商适配在 provider 层声明——thinking_kind 覆盖形状（如 qwen 系 enable_thinking），
+ * 静态厂商参数经 extra_params 进请求体（如嵌套 thinking map）。档位只来自请求级
+ * thinkingLevel / agent tier 默认档位，provider 自身不定义思考强度；模型条目可带
+ * thinking_levels 强度子集（目录 reasoning_options 的 effort 值域）收缩可选档位。
+ * 显示文案/i18n 归前端，本模块只输出机器值。
  */
 
 import type { ProviderConfig } from "./types.js";
 
 /**
  * 请求级思考档位（跨 provider 统一 key；undefined/null = 未决，由 agent tier 默认档位兜底）。
- * 档位集合按厂商不同（见 THINKING_LEVELS_BY_PROVIDER_TYPE）：effort 系用
- * minimal/low/medium/high（deepseek 为 low/high/max，openrouter 额外含 xhigh），
- * toggle 系仅 off/on，off 在所有系均表示显式关闭。
+ * 档位集合按形状不同：effort 系用 minimal/low/medium/high，toggle 系仅 off/on，
+ * off 在所有系均表示显式关闭。
  */
 export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "on";
 
@@ -22,10 +23,10 @@ export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhi
 export const ALL_THINKING_LEVELS: readonly ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max", "on"];
 
 /**
- * 思考参数落到请求的方式：
- * effort — 推理强度枚举（OpenAI 顶层 reasoning_effort；deepseek 包在 thinking map；openrouter 包在 reasoning map）；
+ * 思考参数落到请求的方式（通用形状，与厂商无关）：
+ * effort — 推理强度枚举（顶层 reasoning_effort；厂商自有的嵌套形状经 extra_params 声明）；
  * budget — Anthropic token 预算（由 anthropic 适配器单独消费，buildThinkingParams 不产出）；
- * toggle — 仅开关无分级（ModelScope/Qwen 系 enable_thinking）；
+ * toggle — 仅开关无分级（enable_thinking，qwen 系厂商经 provider thinking_kind 声明启用）；
  * none — 不支持。
  */
 export type ThinkingParamKind = "effort" | "budget" | "toggle" | "none";
@@ -36,7 +37,7 @@ export interface ThinkingCapability {
   levels: readonly ThinkingLevel[];
 }
 
-/** effort 系档位直通值（off 由各厂商序列化显式处理；on 仅 toggle 系使用）。 */
+/** effort 系档位直通值（off 由各形状序列化显式处理；on 仅 toggle 系使用）。 */
 const EFFORT_BY_LEVEL: Readonly<Record<Exclude<ThinkingLevel, "off" | "on">, string>> = {
   minimal: "minimal",
   low: "low",
@@ -45,6 +46,14 @@ const EFFORT_BY_LEVEL: Readonly<Record<Exclude<ThinkingLevel, "off" | "on">, str
   xhigh: "xhigh",
   max: "max",
 };
+
+/**
+ * effort 系强度档位全集（模型级子集 thinking_levels 的合法值域）。
+ * 子集来自目录厂商声明（models.dev reasoning_options 的 effort 值域），经
+ * provider 模型条目带入；off 是通用开关不入子集。仅 effort 形状受子集约束，
+ * budget 的档位是本包预设、toggle 只有开关。
+ */
+export const THINKING_STRENGTH_LEVELS: readonly ThinkingLevel[] = ["minimal", "low", "medium", "high", "xhigh", "max"];
 
 /** Anthropic budget_tokens 预设；off=0 → 不发 thinking 块，temperature 正常下发。 */
 const BUDGET_BY_LEVEL: Readonly<Partial<Record<ThinkingLevel, number>>> = {
@@ -55,21 +64,15 @@ const BUDGET_BY_LEVEL: Readonly<Partial<Record<ThinkingLevel, number>>> = {
 };
 
 /**
- * provider_type 默认思考能力。openai 系三家走 effort；anthropic 走 budget；
- * deepseek 官方 API 用 thinking map 包 effort（off 显式 disabled）；openrouter 用 reasoning map；
- * modelscope/qwen 系仅 enable_thinking 开关。
+ * API 格式默认思考形状。openai 系三家走 effort；anthropic 走 budget；gemini 默认 none。
+ * 厂商差异（qwen 系 enable_thinking 等）由 provider YAML 的 thinking_kind 覆盖，
+ * 本表不出现任何厂商名。
  */
 const THINKING_KIND_BY_PROVIDER_TYPE: Readonly<Record<string, ThinkingParamKind>> = {
   openai_resp: "effort",
   openai_chat: "effort",
   openai_proxy: "effort",
   anthropic: "budget",
-  mistral: "effort",
-  groq: "effort",
-  qwen: "toggle",
-  deepseek: "effort",
-  openrouter: "effort",
-  modelscope: "toggle",
 };
 
 function normalizeKindOverride(value: unknown): ThinkingParamKind | null {
@@ -77,14 +80,10 @@ function normalizeKindOverride(value: unknown): ThinkingParamKind | null {
 }
 
 /**
- * provider_type → 可选档位（describeThinking 据此返回，前端选择器按此渲染）。
- * 反映各厂商官方枚举：openai 系 minimal..high；deepseek 官方仅 low/high/max
- * （medium/xhigh 被其 API 兼容映射到 high，故不暴露）；openrouter 全枚举含 xhigh；
- * anthropic budget 预设档；modelscope 仅开关。未知类型回退 kind 通用表。
+ * API 格式 → 可选档位（describeThinking 据此返回，前端选择器按此渲染）。
+ * 厂商特有的档位子集差异由其 API 兼容映射吸收（如 medium 映射 high），不再单列。
  */
 const OPENAI_LEVELS: readonly ThinkingLevel[] = ["off", "minimal", "low", "medium", "high"];
-const DEEPSEEK_LEVELS: readonly ThinkingLevel[] = ["off", "low", "high", "max"];
-const OPENROUTER_LEVELS: readonly ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh"];
 const ANTHROPIC_LEVELS: readonly ThinkingLevel[] = ["off", "low", "medium", "high"];
 const TOGGLE_LEVELS: readonly ThinkingLevel[] = ["off", "on"];
 
@@ -93,26 +92,54 @@ const THINKING_LEVELS_BY_PROVIDER_TYPE: Readonly<Record<string, readonly Thinkin
   openai_chat: OPENAI_LEVELS,
   openai_proxy: OPENAI_LEVELS,
   anthropic: ANTHROPIC_LEVELS,
-  mistral: ["off", "minimal", "low", "medium", "high", "xhigh"],
-  groq: ["off", "on", "low", "medium", "high"],
-  qwen: TOGGLE_LEVELS,
-  deepseek: DEEPSEEK_LEVELS,
-  openrouter: OPENROUTER_LEVELS,
-  modelscope: TOGGLE_LEVELS,
 };
 
 function levelsFor(providerType: string, kind: ThinkingParamKind): readonly ThinkingLevel[] {
+  // budget 档位取预算预设集（BUDGET_BY_LEVEL 只定义了 off/low/medium/high），
+  // 即使形状覆盖到非 anthropic 格式也不展示无预设的档位（如 minimal）。
+  if (kind === "budget") return ANTHROPIC_LEVELS;
   const byProvider = THINKING_LEVELS_BY_PROVIDER_TYPE[providerType];
-  if (byProvider) return byProvider;
+  if (byProvider && kind !== "toggle") return byProvider;
   if (kind === "toggle") return TOGGLE_LEVELS;
   if (kind === "effort") return OPENAI_LEVELS;
   return [];
 }
 
-/** 描述某 provider 的思考能力；前端选择器据此决定显隐与可选档位。 */
-export function describeThinking(providerType: string, kindOverride?: unknown): ThinkingCapability {
+/**
+ * effort 形状的模型级子集（provider.thinking_levels）替换强度档位：子集来自目录
+ * 厂商枚举（models.dev reasoning_options 的 effort 值域），是模型真实值域，可含
+ * 格式默认集没有的档位（如 max）；off 是通用开关恒保留。子集过滤到已知强度档位，
+ * 空/缺省/全非法 = 不限制（用格式默认集）。
+ */
+function applyModelLevelSubset(levels: readonly ThinkingLevel[], subset: unknown): readonly ThinkingLevel[] {
+  if (!Array.isArray(subset) || subset.length === 0) {
+    return levels;
+  }
+  const known = new Set<string>(THINKING_STRENGTH_LEVELS);
+  const picked = new Set<string>();
+  for (const item of subset) {
+    const token = String(item ?? "").trim().toLowerCase();
+    if (known.has(token)) {
+      picked.add(token);
+    }
+  }
+  if (picked.size === 0) {
+    return levels;
+  }
+  return ["off", ...THINKING_STRENGTH_LEVELS.filter((level) => picked.has(level))];
+}
+
+/** 描述某 provider 的思考能力；前端选择器据此决定显隐与可选档位。
+ * levelsSubset 为模型级强度子集（effort 形状才生效），存在即替换强度档位。 */
+export function describeThinking(
+  providerType: string,
+  kindOverride?: unknown,
+  levelsSubset?: unknown,
+): ThinkingCapability {
   const kind = normalizeKindOverride(kindOverride) ?? THINKING_KIND_BY_PROVIDER_TYPE[providerType] ?? "none";
-  return { kind, levels: kind === "none" ? [] : levelsFor(providerType, kind) };
+  if (kind === "none") return { kind, levels: [] };
+  const levels = levelsFor(providerType, kind);
+  return { kind, levels: kind === "effort" ? applyModelLevelSubset(levels, levelsSubset) : levels };
 }
 
 /** 档位必须落在 provider 声明子集内（陈旧 tier 配置/外部请求不得静默下发越界值）。 */
@@ -124,19 +151,21 @@ function requireSupportedLevel(level: ThinkingLevel, levels: readonly ThinkingLe
 
 /**
  * 统一档位 → 扁平厂商参数（openai 系顶层 reasoning_effort / anthropic thinking_budget_tokens）；
- * deepseek/openrouter 的嵌套形状由 buildThinkingParams 处理，不走本函数。类型不支持时返回 null。
+ * 类型不支持时返回 null。厂商嵌套形状经 provider extra_params 声明，不走本函数。
  */
 export function resolveThinkingParams(
   level: ThinkingLevel,
   providerType: string,
   kindOverride?: unknown,
+  levelsSubset?: unknown,
 ): { reasoning_effort?: string; thinking_budget_tokens?: number } | null {
-  const { kind, levels } = describeThinking(providerType, kindOverride);
+  const { kind, levels } = describeThinking(providerType, kindOverride, levelsSubset);
   if (kind === "none") return null;
   requireSupportedLevel(level, levels, providerType);
   if (kind === "effort") {
-    if (providerType === "groq" && level === "on") return { reasoning_effort: "default" };
-    return { reasoning_effort: level === "off" ? "none" : EFFORT_BY_LEVEL[level as Exclude<ThinkingLevel, "off" | "on">] };
+    if (level === "off") return { reasoning_effort: "none" };
+    const effort = EFFORT_BY_LEVEL[level as Exclude<ThinkingLevel, "off" | "on">];
+    return effort ? { reasoning_effort: effort } : null;
   }
   const budget = BUDGET_BY_LEVEL[level];
   return { ...(budget !== undefined ? { thinking_budget_tokens: budget } : {}) };
@@ -147,45 +176,50 @@ function kindOverrideOf(provider: ProviderConfig): unknown {
 }
 
 /**
- * 请求级思考档位 → 可直接合并进 chat 请求 body 的厂商参数（按 provider_type 分派）。
+ * 思考专属副作用（历史补齐 reasoning 字段等）是否激活：要求档位显式开启且形状
+ * 真的会产出请求参数（effort/toggle）。kind=none 或 budget 覆盖到 openai 系时
+ * 请求体没有思考参数，陈旧档位不得触发补齐（避免向无思考通道的请求注入未知字段）。
+ */
+export function thinkingSideEffectsActive(provider: ProviderConfig, level?: ThinkingLevel | null): boolean {
+  if (!level || level === "off") {
+    return false;
+  }
+  const { kind } = describeThinking(provider.provider_type, kindOverrideOf(provider));
+  return kind === "effort" || kind === "toggle";
+}
+
+/** 模型级强度档位子集（投影层把选中模型条目的 thinking_levels 合并进 provider）。 */
+function levelsSubsetOf(provider: ProviderConfig): unknown {
+  return (provider as Record<string, unknown>).thinking_levels;
+}
+
+/**
+ * 请求级思考档位 → 可直接合并进 chat 请求 body 的参数（按通用形状分派，与厂商无关）。
  * 无档位（undefined/null）返回 null——档位只来自请求级 thinkingLevel / agent tier 默认档位，
  * provider 自身不定义思考强度。kind 为 none/budget 也返回 null（budget 由 anthropic 适配器
  * 走 effectiveThinkingBudget，temperature/推理块回传逻辑在那边）。off 对 effort 系 = 厂商
- * 侧显式关闭（openai 顶层 none / openrouter reasoning.none / deepseek thinking.disabled）。
+ * 侧显式关闭（顶层 none）；toggle 系为 enable_thinking:false。
  */
 export function buildThinkingParams(
   provider: ProviderConfig,
   level?: ThinkingLevel | null,
 ): Record<string, unknown> | null {
   if (!level) return null;
-  const { kind, levels } = describeThinking(provider.provider_type, kindOverrideOf(provider));
+  const { kind, levels } = describeThinking(provider.provider_type, kindOverrideOf(provider), levelsSubsetOf(provider));
   if (kind === "none" || kind === "budget") return null;
   requireSupportedLevel(level, levels, provider.provider_type);
-  const providerType = provider.provider_type;
   if (kind === "toggle") {
     return { enable_thinking: level !== "off" };
   }
-  if (providerType === "groq" && level === "on") {
-    return { reasoning_effort: "default" };
-  }
-  if (level === "off") {
-    if (providerType === "deepseek") return { thinking: { type: "disabled" } };
-    if (providerType === "openrouter") return { reasoning: { effort: "none" } };
-    return { reasoning_effort: "none" };
-  }
+  if (level === "off") return { reasoning_effort: "none" };
   const effort = EFFORT_BY_LEVEL[level as Exclude<ThinkingLevel, "off" | "on">];
-  if (!effort) return null;
-  if (providerType === "deepseek") {
-    return { thinking: { type: "enabled", reasoning_effort: effort } };
-  }
-  if (providerType === "openrouter") return { reasoning: { effort } };
-  return { reasoning_effort: effort };
+  return effort ? { reasoning_effort: effort } : null;
 }
 
 /** LlmRequest.thinkingLevel 生效 effort（openai responses 路径）；无档位 = 不发送。 */
 export function effectiveReasoningEffort(provider: ProviderConfig, level?: ThinkingLevel | null): string | undefined {
   if (!level) return undefined;
-  return resolveThinkingParams(level, provider.provider_type, kindOverrideOf(provider))?.reasoning_effort;
+  return resolveThinkingParams(level, provider.provider_type, kindOverrideOf(provider), levelsSubsetOf(provider))?.reasoning_effort;
 }
 
 /**
@@ -194,5 +228,5 @@ export function effectiveReasoningEffort(provider: ProviderConfig, level?: Think
  */
 export function effectiveThinkingBudget(provider: ProviderConfig, level?: ThinkingLevel | null): number | undefined {
   if (!level) return undefined;
-  return resolveThinkingParams(level, provider.provider_type, kindOverrideOf(provider))?.thinking_budget_tokens;
+  return resolveThinkingParams(level, provider.provider_type, kindOverrideOf(provider), levelsSubsetOf(provider))?.thinking_budget_tokens;
 }

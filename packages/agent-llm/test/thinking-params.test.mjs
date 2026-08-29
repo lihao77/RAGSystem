@@ -21,70 +21,38 @@ const request = (providerConfig, thinkingLevel, extra = {}) => ({
   ...extra,
 });
 
-test("档位集合按厂商枚举返回（describeThinking）", () => {
+test("档位集合按 API 格式返回（describeThinking）；thinking_kind 覆盖形状（厂商层适配）", () => {
   assert.deepEqual(describeThinking("openai_chat").levels, ["off", "minimal", "low", "medium", "high"]);
-  assert.deepEqual(describeThinking("deepseek").levels, ["off", "low", "high", "max"]);
-  assert.deepEqual(describeThinking("openrouter").levels, ["off", "minimal", "low", "medium", "high", "xhigh"]);
+  assert.deepEqual(describeThinking("openai_proxy").levels, ["off", "minimal", "low", "medium", "high"]);
+  assert.deepEqual(describeThinking("openai_resp").levels, ["off", "minimal", "low", "medium", "high"]);
   assert.deepEqual(describeThinking("anthropic").levels, ["off", "low", "medium", "high"]);
-  assert.deepEqual(describeThinking("modelscope").levels, ["off", "on"]);
-  assert.deepEqual(describeThinking("qwen").levels, ["off", "on"]);
-  assert.deepEqual(describeThinking("mistral").levels, ["off", "minimal", "low", "medium", "high", "xhigh"]);
-  assert.deepEqual(describeThinking("groq").levels, ["off", "on", "low", "medium", "high"]);
+  assert.deepEqual(describeThinking("gemini").levels, []);
+  // 厂商差异经 provider 的 thinking_kind 声明（如 qwen 系 enable_thinking），本包不认识厂商
+  assert.equal(describeThinking("openai_proxy", "toggle").kind, "toggle");
+  assert.deepEqual(describeThinking("openai_proxy", "toggle").levels, ["off", "on"]);
+  assert.equal(describeThinking("openai_proxy", "none").kind, "none");
+  assert.deepEqual(describeThinking("openai_proxy", "none").levels, []);
 });
 
-test("deepseek 档位序列化为 thinking map（off 显式 disabled，max 直通）", () => {
-  assert.deepEqual(buildThinkingParams(provider("deepseek"), "low"), {
-    thinking: { type: "enabled", reasoning_effort: "low" },
-  });
-  assert.deepEqual(buildThinkingParams(provider("deepseek"), "high"), {
-    thinking: { type: "enabled", reasoning_effort: "high" },
-  });
-  assert.deepEqual(buildThinkingParams(provider("deepseek"), "max"), {
-    thinking: { type: "enabled", reasoning_effort: "max" },
-  });
-  assert.deepEqual(buildThinkingParams(provider("deepseek"), "off"), {
-    thinking: { type: "disabled" },
-  });
+test("effort 档位顶层 reasoning_effort 直通（off 显式 none）", () => {
+  assert.deepEqual(buildThinkingParams(provider("openai_proxy"), "low"), { reasoning_effort: "low" });
+  assert.deepEqual(buildThinkingParams(provider("openai_proxy"), "high"), { reasoning_effort: "high" });
+  assert.deepEqual(buildThinkingParams(provider("openai_proxy"), "off"), { reasoning_effort: "none" });
+  assert.deepEqual(buildThinkingParams(provider("openai_chat"), "minimal"), { reasoning_effort: "minimal" });
 });
 
 test("无档位一律返回 null（档位只来自请求级/tier 配置，provider 不定义思考）", () => {
-  assert.equal(buildThinkingParams(provider("deepseek")), null);
-  assert.equal(buildThinkingParams(provider("deepseek", { reasoning_effort: "high" })), null);
-  assert.equal(buildThinkingParams(provider("openrouter")), null);
-  assert.equal(buildThinkingParams(provider("modelscope")), null);
+  assert.equal(buildThinkingParams(provider("openai_proxy")), null);
+  assert.equal(buildThinkingParams(provider("openai_proxy", { reasoning_effort: "high" })), null);
   assert.equal(buildThinkingParams(provider("openai_chat")), null);
+  assert.equal(buildThinkingParams(provider("openai_proxy", { thinking_kind: "toggle" })), null);
   assert.equal(buildThinkingParams(provider("anthropic"), "high"), null);
 });
 
-test("openrouter 档位序列化为 reasoning map（off = effort none，xhigh 直通）", () => {
-  assert.deepEqual(buildThinkingParams(provider("openrouter"), "minimal"), {
-    reasoning: { effort: "minimal" },
-  });
-  assert.deepEqual(buildThinkingParams(provider("openrouter"), "xhigh"), {
-    reasoning: { effort: "xhigh" },
-  });
-  assert.deepEqual(buildThinkingParams(provider("openrouter"), "off"), {
-    reasoning: { effort: "none" },
-  });
-});
-
-test("modelscope 仅开关（toggle），on 开启 / off 关闭", () => {
-  assert.deepEqual(buildThinkingParams(provider("modelscope"), "on"), { enable_thinking: true });
-  assert.deepEqual(buildThinkingParams(provider("modelscope"), "off"), { enable_thinking: false });
-  assert.equal(buildThinkingParams(provider("modelscope")), null);
-});
-
-test("Qwen 仅开关思考，Groq 支持 default/low/high", () => {
-  assert.deepEqual(buildThinkingParams(provider("qwen"), "on"), { enable_thinking: true });
-  assert.deepEqual(buildThinkingParams(provider("qwen"), "off"), { enable_thinking: false });
-  assert.deepEqual(buildThinkingParams(provider("groq"), "on"), { reasoning_effort: "default" });
-  assert.deepEqual(buildThinkingParams(provider("groq"), "high"), { reasoning_effort: "high" });
-  assert.throws(() => buildThinkingParams(provider("groq"), "xhigh"), /not supported/);
-});
-
-test("Mistral follows the OpenAI-compatible reasoning_effort shape", () => {
-  assert.deepEqual(buildThinkingParams(provider("mistral"), "minimal"), { reasoning_effort: "minimal" });
-  assert.deepEqual(buildThinkingParams(provider("mistral"), "off"), { reasoning_effort: "none" });
+test("toggle 形状（厂商 thinking_kind 声明）：on 开启 / off 关闭", () => {
+  assert.deepEqual(buildThinkingParams(provider("openai_proxy", { thinking_kind: "toggle" }), "on"), { enable_thinking: true });
+  assert.deepEqual(buildThinkingParams(provider("openai_proxy", { thinking_kind: "toggle" }), "off"), { enable_thinking: false });
+  assert.equal(buildThinkingParams(provider("openai_proxy", { thinking_kind: "toggle" })), null);
 });
 
 test("openai_chat 顶层 reasoning_effort 直通档位（minimal/off），越界档位拒绝", () => {
@@ -95,12 +63,39 @@ test("openai_chat 顶层 reasoning_effort 直通档位（minimal/off），越界
   assert.throws(() => buildThinkingParams(provider("openai_chat"), "max"), /not supported/);
 });
 
-test("超出厂商声明子集的档位拒绝，不静默下发", () => {
-  assert.throws(() => buildThinkingParams(provider("deepseek"), "minimal"), /not supported/);
-  assert.throws(() => buildThinkingParams(provider("deepseek"), "xhigh"), /not supported/);
-  assert.throws(() => buildThinkingParams(provider("deepseek"), "on"), /not supported/);
-  assert.throws(() => buildThinkingParams(provider("openrouter"), "max"), /not supported/);
-  assert.throws(() => buildThinkingParams(provider("modelscope"), "medium"), /not supported/);
+test("超出声明子集的档位拒绝，不静默下发", () => {
+  assert.throws(() => buildThinkingParams(provider("openai_chat"), "on"), /not supported/);
+  assert.throws(() => buildThinkingParams(provider("openai_proxy", { thinking_kind: "toggle" }), "medium"), /not supported/);
+});
+
+test("模型级 thinking_levels 子集替换强度档位（目录厂商枚举为准；off 恒可用）", () => {
+  // deepseek 风格：low/high/max
+  const ds = provider("openai_proxy", { thinking_levels: ["low", "high", "max"] });
+  assert.deepEqual(describeThinking("openai_proxy", undefined, ["low", "high", "max"]).levels, ["off", "low", "high", "max"]);
+  assert.deepEqual(buildThinkingParams(ds, "max"), { reasoning_effort: "max" });
+  assert.deepEqual(buildThinkingParams(ds, "off"), { reasoning_effort: "none" });
+  assert.throws(() => buildThinkingParams(ds, "medium"), /not supported/);
+  assert.throws(() => buildThinkingParams(ds, "minimal"), /not supported/);
+  // 子集是模型真实值域，可含格式默认集没有的档位（max 不在 openai_chat 默认菜单）
+  assert.deepEqual(describeThinking("openai_chat", undefined, ["high", "max"]).levels, ["off", "high", "max"]);
+});
+
+test("子集对非 effort 形状与非法值不生效（budget 预设/toggle 开关不收缩；空/坏子集 = 格式默认集）", () => {
+  // budget：档位是本包预设，模型子集（effort 语义）不约束
+  assert.equal(effectiveThinkingBudget(provider("anthropic", { thinking_levels: ["low"] }), "high"), 32768);
+  assert.deepEqual(describeThinking("openai_proxy", "toggle", ["low"]).levels, ["off", "on"]);
+  assert.deepEqual(describeThinking("openai_chat", undefined, []).levels, ["off", "minimal", "low", "medium", "high"]);
+  assert.deepEqual(describeThinking("openai_chat", undefined, "low").levels, ["off", "minimal", "low", "medium", "high"]);
+  // 非法值过滤；全非法 → 回退格式默认集
+  assert.deepEqual(describeThinking("openai_chat", undefined, ["high", "bogus"]).levels, ["off", "high"]);
+  assert.deepEqual(describeThinking("openai_chat", undefined, ["bogus"]).levels, ["off", "minimal", "low", "medium", "high"]);
+});
+
+test("budget 形状覆盖到 openai 系格式时档位用预算预设集（不含 minimal 等无预设档位）", () => {
+  assert.deepEqual(describeThinking("openai_chat", "budget").levels, ["off", "low", "medium", "high"]);
+  assert.deepEqual(describeThinking("openai_proxy", "budget").levels, ["off", "low", "medium", "high"]);
+  // 子集（effort 语义）对 budget 形状依旧不生效
+  assert.deepEqual(describeThinking("openai_proxy", "budget", ["low"]).levels, ["off", "low", "medium", "high"]);
 });
 
 test("anthropic 不出 thinking 参数（budget 由 anthropic 适配器专用路径消费）", () => {
@@ -109,12 +104,12 @@ test("anthropic 不出 thinking 参数（budget 由 anthropic 适配器专用路
   assert.throws(() => effectiveThinkingBudget(provider("anthropic"), "max"), /not supported/);
 });
 
-test("buildChatBody 合并厂商思考参数且不影响既有字段", () => {
-  const body = buildChatBody(request(provider("deepseek"), "max"));
+test("buildChatBody 合并档位参数与厂商 extra_params（嵌套思考形状由厂商层静态带入）", () => {
+  const body = buildChatBody(request(provider("openai_proxy"), "high", { extraParams: { thinking: { type: "enabled" } } }));
   assert.equal(body.model, "test-model");
   assert.equal(body.temperature, undefined);
-  assert.deepEqual(body.thinking, { type: "enabled", reasoning_effort: "max" });
-  assert.equal("reasoning_effort" in body, false);
+  assert.deepEqual(body.thinking, { type: "enabled" });
+  assert.equal(body.reasoning_effort, "high");
 });
 
 test("openai_chat 开启思考时仍使用 max_completion_tokens 现代字段", () => {

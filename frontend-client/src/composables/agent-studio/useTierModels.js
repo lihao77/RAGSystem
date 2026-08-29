@@ -7,6 +7,7 @@
 import { toValue } from 'vue';
 
 import { applyProviderToLlm, getProviderModels } from '../../utils/modelList.js';
+import { thinkingCapabilityFor, thinkingOptionsFromLevels } from '../../utils/thinkingLevels.js';
 
 export function useTierModels({ form, providers }) {
   function getTierProviderKey(tier) {
@@ -23,6 +24,15 @@ export function useTierModels({ form, providers }) {
     return getProviderModels(p);
   }
 
+  /** 思考档位选项 = provider descriptor（格式 + thinking_kind）× 模型条目子集（目录 effort 值域）。 */
+  function getTierThinkingOptions(tier) {
+    const t = toValue(form)?.llm_tiers?.[tier];
+    const key = getTierProviderKey(tier);
+    if (!t || !key) return thinkingOptionsFromLevels([]);
+    const p = toValue(providers).find((item) => (item?.key || item?.name) === key);
+    return thinkingOptionsFromLevels(thinkingCapabilityFor(p, t.model_name).levels);
+  }
+
   function handleTierProviderChange(tier, key) {
     const t = toValue(form)?.llm_tiers?.[tier];
     if (!t) return;
@@ -32,5 +42,5 @@ export function useTierModels({ form, providers }) {
     Object.assign(t, applyProviderToLlm(t, p));
   }
 
-  return { getTierProviderKey, getTierModelOptions, handleTierProviderChange };
+  return { getTierProviderKey, getTierModelOptions, getTierThinkingOptions, handleTierProviderChange };
 }

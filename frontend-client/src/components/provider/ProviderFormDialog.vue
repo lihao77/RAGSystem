@@ -13,13 +13,29 @@
             <Field v-if="dialog.mode === 'create'" :data-invalid="!!formErrors.name">
               <FieldLabel for="provider-name">名称 <span class="required">*</span></FieldLabel>
               <Input id="provider-name" v-model="form.name" :aria-invalid="!!formErrors.name" placeholder="例如：生产环境 OpenAI" />
-              <FieldDescription>保存后生成 Key：<span class="font-mono">{{ providerKeyPreview || '填写名称并选择类型后显示' }}</span></FieldDescription>
+              <FieldDescription>保存后生成 Key：<span class="font-mono">{{ providerKeyPreview || '填写名称并填写厂商后显示' }}</span></FieldDescription>
               <FieldError v-if="formErrors.name">{{ formErrors.name }}</FieldError>
             </Field>
             <Field :data-invalid="!!formErrors.provider_type">
-              <FieldLabel>Provider 类型 <span class="required">*</span></FieldLabel>
-              <CustomSelect :model-value="form.provider_type" :options="providerTypeOptions" placeholder="-- 请选择 --" @update:model-value="emit('providerTypeChange', $event)" />
+              <FieldLabel for="provider-vendor">厂商 <span class="required">*</span></FieldLabel>
+              <ComboBox
+                trigger-id="provider-vendor"
+                :model-value="form.provider_type"
+                :options="catalogVendorOptions"
+                placeholder="输入或选择厂商，如 zhipuai / moonshotai"
+                empty-text="目录无匹配厂商，可继续手动输入"
+                :aria-invalid="!!formErrors.provider_type"
+                @update:model-value="emit('vendorInput', $event)"
+                @pick="emit('catalogVendorPick', $event.value)"
+              />
+              <FieldDescription>provider type 即厂商：从目录选择自动带出 API 格式与 Endpoint；自建服务直接输入标识。</FieldDescription>
               <FieldError v-if="formErrors.provider_type">{{ formErrors.provider_type }}</FieldError>
+            </Field>
+            <Field :data-invalid="!!formErrors.api_format">
+              <FieldLabel>API 格式 <span class="required">*</span></FieldLabel>
+              <CustomSelect :model-value="form.api_format" :options="apiFormatOptions" placeholder="-- 请选择 --" @update:model-value="emit('apiFormatChange', $event)" />
+              <FieldDescription>5 种核心协议；厂商思考形状（如 qwen 系开关思考）由目录厂商选择自动声明。</FieldDescription>
+              <FieldError v-if="formErrors.api_format">{{ formErrors.api_format }}</FieldError>
             </Field>
             <Field class="form-grid__full" :data-invalid="!!formErrors.api_key">
               <FieldLabel for="provider-api-key">API Key <span v-if="dialog.mode === 'create'" class="required">*</span></FieldLabel>
@@ -30,7 +46,7 @@
             <Field class="form-grid__full" :data-invalid="!!formErrors.api_endpoint">
               <FieldLabel for="provider-api-endpoint">API Endpoint</FieldLabel>
               <Input id="provider-api-endpoint" v-model="form.api_endpoint" :aria-invalid="!!formErrors.api_endpoint" :placeholder="apiEndpointPlaceholder" />
-              <FieldDescription>留空时使用该 Provider 类型的默认 Endpoint。</FieldDescription>
+              <FieldDescription>留空时使用该 API 格式的默认 Endpoint。</FieldDescription>
               <FieldError v-if="formErrors.api_endpoint">{{ formErrors.api_endpoint }}</FieldError>
             </Field>
           </FieldGroup>
@@ -49,8 +65,8 @@
               </span>
               <span class="provider-model-summary">{{ modelSummary(model) }}</span>
               <span class="provider-model-caps">
-                <Badge v-if="model.supports_function_calling" variant="outline">FC</Badge>
-                <Badge v-if="model.supports_vision" variant="outline">Vision</Badge>
+                <Badge v-if="model.supports_function_calling" variant="outline" :title="modelCapabilityTitle(model)">工</Badge>
+                <Badge v-if="modelModalityMarks(model).length" variant="outline" :title="modelCapabilityTitle(model)">{{ modelModalityMarks(model).join(' ') }}</Badge>
               </span>
               <span class="provider-model-actions">
                 <Button variant="ghost" size="icon" aria-label="上移模型" title="上移（越靠前越优先）" :disabled="idx === 0" @click="emit('moveModel', idx, -1)">
@@ -123,8 +139,10 @@
 </template>
 
 <script setup>
-// Provider 新建/编辑弹窗：基础配置 + 模型列表（模型级参数经 ProviderModelDialog 配置）+ 扩展字段（schema 驱动）。
+// Provider 新建/编辑弹窗：基础配置（目录厂商选择即类型选择，自动切类型/填 Endpoint）
+// + 模型列表（模型级参数经 ProviderModelDialog 配置）+ 扩展字段（schema 驱动）。
 import CustomSelect from '../ui/CustomSelect.vue';
+import ComboBox from '../ui/ComboBox.vue';
 import { ChevronDown, ChevronUp } from 'lucide-vue-next';
 import IconClose from '../icons/IconClose.vue';
 import IconEdit from '../icons/IconEdit.vue';
@@ -139,21 +157,23 @@ import {
 } from '../ui/field';
 import { Input } from '../ui/input';
 import { Switch } from '../ui/switch';
+import { modelCapabilityTitle, modelModalityMarks } from '../../utils/modelCatalog.js';
 
 defineProps({
   dialog: { type: Object, required: true },
   form: { type: Object, required: true },
   formErrors: { type: Object, default: () => ({}) },
-  providerTypeOptions: { type: Array, default: () => [] },
+  apiFormatOptions: { type: Array, default: () => [] },
   apiEndpointPlaceholder: { type: String, default: '' },
   providerKeyPreview: { type: String, default: '' },
   resilienceProviderConfigFields: { type: Array, default: () => [] },
   extensionProviderConfigFields: { type: Array, default: () => [] },
   modelEntries: { type: Array, default: () => [] },
   saving: { type: Boolean, default: false },
+  catalogVendorOptions: { type: Array, default: () => [] },
 });
 
-const emit = defineEmits(['close', 'submit', 'providerTypeChange', 'addModel', 'editModel', 'removeModel', 'moveModel']);
+const emit = defineEmits(['close', 'submit', 'vendorInput', 'catalogVendorPick', 'apiFormatChange', 'addModel', 'editModel', 'removeModel', 'moveModel']);
 
 function modelSummary(model) {
   const parts = [];

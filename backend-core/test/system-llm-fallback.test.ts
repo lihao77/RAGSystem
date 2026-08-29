@@ -227,7 +227,10 @@ function systemProvider(): ModelProviderConfig {
     key: "system_deepseek",
     name: "system",
     provider_type: "deepseek",
+    api_format: "openai_proxy",
+    thinking_kind: "effort",
     api_key: "sk-test",
+    api_endpoint: "https://api.deepseek.com/v1",
     models: [{ name: "system-model" }],
   };
 }

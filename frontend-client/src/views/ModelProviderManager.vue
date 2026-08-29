@@ -59,8 +59,8 @@
       </template>
 
       <div class="provider-toolbar">
-        <Input v-model="searchQuery" aria-label="搜索 Provider" placeholder="搜索名称、类型、Endpoint 或模型" />
-        <CustomSelect v-model="typeFilter" :options="providerFilterOptions" placeholder="全部类型" />
+        <Input v-model="searchQuery" aria-label="搜索 Provider" placeholder="搜索名称、厂商、Endpoint 或模型" />
+        <CustomSelect v-model="typeFilter" :options="providerFilterOptions" placeholder="全部厂商" />
         <span class="provider-filter-count">显示 {{ filteredProviders.length }} / {{ providers.length }}</span>
       </div>
 
@@ -113,7 +113,7 @@
                   variant="outline"
                   :title="modelCapabilityTitle(model)"
                 >
-                  {{ model.name }}<span v-if="model.supports_vision" class="model-cap-mark">V</span><span v-if="model.supports_function_calling" class="model-cap-mark">F</span>
+                  {{ model.name }}<span v-for="mark in modelModalityMarks(model)" :key="mark" class="model-cap-mark">{{ mark }}</span><span v-if="model.supports_function_calling" class="model-cap-mark">工</span>
                 </Badge>
                 <span v-if="providerModelEntries(provider).length === 0" class="provider-models-empty">未配置模型</span>
                 <Badge v-else-if="hiddenModelCount(provider) > 0" variant="secondary">+{{ hiddenModelCount(provider) }}</Badge>
@@ -180,16 +180,19 @@
       :dialog="dialog"
       :form="form"
       :form-errors="formErrors"
-      :provider-type-options="providerTypeOptions"
+      :api-format-options="apiFormatOptions"
       :api-endpoint-placeholder="apiEndpointPlaceholder"
       :provider-key-preview="providerKeyPreview"
       :resilience-provider-config-fields="resilienceProviderConfigFields"
       :extension-provider-config-fields="extensionProviderConfigFields"
       :model-entries="modelEntries"
       :saving="saving"
+      :catalog-vendor-options="formCatalogVendorOptions"
       @close="closeDialog"
       @submit="handleSubmit"
-      @provider-type-change="handleProviderTypeChange"
+      @vendor-input="handleVendorInput"
+      @catalog-vendor-pick="handleCatalogVendorPick"
+      @api-format-change="handleApiFormatChange"
       @add-model="openModelCreate"
       @edit-model="openModelEdit"
       @remove-model="removeModelEntry"
@@ -200,8 +203,11 @@
       :dialog="modelDialog"
       :form="modelForm"
       :form-errors="modelFormErrors"
+      :catalog-models="modelDialogModels"
+      :catalog-models-loading="modelDialogModelsLoading"
       @close="closeModelDialog"
       @submit="handleModelSubmit"
+      @catalog-model-select="handleCatalogModelSelect"
     />
 
     <ProviderDeleteDialog
@@ -255,9 +261,15 @@ import { useEntityList } from '../composables/useEntityList.js';
 import { useAsyncAction } from '../composables/useAsyncAction.js';
 import { useDictionariesStore } from '../stores/dictionaries.js';
 import {
-  getProviderTypes, createProvider, updateProvider,
+  getApiFormats, createProvider, updateProvider,
   checkProviderAvailability, deleteProvider, getProviderUsages, reorderProviders, testProvider,
+  getCatalogProviders, getCatalogProviderModels,
 } from '../api/modelAdapter.js';
+import {
+  CORE_API_FORMATS, applyCatalogModel, catalogVendorProfile,
+  isCatalogVendorConnectable, modelCapabilityTitle, modelModalityMarks, normalizeModalities,
+} from '../utils/modelCatalog.js';
+import { normalizeThinkingLevels } from '../utils/thinkingLevels.js';
 
 defineProps({
   embedded: { type: Boolean, default: false },
@@ -267,8 +279,12 @@ defineProps({
 const toast = useToast();
 const dictStore = useDictionariesStore();
 
-const providerTypeMeta = ref({});
-const providerTypeOptions = ref([]);
+const apiFormatMeta = ref({});
+// 格式下拉固定 5 种核心协议（kernel 封闭清单，纯协议无厂商类型）。
+const apiFormatOptions = computed(() => CORE_API_FORMATS.map((value) => ({
+  value,
+  label: apiFormatMeta.value[value]?.label || value,
+})));
 
 const COMMON_PROVIDER_FIELDS = [
   { key: 'timeout', label: '响应超时（秒）', type: 'number', default: 120, min: 5, help: '', options: [] },
@@ -281,38 +297,31 @@ const PROMPT_CACHE_FIELD =
 const ANTHROPIC_FIELDS = [
   { key: 'cache_ttl_seconds', label: 'Cache TTL (s)', type: 'number', default: 300, help: 'Provider KV cache 的滑动失效阈值。', options: [] },
 ];
-const PROMPT_CACHE_PROVIDER_TYPES = new Set(['anthropic', 'openrouter']);
+const PROMPT_CACHE_API_FORMATS = new Set(['anthropic']);
 
 // 思考档位不归 provider 配置（在 agent llm_tiers 配置），表单不暴露思考相关字段。
-function fallbackConfigFields(providerType) {
+function fallbackConfigFields(apiFormat) {
   const fields = [...COMMON_PROVIDER_FIELDS];
-  if (providerType === 'anthropic') fields.unshift(...ANTHROPIC_FIELDS);
-  if (PROMPT_CACHE_PROVIDER_TYPES.has(providerType)) fields.unshift(PROMPT_CACHE_FIELD);
+  if (apiFormat === 'anthropic') fields.unshift(...ANTHROPIC_FIELDS);
+  if (PROMPT_CACHE_API_FORMATS.has(apiFormat)) fields.unshift(PROMPT_CACHE_FIELD);
   return fields;
 }
 
-const FALLBACK_PROVIDER_TYPES = [
+// API 格式封闭清单兜底（与后端 agent-llm 纯协议清单一致；接口失败时仍可配置）。
+const FALLBACK_API_FORMATS = [
   { value: 'openai_resp', label: 'OpenAI Responses', default_endpoint: 'https://api.openai.com/v1' },
   { value: 'openai_chat', label: 'OpenAI Chat', default_endpoint: 'https://api.openai.com/v1' },
   { value: 'openai_proxy', label: 'OpenAI Compatible', default_endpoint: 'https://api.openai.com/v1' },
   { value: 'anthropic', label: 'Anthropic', default_endpoint: 'https://api.anthropic.com' },
   { value: 'gemini', label: 'Google Gemini', default_endpoint: 'https://generativelanguage.googleapis.com/v1beta' },
-  { value: 'mistral', label: 'Mistral AI', default_endpoint: 'https://api.mistral.ai/v1' },
-  { value: 'groq', label: 'Groq', default_endpoint: 'https://api.groq.com/openai/v1' },
-  { value: 'qwen', label: 'Alibaba Qwen', default_endpoint: 'https://dashscope.aliyuncs.com/compatible-mode/v1' },
-  { value: 'deepseek', label: 'DeepSeek', default_endpoint: 'https://api.deepseek.com/v1' },
-  { value: 'openrouter', label: 'OpenRouter', default_endpoint: 'https://openrouter.ai/api/v1' },
-  { value: 'modelscope', label: 'ModelScope', default_endpoint: 'https://api-inference.modelscope.cn/v1' },
 ].map((item) => ({ ...item, config_fields: fallbackConfigFields(item.value) }));
 
-async function loadProviderTypes() {
+async function loadApiFormats() {
   try {
-    const types = await getProviderTypes();
-    providerTypeMeta.value = Object.fromEntries(types.map((t) => [t.value, { label: t.label, default_endpoint: t.default_endpoint || '', config_fields: t.config_fields || [] }]));
-    providerTypeOptions.value = types.map((t) => ({ value: t.value, label: t.label }));
+    const formats = await getApiFormats();
+    apiFormatMeta.value = Object.fromEntries(formats.map((t) => [t.value, { label: t.label, default_endpoint: t.default_endpoint || '', config_fields: t.config_fields || [] }]));
   } catch {
-    providerTypeMeta.value = Object.fromEntries(FALLBACK_PROVIDER_TYPES.map((t) => [t.value, { label: t.label, default_endpoint: t.default_endpoint, config_fields: t.config_fields || [] }]));
-    providerTypeOptions.value = FALLBACK_PROVIDER_TYPES.map((t) => ({ value: t.value, label: t.label }));
+    apiFormatMeta.value = Object.fromEntries(FALLBACK_API_FORMATS.map((t) => [t.value, { label: t.label, default_endpoint: t.default_endpoint, config_fields: t.config_fields || [] }]));
   }
 }
 
@@ -340,9 +349,11 @@ let dragOffsetY = 0;
 const reordering = ref(false);
 const reorderError = ref('');
 
+// 筛选按厂商（provider_type 即厂商），选项取自已配置 provider 的去重厂商。
 const providerFilterOptions = computed(() => [
-  { value: '', label: '全部类型' },
-  ...providerTypeOptions.value,
+  { value: '', label: '全部厂商' },
+  ...[...new Set(providers.value.map((provider) => String(provider.provider_type || '').trim()).filter(Boolean))]
+    .map((vendor) => ({ value: vendor, label: vendor })),
 ]);
 const filteredProviders = computed(() => {
   const query = searchQuery.value.trim().toLowerCase();
@@ -366,10 +377,6 @@ function providerModelEntries(provider) {
 }
 function visibleModelEntries(provider) { return providerModelEntries(provider).slice(0, 5); }
 function hiddenModelCount(provider) { return Math.max(0, providerModelEntries(provider).length - 5); }
-function modelCapabilityTitle(model) {
-  const caps = [model.supports_vision && '图片输入', model.supports_function_calling && 'Function Calling'].filter(Boolean);
-  return caps.length ? `${model.name}（${caps.join(' / ')}）` : model.name;
-}
 function isTesting(provider) { return testingKeys.value.has(getProviderKey(provider)); }function providerTestTargets(provider) { return getProviderTestTargets(provider); }
 const testResultTimers = new Map();
 function dismissTestResult(provider) {
@@ -608,10 +615,79 @@ const modelDialog = ref({ visible: false, mode: 'create', index: -1, error: '' }
 const modelForm = ref({});
 const modelFormErrors = ref({});
 
+/* ── Models.dev 目录（后端缓存代理；不可用时组合框退化为纯输入，手填不受影响） ── */
+const catalogProviders = ref(null);
+// 厂商组合框的目录建议只列可接入厂商（原生厂商 + 带 OpenAI 兼容端点的网关厂商），
+// bedrock/vertex 等专用 SDK 厂商不进建议列表。
+const formCatalogVendorOptions = computed(() => (catalogProviders.value?.providers || [])
+  .filter((item) => isCatalogVendorConnectable(item))
+  .map((item) => ({ value: item.id, label: `${item.name}（${item.id}）` })));
+const modelDialogModels = ref([]);
+const modelDialogModelsLoading = ref(false);
+// 弹窗连续切换厂商时旧响应不得覆盖新列表
+let modelDialogModelsSeq = 0;
+
+async function loadCatalogProviders() {
+  try {
+    catalogProviders.value = await getCatalogProviders();
+  } catch {
+    catalogProviders.value = null;
+  }
+}
+async function loadModelDialogModels(vendorId) {
+  const seq = ++modelDialogModelsSeq;
+  if (!vendorId) {
+    modelDialogModels.value = [];
+    return;
+  }
+  modelDialogModelsLoading.value = true;
+  try {
+    const data = await getCatalogProviderModels(vendorId);
+    if (seq !== modelDialogModelsSeq) return;
+    modelDialogModels.value = Array.isArray(data?.models) ? data.models : [];
+  } catch {
+    if (seq === modelDialogModelsSeq) modelDialogModels.value = [];
+  } finally {
+    if (seq === modelDialogModelsSeq) modelDialogModelsLoading.value = false;
+  }
+}
+function openModelCatalogWith(vendorId) {
+  modelDialogModels.value = [];
+  if (vendorId) loadModelDialogModels(vendorId);
+}
+function handleCatalogModelSelect(catalogModel) {
+  modelForm.value = applyCatalogModel(modelForm.value, catalogModel);
+}
+/** 厂商组合框键入：更新厂商文本（自建标识等自由输入）；目录带入的思考形状声明随厂商
+ * 离开而失效故清空（重新从目录选中会再带出），API 格式与端点不动。 */
+function handleVendorInput(vendorId) {
+  form.value.provider_type = String(vendorId || '').trim();
+  form.value.thinking_kind = '';
+  formErrors.value = { ...formErrors.value, provider_type: '' };
+}
+/**
+ * 厂商组合框从目录选中：按接入档案带出 API 格式与思考形状声明
+ * （如 qwen 系 toggle），并预填兼容 Endpoint。
+ */
+function handleCatalogVendorPick(vendorId) {
+  handleVendorInput(vendorId);
+  const summary = (catalogProviders.value?.providers || []).find((item) => item.id === vendorId);
+  const profile = summary ? catalogVendorProfile(summary) : null;
+  if (!profile) return;
+  if (profile.api_format && form.value.api_format !== profile.api_format) {
+    handleApiFormatChange(profile.api_format);
+  }
+  form.value.thinking_kind = profile.thinking_kind || '';
+  if (summary?.api_base_url) {
+    form.value.api_endpoint = summary.api_base_url;
+    formErrors.value = { ...formErrors.value, api_endpoint: '' };
+  }
+}
+
 const apiEndpointPlaceholder = computed(() => (
-  providerTypeMeta.value[form.value.provider_type]?.default_endpoint || '由后端返回默认 API Endpoint'
+  apiFormatMeta.value[form.value.api_format]?.default_endpoint || '由后端返回默认 API Endpoint'
 ));
-const activeProviderConfigFields = computed(() => providerTypeMeta.value[form.value.provider_type]?.config_fields || []);
+const activeProviderConfigFields = computed(() => apiFormatMeta.value[form.value.api_format]?.config_fields || []);
 const RESILIENCE_FIELD_KEYS = new Set(['timeout', 'retry_attempts', 'retry_delay', 'retry_backoff_factor']);
 const resilienceProviderConfigFields = computed(() => activeProviderConfigFields.value.filter((field) => RESILIENCE_FIELD_KEYS.has(field.key)));
 const extensionProviderConfigFields = computed(() => activeProviderConfigFields.value.filter((field) => !RESILIENCE_FIELD_KEYS.has(field.key)));
@@ -622,10 +698,24 @@ const providerKeyPreview = computed(() => {
 });
 
 function buildFormDefaults() {
-  return { name: '', provider_type: '', api_key: '', api_endpoint: '' };
+  return { name: '', provider_type: '', api_key: '', api_endpoint: '', api_format: '', thinking_kind: '' };
 }
 function buildModelDefaults() {
-  return { name: '', temperature: 0.7, max_completion_tokens: 4096, max_context_tokens: 128000, supports_function_calling: false, supports_vision: false };
+  return {
+    name: '',
+    temperature: 0.7,
+    max_completion_tokens: 4096,
+    max_context_tokens: 128000,
+    supports_function_calling: false,
+    input_modalities: ['text'],
+    output_modalities: ['text'],
+    thinking_levels: [],
+  };
+}
+/** 表单/条目里的模态数组归一；空值按纯文本对话模型处理。 */
+function toFormModalities(value) {
+  const normalized = normalizeModalities(value);
+  return normalized.length ? [...normalized] : ['text'];
 }
 function openCreateDialog() {
   form.value = buildFormDefaults();
@@ -640,24 +730,30 @@ function openEditDialog(provider) {
     ...(model.temperature != null ? { temperature: model.temperature } : {}),
     ...(model.max_completion_tokens != null ? { max_completion_tokens: model.max_completion_tokens } : {}),
     ...(model.max_context_tokens != null ? { max_context_tokens: model.max_context_tokens } : {}),
+    ...(Array.isArray(model.thinking_levels) && model.thinking_levels.length ? { thinking_levels: [...model.thinking_levels] } : {}),
+    ...(model.reasoning_field ? { reasoning_field: model.reasoning_field } : {}),
     supports_function_calling: model.supports_function_calling === true,
-    supports_vision: model.supports_vision === true,
+    input_modalities: toFormModalities(model.input_modalities),
+    output_modalities: toFormModalities(model.output_modalities),
   }));
   const nextForm = {
-    provider_type: provider.provider_type || '', api_key: '', api_endpoint: provider.api_endpoint || '',
+    provider_type: provider.provider_type || '', api_format: provider.api_format || '',
+    thinking_kind: provider.thinking_kind || '',
+    api_key: '', api_endpoint: provider.api_endpoint || '',
   };
-  for (const field of getProviderConfigFields(nextForm.provider_type)) nextForm[field.key] = provider[field.key] ?? field.default ?? '';
+  // 扩展配置字段（超时/重试/缓存等）按 API 格式声明，编辑还原须以 api_format 查（provider_type 是厂商串）
+  for (const field of getProviderConfigFields(nextForm.api_format)) nextForm[field.key] = provider[field.key] ?? field.default ?? '';
   form.value = nextForm;
   formErrors.value = {};
   editingKey.value = getProviderKey(provider);
   dialog.value = { visible: true, mode: 'edit', error: '' };
 }
-function handleProviderTypeChange(providerType) {
-  const previousType = form.value.provider_type;
-  const previousFields = getProviderConfigFields(previousType);
-  const nextFields = getProviderConfigFields(providerType);
-  form.value.provider_type = providerType;
-  formErrors.value = { ...formErrors.value, provider_type: '' };
+/** API 格式切换：级联该格式的扩展配置字段默认值（超时/重试/缓存开关等）。 */
+function handleApiFormatChange(apiFormat) {
+  const previousFields = getProviderConfigFields(form.value.api_format);
+  const nextFields = getProviderConfigFields(apiFormat);
+  form.value.api_format = apiFormat;
+  formErrors.value = { ...formErrors.value, api_format: '' };
   for (const field of previousFields) { if (!nextFields.some((item) => item.key === field.key)) delete form.value[field.key]; }
   for (const field of nextFields) {
     const prevDef = previousFields.find((item) => item.key === field.key)?.default;
@@ -666,16 +762,29 @@ function handleProviderTypeChange(providerType) {
 }
 function closeDialog() { dialog.value.visible = false; formErrors.value = {}; }
 
-/* ── 模型条目弹窗（新增/编辑）：名称唯一性校验 + 数值/能力位归一 ── */
+/* ── 模型条目弹窗（新增/编辑）：名称唯一性校验 + 数值/模态归一 ── */
+/** 模型弹窗默认目录厂商 = Provider 厂商 id（存在于目录时；自定义厂商不预选）。 */
+function modelDialogDefaultVendor() {
+  const vendor = String(form.value.provider_type || '').trim();
+  const known = (catalogProviders.value?.providers || []).some((item) => item.id === vendor);
+  return known ? vendor : '';
+}
 function openModelCreate() {
   modelForm.value = buildModelDefaults();
   modelFormErrors.value = {};
   modelDialog.value = { visible: true, mode: 'create', index: -1, error: '' };
+  openModelCatalogWith(modelDialogDefaultVendor());
 }
 function openModelEdit(index) {
-  modelForm.value = { ...modelEntries.value[index] };
+  const entry = modelEntries.value[index];
+  modelForm.value = {
+    ...entry,
+    input_modalities: toFormModalities(entry.input_modalities),
+    output_modalities: toFormModalities(entry.output_modalities),
+  };
   modelFormErrors.value = {};
   modelDialog.value = { visible: true, mode: 'edit', index, error: '' };
+  openModelCatalogWith(modelDialogDefaultVendor());
 }
 function closeModelDialog() { modelDialog.value.visible = false; modelFormErrors.value = {}; }
 function handleModelSubmit() {
@@ -683,9 +792,25 @@ function handleModelSubmit() {
   const errors = {};
   if (!name) errors.name = '请填写模型名';
   else if (modelEntries.value.some((entry, idx) => idx !== modelDialog.value.index && entry.name === name)) errors.name = '模型名已存在';
+  const inputModalities = toFormModalities(modelForm.value.input_modalities);
+  const outputModalities = toFormModalities(modelForm.value.output_modalities);
+  if (!inputModalities.includes('text')) errors.input_modalities = '输入模态需包含文本';
+  if (!outputModalities.includes('text')) errors.output_modalities = '输出模态需包含文本';
   modelFormErrors.value = errors;
   if (Object.values(errors).some(Boolean)) return;
-  const entry = { name, supports_function_calling: modelForm.value.supports_function_calling === true, supports_vision: modelForm.value.supports_vision === true };
+  const entry = {
+    name,
+    supports_function_calling: modelForm.value.supports_function_calling === true,
+    input_modalities: inputModalities,
+    output_modalities: outputModalities,
+  };
+  // 目录 effort 值域（如 deepseek 的 low/high/max）：存在即随条目落盘，运行时据此收缩可选档位
+  const thinkingLevels = normalizeThinkingLevels(modelForm.value.thinking_levels);
+  if (thinkingLevels.length) entry.thinking_levels = thinkingLevels;
+  // 思考线字段声明（interleaved.field）：思考模式补齐跟随方言
+  if (modelForm.value.reasoning_field === 'reasoning_content' || modelForm.value.reasoning_field === 'reasoning_details') {
+    entry.reasoning_field = modelForm.value.reasoning_field;
+  }
   for (const key of ['temperature', 'max_completion_tokens', 'max_context_tokens']) {
     const raw = modelForm.value[key];
     const value = Number(raw);
@@ -704,9 +829,9 @@ function moveModelEntry(index, offset) {
   next.splice(target, 0, moved);
   modelEntries.value = next;
 }
-function getProviderConfigFields(providerType) { return providerTypeMeta.value[providerType]?.config_fields || []; }
+function getProviderConfigFields(apiFormat) { return apiFormatMeta.value[apiFormat]?.config_fields || []; }
 function normalizeProviderPayload(payload) {
-  for (const field of getProviderConfigFields(payload.provider_type)) {
+  for (const field of getProviderConfigFields(payload.api_format)) {
     if (payload[field.key] === '' || payload[field.key] === null || payload[field.key] === undefined) delete payload[field.key];
   }
   return payload;
@@ -714,7 +839,8 @@ function normalizeProviderPayload(payload) {
 
 function validateProviderForm() {
   const errors = {};
-  if (!form.value.provider_type) errors.provider_type = '请选择 Provider 类型';
+  if (!form.value.provider_type?.trim()) errors.provider_type = '请填写厂商（provider type）';
+  if (!form.value.api_format) errors.api_format = '请选择 API 格式';
   if (dialog.value.mode === 'create') {
     if (!form.value.name?.trim()) errors.name = '请填写 Provider 名称';
     if (!form.value.api_key?.trim()) errors.api_key = '请填写 API Key 或环境变量引用';
@@ -729,7 +855,8 @@ function validateProviderForm() {
 
 const { run: runSubmit, loading: saving } = useAsyncAction(
   async () => {
-    if (!form.value.provider_type) throw new Error('请选择 Provider 类型');
+    if (!form.value.provider_type?.trim()) throw new Error('请填写厂商');
+    if (!form.value.api_format) throw new Error('请选择 API 格式');
     if (dialog.value.mode === 'create') {
       if (!form.value.name?.trim()) throw new Error('请填写名称');
       if (!form.value.api_key?.trim()) throw new Error('请填写 API Key');
@@ -792,7 +919,7 @@ const { run: runDelete, loading: deleting } = useAsyncAction(
 );
 function doDelete() { runDelete(); }
 
-onMounted(() => { Promise.all([loadProviderTypes(), loadProviders()]); });
+onMounted(() => { Promise.all([loadApiFormats(), loadProviders(), loadCatalogProviders()]); });
 onBeforeUnmount(() => {
   cleanupProviderDrag();
   for (const timer of testResultTimers.values()) clearTimeout(timer);

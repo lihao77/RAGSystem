@@ -26,8 +26,8 @@ export class SaaSProviderApplication implements ProviderApplication {
     private readonly repository: ProviderRepository,
   ) {}
 
-  async listProviderTypes() {
-    return this.service.listProviderTypes();
+  async listApiFormats() {
+    return this.service.listApiFormats();
   }
 
   async listProviders(): Promise<ModelProviderConfig[]> {
@@ -85,6 +85,14 @@ export class SaaSProviderApplication implements ProviderApplication {
 
   async testProvider(payload: TestProviderRequest) {
     return this.service.testProvider(payload);
+  }
+
+  async listCatalogProviders() {
+    return this.service.listCatalogProviders();
+  }
+
+  async listCatalogModels(catalogProviderId: string) {
+    return this.service.listCatalogModels(catalogProviderId);
   }
 
   private async hydrateRuntimeFromRepository(): Promise<void> {

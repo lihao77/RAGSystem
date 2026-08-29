@@ -1,8 +1,9 @@
 /**
- * Provider 类型单一信源。
+ * Provider API 格式单一信源（纯协议方言，封闭 5 种；厂商适配不在此层——
+ * 思考形状经 provider 的 thinking_kind 声明、静态厂商参数经 extra_params 进请求体）。
  *
  * 纯数据，无产品依赖。DEFAULT_ENDPOINTS / OPENAI_COMPATIBLE_TYPES 等视图由 PROVIDER_TYPE_SPECS
- * 派生，新增 provider 类型 = 追加一条 spec，无需改任何 client。
+ * 派生，新增协议格式 = 追加一条 spec，无需改任何 client。
  */
 
 export type ProviderType =
@@ -10,13 +11,7 @@ export type ProviderType =
   | "openai_chat"
   | "openai_proxy"
   | "anthropic"
-  | "gemini"
-  | "mistral"
-  | "groq"
-  | "qwen"
-  | "deepseek"
-  | "openrouter"
-  | "modelscope";
+  | "gemini";
 
 /** Chat request dispatch kind; null means the provider has no chat capability. */
 export type ChatDispatchKind = "openai_responses" | "anthropic" | "gemini" | "openai_compatible" | null;
@@ -25,7 +20,7 @@ export type ChatDispatchKind = "openai_responses" | "anthropic" | "gemini" | "op
 export type PromptCacheMode = "none" | "automatic_prefix" | "explicit_blocks" | "named_content";
 
 /** Provider usage response format. */
-export type UsageFormat = "openai" | "anthropic" | "deepseek" | "gemini" | "none";
+export type UsageFormat = "openai" | "anthropic" | "gemini" | "none";
 
 /** Whether native function calling is unavailable, configurable, or always selected. */
 export type NativeFunctionCallingMode = "none" | "configurable" | "always";
@@ -41,11 +36,6 @@ export interface ProviderTypeSpec {
   exposesPromptCacheToggle: boolean;
   supportsStreamUsageOptions: boolean;
   nativeFunctionCalling: NativeFunctionCallingMode;
-  /**
-   * 思考模式下 tools 请求要求每条 assistant 消息都带 reasoning 字段（无思考的轮次补空串），
-   * 缺失即 400（DeepSeek 官方行为）。引擎据此补齐；新厂商有同款怪癖改此标志位即可。
-   */
-  requiresReasoningContentOnAssistantMessages?: boolean;
 }
 
 export const PROVIDER_TYPE_SPECS: readonly ProviderTypeSpec[] = [
@@ -73,37 +63,6 @@ export const PROVIDER_TYPE_SPECS: readonly ProviderTypeSpec[] = [
     type: "gemini", defaultEndpoint: "https://generativelanguage.googleapis.com/v1beta", chatKind: "gemini",
     promptCacheMode: "automatic_prefix", usageFormat: "gemini", supportsPromptCacheKey: false,
     supportsPromptCacheTtl: false, exposesPromptCacheToggle: false, supportsStreamUsageOptions: false, nativeFunctionCalling: "configurable",
-  },
-  {
-    type: "mistral", defaultEndpoint: "https://api.mistral.ai/v1", chatKind: "openai_compatible",
-    promptCacheMode: "automatic_prefix", usageFormat: "openai", supportsPromptCacheKey: false,
-    supportsPromptCacheTtl: false, exposesPromptCacheToggle: false, supportsStreamUsageOptions: false, nativeFunctionCalling: "configurable",
-  },
-  {
-    type: "groq", defaultEndpoint: "https://api.groq.com/openai/v1", chatKind: "openai_compatible",
-    promptCacheMode: "automatic_prefix", usageFormat: "openai", supportsPromptCacheKey: false,
-    supportsPromptCacheTtl: false, exposesPromptCacheToggle: false, supportsStreamUsageOptions: true, nativeFunctionCalling: "configurable",
-  },
-  {
-    type: "qwen", defaultEndpoint: "https://dashscope.aliyuncs.com/compatible-mode/v1", chatKind: "openai_compatible",
-    promptCacheMode: "automatic_prefix", usageFormat: "openai", supportsPromptCacheKey: false,
-    supportsPromptCacheTtl: false, exposesPromptCacheToggle: false, supportsStreamUsageOptions: true, nativeFunctionCalling: "configurable",
-  },
-  {
-    type: "deepseek", defaultEndpoint: "https://api.deepseek.com/v1", chatKind: "openai_compatible",
-    promptCacheMode: "automatic_prefix", usageFormat: "deepseek", supportsPromptCacheKey: false,
-    supportsPromptCacheTtl: false, exposesPromptCacheToggle: false, supportsStreamUsageOptions: true, nativeFunctionCalling: "configurable",
-    requiresReasoningContentOnAssistantMessages: true,
-  },
-  {
-    type: "openrouter", defaultEndpoint: "https://openrouter.ai/api/v1", chatKind: "openai_compatible",
-    promptCacheMode: "explicit_blocks", usageFormat: "openai", supportsPromptCacheKey: true,
-    supportsPromptCacheTtl: false, exposesPromptCacheToggle: true, supportsStreamUsageOptions: true, nativeFunctionCalling: "configurable",
-  },
-  {
-    type: "modelscope", defaultEndpoint: "https://api-inference.modelscope.cn/v1", chatKind: "openai_compatible",
-    promptCacheMode: "none", usageFormat: "openai", supportsPromptCacheKey: false,
-    supportsPromptCacheTtl: false, exposesPromptCacheToggle: false, supportsStreamUsageOptions: true, nativeFunctionCalling: "configurable",
   },
 ];
 

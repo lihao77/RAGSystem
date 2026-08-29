@@ -45,7 +45,7 @@ export function useProviderSchemaEnrich(providers) {
       const visionOnly = group.providerSelect?.visionOnly === true;
       const providerOptions = providers.value
         .filter((provider) => !visionOnly
-          || (Array.isArray(provider.models) && provider.models.some((entry) => entry?.supports_vision === true)))
+          || (Array.isArray(provider.models) && provider.models.some((entry) => Array.isArray(entry?.input_modalities) && entry.input_modalities.includes('image'))))
         .map((provider) => ({
           value: provider.name || provider.key || '',
           label: `${provider.name || provider.key || '未命名'}${provider.provider_type ? ` (${provider.provider_type})` : ''}`,

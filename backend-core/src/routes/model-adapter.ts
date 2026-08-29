@@ -22,13 +22,30 @@ interface ProviderParams {
   providerKey: string;
 }
 
+interface CatalogProviderParams {
+  catalogId: string;
+}
+
 export const registerModelAdapterRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
   app.addHook("preHandler", async (request) => {
     requireTenantMember(request);
     if (request.method !== "GET") requireTenantAdmin(request);
   });
 
-  app.get("/provider-types", async (request) => ok(await (await ensureRequestApplications(request, options)).providers.listProviderTypes(), "获取成功"));
+  app.get("/api-formats", async (request) => ok(await (await ensureRequestApplications(request, options)).providers.listApiFormats(), "获取成功"));
+
+  app.get("/catalog/providers", async (request) => {
+    return ok(await (await ensureRequestApplications(request, options)).providers.listCatalogProviders(), "获取成功");
+  });
+
+  app.get<{ Params: CatalogProviderParams }>("/catalog/providers/:catalogId/models", async (request) => {
+    try {
+      const result = await (await ensureRequestApplications(request, options)).providers.listCatalogModels(request.params.catalogId);
+      return ok(result, "获取成功");
+    } catch (error) {
+      throw toHttpError(error);
+    }
+  });
 
   app.get("/providers", async (request) => {
     const providers = (await (await ensureRequestApplications(request, options)).providers.listProviders())
@@ -167,10 +184,10 @@ function redactProviderSecrets<T extends Record<string, unknown>>(provider: T): 
   };
 }
 
-/** 注入思考能力 descriptor（agent-llm 注册表 + provider thinking_kind 覆盖），前端选择器据此渲染。 */
+/** 注入思考能力 descriptor（agent-llm 注册表按 API 格式分发 + provider thinking_kind 覆盖），前端选择器据此渲染。 */
 function withThinkingDescriptor<T extends Record<string, unknown>>(provider: T): T & { thinking: { kind: string; levels: string[] } } {
   const capability = describeThinking(
-    String(provider.provider_type ?? ""),
+    String(provider.api_format ?? ""),
     provider.thinking_kind,
   );
   return { ...provider, thinking: { kind: capability.kind, levels: [...capability.levels] } };
