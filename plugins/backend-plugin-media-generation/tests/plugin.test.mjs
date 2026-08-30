@@ -39,7 +39,7 @@ test("厂商清单：六家厂商各带默认端点；vendor 即 adapter id", as
   assert.equal(findMediaVendor("media_zhipu"), null);
 });
 
-test("配置组自包含：厂商下拉 + API Key(password) + 端点 + 模型下拉，不引用 core Provider", () => {
+test("配置组自包含：厂商下拉 + API Key(password) + 端点 + 模型名文本框，不引用 core Provider", () => {
   const groups = MEDIA_SYSTEM_CONFIG_EXTENSION.groups;
   assert.equal(groups.length, 2);
   for (const group of groups) {
@@ -48,17 +48,43 @@ test("配置组自包含：厂商下拉 + API Key(password) + 端点 + 模型下
     assert.ok(keys.includes("api_key"));
     assert.ok(keys.includes("api_endpoint"));
     assert.ok(keys.includes("model_name"));
+    assert.equal(keys.includes("custom_model"), false);
     assert.equal(keys.includes("provider"), false);
     assert.equal(keys.includes("provider_type"), false);
     const vendorField = group.fields.find((field) => field.key === "vendor");
     assert.equal(vendorField.options.length, MEDIA_VENDORS.length);
+    // 模型名是自由文本：目录外新模型直接填，能力按厂商默认兜底。
     const modelField = group.fields.find((field) => field.key === "model_name");
-    assert.ok(modelField.options.length > 0);
+    assert.equal(modelField.type, "text");
+    assert.equal("options" in modelField, false);
   }
-  // image 组列生图模型、video 组列生视频模型。
-  const imageModels = groups[0].fields.find((field) => field.key === "model_name").options.map((option) => option.value);
-  const videoModels = groups[1].fields.find((field) => field.key === "model_name").options.map((option) => option.value);
-  assert.ok(imageModels.includes("glm-image"));
-  assert.ok(videoModels.includes("cogvideox-3"));
-  assert.equal(imageModels.includes("cogvideox-3"), false);
+});
+
+test("旧 custom_model 存量值折算进 model_name（model_name 非空则优先）", async () => {
+  const { resolveImageConfig, resolveVideoConfig } = await import("../dist/index.js");
+  assert.equal(resolveImageConfig({ model_name: "", custom_model: "new-model" }).model_name, "new-model");
+  assert.equal(resolveImageConfig({ model_name: "glm-image", custom_model: "new-model" }).model_name, "glm-image");
+  assert.equal(resolveImageConfig({ model_name: " glm-image " }).model_name, "glm-image");
+  const video = resolveVideoConfig({ model_name: "", custom_model: "sora-2" });
+  assert.equal(video.model_name, "sora-2");
+  // 折算结果不再暴露 custom_model。
+  assert.equal("custom_model" in resolveImageConfig({ custom_model: "x" }), false);
+});
+
+test("配置段被写入未知键（如历史 bug 注入的 provider/provider_type）不致整段失效", async () => {
+  const { resolveImageConfig } = await import("../dist/index.js");
+  const resolved = resolveImageConfig({
+    enabled: true,
+    vendor: "modelscope",
+    api_key: "ms-token",
+    model_name: "Qwen/Qwen-Image",
+    provider: "moda",
+    provider_type: "media_modelscope",
+  });
+  assert.equal(resolved.enabled, true);
+  assert.equal(resolved.vendor, "modelscope");
+  assert.equal(resolved.api_key, "ms-token");
+  assert.equal(resolved.model_name, "Qwen/Qwen-Image");
+  assert.equal("provider" in resolved, false);
+  assert.equal("provider_type" in resolved, false);
 });

@@ -22,11 +22,16 @@
 .provider-model-catalog__clear:hover { text-decoration: underline; }
 .modality-field { display: flex; flex-direction: column; gap: 6px; }
 .modality-field__head { font-size: 13px; font-weight: 600; color: var(--color-text-primary); }
-.modality-chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.modality-chip { padding: 3px 12px; border: 1px solid var(--color-border); border-radius: 999px; background: transparent; color: var(--color-text-secondary); font-size: 12px; line-height: 1.6; cursor: pointer; transition: color var(--transition-fast), border-color var(--transition-fast), background var(--transition-fast); }
-.modality-chip--on { border-color: var(--color-brand-accent); color: var(--color-brand-accent); background: color-mix(in srgb, var(--color-brand-accent) 8%, transparent); }
-.modality-chip:disabled { cursor: default; opacity: 0.75; }
-.modality-field[data-invalid] .modality-chip { border-color: var(--color-error); }
+.modality-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+/* 复选框式模态 chip：前缀小方块勾选标记 + 文本 */
+.modality-chip { display: inline-flex; align-items: center; gap: 7px; padding: 5px 12px 5px 8px; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: transparent; color: var(--color-text-secondary); font-size: 13px; line-height: 1.5; cursor: pointer; transition: color var(--transition-fast), border-color var(--transition-fast), background var(--transition-fast); }
+.modality-check { display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px; flex-shrink: 0; border: 1px solid var(--color-border); border-radius: 4px; background: transparent; color: transparent; transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast); }
+.modality-chip--on { border-color: var(--color-brand-accent); color: var(--color-text-primary); background: color-mix(in srgb, var(--color-brand-accent) 6%, transparent); }
+.modality-chip--on .modality-check { border-color: var(--color-brand-accent); background: var(--color-brand-accent); color: var(--color-bg-elevated); }
+/* text 恒选（disabled 只是禁掉取消勾选），外观与其他勾选态一致 */
+.modality-chip:disabled { cursor: default; }
+/* 仅在真有校验错误时描红（div 上的 :data-invalid="false" 会渲染成属性 "false"，须精确匹配） */
+.modality-field[data-invalid="true"] .modality-chip { border-color: var(--color-error); }
 .delete-confirm-msg { margin: 0; color: var(--color-text-secondary); line-height: 1.7; }
 .delete-usage-loading { margin: 0; color: var(--color-text-secondary); font-size: 13px; }
 .delete-usage-list { display: flex; flex-direction: column; gap: var(--spacing-sm); padding: 10px; border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-warning-bg); font-size: 13px; }

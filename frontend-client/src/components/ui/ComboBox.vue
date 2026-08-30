@@ -144,7 +144,8 @@ function toggleOpen() {
 .combo-box__input {
   width: 100%;
   height: var(--control-height-md);
-  padding-right: 32px;
+  /* 左侧 12px 对齐 shadcn Input 的 px-3；右侧 32px 给下拉箭头留位 */
+  padding: 0 32px 0 12px;
   border: 1px solid var(--color-border);
   border-radius: var(--control-radius);
   background: var(--color-bg-elevated);

@@ -15,16 +15,15 @@
 
 ## 配置步骤
 
-插件按厂商注册 provider type（类型即厂商，自带默认 Endpoint 与 API 协议路由），每个类型声明自己的模型映射任务：`image`（生图模型）/ `video`（生视频模型）。
+媒体 Provider 完全插件自管（厂商/凭证/模型均存插件配置段，不进 core Provider 体系）。
 
-1. **创建媒体 Provider 条目**：模型 Provider 管理页 → 添加 → 类型选"xx · 媒体生成（插件）"：
-   - 智谱（`https://open.bigmodel.cn`）/ 火山方舟（`https://ark.cn-beijing.volces.com`）/ 阿里百炼（`https://dashscope.aliyuncs.com`）/ 魔搭社区（`https://api-inference.modelscope.cn`，仅生图）/ OpenAI（需海外网络）/ Google（需海外网络）
-   - 填 API Key（Endpoint 留空用厂商默认地址；魔搭填访问令牌 Access Token，需绑定阿里云账号并实名认证，每日有免费额度）
-   - **模型映射**：任务下拉为"生图模型 / 生视频模型"，把该厂商的生成模型填在对应任务下（如生图模型 `glm-image`、生视频模型 `cogvideox-3`）——一个条目可同时配两类模型
-2. **插件设置**：设置 → 插件设置 → 媒体生成：
-   - 「图像生成」组：启用 + 选 Provider + 选该条目上的生图模型（下拉联动）
-   - 「视频生成」组：同构（可复用同一 Provider，选其生视频模型）+ 等待超时
-3. 厂商上新模型未收录时用「自定义模型名」兜底（能力按厂商默认能力处理）。
+**插件设置**：设置 → 插件设置 → 媒体生成：
+
+1. 「图像生成」组：启用 + 选厂商 + 填该厂商 API Key + 填生图模型名（如 `glm-image`、`doubao-seedream-5-0-pro`）
+   - 厂商：智谱（`https://open.bigmodel.cn`）/ 火山方舟（`https://ark.cn-beijing.volces.com`）/ 阿里百炼（`https://dashscope.aliyuncs.com`）/ 魔搭社区（`https://api-inference.modelscope.cn`，仅生图，填访问令牌 Access Token，需绑定阿里云账号并实名认证，每日有免费额度）/ OpenAI（需海外网络）/ Google（需海外网络）
+   - Endpoint 留空用厂商默认地址；代理/私有部署时填写
+2. 「视频生成」组：同构（生视频模型如 `cogvideox-3`）+ 等待超时（30-900s）
+3. 厂商上新模型直接填新模型名即可——目录未收录时能力按厂商默认能力处理（比例/分辨率档夹取）。
 
 ## 内置模型目录（价格随官方调整）
 
@@ -44,7 +43,7 @@
 - **魔搭生图**：厂商侧为异步任务，adapter 内同步提交并轮询（整体上限 10 分钟，3s 间隔）；超出模型单边分辨率上限（Qwen-Image 1664 / FLUX 1024 / 其余 2048）时等比缩入。
 - **取消**：run 取消（AbortSignal）即停止轮询；远端任务不取消（成功才计费），可稍后 `check_video_task` 续查。
 - **进度事件**（ephemeral，前端按 `plugin_id + event` 消费）：`media.image_started/completed/failed`、`media.video_started/progress/completed/failed`。
-- **依赖核心扩展**：`context.providerTypes.register()` 注册面（backend-core 提供插件 Provider 类型基础设施）。
+- **插件自管配置**：厂商/凭证/模型全部存插件配置段（system config 扩展），不向 core Provider 体系注册任何类型。
 
 ## 开发
 

@@ -53,9 +53,9 @@ export function resolveMediaSetup(
   if (!apiKey) {
     return { ok: false, error: `${capabilityLabel}未配置 API Key。请在「插件设置 → 媒体生成」填写厂商 ${vendor.label} 的 API Key。` };
   }
-  const model = (group.config.custom_model || group.config.model_name).trim();
+  const model = group.config.model_name.trim();
   if (!model) {
-    return { ok: false, error: `${capabilityLabel}模型未配置。请在「插件设置 → 媒体生成」中选择生成模型（或用自定义模型名填写）。` };
+    return { ok: false, error: `${capabilityLabel}模型未配置。请在「插件设置 → 媒体生成」中填写生成模型名。` };
   }
   const entry = findModelEntry(model);
   if (entry && entry.adapter !== vendor.value) {

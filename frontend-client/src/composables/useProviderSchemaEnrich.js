@@ -2,9 +2,14 @@ import { getProviderModels } from '../utils/modelList.js';
 
 /**
  * SchemaForm 的 provider/model 下拉增强，供系统配置页（内置组）与插件设置页
- * （插件贡献的组）共用。含 provider/model_name 字段的组自动动态化为下拉；
- * 过滤与联动行为由组定义自带的 providerSelect 提示声明（visionOnly /
- * autoSelectModel），本模块不认识任何具体组名。
+ * （插件贡献的组）共用。组内含 provider 字段即视为"core Provider 组"，provider/
+ * model_name 字段自动动态化为下拉；过滤与联动行为由组定义自带的 providerSelect
+ * 提示声明（visionOnly / autoSelectModel），本模块不认识任何具体组名。
+ *
+ * 仅含 model_name 而无 provider 字段的插件组（如媒体生成：厂商字段为 vendor，
+ * 模型为插件自管 ID）不增强也不级联——否则下拉选项取不到 Provider 模型列表
+ * （恒为空），级联还会清空 model_name 并写入 provider/provider_type 空键，
+ * 触发插件 .strict() 配置整段解析失败。
  *
  * providers 传 ref，选项来自系统模型 Provider 配置；model 选项来自所选
  * Provider 的模型列表；provider_type 由所选 Provider 自动带出。
@@ -21,11 +26,11 @@ export function useProviderSchemaEnrich(providers) {
     }) || null;
   }
 
-  // 具有 provider 语义的组（含 provider 或 model_name 字段），增强与级联只作用于
-  // 这些组，避免给普通组写入 provider/provider_type/model_name 等无关字段。
+  // core Provider 组判定：组内声明了 provider 字段。增强与级联只作用于这些组，
+  // 避免把插件自管组（vendor + 模型名直填）误当 Provider 组处理。
   function providerGroups(schema) {
     return (schema?.groups ?? [])
-      .filter((group) => (group.fields ?? []).some((field) => field.key === 'provider' || field.key === 'model_name'));
+      .filter((group) => (group.fields ?? []).some((field) => field.key === 'provider'));
   }
 
   function enrichSchemaWithProviderSelection(schema, config) {
@@ -36,9 +41,7 @@ export function useProviderSchemaEnrich(providers) {
       const groupConfig = config?.[group.key];
       if (!groupConfig || typeof groupConfig !== 'object' || Array.isArray(groupConfig)) continue;
       const fields = group.fields || [];
-      const hasProviderField = fields.some((field) => field.key === 'provider');
-      const hasModelField = fields.some((field) => field.key === 'model_name');
-      if (!hasProviderField && !hasModelField) continue;
+      if (!fields.some((field) => field.key === 'provider')) continue;
 
       const currentProvider = String(groupConfig.provider || '').trim();
       const currentModel = String(groupConfig.model_name || '').trim();

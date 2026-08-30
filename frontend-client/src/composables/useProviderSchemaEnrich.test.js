@@ -90,6 +90,38 @@ test('enrich:无 provider/model 字段的组与无配置值的组原样跳过', 
   assert.equal(next.groups[1].fields[0].type, 'string');
 });
 
+test('enrich:仅含 model_name 的插件自管组（vendor 型）不增强，保持文本框', () => {
+  const { enrichSchemaWithProviderSelection } = setup([
+    { name: 'openai', provider_type: 'openai', models: [{ name: 'gpt-4o' }] },
+  ]);
+  const schema = {
+    groups: [providerSchema('media_image', [
+      { key: 'vendor', type: 'select', options: [{ value: 'zhipu', label: '智谱' }] },
+      { key: 'model_name', type: 'text' },
+    ])],
+  };
+  const config = { media_image: { vendor: 'zhipu', model_name: 'glm-image' } };
+
+  const next = enrichSchemaWithProviderSelection(schema, config);
+  const modelField = next.groups[0].fields.find((f) => f.key === 'model_name');
+  assert.equal(modelField.type, 'text');
+  assert.equal('options' in modelField, false);
+});
+
+test('cascade:无 provider 字段的组原样透传，不清 model_name 也不注入 provider 键', () => {
+  const { applyProviderCascade } = setup([
+    { name: 'openai', provider_type: 'openai', models: [{ name: 'gpt-4o' }] },
+  ]);
+  const schema = {
+    groups: [providerSchema('media_image', [{ key: 'vendor' }, { key: 'model_name' }])],
+  };
+  const prev = { media_image: { vendor: 'zhipu', model_name: 'glm-image' } };
+  const next = { media_image: { vendor: 'volcengine', model_name: 'glm-image' } };
+
+  const result = applyProviderCascade(prev, next, schema);
+  assert.deepEqual(result.media_image, { vendor: 'volcengine', model_name: 'glm-image' });
+});
+
 test('cascade:autoSelectModel 提示切换 provider 自动选第一个模型（运行参数归模型，不再回填）', () => {
   const { applyProviderCascade } = setup([
     { name: 'openai', provider_type: 'openai', models: [{ name: 'gpt-4o', temperature: 0.3 }, { name: 'gpt-4o-mini' }] },

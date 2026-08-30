@@ -37,7 +37,7 @@ export interface CatalogModelEntry {
   id: string;
   adapter: MediaAdapterId;
   kind: "image" | "video";
-  /** 设置页下拉 label（含厂商与参考价）。 */
+  /** 目录 label（含厂商与参考价；仅供文档/测试参考，设置页不再下拉）。 */
   label: string;
   caps: ModelCaps;
 }
@@ -46,7 +46,7 @@ const STANDARD_IMAGE_RATIOS: readonly AspectRatio[] = ["1:1", "16:9", "9:16", "4
 
 /**
  * 内置生成模型目录（价格随官方调整，以厂商价格页为准）。
- * custom_model 可填目录外新模型，能力按 adapter 默认 caps 处理。
+ * 模型名可填目录外新模型，能力按 adapter 默认 caps 处理。
  */
 export const MODEL_CATALOG: readonly CatalogModelEntry[] = [
   /* ── 智谱 ── */
@@ -390,7 +390,7 @@ export function findModelEntry(model: string): CatalogModelEntry | null {
   return MODEL_CATALOG.find((entry) => entry.id.toLowerCase() === normalized) ?? null;
 }
 
-/** custom_model 目录外模型的能力兜底：按 adapter 取宽松默认。 */
+/** 目录外模型的能力兜底：按 adapter 取宽松默认。 */
 export function adapterDefaultCaps(adapter: MediaAdapterId, kind: "image" | "video"): ModelCaps {
   if (kind === "image") {
     const maxRefImages = adapter === "zhipu" ? 0 : adapter === "volcengine" ? 10 : adapter === "dashscope" ? 9 : adapter === "modelscope" ? 3 : adapter === "openai" ? 16 : 10;
