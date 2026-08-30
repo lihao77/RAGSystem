@@ -32,21 +32,26 @@ export function normalizeThinkingLevels(value) {
 
 /**
  * provider 思考 descriptor + 模型条目子集 → 可选档位：
- * effort 形状且模型声明子集时，强度档位以子集（厂商真实枚举）为准，off 恒可用；
- * 其余形状（budget/toggle）直接用 descriptor 档位。
+ * 模型声明子集（目录 effort 值域）时强度档位以子集（厂商真实枚举）为准，off 恒可用；
+ * toggle 形状（厂商投票的多数默认）下带子集的模型升级为 effort 分级（如智谱 glm-5.3）；
+ * budget 形状直接用 descriptor 档位（agent-llm describeThinking 同源规则）。
  */
 export function thinkingCapabilityFor(provider, modelName) {
   const thinking = provider && provider.thinking && typeof provider.thinking === 'object' ? provider.thinking : null;
   if (!thinking || thinking.kind === 'none') return { kind: 'none', levels: [] };
   let levels = Array.isArray(thinking.levels) ? [...thinking.levels] : [];
-  if (thinking.kind === 'effort' && modelName) {
+  let kind = thinking.kind;
+  if ((kind === 'effort' || kind === 'toggle') && modelName) {
     const entry = Array.isArray(provider.models)
       ? provider.models.find((item) => String(item?.name || '') === modelName)
       : null;
     const subset = normalizeThinkingLevels(entry?.thinking_levels);
-    if (subset.length) levels = ['off', ...subset];
+    if (subset.length) {
+      kind = 'effort';
+      levels = ['off', ...subset];
+    }
   }
-  return { kind: thinking.kind, levels };
+  return { kind, levels };
 }
 
 /** 档位集合 → 下拉选项（含"模型默认"首位；档位缺失时仅"模型默认"）。 */

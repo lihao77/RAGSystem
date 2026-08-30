@@ -16,7 +16,7 @@ test('normalizeThinkingLevels: 过滤未知/off、小写归一、按全集顺序
   assert.deepEqual(normalizeThinkingLevels(null), []);
 });
 
-test('thinkingCapabilityFor: descriptor 档位直通；模型级子集（effort 形状）替换强度档位、off 恒在', () => {
+test('thinkingCapabilityFor: descriptor 档位直通；模型级子集替换强度档位（effort）或升级 toggle 为分级、off 恒在', () => {
   const provider = (thinking, models) => ({ thinking, models });
   // effort 形状 + deepseek 风格子集
   assert.deepEqual(
@@ -35,11 +35,17 @@ test('thinkingCapabilityFor: descriptor 档位直通；模型级子集（effort 
     thinkingCapabilityFor(provider({ kind: 'effort', levels: ['off', 'low', 'high'] }, []), 'unknown'),
     { kind: 'effort', levels: ['off', 'low', 'high'] },
   );
-  // toggle / budget / none：子集（effort 语义）不影响
+  // toggle 厂商 + 模型自带 effort 值域 → 升级为 effort 分级（智谱 glm-5.3 场景）
   assert.deepEqual(
-    thinkingCapabilityFor(provider({ kind: 'toggle', levels: ['off', 'on'] }, [{ name: 'qwen3', thinking_levels: ['low'] }]), 'qwen3'),
+    thinkingCapabilityFor(provider({ kind: 'toggle', levels: ['off', 'on'] }, [{ name: 'glm-5.3', thinking_levels: ['low', 'high', 'max'] }]), 'glm-5.3'),
+    { kind: 'effort', levels: ['off', 'low', 'high', 'max'] },
+  );
+  // toggle 无子集 → 维持开关档位
+  assert.deepEqual(
+    thinkingCapabilityFor(provider({ kind: 'toggle', levels: ['off', 'on'] }, [{ name: 'glm-5' }]), 'glm-5'),
     { kind: 'toggle', levels: ['off', 'on'] },
   );
+  // budget / none：子集（effort 语义）不影响
   assert.deepEqual(
     thinkingCapabilityFor(provider({ kind: 'budget', levels: ['off', 'low', 'medium', 'high'] }, [{ name: 'claude', thinking_levels: ['low'] }]), 'claude'),
     { kind: 'budget', levels: ['off', 'low', 'medium', 'high'] },

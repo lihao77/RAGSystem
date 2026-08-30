@@ -6,7 +6,8 @@
  * 厂商适配在 provider 层声明——thinking_kind 覆盖形状（如 qwen 系 enable_thinking），
  * 静态厂商参数经 extra_params 进请求体（如嵌套 thinking map）。档位只来自请求级
  * thinkingLevel / agent tier 默认档位，provider 自身不定义思考强度；模型条目可带
- * thinking_levels 强度子集（目录 reasoning_options 的 effort 值域）收缩可选档位。
+ * thinking_levels 强度子集（目录 reasoning_options 的 effort 值域）收缩可选档位，
+ * 子集在场即模型事实——toggle 厂商（如智谱多数 GLM）下带值域的模型按 effort 分级。
  * 显示文案/i18n 归前端，本模块只输出机器值。
  */
 
@@ -50,8 +51,8 @@ const EFFORT_BY_LEVEL: Readonly<Record<Exclude<ThinkingLevel, "off" | "on">, str
 /**
  * effort 系强度档位全集（模型级子集 thinking_levels 的合法值域）。
  * 子集来自目录厂商声明（models.dev reasoning_options 的 effort 值域），经
- * provider 模型条目带入；off 是通用开关不入子集。仅 effort 形状受子集约束，
- * budget 的档位是本包预设、toggle 只有开关。
+ * provider 模型条目带入；off 是通用开关不入子集。effort 形状受子集约束，toggle
+ * 形状下非空子集直接升级为 effort 分级，budget 的档位是本包预设不受影响。
  */
 export const THINKING_STRENGTH_LEVELS: readonly ThinkingLevel[] = ["minimal", "low", "medium", "high", "xhigh", "max"];
 
@@ -106,14 +107,13 @@ function levelsFor(providerType: string, kind: ThinkingParamKind): readonly Thin
 }
 
 /**
- * effort 形状的模型级子集（provider.thinking_levels）替换强度档位：子集来自目录
- * 厂商枚举（models.dev reasoning_options 的 effort 值域），是模型真实值域，可含
- * 格式默认集没有的档位（如 max）；off 是通用开关恒保留。子集过滤到已知强度档位，
- * 空/缺省/全非法 = 不限制（用格式默认集）。
+ * 模型级强度子集（provider.thinking_levels）归一：子集来自目录厂商枚举
+ * （models.dev reasoning_options 的 effort 值域），是模型真实值域，可含格式默认集
+ * 没有的档位（如 max）。过滤到已知强度档位并按全集顺序输出；空/缺省/全非法 = []。
  */
-function applyModelLevelSubset(levels: readonly ThinkingLevel[], subset: unknown): readonly ThinkingLevel[] {
+function normalizeStrengthSubset(subset: unknown): readonly ThinkingLevel[] {
   if (!Array.isArray(subset) || subset.length === 0) {
-    return levels;
+    return [];
   }
   const known = new Set<string>(THINKING_STRENGTH_LEVELS);
   const picked = new Set<string>();
@@ -123,14 +123,24 @@ function applyModelLevelSubset(levels: readonly ThinkingLevel[], subset: unknown
       picked.add(token);
     }
   }
-  if (picked.size === 0) {
-    return levels;
-  }
-  return ["off", ...THINKING_STRENGTH_LEVELS.filter((level) => picked.has(level))];
+  return THINKING_STRENGTH_LEVELS.filter((level) => picked.has(level));
 }
 
-/** 描述某 provider 的思考能力；前端选择器据此决定显隐与可选档位。
- * levelsSubset 为模型级强度子集（effort 形状才生效），存在即替换强度档位。 */
+/**
+ * effort 形状的模型级子集替换强度档位：off 是通用开关恒保留；
+ * 空/缺省/全非法 = 不限制（用格式默认集）。
+ */
+function applyModelLevelSubset(levels: readonly ThinkingLevel[], subset: unknown): readonly ThinkingLevel[] {
+  const picked = normalizeStrengthSubset(subset);
+  return picked.length ? ["off", ...picked] : levels;
+}
+
+/**
+ * 描述某 provider 的思考能力；前端选择器据此决定显隐与可选档位。
+ * levelsSubset 为模型级强度子集（目录 effort 值域）：effort 形状下替换强度档位；
+ * toggle 形状下非空子集是模型事实（厂商投票只描述多数默认，如智谱 glm-5.3 的
+ * low/high/max 分级），升级为 effort 形状。
+ */
 export function describeThinking(
   providerType: string,
   kindOverride?: unknown,
@@ -138,6 +148,11 @@ export function describeThinking(
 ): ThinkingCapability {
   const kind = normalizeKindOverride(kindOverride) ?? THINKING_KIND_BY_PROVIDER_TYPE[providerType] ?? "none";
   if (kind === "none") return { kind, levels: [] };
+  if (kind === "toggle") {
+    const picked = normalizeStrengthSubset(levelsSubset);
+    if (picked.length) return { kind: "effort", levels: ["off", ...picked] };
+    return { kind, levels: TOGGLE_LEVELS };
+  }
   const levels = levelsFor(providerType, kind);
   return { kind, levels: kind === "effort" ? applyModelLevelSubset(levels, levelsSubset) : levels };
 }

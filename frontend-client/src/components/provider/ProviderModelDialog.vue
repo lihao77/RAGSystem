@@ -20,7 +20,7 @@
           />
           <p v-if="catalogMetaText" class="provider-model-catalog__meta">{{ catalogMetaText }}</p>
           <p v-if="thinkingLevelsText" class="provider-model-catalog__meta">
-            思考档位子集 {{ thinkingLevelsText }}（目录 effort 值域；仅 effort 形状生效，off 恒可用）
+            思考档位子集 {{ thinkingLevelsText }}（目录 effort 值域；带子集即按 effort 分级，off 恒可用）
             <button type="button" class="provider-model-catalog__clear" @click="clearThinkingLevels">移除</button>
           </p>
           <FieldError v-if="formErrors.name">{{ formErrors.name }}</FieldError>

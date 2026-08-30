@@ -107,8 +107,11 @@ const selectLevel = (value) => {
 
 const loadCapability = async () => {
   capability.value = await describeThinkingForModel(selectedLLM.value);
-  // 模型不支持思考时丢弃已保存的覆盖，避免静默携带无效档位。
-  if (capability.value.kind === 'none' && thinkingLevel.value) thinkingStore.setThinkingLevel('');
+  // 已保存档位不在当前模型能力集内（模型不支持思考，或开关型存的 on 换到分级模型）
+  // 时丢弃覆盖，避免静默携带后端会拒收的档位。
+  if (thinkingLevel.value && !capability.value.levels.includes(thinkingLevel.value)) {
+    thinkingStore.setThinkingLevel('');
+  }
 };
 
 onMounted(loadCapability);
