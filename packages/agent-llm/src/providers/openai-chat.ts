@@ -66,7 +66,6 @@ export class OpenAiChatAdapter implements LlmProviderAdapter {
 
 export function buildChatBody(request: LlmRequest, stream = false): Record<string, unknown> {
   const thinkingParams = buildThinkingParams(request.provider, request.thinkingLevel);
-  const usesModernTokenField = request.provider.provider_type === "openai_chat" && Boolean(thinkingParams?.reasoning_effort);
   const promptCacheParams = buildPromptCacheParams(request);
   const messages = request.messages.map(stripInternalMessageFields);
   // 思考模式下统一补齐缺失的 reasoning 字段（与厂商无关）：思考块随轨迹回放是通用规范，
@@ -88,9 +87,9 @@ export function buildChatBody(request: LlmRequest, stream = false): Record<strin
     model: request.model,
     messages,
     temperature: request.temperature ?? undefined,
-    ...(usesModernTokenField
-      ? { max_completion_tokens: request.maxCompletionTokens ?? undefined }
-      : { max_tokens: request.maxCompletionTokens ?? undefined }),
+    // 统一使用现代 token 字段（不按格式/思考特判）：OpenAI 官方新模型只认它，
+    // 兼容网关不识别时按自身默认限额处理（未知字段被忽略）。
+    max_completion_tokens: request.maxCompletionTokens ?? undefined,
     ...(thinkingParams ?? {}),
     ...promptCacheParams,
     tools: request.tools && request.tools.length > 0 ? request.tools.map(stripInternalToolFields) : undefined,

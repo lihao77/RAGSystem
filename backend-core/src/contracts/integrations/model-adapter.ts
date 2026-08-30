@@ -33,7 +33,7 @@ export interface ProviderConfigField {
 }
 
 export interface ProviderTypeInfo {
-  /** API 格式 id（openai_resp / openai_chat / openai_proxy / anthropic / gemini ...）。 */
+  /** API 格式 id（openai_resp / openai_chat / anthropic / gemini）。 */
   value: string;
   label: string;
   default_endpoint: string;
@@ -81,7 +81,7 @@ export interface CatalogProviderSummary {
   name: string;
   /** OpenAI 兼容 API base URL；无兼容端点的厂商（openai/anthropic/mistral 等原生或专用 SDK）为 null。 */
   api_base_url: string | null;
-  /** 推导的接入 API 格式：npm 官方 SDK 家族映射原生协议（@ai-sdk/openai 等），带兼容端点 → openai_proxy；null = 专用 SDK 厂商（bedrock/vertex），内核 5 格式无法直连。 */
+  /** 推导的接入 API 格式：npm 官方 SDK 家族映射原生协议（@ai-sdk/openai 等），带兼容端点 → openai_chat；null = 专用 SDK 厂商（bedrock/vertex），内核 4 格式无法直连。 */
   api_format: string | null;
   /** 目录 reasoning_options 推导的思考形状提示：toggle = 启停开关型（如 qwen 系）；null = 格式默认形状（openai 系 effort / anthropic budget）。表单默认值，用户可改。 */
   thinking_kind: string | null;
@@ -135,9 +135,9 @@ export interface ModelProviderConfig {
    */
   provider_type: string;
   /**
-   * API 格式（协议方言）：openai_resp / openai_chat / openai_proxy / anthropic / gemini，
+   * API 格式（协议方言）：openai_resp / openai_chat / anthropic / gemini，
    * kernel 封闭清单（纯协议，无厂商类型）。agent-llm 按此分发；由厂商目录信息推导
-   * （原生厂商专属格式、兼容网关走 openai_proxy），厂商思考形状经 thinking_kind 声明。
+   * （官方与兼容网关统一走 openai_chat，官方差异由端点/能力位守卫），厂商思考形状经 thinking_kind 声明。
    */
   api_format?: string;
   /**

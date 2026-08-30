@@ -1,6 +1,8 @@
 /**
- * Provider API 格式单一信源（纯协议方言，封闭 5 种；厂商适配不在此层——
+ * Provider API 格式单一信源（纯协议方言，封闭 4 种；厂商适配不在此层——
  * 思考形状经 provider 的 thinking_kind 声明、静态厂商参数经 extra_params 进请求体）。
+ * OpenAI 兼容网关与官方端点共用 openai_chat：官方专属差异（prompt_cache_key 等）由
+ * 端点/能力位守卫（supportsOpenAiPromptCacheKey、supports_prompt_caching）决定，不在格式层分档。
  *
  * 纯数据，无产品依赖。DEFAULT_ENDPOINTS / OPENAI_COMPATIBLE_TYPES 等视图由 PROVIDER_TYPE_SPECS
  * 派生，新增协议格式 = 追加一条 spec，无需改任何 client。
@@ -9,7 +11,6 @@
 export type ProviderType =
   | "openai_resp"
   | "openai_chat"
-  | "openai_proxy"
   | "anthropic"
   | "gemini";
 
@@ -47,11 +48,6 @@ export const PROVIDER_TYPE_SPECS: readonly ProviderTypeSpec[] = [
   {
     type: "openai_chat", defaultEndpoint: "https://api.openai.com/v1", chatKind: "openai_compatible",
     promptCacheMode: "automatic_prefix", usageFormat: "openai", supportsPromptCacheKey: true,
-    supportsPromptCacheTtl: false, exposesPromptCacheToggle: false, supportsStreamUsageOptions: true, nativeFunctionCalling: "configurable",
-  },
-  {
-    type: "openai_proxy", defaultEndpoint: "https://api.openai.com/v1", chatKind: "openai_compatible",
-    promptCacheMode: "none", usageFormat: "openai", supportsPromptCacheKey: false,
     supportsPromptCacheTtl: false, exposesPromptCacheToggle: false, supportsStreamUsageOptions: true, nativeFunctionCalling: "configurable",
   },
   {

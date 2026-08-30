@@ -112,7 +112,7 @@ test("Anthropic 缺签名的 thinking 块降级为 <think> 包裹的 text 块而
 
 test("思考模式 + tools：缺 reasoning_content 的 assistant 轮（含纯文字轮）补空串", () => {
   const body = buildChatBody({
-    provider: { key: "ds", name: "DeepSeek", provider_type: "openai_proxy", api_key: "k" },
+    provider: { key: "ds", name: "DeepSeek", provider_type: "openai_chat", api_key: "k" },
     model: "deepseek-v4-pro",
     thinkingLevel: "low",
     messages: [
@@ -136,7 +136,7 @@ test("思考模式 + tools：缺 reasoning_content 的 assistant 轮（含纯文
 test("reasoning_field 声明（目录 interleaved.field）：补齐字段跟随方言，已带思考字段的轮不重复补", () => {
   const body = buildChatBody({
     // openrouter 部分模型为 reasoning_details 方言（目录模型级声明，投影进 provider）
-    provider: { key: "or", name: "OpenRouter", provider_type: "openai_proxy", api_key: "k", reasoning_field: "reasoning_details" },
+    provider: { key: "or", name: "OpenRouter", provider_type: "openai_chat", api_key: "k", reasoning_field: "reasoning_details" },
     model: "grok-4",
     thinkingLevel: "high",
     messages: [
@@ -162,7 +162,7 @@ test("reasoning_field 声明（目录 interleaved.field）：补齐字段跟随�
 
 test("思考补齐：轮内已有任一思考线字段（如 reasoning 字符串方言）则不注入", () => {
   const body = buildChatBody({
-    provider: { key: "gw", name: "Gateway", provider_type: "openai_proxy", api_key: "k" },
+    provider: { key: "gw", name: "Gateway", provider_type: "openai_chat", api_key: "k" },
     model: "some-model",
     thinkingLevel: "low",
     messages: [
@@ -184,7 +184,7 @@ test("思考补齐激活绑定形状实际生效：kind=none / budget 覆盖 + �
   ];
   // thinking_kind 声明 none（无思考通道）：tier 残留档位不得触发补齐
   const noneKind = buildChatBody({
-    provider: { key: "t", name: "T", provider_type: "openai_proxy", api_key: "k", thinking_kind: "none" },
+    provider: { key: "t", name: "T", provider_type: "openai_chat", api_key: "k", thinking_kind: "none" },
     model: "m",
     thinkingLevel: "high",
     messages,
@@ -204,7 +204,7 @@ test("思考补齐激活绑定形状实际生效：kind=none / budget 覆盖 + �
 
 test("思考模式补齐与厂商无关：兼容厂商同样补空串，未开思考不注入", () => {
   const body = buildChatBody({
-    provider: { key: "qwen", name: "Qwen", provider_type: "openai_proxy", thinking_kind: "toggle", api_key: "k" },
+    provider: { key: "qwen", name: "Qwen", provider_type: "openai_chat", thinking_kind: "toggle", api_key: "k" },
     model: "qwen-plus",
     thinkingLevel: "on",
     messages: multiRoundMessages({}, {}),
@@ -216,7 +216,7 @@ test("思考模式补齐与厂商无关：兼容厂商同样补空串，未开�
 
   // 未开启思考时不注入，避免给严格网关发送未知消息字段
   const plain = buildChatBody({
-    provider: { key: "qwen", name: "Qwen", provider_type: "openai_proxy", thinking_kind: "toggle", api_key: "k" },
+    provider: { key: "qwen", name: "Qwen", provider_type: "openai_chat", thinking_kind: "toggle", api_key: "k" },
     model: "qwen-plus",
     messages: multiRoundMessages({}, {}),
   });

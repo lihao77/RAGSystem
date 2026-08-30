@@ -104,7 +104,7 @@ export class ModelAdapterService {
     return PROVIDER_TYPE_SET.has(apiFormat);
   }
 
-  /** API 格式封闭清单（agent-llm 协议方言），供前端格式下拉与端点/扩展字段元数据。 */
+  /** API 格式封闭清单（agent-llm 协议方言，4 种），供前端格式下拉与端点/扩展字段元数据。 */
   listApiFormats(): ProviderTypeInfo[] {
     return PROVIDER_TYPES.map((apiFormat) => ({
       value: apiFormat,
@@ -541,8 +541,9 @@ function canonicalizeProviderType(providerType: unknown, apiMode: unknown): stri
   if (rawProviderType === "openai_chat_completions" || rawProviderType === "openai_chat") {
     return "openai_chat";
   }
+  // openai_proxy（兼容网关档位）已并入 openai_chat：官方差异由端点/能力位守卫处理，存量条目别名归一。
   if (rawProviderType === "openai_compatible_chat" || rawProviderType === "openai_proxy") {
-    return "openai_proxy";
+    return "openai_chat";
   }
   return rawProviderType;
 }
@@ -550,8 +551,7 @@ function canonicalizeProviderType(providerType: unknown, apiMode: unknown): stri
 function labelProviderType(providerType: string): string {
   const labels: Record<string, string> = {
     openai_resp: "OpenAI Responses",
-    openai_chat: "OpenAI Chat",
-    openai_proxy: "OpenAI Compatible",
+    openai_chat: "OpenAI Chat (Compatible)",
     gemini: "Google Gemini",
   };
   return labels[providerType] ?? providerType.charAt(0).toUpperCase() + providerType.slice(1);

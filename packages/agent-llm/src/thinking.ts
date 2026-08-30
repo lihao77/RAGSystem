@@ -72,7 +72,6 @@ const BUDGET_BY_LEVEL: Readonly<Partial<Record<ThinkingLevel, number>>> = {
 const THINKING_KIND_BY_PROVIDER_TYPE: Readonly<Record<string, ThinkingParamKind>> = {
   openai_resp: "effort",
   openai_chat: "effort",
-  openai_proxy: "effort",
   anthropic: "budget",
 };
 
@@ -91,7 +90,6 @@ const TOGGLE_LEVELS: readonly ThinkingLevel[] = ["off", "on"];
 const THINKING_LEVELS_BY_PROVIDER_TYPE: Readonly<Record<string, readonly ThinkingLevel[]>> = {
   openai_resp: OPENAI_LEVELS,
   openai_chat: OPENAI_LEVELS,
-  openai_proxy: OPENAI_LEVELS,
   anthropic: ANTHROPIC_LEVELS,
 };
 

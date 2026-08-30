@@ -23,7 +23,7 @@ test("OpenAI-compatible completion preserves reasoning wire fields for tool cont
 
   try {
     const result = await new LlmProviderClient().complete({
-      provider: { key: "qwen", name: "Qwen", provider_type: "openai_proxy", api_key: "secret" },
+      provider: { key: "qwen", name: "Qwen", provider_type: "openai_chat", api_key: "secret" },
       model: "qwen-plus",
       messages: [{ role: "user", content: "inspect" }],
     });
@@ -37,7 +37,7 @@ test("OpenAI-compatible completion preserves reasoning wire fields for tool cont
     });
 
     const body = buildChatBody({
-      provider: { key: "qwen", name: "Qwen", provider_type: "openai_proxy", api_key: "secret" },
+      provider: { key: "qwen", name: "Qwen", provider_type: "openai_chat", api_key: "secret" },
       model: "qwen-plus",
       messages: [
         { role: "user", content: "inspect" },
@@ -71,7 +71,7 @@ test("OpenAI-compatible stream accumulates reasoning deltas into continuation st
 
   try {
     const result = await new LlmProviderClient().stream({
-      provider: { key: "qwen", name: "Qwen", provider_type: "openai_proxy", api_key: "secret" },
+      provider: { key: "qwen", name: "Qwen", provider_type: "openai_chat", api_key: "secret" },
       model: "qwen-plus",
       messages: [{ role: "user", content: "inspect" }],
     }, async () => {});
@@ -100,7 +100,7 @@ test("OpenAI-compatible stream passes reasoning deltas through chunks", async ()
   try {
     const chunks = [];
     const result = await new LlmProviderClient().stream({
-      provider: { key: "qwen", name: "Qwen", provider_type: "openai_proxy", api_key: "secret" },
+      provider: { key: "qwen", name: "Qwen", provider_type: "openai_chat", api_key: "secret" },
       model: "qwen-plus",
       messages: [{ role: "user", content: "inspect" }],
     }, async (chunk) => { chunks.push(chunk); });

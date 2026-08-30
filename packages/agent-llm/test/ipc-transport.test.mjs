@@ -100,7 +100,7 @@ test("OpenAI-compatible client keeps the default HTTP transport", async (t) => {
     provider: {
       key: "http",
       name: "HTTP",
-      provider_type: "openai_proxy",
+      provider_type: "openai_chat",
       api_endpoint: `http://127.0.0.1:${address.port}`,
       api_key: "placeholder",
     },
@@ -144,7 +144,7 @@ test("provider attempt lifecycle follows physical retries and full stream consum
     provider: {
       key: "attempt-complete",
       name: "Attempt Complete",
-      provider_type: "openai_proxy",
+      provider_type: "openai_chat",
       api_endpoint: endpoint,
       api_key: "placeholder",
       retry_attempts: 1,
@@ -171,7 +171,7 @@ test("provider attempt lifecycle follows physical retries and full stream consum
       provider: {
         key: "attempt-stream",
         name: "Attempt Stream",
-        provider_type: "openai_proxy",
+        provider_type: "openai_chat",
         api_endpoint: endpoint,
         api_key: "placeholder",
       },
@@ -240,7 +240,7 @@ test("provider retries stalled response bodies and streams only before output st
     provider: {
       key,
       name: key,
-      provider_type: "openai_proxy",
+      provider_type: "openai_chat",
       api_endpoint: endpoint,
       api_key: "placeholder",
       timeout: 0.05,
@@ -279,7 +279,7 @@ function llmRequest(key, socketEnv, content, signal) {
     provider: {
       key,
       name: `IPC ${key}`,
-      provider_type: "openai_proxy",
+      provider_type: "openai_chat",
       api_endpoint: "http://planning-llm.internal/private-token",
       api_key: "placeholder",
       transport: { type: "ipc_socket", socket_env: socketEnv },

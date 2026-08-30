@@ -347,13 +347,13 @@ function collectReasoningEfforts(value: unknown): string[] {
 
 /**
  * API 格式推导：npm 官方 SDK 家族 → 原生协议；带 OpenAI 兼容端点（api 字段，
- * models.dev 只在厂商兼容时提供）→ openai_proxy；两者皆无（mistral/bedrock 等
+ * models.dev 只在厂商兼容时提供）→ openai_chat；两者皆无（mistral/bedrock 等
  * 专用 SDK 厂商）→ null，内核 5 格式无法直连，不进建议列表。
  */
 function deriveApiFormat(providerRaw: RawCatalogProvider, apiBaseUrl: string | null): string | null {
   const npm = typeof providerRaw.npm === "string" ? providerRaw.npm.trim() : "";
   const nativeFormat = NATIVE_FORMAT_BY_NPM[npm];
-  return nativeFormat ?? (apiBaseUrl ? "openai_proxy" : null);
+  return nativeFormat ?? (apiBaseUrl ? "openai_chat" : null);
 }
 
 /**
@@ -363,7 +363,7 @@ function deriveApiFormat(providerRaw: RawCatalogProvider, apiBaseUrl: string | n
  * 默认，与其顶层 reasoning_effort 的实测用法一致。非思考参数格式恒 null。
  */
 function deriveThinkingKind(apiFormat: string | null, modelsRaw: Record<string, unknown>): string | null {
-  if (apiFormat !== "openai_chat" && apiFormat !== "openai_resp" && apiFormat !== "openai_proxy" && apiFormat !== "anthropic") {
+  if (apiFormat !== "openai_chat" && apiFormat !== "openai_resp" && apiFormat !== "anthropic") {
     return null;
   }
   let toggleOnly = 0;

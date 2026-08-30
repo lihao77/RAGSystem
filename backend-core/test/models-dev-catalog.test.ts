@@ -126,17 +126,17 @@ describe("ModelsDevCatalog", () => {
       available: true,
       stale: false,
       providers: [
-        // 接入档案推导：npm SDK 家族 → 原生格式；api 端点 → openai_proxy；皆无 → null 不可直连。
+        // 接入档案推导：npm SDK 家族 → 原生格式；api 端点 → openai_chat；皆无 → null 不可直连。
         // 思考形状：qwen 纯 toggle → toggle；deepseek toggle+effort 同模型 / openai 纯 effort → 格式默认 null。
         {
           id: "alibaba",
           name: "Alibaba",
           api_base_url: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
-          api_format: "openai_proxy",
+          api_format: "openai_chat",
           thinking_kind: "toggle",
           model_count: 1,
         },
-        { id: "deepseek", name: "DeepSeek", api_base_url: "https://api.deepseek.com", api_format: "openai_proxy", thinking_kind: null, model_count: 1 },
+        { id: "deepseek", name: "DeepSeek", api_base_url: "https://api.deepseek.com", api_format: "openai_chat", thinking_kind: null, model_count: 1 },
         { id: "mistral", name: "Mistral", api_base_url: null, api_format: null, thinking_kind: null, model_count: 1 },
         { id: "openai", name: "OpenAI", api_base_url: null, api_format: "openai_chat", thinking_kind: null, model_count: 3 },
       ],

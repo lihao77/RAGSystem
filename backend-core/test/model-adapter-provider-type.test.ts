@@ -17,12 +17,12 @@ const existing: ModelProviderConfig = {
 };
 
 describe("ModelAdapterService provider configuration (provider_type=厂商, api_format=API 格式)", () => {
-  it("listApiFormats 暴露封闭的 5 种纯协议格式（无厂商类型）", () => {
+  it("listApiFormats 暴露封闭的 4 种纯协议格式（无厂商类型；openai_proxy 已并入 openai_chat）", () => {
     const formats = new ModelAdapterService().listApiFormats();
-    expect(formats.map((item) => item.value)).toEqual(["openai_resp", "openai_chat", "openai_proxy", "anthropic", "gemini"]);
+    expect(formats.map((item) => item.value)).toEqual(["openai_resp", "openai_chat", "anthropic", "gemini"]);
     const fields = (apiFormat: string) => formats.find((item) => item.value === apiFormat)?.config_fields ?? [];
     expect(fields("anthropic").some((field) => field.key === "supports_prompt_caching")).toBe(true);
-    for (const apiFormat of ["gemini", "openai_proxy", "openai_chat", "openai_resp"]) {
+    for (const apiFormat of ["gemini", "openai_chat", "openai_resp"]) {
       expect(fields(apiFormat).some((field) => field.key === "supports_prompt_caching")).toBe(false);
     }
     expect(fields("anthropic").some((field) => field.key === "cache_ttl_seconds")).toBe(true);
@@ -64,14 +64,14 @@ describe("ModelAdapterService provider configuration (provider_type=厂商, api_
       .toThrowError(new ModelAdapterServiceError("缺少必需字段: api_format", 400));
     expect(() => service.buildCreateProvider({ ...base, api_format: "openai_native", models: [{ name: "glm-5" }] }))
       .toThrowError(new ModelAdapterServiceError("不支持的 API 格式: openai_native", 400));
-    // api_format 别名归一：openai_compatible_chat → openai_proxy、openai → openai_chat（厂商不受影响）。
+    // api_format 别名归一：openai_compatible_chat/openai_proxy → openai_chat、openai → openai_chat（厂商不受影响）。
     const aliased = service.buildCreateProvider({
       ...base,
       api_format: "openai_compatible_chat",
       api_endpoint: "https://open.bigmodel.cn/api/paas/v4",
       models: [{ name: "glm-5" }],
     });
-    expect(aliased.config.api_format).toBe("openai_proxy");
+    expect(aliased.config.api_format).toBe("openai_chat");
     expect(aliased.config.provider_type).toBe("zhipuai");
     const openaiAlias = service.buildCreateProvider({
       name: "OpenAI", provider_type: "openai", api_key: "secret", api_format: "openai",
@@ -204,7 +204,7 @@ describe("ModelAdapterService provider configuration (provider_type=厂商, api_
     expect(service.hasProvider("chat")).toBe(true);
     const chat = service.getProvider("chat");
     expect(chat?.provider_type).toBe("zhipuai");
-    expect(chat?.api_format).toBe("openai_proxy");
+    expect(chat?.api_format).toBe("openai_chat");
     // 水合宽松归一：旧 supports_vision 剔除、模态未知值过滤、非数组丢弃、废弃字段剥离。
     expect(chat?.models).toEqual([{ name: "glm-5", temperature: 0.2, input_modalities: ["image"] }]);
     expect(chat?.temperature).toBeUndefined();
