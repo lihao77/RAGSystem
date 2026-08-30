@@ -347,7 +347,7 @@ export class ModelAdapterService {
         messages: [{ role: "user", content: data.prompt ?? "" }],
         model,
         provider: { ...provider, provider_type: provider.api_format ?? provider.provider_type } as unknown as ProviderConfig,
-        temperature: entry?.temperature ?? 0.7,
+        temperature: entry?.temperature ?? 0.2,
         maxCompletionTokens: entry?.max_completion_tokens ?? 500,
       });
       return {

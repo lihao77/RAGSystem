@@ -65,7 +65,7 @@ describe("system LLM configuration", () => {
       llm: {
         provider: "",
         model_name: "",
-        temperature: 0.7,
+        temperature: 0.2,
         max_completion_tokens: 4096,
         max_context_tokens: 128000,
       },

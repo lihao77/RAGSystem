@@ -156,7 +156,9 @@ function buildDefaultConfig(): SystemConfigData {
       provider: "",
       provider_type: "",
       model_name: "",
-      temperature: 0.7,
+      // 代码/工具调用场景默认低温度（0.2）：确定性优先，减少工具循环里的发散输出；
+      // 需要发散创作的 Agent 在自身 tier 或 extra_params 覆盖。
+      temperature: 0.2,
       max_completion_tokens: 4096,
       max_context_tokens: 128000,
       extra_params: {},
@@ -194,7 +196,7 @@ function buildSystemConfigSchema(): SystemConfigSchema {
           textField("provider", "Provider", "AI 提供商名称；留空表示未配置", ""),
           textField("provider_type", "Provider Type", "Provider 类型（用于精确查找，避免同名冲突）", ""),
           textField("model_name", "Model Name", "默认 Chat 模型名称", ""),
-          numberField("temperature", "Temperature", "生成温度，控制输出随机性", 0.7, { min: 0, max: 2, step: 0.1 }),
+          numberField("temperature", "Temperature", "生成温度，控制输出随机性", 0.2, { min: 0, max: 2, step: 0.1 }),
           numberField("max_completion_tokens", "Max Completion Tokens", "单次输出的最大 token 数", 4096, { min: 1, step: 1 }),
           numberField("max_context_tokens", "Max Context Tokens", "模型支持的最大上下文窗口", 128000, { min: 1, step: 1 }),
         ],
@@ -352,7 +354,7 @@ function normalizeLlmConfig(value: unknown): SystemLlmConfig {
     provider,
     provider_type: provider ? stringOrDefault(record.provider_type, "") : "",
     model_name: provider ? stringOrDefault(record.model_name, "") : "",
-    temperature: boundedNumberOrDefault(record.temperature, 0.7, 0, 2),
+    temperature: boundedNumberOrDefault(record.temperature, 0.2, 0, 2),
     max_completion_tokens: positiveIntOrDefault(record.max_completion_tokens, 4096),
     max_context_tokens: positiveIntOrDefault(record.max_context_tokens, 128000),
     extra_params: isRecord(record.extra_params) ? structuredClone(record.extra_params) as Record<string, SystemConfigValue> : {},
