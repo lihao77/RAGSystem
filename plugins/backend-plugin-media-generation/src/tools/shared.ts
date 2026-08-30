@@ -1,9 +1,12 @@
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 
 import type { ModelProviderConfig } from "@ragsystem/backend-core/contracts/integrations/model-adapter.js";
+import type { PathAccessPolicy } from "@ragsystem/backend-core/contracts/runtime/path-access-policy.js";
 import type { BackendToolFactoryContext, PluginClientEventPublisher } from "@ragsystem/backend-core/plugins/backend-plugin.js";
 import type { ToolExecContext, ToolExecutionResult, ToolResultMedia } from "@ragsystem/agent-sdk";
+import { isAbsolutePathLike, isPathUnder, resolvePathLike } from "@ragsystem/backend-core/tools/shared/paths.js";
 
 import { MEDIA_IMAGE_CONFIG_KEY, MEDIA_VIDEO_CONFIG_KEY, resolveImageConfig, resolveVideoConfig } from "../config.js";
 import { findModelEntry } from "../model-catalog.js";
@@ -89,22 +92,44 @@ export function workspaceRoot(ctx: ToolExecContext): string | null {
   return root ? path.resolve(root) : null;
 }
 
+/** 读语义界内根：workspace + uploads + 系统临时目录，与 read_file 的允许范围对齐。 */
+function readAccessRoots(ctx: ToolExecContext | null | undefined, workspace: string): string[] {
+  const roots = [path.resolve(workspace)];
+  const uploads = ctx?.executionPaths?.uploads?.trim();
+  if (uploads) roots.push(path.resolve(uploads));
+  roots.push(os.tmpdir());
+  return roots;
+}
+
+export interface MediaPathAccess {
+  ctx?: ToolExecContext | null;
+  pathService?: PathAccessPolicy | null;
+}
+
 export interface LoadedRefImage {
   bytes: Buffer;
   mime: string;
   relativePath: string;
 }
 
-/** 读取工作区参考图（路径逃逸防护 + 大小上限），失败返回错误文案。 */
+/** 读取参考图（界内直读；界外经路径审批放行），失败返回错误文案。 */
 export async function loadWorkspaceImage(
   root: string,
   filePath: string,
+  access?: MediaPathAccess,
 ): Promise<{ ok: true; image: LoadedRefImage } | { ok: false; error: string }> {
-  const normalized = filePath.replaceAll("\\", "/").replace(/^\/+/, "");
-  const candidate = path.resolve(root, normalized);
+  const candidate = isAbsolutePathLike(filePath) ? resolvePathLike(filePath) : path.resolve(root, filePath);
   const rel = path.relative(path.resolve(root), candidate);
   if (rel.startsWith("..") || path.isAbsolute(rel)) {
-    return { ok: false, error: `参考图路径必须位于工作区内: ${filePath}` };
+    const pathService = access?.pathService;
+    if (!pathService) {
+      return { ok: false, error: `参考图路径必须位于工作区内: ${filePath}` };
+    }
+    try {
+      pathService.assertWithin(candidate, readAccessRoots(access?.ctx, root), filePath);
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
   }
   const mime = imageMimeForPath(candidate);
   if (!mime) {
@@ -119,6 +144,52 @@ export async function loadWorkspaceImage(
   } catch {
     return { ok: false, error: `参考图读取失败（不存在或不可读）: ${filePath}` };
   }
+}
+
+function readImageExternalCandidates(root: string, filePath: string, ctx: ToolExecContext, pathService: PathAccessPolicy): string[] {
+  const candidate = isAbsolutePathLike(filePath) ? resolvePathLike(filePath) : path.resolve(root, filePath);
+  if (pathService.isApproved(candidate)) return [];
+  if (readAccessRoots(ctx, root).some((allowedRoot) => isPathUnder(candidate, allowedRoot))) return [];
+  return [candidate];
+}
+
+function outputDirExternalCandidates(root: string, outputDir: string, pathService: PathAccessPolicy): string[] {
+  // 相对分支的反斜杠归一与 resolveWorkspaceRelative 保持一致，避免两侧解析漂移
+  const candidate = isAbsolutePathLike(outputDir)
+    ? resolvePathLike(outputDir)
+    : path.resolve(root, outputDir.replaceAll("\\", "/"));
+  if (pathService.isApproved(candidate)) return [];
+  if (isPathUnder(candidate, path.resolve(root))) return [];
+  return [candidate];
+}
+
+/** generate_image/generate_video checkAccess：越界参考图与输出目录作为候选信号交给 permission mode。 */
+export function mediaAccessCandidates(
+  context: BackendToolFactoryContext,
+  input: Record<string, unknown>,
+  ctx: ToolExecContext,
+): string[] {
+  const pathService = context.pathAccessPolicy;
+  const root = workspaceRoot(ctx);
+  if (!pathService || !root) return [];
+  const candidates: string[] = [];
+  const refImages = Array.isArray(input?.reference_images)
+    ? input.reference_images.filter((item): item is string => typeof item === "string")
+    : [];
+  for (const refPath of refImages) {
+    candidates.push(...readImageExternalCandidates(root, refPath, ctx, pathService));
+  }
+  for (const key of ["first_frame_image", "last_frame_image"] as const) {
+    const value = input?.[key];
+    if (typeof value === "string" && value.trim()) {
+      candidates.push(...readImageExternalCandidates(root, value, ctx, pathService));
+    }
+  }
+  const outputDir = typeof input?.output_dir === "string" ? input.output_dir.trim() : "";
+  if (outputDir) {
+    candidates.push(...outputDirExternalCandidates(root, outputDir, pathService));
+  }
+  return [...new Set(candidates)];
 }
 
 function imageMimeForPath(filePath: string): string | null {

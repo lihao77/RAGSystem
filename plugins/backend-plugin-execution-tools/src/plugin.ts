@@ -45,7 +45,7 @@ export function createExecutionToolsPlugin(dependencies: ExecutionToolsPluginDep
               }),
             } : {}),
           }),
-          ...createLocalSearchTools({ service: runtime.search, agent }),
+          ...createLocalSearchTools({ service: runtime.search, agent, pathService: pathAccessPolicy }),
         ];
       }, TOOL_DESCRIPTORS);
     },

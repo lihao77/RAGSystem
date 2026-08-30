@@ -151,6 +151,8 @@ function documentOperationForTool(toolName: string): ManagedOperation | null {
   if (toolName === "read_file") return "read";
   if (toolName === "write_file") return "write";
   if (toolName === "edit_file") return "edit";
+  // preview 按读语义解析（DocumentExecution），候选判定必须同样按 read，否则外部路径无法进入审批
+  if (toolName === "preview_data_structure") return "read";
   return null;
 }
 

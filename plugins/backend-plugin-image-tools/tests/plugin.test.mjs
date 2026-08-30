@@ -3,8 +3,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import { BackendPluginManager } from "@ragsystem/backend-core/plugins/plugin-manager.js";
+import { PathApprovalService } from "@ragsystem/backend-core/services/runtime/path-approval-service.js";
 import {
   backendPluginModule,
   createImageToolsPlugin,
@@ -228,7 +230,7 @@ function buildViewImageTool(agentTools = [VIEW_IMAGE_TOOL_NAME], factoryOverride
     tenantId: "tenant-1",
     teamName: null,
     agent: { agent_name: "agent-1", tools: { enabled_tools: agentTools } },
-    pathAccessPolicy: { isApproved: () => false },
+    pathAccessPolicy: new PathApprovalService(),
     ...factoryOverrides,
   });
   return Array.isArray(tools) ? tools : [tools];
@@ -238,16 +240,61 @@ test("view_image is hidden when not in enabled_tools", () => {
   assert.deepEqual(buildViewImageTool([]), []);
 });
 
-test("view_image rejects paths outside the workspace", async () => {
+test("view_image rejects external paths without approval and reads them after approval", async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "image-tools-"));
   const workspace = path.join(tmp, "workspace");
   fs.mkdirSync(workspace, { recursive: true });
-  const outside = path.join(tmp, "outside.png"); // 在 workspace 之外
-  fs.writeFileSync(outside, "not an image");
-  const [tool] = buildViewImageTool();
-  const result = await tool.call({ file_path: outside }, { workspaceRoot: workspace, tenantId: "tenant-1" });
-  assert.equal(result.success, false);
-  assert.match(result.summary, /workspace/);
+  // os.tmpdir() 本身属于读语义界内根，外部路径必须建在仓库目录下才真正越界
+  const externalDir = path.join(fileURLToPath(new URL(".", import.meta.url)), ".tmp-external");
+  fs.rmSync(externalDir, { recursive: true, force: true });
+  fs.mkdirSync(externalDir, { recursive: true });
+  const png = Buffer.from("89504e470d0a1a0a0000000d49484452", "hex");
+  const outside = path.join(externalDir, "outside.png");
+  fs.writeFileSync(outside, png);
+  const ctx = { workspaceRoot: workspace, tenantId: "tenant-1" };
+  try {
+    const policy = new PathApprovalService();
+    const [tool] = buildViewImageTool([VIEW_IMAGE_TOOL_NAME], { pathAccessPolicy: policy });
+
+    // checkAccess：越界路径作为候选信号交给审批流，工具本身保持 allow
+    const decision = tool.checkAccess({ file_path: outside }, ctx);
+    assert.equal(decision.action, "allow");
+    assert.deepEqual(decision.signals?.candidatePaths, [path.resolve(outside)]);
+
+    const rejected = await tool.call({ file_path: outside }, ctx);
+    assert.equal(rejected.success, false);
+    assert.match(rejected.summary, /受管目录范围/);
+
+    policy.approve([externalDir]);
+    const approved = await tool.call({ file_path: outside }, ctx);
+    assert.equal(approved.success, true);
+    assert.equal(approved.outputType, "image");
+  } finally {
+    fs.rmSync(externalDir, { recursive: true, force: true });
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("view_image reads uploads images without approval", async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "image-tools-"));
+  const workspace = path.join(tmp, "workspace");
+  const uploads = path.join(tmp, "uploads");
+  fs.mkdirSync(workspace, { recursive: true });
+  fs.mkdirSync(uploads, { recursive: true });
+  const png = Buffer.from("89504e470d0a1a0a0000000d49484452", "hex");
+  fs.writeFileSync(path.join(uploads, "up.png"), png);
+  try {
+    const [tool] = buildViewImageTool();
+    const result = await tool.call({ file_path: path.join(uploads, "up.png") }, {
+      workspaceRoot: workspace,
+      executionPaths: { workspace, uploads },
+      tenantId: "tenant-1",
+    });
+    assert.equal(result.success, true);
+    assert.equal(result.outputType, "image");
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
 });
 
 test("view_image rejects unsupported image types", async () => {

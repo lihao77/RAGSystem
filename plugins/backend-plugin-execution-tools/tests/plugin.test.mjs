@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import { createRuntime } from "@ragsystem/agent-sdk";
 import { BackendPluginManager } from "@ragsystem/backend-core/plugins/plugin-manager.js";
@@ -190,6 +191,44 @@ test("managed paths share one deterministic workspace view across execution tool
     );
     pathPolicy.approve([externalRoot]);
     assert.equal(resolver.resolveWorkingDirectory(externalRoot, context, pathPolicy), externalRoot);
+  } finally {
+    fs.rmSync(dataRoot, { recursive: true, force: true });
+    fs.rmSync(externalRoot, { recursive: true, force: true });
+  }
+});
+
+test("glob and grep apply read-path approval outside managed roots", () => {
+  const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-search-approval-"));
+  // os.tmpdir() 属于读语义界内根，外部搜索根必须建在仓库目录下才真正越界
+  const externalRoot = path.join(fileURLToPath(new URL(".", import.meta.url)), ".tmp-external-search");
+  fs.rmSync(externalRoot, { recursive: true, force: true });
+  fs.mkdirSync(externalRoot, { recursive: true });
+  try {
+    const resolver = new ManagedPathResolver(dataRoot);
+    const context = { sessionId: "session-a", runId: "run-a" };
+    const roots = resolver.roots(context);
+    fs.mkdirSync(roots.workspace, { recursive: true });
+    fs.writeFileSync(path.join(externalRoot, "needle.txt"), "needle-content", "utf8");
+
+    const pathPolicy = new PathApprovalService();
+    const search = new LocalSearchToolService({ dataRoot, pathResolver: resolver });
+
+    // 未批准的外部搜索根 → checkAccess 候选信号；call 阶段转为工具错误
+    assert.deepEqual(search.getSearchRootCandidates(externalRoot, context, pathPolicy), [externalRoot]);
+    const rejected = search.glob({ pattern: "*.txt", path: externalRoot }, context, pathPolicy);
+    assert.equal(rejected.success, false);
+    assert.match(rejected.summary, /受管目录范围/);
+
+    pathPolicy.approve([externalRoot]);
+    const globResult = search.glob({ pattern: "*.txt", path: externalRoot }, context, pathPolicy);
+    assert.equal(globResult.success, true);
+    assert.deepEqual(globResult.content.files, ["needle.txt"]);
+    const grepResult = search.grep({ pattern: "needle", path: externalRoot }, context, pathPolicy);
+    assert.equal(grepResult.success, true);
+    assert.equal(grepResult.content.matches.length, 1);
+
+    // 已批准后不再产生候选信号
+    assert.deepEqual(search.getSearchRootCandidates(externalRoot, context, pathPolicy), []);
   } finally {
     fs.rmSync(dataRoot, { recursive: true, force: true });
     fs.rmSync(externalRoot, { recursive: true, force: true });

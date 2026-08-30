@@ -6,6 +6,7 @@ import test from "node:test";
 
 import { BackendPluginManager } from "@ragsystem/backend-core/plugins/plugin-manager.js";
 import { isPathUnder } from "@ragsystem/backend-core/tools/shared/paths.js";
+import { PathApprovalService } from "@ragsystem/backend-core/services/runtime/path-approval-service.js";
 import { BACKEND_HOST_RESOURCES } from "@ragsystem/backend-core/plugins/host-resources.js";
 import { provideBackendResource } from "@ragsystem/backend-core/plugins/resource-registry.js";
 import {
@@ -279,6 +280,37 @@ test("系统临时目录天然可读写：observation 物化文件可回读、te
     assert.equal(outside.success, false);
     assert.match(outside.summary, /超出允许的受管目录范围/);
     fs.rmSync(tempTarget, { force: true });
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("preview_data_structure 外部路径按读语义产生审批候选（与 read_file 一致）", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-document-preview-"));
+  try {
+    const runtime = createLocalDocumentToolsRuntimeFactory()({
+      deploymentKind: "local",
+      dataRoot: root,
+    });
+    const context = { sessionId: "session-preview", runId: "run-preview" };
+    const policy = new PathApprovalService();
+    const external = path.join(path.parse(root).root || path.dirname(root), "definitely-outside.csv");
+    const args = { file_path: external };
+
+    assert.deepEqual(
+      runtime.document.getExternalCandidates("preview_data_structure", args, context, policy),
+      [external],
+    );
+    assert.deepEqual(
+      runtime.document.getExternalCandidates("read_file", args, context, policy),
+      [external],
+    );
+
+    policy.approve([external]);
+    assert.deepEqual(
+      runtime.document.getExternalCandidates("preview_data_structure", args, context, policy),
+      [],
+    );
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

@@ -4,8 +4,11 @@ import {
   buildTool,
   type RuntimeToolDefinition,
   type Tool,
+  type ToolAccessDecision,
+  type ToolExecContext,
 } from "@ragsystem/agent-sdk";
 import type { AgentConfig } from "@ragsystem/backend-core/contracts/agent/agent-config.js";
+import type { PathAccessPolicy } from "@ragsystem/backend-core/contracts/runtime/path-access-policy.js";
 import type { WorkspaceSearchPort } from "../../contracts.js";
 import {
   readGlobArguments,
@@ -23,6 +26,7 @@ const WEB_FETCH_TOOL_NAME = "web_fetch";
 interface LocalSearchToolDeps {
   service: WorkspaceSearchPort | null;
   agent: AgentConfig;
+  pathService?: PathAccessPolicy | null;
 }
 
 const globSchema = z.object({
@@ -80,7 +84,7 @@ export const LOCAL_SEARCH_TOOLS: RuntimeToolDefinition[] = [
         },
         path: {
           type: "string",
-          description: "Optional directory relative to workspace. Relative paths do not search other managed directories; use an absolute path when needed.",
+          description: "Optional search root. Relative paths resolve against the workspace; absolute paths may reach uploads or, after approval, directories outside the managed roots.",
         },
         recursive: {
           type: "boolean",
@@ -118,7 +122,7 @@ export const LOCAL_SEARCH_TOOLS: RuntimeToolDefinition[] = [
         },
         path: {
           type: "string",
-          description: "Optional directory relative to workspace. Relative paths do not search other managed directories; use an absolute path when needed.",
+          description: "Optional search root. Relative paths resolve against the workspace; absolute paths may reach uploads or, after approval, directories outside the managed roots.",
         },
         glob: {
           type: "string",
@@ -219,7 +223,11 @@ export function createLocalSearchTools(deps: LocalSearchToolDeps): Tool[] {
         inputSchema: globSchema,
         isReadOnly: () => true,
         isConcurrencySafe: () => true,
-        call: (input, context) => service.glob(readGlobArguments(input), context),
+        ...(deps.pathService ? {
+          checkAccess: (input: Record<string, unknown>, context: ToolExecContext): ToolAccessDecision =>
+            searchRootAccessDecision(service, readGlobArguments(input).path, context, deps.pathService!),
+        } : {}),
+        call: (input, context) => service.glob(readGlobArguments(input), context, deps.pathService ?? undefined),
       }),
     );
   }
@@ -230,7 +238,11 @@ export function createLocalSearchTools(deps: LocalSearchToolDeps): Tool[] {
         inputSchema: grepSchema,
         isReadOnly: () => true,
         isConcurrencySafe: () => true,
-        call: (input, context) => service.grep(readGrepArguments(input), context),
+        ...(deps.pathService ? {
+          checkAccess: (input: Record<string, unknown>, context: ToolExecContext): ToolAccessDecision =>
+            searchRootAccessDecision(service, readGrepArguments(input).path, context, deps.pathService!),
+        } : {}),
+        call: (input, context) => service.grep(readGrepArguments(input), context, deps.pathService ?? undefined),
       }),
     );
   }
@@ -255,4 +267,19 @@ export function createLocalSearchTools(deps: LocalSearchToolDeps): Tool[] {
     );
   }
   return tools;
+}
+
+/** 搜索工具 checkAccess：越界搜索根作为候选信号交给 permission mode，工具本身保持 allow。 */
+function searchRootAccessDecision(
+  service: WorkspaceSearchPort,
+  rawPath: string | null | undefined,
+  context: ToolExecContext,
+  pathService: PathAccessPolicy,
+): ToolAccessDecision {
+  if (!service.getSearchRootCandidates) return { action: "allow" };
+  const candidates = service.getSearchRootCandidates(rawPath, context, pathService);
+  if (candidates.length) {
+    return { action: "allow", signals: { candidatePaths: candidates } };
+  }
+  return { action: "allow" };
 }

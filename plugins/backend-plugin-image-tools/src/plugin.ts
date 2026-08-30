@@ -1,9 +1,11 @@
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 
-import { buildTool, type Tool, type ToolExecContext, type ToolExecutionResult, type ToolResultMedia } from "@ragsystem/agent-sdk";
+import { buildTool, type Tool, type ToolAccessDecision, type ToolExecContext, type ToolExecutionResult, type ToolResultMedia } from "@ragsystem/agent-sdk";
 import type { MessageContentPart } from "@ragsystem/agent-protocol";
 import { isAbsolutePathLike, isPathUnder, resolvePathLike } from "@ragsystem/backend-core/tools/shared/paths.js";
+import type { PathAccessPolicy } from "@ragsystem/backend-core/contracts/runtime/path-access-policy.js";
 import type {
   BackendPlugin,
   BackendToolDescriptor,
@@ -64,7 +66,7 @@ const IMAGE_MIME_BY_EXT: Readonly<Record<string, ToolResultMedia["mimeType"]>> =
 const TOOL_DESCRIPTORS: readonly BackendToolDescriptor[] = [
   {
     name: VIEW_IMAGE_TOOL_NAME,
-    description: "View an image from the managed workspace so the model can inspect it.",
+    description: "View an image so the model can inspect it; reads from the managed workspace (uploads included), other paths require approval.",
     category: "vision",
     risk_level: "low",
   },
@@ -177,15 +179,21 @@ function createViewImageTools(context: BackendToolFactoryContext): Tool[] {
       category: "vision",
       source: "runtime_builtin",
       allowedCallers: ["direct"],
-      inputSchema: z.object({ file_path: z.string().min(1) }).strict(),
+      inputSchema: z.object({ file_path: z.string().min(1).describe("Image path; relative paths resolve against the workspace") }).strict(),
       parameters: {
         type: "object",
         additionalProperties: false,
         required: ["file_path"],
-        properties: { file_path: { type: "string", description: "Workspace-relative image path" } },
+        properties: { file_path: { type: "string", description: "Image path. Relative paths resolve against the workspace; absolute paths may reach uploads or, after approval, directories outside the managed roots." } },
       },
       isReadOnly: () => true,
       isConcurrencySafe: () => true,
+      checkAccess: (input, ctx): ToolAccessDecision => {
+        const rawPath = typeof input?.file_path === "string" ? input.file_path : null;
+        const candidates = viewImageExternalCandidates(rawPath, ctx, context.pathAccessPolicy);
+        if (candidates.length) return { action: "allow", signals: { candidatePaths: candidates } };
+        return { action: "allow" };
+      },
       call: (input, ctx) => readWorkspaceImage(input.file_path, ctx, context),
     }),
   ];
@@ -199,7 +207,15 @@ async function readWorkspaceImage(
   const root = workspaceRoot(ctx);
   if (!root) return imageError("Image path must stay inside the workspace");
   const target = isAbsolutePathLike(filePath) ? resolvePathLike(filePath) : path.resolve(root, filePath);
-  if (!isPathUnder(target, root)) return imageError("Image path must stay inside the workspace");
+  if (!isPathUnder(target, root)) {
+    const pathService = context.pathAccessPolicy;
+    if (!pathService) return imageError("Image path must stay inside the workspace");
+    try {
+      pathService.assertWithin(target, readAccessRoots(ctx, root), filePath);
+    } catch (error) {
+      return imageError(error instanceof Error ? error.message : String(error));
+    }
+  }
   const mime = imageMime(target);
   if (!mime) return imageError("Only PNG, JPEG, GIF, and WebP images are supported");
   let bytes: Buffer;
@@ -318,6 +334,28 @@ function createVisionHelper(tenantId: string, provider: ModelProviderConfig, con
 function workspaceRoot(ctx: ToolExecContext): string | null {
   const root = ctx.workspaceRoot?.trim() || ctx.executionPaths?.workspace?.trim() || "";
   return root ? path.resolve(root) : null;
+}
+
+/** 读语义界内根：workspace + uploads + 系统临时目录，与 read_file 的允许范围对齐。 */
+function readAccessRoots(ctx: ToolExecContext, workspace: string): string[] {
+  const roots = [workspace];
+  const uploads = ctx.executionPaths?.uploads?.trim();
+  if (uploads) roots.push(path.resolve(uploads));
+  roots.push(os.tmpdir());
+  return roots;
+}
+
+function viewImageExternalCandidates(
+  filePath: string | null | undefined,
+  ctx: ToolExecContext,
+  pathService: PathAccessPolicy,
+): string[] {
+  const root = workspaceRoot(ctx);
+  if (!root || !filePath?.trim()) return [];
+  const target = isAbsolutePathLike(filePath) ? resolvePathLike(filePath) : path.resolve(root, filePath);
+  if (pathService.isApproved(target)) return [];
+  if (readAccessRoots(ctx, root).some((allowedRoot) => isPathUnder(target, allowedRoot))) return [];
+  return [target];
 }
 
 function imageMime(filePath: string): ToolResultMedia["mimeType"] | null {

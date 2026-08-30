@@ -1,15 +1,15 @@
-import { buildTool, type Tool, type ToolExecContext, type ToolExecutionResult } from "@ragsystem/agent-sdk";
+import { buildTool, type Tool, type ToolAccessDecision, type ToolExecContext, type ToolExecutionResult } from "@ragsystem/agent-sdk";
 import type { BackendToolFactoryContext } from "@ragsystem/backend-core/plugins/backend-plugin.js";
 import { z } from "zod";
 
-import { emitMediaEvent, errorResult, resolveMediaSetup, workspaceRoot, type MediaSetup } from "./shared.js";
+import { emitMediaEvent, errorResult, mediaAccessCandidates, resolveMediaSetup, workspaceRoot, type MediaSetup } from "./shared.js";
 import { MEDIA_VIDEO_EVENTS, persistVideoResult } from "./GenerateVideoTool.js";
 
 export const CHECK_VIDEO_TASK_TOOL_NAME = "check_video_task";
 
 const CheckVideoTaskInput = z.object({
   task_ref: z.string().min(3).describe("generate_video 返回的任务引用（格式 adapter:jobId）"),
-  output_dir: z.string().optional().describe("保存目录（工作区相对），默认 media/videos，与 generate_video 一致"),
+  output_dir: z.string().optional().describe("保存目录（工作区相对；界外绝对路径需审批），默认 media/videos，与 generate_video 一致"),
 }).strict();
 
 export type CheckVideoTaskInput = z.infer<typeof CheckVideoTaskInput>;
@@ -20,7 +20,7 @@ const PARAMETERS = {
   required: ["task_ref"],
   properties: {
     task_ref: { type: "string", description: "generate_video 返回的任务引用（格式 adapter:jobId）" },
-    output_dir: { type: "string", description: "保存目录（工作区相对），默认 media/videos，与 generate_video 一致" },
+    output_dir: { type: "string", description: "保存目录（工作区相对；界外绝对路径需审批），默认 media/videos，与 generate_video 一致" },
   },
 } as const;
 
@@ -46,6 +46,11 @@ export function buildCheckVideoTaskTool(context: BackendToolFactoryContext): Too
     parameters: PARAMETERS,
     isReadOnly: () => false,
     isConcurrencySafe: () => true,
+    checkAccess: (input, ctx): ToolAccessDecision => {
+      const candidates = mediaAccessCandidates(context, input, ctx);
+      if (candidates.length) return { action: "allow", signals: { candidatePaths: candidates } };
+      return { action: "allow" };
+    },
     call: (input, ctx) => executeCheckVideoTask(input, ctx, context),
   });
 }

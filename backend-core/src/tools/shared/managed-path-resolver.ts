@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 import type { ToolExecContext } from "@ragsystem/agent-sdk";
@@ -58,19 +59,46 @@ export class ManagedPathResolver {
     return resolved;
   }
 
-  resolveSearchRoot(rawPath: string | null | undefined, context: ToolExecContext): string {
+  getSearchRootCandidates(
+    rawPath: string | null | undefined,
+    context: ToolExecContext,
+    pathService: PathAccessPolicy,
+  ): string[] {
+    const raw = normalizeString(rawPath);
+    if (!raw) return [];
+    const roots = this.roots(context);
+    const candidatePath = isAbsolutePathLike(raw)
+      ? resolvePathLike(raw)
+      : path.resolve(roots.workspace, raw);
+    if (pathService.isApproved(candidatePath)) return [];
+    if (this.readAllowedRoots(context).some((root) => isPathUnder(candidatePath, root))) return [];
+    return [candidatePath];
+  }
+
+  resolveSearchRoot(
+    rawPath: string | null | undefined,
+    context: ToolExecContext,
+    pathService?: PathAccessPolicy,
+  ): string {
     const raw = normalizeString(rawPath) ?? ".";
     const roots = this.roots(context);
     const candidate = isAbsolutePathLike(raw)
       ? resolvePathLike(raw)
       : path.resolve(roots.workspace, raw);
     const resolved = path.resolve(candidate);
-    if (!Object.values(roots).some((root) => isPathUnder(resolved, root))) {
+    if (pathService) {
+      pathService.assertWithin(resolved, this.readAllowedRoots(context), raw);
+    } else if (!Object.values(roots).some((root) => isPathUnder(resolved, root))) {
       throw new Error(`路径 '${raw}' 超出允许的执行目录范围；workspace=${roots.workspace}`);
     }
     if (!fs.existsSync(resolved)) throw new Error(`路径不存在: ${raw}`);
     if (!fs.statSync(resolved).isDirectory()) throw new Error(`路径不是目录: ${raw}`);
     return resolved;
+  }
+
+  /** 读语义界内根,与 read_file 的 LocalDocumentPathManager.allowedRoots(read) 对齐。 */
+  private readAllowedRoots(context: ToolExecContext): string[] {
+    return [...Object.values(this.roots(context)), os.tmpdir()];
   }
 
   toDisplayPath(filePath: string): string {

@@ -1,12 +1,12 @@
-import { buildTool, type Tool, type ToolExecContext, type ToolExecutionResult, type ToolResultMedia } from "@ragsystem/agent-sdk";
+import { buildTool, type Tool, type ToolAccessDecision, type ToolExecContext, type ToolExecutionResult, type ToolResultMedia } from "@ragsystem/agent-sdk";
 import type { BackendToolFactoryContext } from "@ragsystem/backend-core/plugins/backend-plugin.js";
 import { z } from "zod";
 
 import { downloadBinary } from "../http.js";
 import { MEDIA_IMAGE_CONFIG_KEY, resolveImageConfig } from "../config.js";
-import { imageExtensionForMime, persistMediaFile } from "../storage.js";
+import { imageExtensionForMime, isPathOutsideWorkspace, persistMediaFile } from "../storage.js";
 import { normalizeImageParams } from "../providers/registry.js";
-import { emitMediaEvent, errorResult, loadWorkspaceImage, mediaResultMime, resolveMediaSetup, workspaceRoot, type MediaSetup } from "./shared.js";
+import { emitMediaEvent, errorResult, loadWorkspaceImage, mediaAccessCandidates, mediaResultMime, resolveMediaSetup, workspaceRoot, type MediaSetup } from "./shared.js";
 
 export const GENERATE_IMAGE_TOOL_NAME = "generate_image";
 
@@ -26,8 +26,8 @@ const GenerateImageInput = z.object({
   aspect_ratio: z.enum(["1:1", "16:9", "9:16", "4:3", "3:4"]).optional().describe("宽高比，默认 1:1"),
   resolution: z.enum(["1k", "2k", "4k"]).optional().describe("分辨率档，默认取系统配置"),
   n: z.number().int().min(1).max(4).optional().describe("生成张数（1-4）"),
-  reference_images: z.array(z.string().min(1)).max(10).optional().describe("参考图的工作区相对路径（图生图/编辑；需模型支持）"),
-  output_dir: z.string().optional().describe("保存目录（工作区相对），默认 media/images"),
+  reference_images: z.array(z.string().min(1)).max(10).optional().describe("参考图路径（工作区相对，或经审批的外部绝对路径；图生图/编辑；需模型支持）"),
+  output_dir: z.string().optional().describe("保存目录（工作区相对；界外绝对路径需审批），默认 media/images"),
 }).strict();
 
 export type GenerateImageInput = z.infer<typeof GenerateImageInput>;
@@ -41,8 +41,8 @@ const PARAMETERS = {
     aspect_ratio: { type: "string", enum: ["1:1", "16:9", "9:16", "4:3", "3:4"], description: "宽高比，默认 1:1" },
     resolution: { type: "string", enum: ["1k", "2k", "4k"], description: "分辨率档，默认取系统配置" },
     n: { type: "integer", minimum: 1, maximum: 4, description: "生成张数（1-4）" },
-    reference_images: { type: "array", items: { type: "string" }, maxItems: 10, description: "参考图的工作区相对路径（图生图/编辑；需模型支持）" },
-    output_dir: { type: "string", description: "保存目录（工作区相对），默认 media/images" },
+    reference_images: { type: "array", items: { type: "string" }, maxItems: 10, description: "参考图路径（工作区相对，或经审批的外部绝对路径；图生图/编辑；需模型支持）" },
+    output_dir: { type: "string", description: "保存目录（工作区相对；界外绝对路径需审批），默认 media/images" },
   },
 } as const;
 
@@ -59,6 +59,11 @@ export function buildGenerateImageTool(context: BackendToolFactoryContext): Tool
     parameters: PARAMETERS,
     isReadOnly: () => false,
     isConcurrencySafe: () => false,
+    checkAccess: (input, ctx): ToolAccessDecision => {
+      const candidates = mediaAccessCandidates(context, input, ctx);
+      if (candidates.length) return { action: "allow", signals: { candidatePaths: candidates } };
+      return { action: "allow" };
+    },
     call: (input, ctx) => executeGenerateImage(input, ctx, context),
   });
 }
@@ -103,7 +108,7 @@ export async function executeGenerateImage(
   const refImages = [];
   let refTotalBytes = 0;
   for (const refPath of refPaths.slice(0, setup.caps.maxRefImages)) {
-    const loaded = await loadWorkspaceImage(root, refPath);
+    const loaded = await loadWorkspaceImage(root, refPath, { ctx, pathService: context.pathAccessPolicy });
     if (!loaded.ok) return errorResult(GENERATE_IMAGE_TOOL_NAME, loaded.error);
     refTotalBytes += loaded.image.bytes.length;
     if (refTotalBytes > MAX_TOTAL_REF_IMAGE_BYTES) {
@@ -142,6 +147,8 @@ export async function executeGenerateImage(
 
   // 转存（厂商 URL 有效期 1h-24h，必须立即落盘）。
   const outputDir = input.output_dir?.trim() || "media/images";
+  // 界外目录（经审批放行）的产物无法用工作区 file_ref 通道内嵌展示，文案需分流
+  const externalOutput = isPathOutsideWorkspace(root, outputDir);
   const saved: Array<{ relativePath: string; mime: string; size: number }> = [];
   const inlineMedia: ToolResultMedia[] = [];
   const persistErrors: string[] = [];
@@ -164,6 +171,7 @@ export async function executeGenerateImage(
         baseName: "img",
         bytes,
         ext: imageExtensionForMime(mime),
+        pathService: context.pathAccessPolicy,
       });
       saved.push({ relativePath: persisted.relativePath, mime, size: persisted.size });
       if (index < MAX_INLINE_IMAGES && bytes.length <= MAX_INLINE_IMAGE_BYTES) {
@@ -195,7 +203,7 @@ export async function executeGenerateImage(
     success: true,
     toolName: GENERATE_IMAGE_TOOL_NAME,
     summary: `生成 ${saved.length} 张图片（${setup.model}）`,
-    answer: `已生成 ${saved.length} 张图片并保存到工作区：\n${fileList}${notes.length ? `\n${notes.join("；")}` : ""}`,
+    answer: `已生成 ${saved.length} 张图片并保存到${externalOutput ? "审批放行的外部目录" : "工作区"}：\n${fileList}${notes.length ? `\n${notes.join("；")}` : ""}`,
     outputType: "image",
     content: {
       files: saved,
@@ -215,9 +223,10 @@ export async function executeGenerateImage(
     },
     files: [],
     media: inlineMedia,
-    llmHint:
-      `在最终回答中用 <file_ref path="${saved[0]!.relativePath}" presentation="inline" caption="简短说明"/> 标记嵌入图片（多张则多个标记），` +
-      "标记必须独占一行、使用工作区相对路径；先直观检查图片是否符合要求再交付。",
+    llmHint: externalOutput
+      ? "图片已保存到审批放行的外部目录（见 answer 中的绝对路径列表）；该目录不在工作区内，无法用 file_ref 内嵌展示，用文字告知保存位置即可。"
+      : `在最终回答中用 <file_ref path="${saved[0]!.relativePath}" presentation="inline" caption="简短说明"/> 标记嵌入图片（多张则多个标记），` +
+        "标记必须独占一行、使用工作区相对路径；先直观检查图片是否符合要求再交付。",
   };
 }
 

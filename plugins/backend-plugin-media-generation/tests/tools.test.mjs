@@ -3,7 +3,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
+import { PathApprovalService } from "@ragsystem/backend-core/services/runtime/path-approval-service.js";
+import { persistMediaFile, resolveWorkspaceRelative } from "../dist/storage.js";
+import { loadWorkspaceImage, mediaAccessCandidates } from "../dist/tools/shared.js";
 import {
   executeCheckVideoTask,
   executeGenerateImage,
@@ -282,5 +286,58 @@ test("generate_image url 输出：按下载响应 content-type 决定扩展名",
     assert.equal(result.media[0].mimeType, "image/webp");
   } finally {
     globalThis.fetch = originalFetch;
+  }
+});
+
+test("参考图与 output_dir 越界走路径审批：未批准拒绝、批准放行", async () => {
+  const root = tempWorkspace();
+  // os.tmpdir() 属于读语义界内根，外部路径必须建在仓库目录下才真正越界
+  const externalDir = path.join(fileURLToPath(new URL(".", import.meta.url)), ".tmp-external-media");
+  fs.rmSync(externalDir, { recursive: true, force: true });
+  fs.mkdirSync(externalDir, { recursive: true });
+  try {
+    const png = Buffer.from("89504e470d0a1a0a0000000d49484452", "hex");
+    const externalImage = path.join(externalDir, "ref.png");
+    fs.writeFileSync(externalImage, png);
+    const ctx = makeToolCtx(root);
+    const policy = new PathApprovalService();
+
+    // 未批准：参考图读取拒绝
+    const rejected = await loadWorkspaceImage(root, externalImage, { ctx, pathService: policy });
+    assert.equal(rejected.ok, false);
+    assert.match(rejected.error, /受管目录范围/);
+
+    // checkAccess 候选：参考图（读）与 output_dir（写）都会上报
+    const candidates = mediaAccessCandidates(
+      { pathAccessPolicy: policy },
+      { reference_images: [externalImage], output_dir: externalDir },
+      ctx,
+    );
+    assert.deepEqual(candidates, [path.resolve(externalImage), path.resolve(externalDir)]);
+
+    // 未批准：output_dir 落盘拒绝
+    const dirRejected = resolveWorkspaceRelative(root, externalDir, policy);
+    assert.equal(dirRejected.ok, false);
+    assert.match(dirRejected.error, /受管目录范围/);
+
+    // 批准后：参考图可读、产物可落盘到外部目录（relativePath 回退为绝对路径）
+    policy.approve([externalDir]);
+    const approved = await loadWorkspaceImage(root, externalImage, { ctx, pathService: policy });
+    assert.equal(approved.ok, true);
+    assert.equal(approved.image.bytes.length, png.length);
+
+    const persisted = await persistMediaFile({
+      workspaceRoot: root,
+      outputDir: externalDir,
+      baseName: "img",
+      bytes: png,
+      ext: ".png",
+      pathService: policy,
+    });
+    assert.ok(fs.existsSync(persisted.absolutePath));
+    assert.equal(path.isAbsolute(persisted.relativePath), true);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(externalDir, { recursive: true, force: true });
   }
 });

@@ -5,6 +5,7 @@ import path from "node:path";
 import { URL } from "node:url";
 
 import type { ToolExecContext, ToolExecutionResult } from "@ragsystem/agent-sdk";
+import type { PathAccessPolicy } from "@ragsystem/backend-core/contracts/runtime/path-access-policy.js";
 import { toolError, toolSuccess } from "@ragsystem/backend-core/services/agent/sdk/tool-results.js";
 import { ManagedPathResolver } from "../../paths/managed-path-resolver.js";
 import {
@@ -36,15 +37,24 @@ export class LocalSearchToolService {
     this.paths = options.pathResolver ?? new ManagedPathResolver(this.dataRoot);
   }
 
+  getSearchRootCandidates(
+    rawPath: string | null | undefined,
+    context: ToolExecContext,
+    pathService: PathAccessPolicy,
+  ): string[] {
+    return this.paths.getSearchRootCandidates(rawPath, context, pathService);
+  }
+
   glob(
     input: GlobInput,
     context: ToolExecContext,
+    pathService?: PathAccessPolicy,
   ): ToolExecutionResult {
     const toolName = "glob";
     try {
       const normalized = normalizeGlobInput(input);
       if ("error" in normalized) return toolError(toolName, normalized.error);
-      const baseRoot = this.paths.resolveSearchRoot(normalized.path, context);
+      const baseRoot = this.paths.resolveSearchRoot(normalized.path, context, pathService);
       const matches = globSearch(baseRoot, normalized.pattern, {
         recursive: normalized.recursive,
         maxResults: normalized.maxResults,
@@ -61,12 +71,13 @@ export class LocalSearchToolService {
   grep(
     input: GrepInput,
     context: ToolExecContext,
+    pathService?: PathAccessPolicy,
   ): ToolExecutionResult {
     const toolName = "grep";
     try {
       const normalized = normalizeGrepInput(input);
       if ("error" in normalized) return toolError(toolName, normalized.error);
-      const baseRoot = this.paths.resolveSearchRoot(normalized.path, context);
+      const baseRoot = this.paths.resolveSearchRoot(normalized.path, context, pathService);
       const files = globSearch(baseRoot, normalized.glob, {
         recursive: normalized.glob.includes("**") || !input.glob,
         maxResults: 20_000,

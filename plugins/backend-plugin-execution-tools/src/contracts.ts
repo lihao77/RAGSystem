@@ -10,6 +10,7 @@ export interface WorkspaceSearchPort {
   grep: (...args: any[]) => any;
   webFetch: (...args: any[]) => any;
   todoWrite: (...args: any[]) => any;
+  getSearchRootCandidates?: (...args: any[]) => string[];
 }
 
 export interface CodeExecutionPort {

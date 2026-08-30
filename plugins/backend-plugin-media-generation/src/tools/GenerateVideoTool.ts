@@ -1,4 +1,4 @@
-import { buildTool, type Tool, type ToolExecContext, type ToolExecutionResult } from "@ragsystem/agent-sdk";
+import { buildTool, type Tool, type ToolAccessDecision, type ToolExecContext, type ToolExecutionResult } from "@ragsystem/agent-sdk";
 import type { BackendToolFactoryContext } from "@ragsystem/backend-core/plugins/backend-plugin.js";
 import { z } from "zod";
 
@@ -6,8 +6,8 @@ import { downloadBinary } from "../http.js";
 import { MEDIA_VIDEO_CONFIG_KEY, resolveVideoConfig } from "../config.js";
 import { normalizeVideoParams } from "../providers/registry.js";
 import type { VideoJobOutputs } from "../providers/types.js";
-import { normalizeMediaMime, persistMediaFile, videoExtensionForMime, imageExtensionForMime } from "../storage.js";
-import { emitMediaEvent, errorResult, loadWorkspaceImage, resolveMediaSetup, workspaceRoot, type MediaSetup } from "./shared.js";
+import { isPathOutsideWorkspace, normalizeMediaMime, persistMediaFile, videoExtensionForMime, imageExtensionForMime } from "../storage.js";
+import { emitMediaEvent, errorResult, loadWorkspaceImage, mediaAccessCandidates, resolveMediaSetup, workspaceRoot, type MediaSetup } from "./shared.js";
 
 export const GENERATE_VIDEO_TOOL_NAME = "generate_video";
 export const CHECK_VIDEO_TASK_TOOL_NAME = "check_video_task";
@@ -27,9 +27,9 @@ const GenerateVideoInput = z.object({
   resolution: z.enum(["720p", "1080p"]).optional().describe("分辨率，默认取系统配置"),
   aspect_ratio: z.enum(["1:1", "16:9", "9:16", "4:3", "3:4"]).optional().describe("宽高比，默认 16:9"),
   with_audio: z.boolean().optional().describe("是否生成音频（需模型支持）"),
-  first_frame_image: z.string().optional().describe("首帧图的工作区相对路径（图生视频）"),
-  last_frame_image: z.string().optional().describe("尾帧图的工作区相对路径（首尾帧插值；需模型支持）"),
-  output_dir: z.string().optional().describe("保存目录（工作区相对），默认 media/videos"),
+  first_frame_image: z.string().optional().describe("首帧图路径（工作区相对，或经审批的外部绝对路径；图生视频）"),
+  last_frame_image: z.string().optional().describe("尾帧图路径（工作区相对，或经审批的外部绝对路径；首尾帧插值；需模型支持）"),
+  output_dir: z.string().optional().describe("保存目录（工作区相对；界外绝对路径需审批），默认 media/videos"),
 }).strict();
 
 export type GenerateVideoInput = z.infer<typeof GenerateVideoInput>;
@@ -44,9 +44,9 @@ const VIDEO_PARAMETERS = {
     resolution: { type: "string", enum: ["720p", "1080p"], description: "分辨率，默认取系统配置" },
     aspect_ratio: { type: "string", enum: ["1:1", "16:9", "9:16", "4:3", "3:4"], description: "宽高比，默认 16:9" },
     with_audio: { type: "boolean", description: "是否生成音频（需模型支持）" },
-    first_frame_image: { type: "string", description: "首帧图的工作区相对路径（图生视频）" },
-    last_frame_image: { type: "string", description: "尾帧图的工作区相对路径（首尾帧插值；需模型支持）" },
-    output_dir: { type: "string", description: "保存目录（工作区相对），默认 media/videos" },
+    first_frame_image: { type: "string", description: "首帧图路径（工作区相对，或经审批的外部绝对路径；图生视频）" },
+    last_frame_image: { type: "string", description: "尾帧图路径（工作区相对，或经审批的外部绝对路径；首尾帧插值；需模型支持）" },
+    output_dir: { type: "string", description: "保存目录（工作区相对；界外绝对路径需审批），默认 media/videos" },
   },
 } as const;
 
@@ -64,6 +64,11 @@ export function buildGenerateVideoTool(context: BackendToolFactoryContext): Tool
     parameters: VIDEO_PARAMETERS,
     isReadOnly: () => false,
     isConcurrencySafe: () => false,
+    checkAccess: (input, ctx): ToolAccessDecision => {
+      const candidates = mediaAccessCandidates(context, input, ctx);
+      if (candidates.length) return { action: "allow", signals: { candidatePaths: candidates } };
+      return { action: "allow" };
+    },
     call: (input, ctx) => executeGenerateVideo(input, ctx, context),
   });
 }
@@ -103,7 +108,7 @@ export async function executeGenerateVideo(
     if (!setup.caps.supportsFirstFrame) {
       return errorResult(GENERATE_VIDEO_TOOL_NAME, `模型 ${setup.model} 不支持图生视频（首帧）。请改用纯文生视频或换用 wan2.7-i2v / Seedance / CogVideoX 等支持模型。`);
     }
-    const loaded = await loadWorkspaceImage(root, input.first_frame_image);
+    const loaded = await loadWorkspaceImage(root, input.first_frame_image, { ctx, pathService: context.pathAccessPolicy });
     if (!loaded.ok) return errorResult(GENERATE_VIDEO_TOOL_NAME, loaded.error);
     frames.first = { bytes: loaded.image.bytes, mime: loaded.image.mime };
   }
@@ -114,7 +119,7 @@ export async function executeGenerateVideo(
     if (!frames.first) {
       return errorResult(GENERATE_VIDEO_TOOL_NAME, "last_frame_image 需要与 first_frame_image 同时提供。");
     }
-    const loaded = await loadWorkspaceImage(root, input.last_frame_image);
+    const loaded = await loadWorkspaceImage(root, input.last_frame_image, { ctx, pathService: context.pathAccessPolicy });
     if (!loaded.ok) return errorResult(GENERATE_VIDEO_TOOL_NAME, loaded.error);
     frames.last = { bytes: loaded.image.bytes, mime: loaded.image.mime };
   }
@@ -264,6 +269,7 @@ export async function persistVideoResult(input: {
       baseName: "vid",
       bytes: videoBytes,
       ext: videoExtensionForMime(videoMime),
+      pathService: input.context.pathAccessPolicy,
     });
     let coverPath: string | null = null;
     if (outputs.cover?.type === "url") {
@@ -275,6 +281,7 @@ export async function persistVideoResult(input: {
           baseName: "cover",
           bytes: cover.bytes,
           ext: imageExtensionForMime(normalizeMediaMime(cover.contentType, "image/jpeg")),
+          pathService: input.context.pathAccessPolicy,
         });
         coverPath = persisted.relativePath;
       } catch {
@@ -288,17 +295,20 @@ export async function persistVideoResult(input: {
       size: video.size,
     }, input.ctx);
 
+    // 界外目录（经审批放行）的产物无法用工作区 file_ref 通道内嵌展示，文案需分流
+    const externalOutput = isPathOutsideWorkspace(input.workspaceRoot, input.outputDir);
     return {
       success: true,
       toolName: input.toolName,
       summary: `视频已生成并保存: ${video.relativePath}`,
-      answer: `视频已生成（${setup.model}，${(video.size / 1024 / 1024).toFixed(1)}MB）并保存到工作区：${video.relativePath}${coverPath ? `\n封面: ${coverPath}` : ""}`,
+      answer: `视频已生成（${setup.model}，${(video.size / 1024 / 1024).toFixed(1)}MB）并保存到${externalOutput ? "审批放行的外部目录" : "工作区"}：${video.relativePath}${coverPath ? `\n封面: ${coverPath}` : ""}`,
       outputType: "text",
       content: { file: video.relativePath, size: video.size, mime: videoMime, ...(coverPath ? { cover: coverPath } : {}), ...(input.metadata ?? {}) },
       metadata: { provider: setup.provider.name, model: setup.model, ...(input.metadata ?? {}) },
       files: [],
-      llmHint:
-        `在最终回答中用 <file_ref path="${video.relativePath}" presentation="inline" caption="视频说明"/> 标记嵌入视频（独占一行、工作区相对路径）。`,
+      llmHint: externalOutput
+        ? "视频已保存到审批放行的外部目录（见 answer 中的绝对路径）；该目录不在工作区内，无法用 file_ref 内嵌展示，用文字告知保存位置即可。"
+        : `在最终回答中用 <file_ref path="${video.relativePath}" presentation="inline" caption="视频说明"/> 标记嵌入视频（独占一行、工作区相对路径）。`,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
