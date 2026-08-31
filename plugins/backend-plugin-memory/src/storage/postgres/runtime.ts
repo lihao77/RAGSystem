@@ -1,5 +1,5 @@
 import type { MemoryPluginRuntimeFactory } from "../../dependencies.js";
-import { configureMemoryHooks } from "../../runtime-hook.js";
+import { createMemoryContextSourceFactory } from "../../context-source-factory.js";
 import { createMemoryApplication } from "../../services/memory/memory-application.js";
 import { startSessionMemoryReconciliation } from "../../services/memory/session-reconcile.js";
 import { SaaSMemoryToolService } from "../../tools/SaaSMemoryExecution.js";
@@ -58,12 +58,14 @@ export function createPostgresMemoryRuntimeFactory(options: {
         await agentConfigStore.renameTeam(previousTeamName, teamName);
         await repository.renameTeamPartitions(tenantId, previousTeamName, teamName);
       },
-      configureHooks: (registry) => configureMemoryHooks(registry, {
-        context,
-        agentConfig,
-        repository: contextRepository,
-        listCandidates: (input) => listPostgresCandidates(repository, tenantId, input),
-      }),
+      contextSources: [
+        createMemoryContextSourceFactory({
+          agentConfig,
+          systemConfig: context.systemConfig,
+          repository: contextRepository,
+          listCandidates: (input) => listPostgresCandidates(repository, tenantId, input),
+        }),
+      ],
       dispose: () => sessionReconciliation.stop(),
     };
   };

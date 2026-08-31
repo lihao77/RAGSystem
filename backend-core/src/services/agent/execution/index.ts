@@ -12,7 +12,7 @@ import type {
 } from "../../../contracts/execution/execution.js";
 import type { ModelProviderConfig } from "../../../contracts/integrations/model-adapter.js";
 import type { HookRegistry } from "@ragsystem/agent-sdk";
-import type { BackendToolFactory } from "../../../plugins/backend-plugin.js";
+import type { BackendToolFactory, BackendContextSourceFactory } from "../../../plugins/backend-plugin.js";
 import type { ExecutionSessionPort } from "../../../contracts/session/session-application.js";
 import type { BackgroundTaskService } from "../../runtime/background-task-service.js";
 import { SessionNotificationQueue } from "../../runtime/session-notification-queue.js";
@@ -130,6 +130,8 @@ export interface AgentExecutionServiceParams {
   systemConfig?: SystemConfigPort | null;
   /** 用户消息持久化前变换管道（插件注册）；容器组装闭包注入 readAttachment/modelAdapter。 */
   userMessageTransformers?: UserMessageTransformRunner | null;
+  /** 插件贡献的前置对话 source 工厂（上下文组装时实例化，产物排在 history 之前）。 */
+  contextSourceFactories?: readonly BackendContextSourceFactory[] | null;
 }
 
 /**
@@ -188,6 +190,7 @@ export function createAgentExecutionService(
     params.pluginTools ?? null,
     params.executionEnvironment ?? null,
     params.systemConfig ?? null,
+    params.contextSourceFactories ?? null,
   );
   const invocationService = new AgentInvocationService(runEngine, statusTracker);
   const launchers = createLaunchers({

@@ -366,12 +366,14 @@ class BackendRuntimeFactoryRegistry {
         }
       }
       const registry = new CapabilityRegistry(capabilities);
+      const contextSources = runtimes.flatMap((runtime) => runtime.contextSources ?? []);
       let disposed = false;
       return {
         capabilities: registry,
         configureHooks(hooks) {
           for (const runtime of runtimes) runtime.configureHooks?.(hooks);
         },
+        contextSources,
         dispose() {
           if (disposed) return;
           disposed = true;

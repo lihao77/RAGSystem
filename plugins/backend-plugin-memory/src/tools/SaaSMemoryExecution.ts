@@ -19,6 +19,7 @@ import type {
   RuntimeMemorySessionPort,
   WriteMemoryInput,
 } from "./MemoryExecution.js";
+import { echoContent } from "./MemoryExecution.js";
 
 interface ResolvedSaaSMemoryScope {
   partition: MemoryScopePartition;
@@ -157,6 +158,12 @@ export class SaaSMemoryToolService implements MemoryToolOperations {
           candidate_id: candidate.id,
           scope: setup.partition.scope,
           pending_review: true,
+          // 与本地部署一致：结果携带条目回显（截断），承载冻结前缀期的 run 内记忆增量。
+          name: input.name,
+          description: input.description,
+          content: echoContent(input.content),
+          ...(input.why !== undefined ? { why: input.why } : {}),
+          ...(input.howToApply !== undefined ? { how_to_apply: input.howToApply } : {}),
         }, {
           toolName,
           summary: `已保存 ${setup.partition.scope} 私人候选，等待共享审核`,
@@ -179,6 +186,11 @@ export class SaaSMemoryToolService implements MemoryToolOperations {
         candidate_id: candidate.id,
         memory_id: published.memory.id,
         scope: setup.partition.scope,
+        name: input.name,
+        description: input.description,
+        content: echoContent(input.content),
+        ...(input.why !== undefined ? { why: input.why } : {}),
+        ...(input.howToApply !== undefined ? { how_to_apply: input.howToApply } : {}),
       }, {
         toolName,
         summary: `已发布 ${setup.partition.scope} memory`,

@@ -117,9 +117,13 @@ export class MemoryContextSource implements AgentContextSource {
       rendered_block: renderedBlock,
       rebased_reason: "build_context",
     };
-    this.sessions.updateSessionMetadata?.(request.sessionId, {
-      memory_prefix_states: { [baselineKey]: snapshot },
-    });
+    // 快照只在 run 路径（touch=true）持久化：只读 build（monitoring 预览等）按契约不产生
+    // 写副作用——不落快照只影响下次组装多一次重建，内容仍从仓库实时读出。
+    if (request.touch) {
+      this.sessions.updateSessionMetadata?.(request.sessionId, {
+        memory_prefix_states: { [baselineKey]: snapshot },
+      });
+    }
     return contribution(snapshot);
   }
 

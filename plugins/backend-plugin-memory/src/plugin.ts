@@ -40,7 +40,7 @@ export function createMemoryPlugin(dependencies: MemoryPluginDependencies): Back
         }
         return {
           capabilities: [provideCapability(MEMORY_RUNTIME_CAPABILITY, runtime)],
-          configureHooks: (registry) => runtime.configureHooks(registry),
+          contextSources: runtime.contextSources,
           dispose: () => {
             try {
               runtime.dispose?.();

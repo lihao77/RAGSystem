@@ -9,6 +9,7 @@ import { createToolRegistry } from "@ragsystem/agent-sdk";
 import { projectAgentProfile } from "../../services/agent/sdk/projection.js";
 import { HISTORY_SCAN_LIMIT, previewBackendAgentContext, type ConversationHistoryPort, type SessionMetadataPort } from "../../services/agent/context/index.js";
 import { resolveSessionMetadataPort } from "../../services/agent/context/async-session-metadata-resolver.js";
+import { toSessionIdentity } from "../../contracts/session/session.js";
 import { createBackendTools } from "../../tools/registry.js";
 import { PathApprovalService } from "../../services/runtime/path-approval-service.js";
 import type { ChatMessage, ChatToolCall } from "@ragsystem/agent-llm";
@@ -191,7 +192,8 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
         ...contributedTools,
       ],
     });
-    // backend 组装内建 recent context 并注入 preview；插件上下文由实际 run 的 hooks 提供。
+    // backend 组装内建 recent context 并注入 preview；前置插件 source 与 run 共用同一份工厂，
+    // 调试快照即真实 run 所见（预览 touch=false，source 不产生写副作用）。
     const threadKey = normalizeString(query.thread_key);
     const sessionMetadataPort = sessionId
       ? await resolveSessionMetadataPort(sessionId, sessionApplication)
@@ -212,6 +214,10 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
           threadKey,
           sessionFiles: request.container.sessionFiles,
           ...(executionPaths ? { executionPaths } : {}),
+          ...(sessionInfo ? { sessionIdentity: toSessionIdentity(sessionInfo) } : {}),
+          ...(request.container.contextSourceFactories
+            ? { frontContextSources: request.container.contextSourceFactories }
+            : {}),
         })
       : null;
     await sessionMetadataPort?.flush();

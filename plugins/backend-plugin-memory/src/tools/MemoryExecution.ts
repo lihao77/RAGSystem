@@ -56,6 +56,15 @@ export interface ArchiveMemoryInput extends ListMemoryIndexInput {
   fileName: string;
 }
 
+/** 工具结果回显上限：全文已在本次工具调用参数里，回显只承载冻结前缀期的增量可见性，超限截断。 */
+const ECHO_CONTENT_MAX_CHARS = 2_000;
+
+export function echoContent(content: string): string {
+  return content.length <= ECHO_CONTENT_MAX_CHARS
+    ? content
+    : `${content.slice(0, ECHO_CONTENT_MAX_CHARS)}\n…(已截断，全文 ${content.length} 字符)`;
+}
+
 export interface MemoryToolOperations {
   checkMemoryScopeAccess(
     input: ListMemoryIndexInput,
@@ -210,11 +219,21 @@ export class MemoryToolService implements MemoryToolOperations {
           sourceRunId: input.sourceRunId ?? normalizeString(context.runId),
           ...(input.sourceMessageId !== undefined ? { sourceMessageId: input.sourceMessageId } : {}),
         });
+        // 工具结果携带条目全文：记忆前缀块在 run 内冻结（不再每轮重建），
+        // 工具消息是运行中记忆变更的增量载体，模型凭此读取刚写入的内容。
         return toolSuccess(
-          { saved: true, scope: setup.scopeSpec.scope },
+          {
+            saved: true,
+            scope: setup.scopeSpec.scope,
+            name: input.name,
+            description: input.description,
+            content: echoContent(input.content),
+            ...(input.why !== undefined ? { why: input.why } : {}),
+            ...(input.howToApply !== undefined ? { how_to_apply: input.howToApply } : {}),
+          },
           {
             toolName,
-            summary: `已保存 ${setup.scopeSpec.scope} memory`,
+            summary: `已保存 ${setup.scopeSpec.scope} memory: ${input.name}`,
             outputType: "json",
             metadata: { scope: setup.scopeSpec.scope },
           },
@@ -231,11 +250,17 @@ export class MemoryToolService implements MemoryToolOperations {
         source_run_id: input.sourceRunId,
         source_message_id: input.sourceMessageId,
       });
+      // 同上：结果带全文，工具消息承载 run 内记忆增量（记忆前缀块冻结期间模型仍可见新记忆）。
       return toolSuccess(
         {
           file_path: saved.file_path,
           file_name: saved.file_name,
           scope: saved.scope,
+          name: input.name,
+          description: input.description,
+          content: echoContent(input.content),
+          ...(input.why !== undefined ? { why: input.why } : {}),
+          ...(input.howToApply !== undefined ? { how_to_apply: input.howToApply } : {}),
         },
         {
           toolName,

@@ -1,5 +1,10 @@
 import type { HookRegistry, Tool } from "@ragsystem/agent-sdk";
-import type { BackendPluginRuntimeHandle, BackendRuntimeContributions, BackendToolFactoryContext } from "../../plugins/backend-plugin.js";
+import type {
+  BackendContextSourceFactory,
+  BackendPluginRuntimeHandle,
+  BackendRuntimeContributions,
+  BackendToolFactoryContext,
+} from "../../plugins/backend-plugin.js";
 import type { CapabilityRegistry } from "../../plugins/capability-registry.js";
 
 import type { AnalyticsApplication } from "../application/analytics-application.js";
@@ -64,6 +69,8 @@ export interface RuntimeContainerBase {
   readonly pluginCapabilities: CapabilityRegistry;
   readonly createPluginTools: (context: BackendToolFactoryContext) => Promise<readonly Tool[]>;
   readonly listPluginTools: () => readonly import("../../plugins/backend-plugin.js").BackendToolDescriptor[];
+  /** 插件贡献的前置 context source 工厂；run 与 monitoring 预览共用同一份，保证调试快照与真实 run 同源。 */
+  readonly contextSourceFactories: readonly BackendContextSourceFactory[] | null;
   readonly sessionApplication: SessionApplication;
   readonly realtimeEvents: RealtimeEventBus;
   readonly sessionFiles: SessionFileLookupPort;

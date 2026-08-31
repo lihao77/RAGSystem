@@ -1,5 +1,5 @@
-import type { HookRegistry } from "@ragsystem/agent-sdk";
 import type {
+  BackendContextSourceFactory,
   BackendPluginRuntimeContext,
   BackendPluginRuntimeFactory,
 } from "@ragsystem/backend-core/plugins/backend-plugin.js";
@@ -7,7 +7,8 @@ import type {
 import type { MemoryRuntimeCapability } from "./capability.js";
 
 export interface MemoryPluginRuntime extends MemoryRuntimeCapability {
-  configureHooks(registry: HookRegistry): void;
+  /** 前置记忆前缀 source 工厂（核心上下文组装时实例化；产物排在 history 之前的稳定前缀）。 */
+  contextSources: readonly BackendContextSourceFactory[];
   dispose?(): void;
 }
 

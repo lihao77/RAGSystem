@@ -84,6 +84,8 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
   };
   const metricsCollector = new AgentMetricsCollector(metricsStore);
   const permissionPolicy = new PermissionPolicyService(permissionPolicyStore);
+  // 前置 context source 工厂只聚合一次：run 引擎与容器暴露（monitoring 预览）共用同一份。
+  const contextSourceFactories = dependencies.pluginRuntime?.contextSources ?? null;
   const agentExecution = createAgentExecutionService({
     tenantId,
     sessions: executionSessions,
@@ -139,6 +141,7 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
     executionEnvironment,
     participantRuns: agentDelegation,
     systemConfig,
+    contextSourceFactories,
   });
   const resumeExecutor = createResumeExecutor({
     invocationService: agentExecution.invocationService,
@@ -166,6 +169,7 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
     pluginCapabilities,
     createPluginTools,
     listPluginTools,
+    contextSourceFactories,
     sessionApplication,
     realtimeEvents,
     sessionFiles,

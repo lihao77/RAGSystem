@@ -1,10 +1,12 @@
 import type { FastifyBaseLogger, FastifyInstance } from "fastify";
-import type { HookEvent, HookHandler, HookRegistry, Tool } from "@ragsystem/agent-sdk";
+import type { AgentProfile, HookEvent, HookHandler, HookRegistry, Tool } from "@ragsystem/agent-sdk";
 import type { MessageAttachment, MessageContentPart } from "@ragsystem/agent-protocol";
 
 import type { AgentConfig } from "../contracts/agent/agent-config.js";
 import type { AgentConfigPort } from "../contracts/agent/agent-config.js";
 import type { SessionApplication } from "../contracts/session/session-application.js";
+import type { SessionIdentity } from "../contracts/session/session.js";
+import type { AgentContextSource, SessionMetadataPort } from "../services/agent/context/types.js";
 import type { PathAccessPolicy } from "../contracts/runtime/path-access-policy.js";
 import type { BackgroundTaskPort } from "../contracts/runtime/background-tasks.js";
 import type { PendingInteractionPort } from "../contracts/runtime/pending-interactions.js";
@@ -251,8 +253,29 @@ export interface BackendPluginRuntimeContext {
 export interface BackendPluginRuntimeContribution {
   readonly capabilities?: readonly CapabilityProvider[];
   configureHooks?(registry: HookRegistry): void;
+  /** 前置对话贡献 source 工厂；宿主每次上下文组装时调用，产物排序在 history（recentSource）之前。 */
+  readonly contextSources?: readonly BackendContextSourceFactory[];
   dispose?(): void;
 }
+
+/**
+ * 前置对话 source 工厂的每次上下文组装入参（通用契约，字段不携带任何领域语义）。
+ * sessionIdentity 为会话 team 快照身份（插件据此解析 team/agent 配置）；sessions 端口供
+ * 快照持久化与会话元数据读取（核心不解释具体键，插件私有键由插件自行读写）。
+ */
+export interface BackendContextSourceFactoryInput {
+  readonly agent: AgentConfig;
+  readonly profile: AgentProfile;
+  readonly sessionIdentity: SessionIdentity;
+  readonly sessions: SessionMetadataPort;
+  readonly threadKey: string;
+  readonly dataRoot: string;
+}
+
+/** 前置对话贡献 source 工厂：返回 null 表示本组装不贡献（如插件对应能力未启用）。 */
+export type BackendContextSourceFactory = (
+  input: BackendContextSourceFactoryInput,
+) => Promise<AgentContextSource | null> | AgentContextSource | null;
 
 export type BackendPluginRuntimeFactory = (
   context: BackendPluginRuntimeContext,
@@ -284,6 +307,8 @@ export interface PluginApplicationRegistrar {
 export interface BackendPluginRuntimeHandle {
   readonly capabilities: CapabilityRegistry;
   configureHooks(registry: HookRegistry): void;
+  /** 全部插件前置 source 工厂的聚合（与 configureHooks 同源收集）。 */
+  readonly contextSources?: readonly BackendContextSourceFactory[];
   dispose(): void;
 }
 

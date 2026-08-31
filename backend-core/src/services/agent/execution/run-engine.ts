@@ -10,7 +10,7 @@ import type { BackgroundTaskService } from "../../runtime/background-task-servic
 import type { SessionNotificationQueue } from "../../runtime/session-notification-queue.js";
 import { executeRunWithSdk } from "../sdk/runtime-adapter.js";
 import type { BackendToolsDeps } from "../../../tools/registry.js";
-import type { BackendToolFactory } from "../../../plugins/backend-plugin.js";
+import type { BackendToolFactory, BackendContextSourceFactory } from "../../../plugins/backend-plugin.js";
 import type { TaskToolService } from "../../../tools/TaskTools/TaskExecution.js";
 import type { PermissionPolicyService } from "../../runtime/permission-policy-service.js";
 import type { InteractionRequiredNotice, PendingInteractionPort } from "../../../contracts/runtime/pending-interactions.js";
@@ -76,6 +76,7 @@ export class AgentRunEngine {
     private readonly pluginTools: BackendToolFactory | null = null,
     private readonly executionEnvironment: ExecutionEnvironmentCapability | null = null,
     private readonly systemConfig: SystemConfigPort | null = null,
+    private readonly contextSourceFactories: readonly BackendContextSourceFactory[] | null = null,
   ) {}
 
   startRun(input: {
@@ -537,6 +538,7 @@ export class AgentRunEngine {
           sessionFiles: this.sessionFiles,
           executionEnvironment: this.executionEnvironment,
           ...(this.systemConfig ? { systemConfig: this.systemConfig } : {}),
+          ...(this.contextSourceFactories ? { contextSourceFactories: this.contextSourceFactories } : {}),
         },
         {
           sessionId: input.sessionId,

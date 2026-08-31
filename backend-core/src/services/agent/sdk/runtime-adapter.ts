@@ -14,6 +14,7 @@ import type { AsyncTerminalSalvage } from "./async-event-persister.js";
 import { selectLostObservations } from "./lost-observations.js";
 import type { AgentConfig } from "../../../contracts/agent/agent-config.js";
 import type { MessageInfo, SessionIdentity } from "../../../contracts/session/session.js";
+import type { BackendContextSourceFactory } from "../../../plugins/backend-plugin.js";
 import type { MessageContentPart } from "@ragsystem/agent-protocol";
 import type { HookRegistry } from "@ragsystem/agent-sdk";
 import type { ModelProviderConfig } from "../../../contracts/integrations/model-adapter.js";
@@ -72,6 +73,8 @@ export interface SdkRuntimeAdapterDeps {
   compressionService?: AgentCompressionService;
   sessionFiles?: SessionFileLookupPort | null;
   executionEnvironment?: ExecutionEnvironmentCapability | null;
+  /** 插件贡献的前置对话 source 工厂（上下文组装时实例化，产物排在 history 之前）。 */
+  contextSourceFactories?: readonly BackendContextSourceFactory[];
 }
 
 export interface SdkExecuteRunInput {
@@ -616,6 +619,8 @@ export async function executeRunWithSdk(
     sessionId: input.sessionId,
     threadKey: input.threadKey,
     sessionFiles: deps.sessionFiles ?? null,
+    sessionIdentity: input.sessionIdentity,
+    ...(deps.contextSourceFactories ? { frontContextSources: deps.contextSourceFactories } : {}),
     ...(profile.llmTiers.default ? {
       providerIdentity: {
         providerKey: profile.llmTiers.default.provider.key ?? profile.llmTiers.default.provider.name,

@@ -3,7 +3,7 @@ import path from "node:path";
 import { createRequire } from "node:module";
 
 import type { MemoryPluginRuntimeFactory } from "../../dependencies.js";
-import { configureMemoryHooks } from "../../runtime-hook.js";
+import { createMemoryContextSourceFactory } from "../../context-source-factory.js";
 import { MemoryToolService } from "../../tools/MemoryExecution.js";
 import { startSessionMemoryReconciliation } from "../../services/memory/session-reconcile.js";
 import { MemoryCandidateOps } from "./candidate-store.js";
@@ -76,12 +76,14 @@ export function createLocalMemoryRuntimeFactory(): MemoryPluginRuntimeFactory {
         candidates.renameMemoryCandidateTeam(previousTeamName, teamName);
         await memory.migrateTeamScope(previousTeamName, teamName);
       },
-      configureHooks: (registry) => configureMemoryHooks(registry, {
-        context,
-        agentConfig,
-        repository,
-        listCandidates: async (input) => candidates.listMemoryCandidates(input),
-      }),
+      contextSources: [
+        createMemoryContextSourceFactory({
+          agentConfig,
+          systemConfig: context.systemConfig,
+          repository,
+          listCandidates: async (input) => candidates.listMemoryCandidates(input),
+        }),
+      ],
       dispose: () => {
         sessionReconciliation.stop();
         db.close();
