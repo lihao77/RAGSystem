@@ -13,6 +13,7 @@ import { translateKernelEvent, type WireTranslationContext } from "../agent/sdk/
 import type { Envelope } from "../../contracts/events.js";
 import type { MessageInfo } from "../../contracts/session/session.js";
 import { MSG_TYPE } from "../../contracts/message-kinds.js";
+import { toEnvelopeTimestamp } from "../../contracts/storage/runtime-finalization.js";
 
 /** 从一个 run 的消息行合成执行树 envelope 流（内部按 seq 排序）。 */
 export function synthesizeExecutionEnvelopes(
@@ -145,18 +146,6 @@ export function synthesizeExecutionEnvelopes(
 /** terminal 行（中断/失败 salvage）暂不进执行树，思考由消息气泡渲染；待中断终态视觉后接入。 */
 function isTerminalRow(row: MessageInfo): boolean {
   return typeof row.metadata?.terminal_status === "string";
-}
-
-/**
- * 消息表 created_at 是 SQLite datetime 串（"YYYY-MM-DD HH:MM:SS"，UTC 落库），而协议
- * envelope 的 timestamp 只接受 int 或 ISO datetime——空格分隔串透传会被响应契约校验
- * 拒掉并整体转成 404。此处归一化为 ISO；已是 ISO 的值原样通过。
- */
-function toEnvelopeTimestamp(createdAt: string | undefined): string | undefined {
-  if (!createdAt) return undefined;
-  if (createdAt.includes("T")) return createdAt;
-  const match = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})(\.\d+)?$/.exec(createdAt);
-  return match ? `${match[1]}T${match[2]}${match[3] ?? ""}Z` : createdAt;
 }
 
 /** persister 落库的 metadata.round 是 kernel round + 1（展示序号从 1 起）；缺失时兜底 0。 */

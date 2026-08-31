@@ -250,8 +250,10 @@ export function buildRunTerminalRecords(input: {
     call_id: run.agentCallId,
     agent_id: run.agentName,
     ...boundary,
-    // 顶层 timestamp（ISO）供前端执行树定格 agent 工作时长。
-    timestamp: new Date().toISOString(),
+    // 顶层 timestamp（ISO）供前端执行树定格 agent 工作时长。取终局消息的持久化
+    // created_at 而非墙钟：本投影按 eventId 幂等重放，墙钟会使重放 payload 漂移；
+    // 消息表 created_at 可能是 SQLite datetime 串，须经 toEnvelopeTimestamp 归一。
+    timestamp: toEnvelopeTimestamp(finalMessage?.created_at) ?? new Date().toISOString(),
     payload: {
       phase: "end",
       display_name: run.agentDisplayName,
@@ -314,4 +316,16 @@ function toAssistantContentParts(message: MessageInfo): AssistantContentPart[] {
 
 function resolveRound(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? Math.max(0, value - 1) : 0;
+}
+
+/**
+ * 消息表 created_at 可能是 SQLite datetime 串（"YYYY-MM-DD HH:MM:SS"，UTC 落库），而协议
+ * envelope 的 timestamp 只接受 int 或 ISO datetime——空格分隔串透传会被响应契约校验拒掉
+ * 并整体转成 404（且前端按本地时区解析会错位）。此处归一化为 ISO；已是 ISO 的值原样通过。
+ */
+export function toEnvelopeTimestamp(createdAt: string | undefined | null): string | undefined {
+  if (!createdAt) return undefined;
+  if (createdAt.includes("T")) return createdAt;
+  const match = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})(\.\d+)?$/.exec(createdAt);
+  return match ? `${match[1]}T${match[2]}${match[3] ?? ""}Z` : createdAt;
 }
