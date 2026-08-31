@@ -4,6 +4,7 @@ import { AgentConfigSchema, type AgentConfig } from "../src/contracts/agent/agen
 import type { ModelProviderConfig } from "../src/contracts/integrations/model-adapter.js";
 import type { ISystemConfigStore } from "../src/contracts/runtime/system-config-store.js";
 import type { SystemConfigData, SystemLlmConfig } from "../src/contracts/runtime/system-config.js";
+import type { SessionTeamSnapshot } from "../src/contracts/session/session.js";
 import {
   RuntimeCoreService,
   type RuntimeAgentConfigPort,
@@ -189,6 +190,86 @@ describe("RuntimeCoreService system LLM fallback", () => {
   });
 });
 
+describe("RuntimeCoreService team snapshot resolution", () => {
+  it("re-reads the live agent config instead of the frozen snapshot tier", () => {
+    // 存量会话快照里冻结的失效引用（provider 已删除），当前配置已迁移到新 tier。
+    const snapshotAgent = runtimeAgent({
+      default: {
+        provider: "my",
+        provider_type: "deepseek",
+        model_name: "deepseek-chat",
+        temperature: 0.3,
+        max_completion_tokens: 4096,
+        max_context_tokens: 128000,
+        extra_params: {},
+      },
+    });
+    const liveAgent = runtimeAgent({
+      default: {
+        provider: "system",
+        provider_type: "deepseek",
+        model_name: "system-model",
+        temperature: 0.1,
+        max_completion_tokens: 1024,
+        extra_params: {},
+      },
+    });
+
+    const resolved = runtimeCore(new MemoryAgentConfigs({ agent: liveAgent }))
+      .resolveExecutionConfig({ teamSnapshot: teamSnapshot({ agent: snapshotAgent }) });
+
+    expect(resolved.readiness).toMatchObject({
+      configuration_ready: true,
+      llm: {
+        provider: "system",
+        model_name: "system-model",
+        source: "agent_config.default",
+      },
+    });
+    expect(resolved.agent?.llm_tiers?.default?.temperature).toBe(0.1);
+  });
+
+  it("fails readiness instead of falling back when the live team no longer has the agent", () => {
+    const snapshotAgent = runtimeAgent({
+      default: {
+        provider: "system",
+        provider_type: "deepseek",
+        model_name: "system-model",
+        temperature: 0.1,
+        max_completion_tokens: 1024,
+        extra_params: {},
+      },
+    });
+
+    const resolved = runtimeCore(new MemoryAgentConfigs({}))
+      .resolveExecutionConfig({ teamSnapshot: teamSnapshot({ agent: snapshotAgent }) });
+
+    // 不回退快照副本：agent 已从当前配置消失属于配置问题，静默兜底会掩盖故障。
+    expect(resolved.readiness.configuration_ready).toBe(false);
+    expect(resolved.agent).toBeNull();
+    expect(resolved.readiness.requirements).toContainEqual(expect.objectContaining({
+      key: "entry_agent",
+      satisfied: false,
+      code: "missing_agent",
+    }));
+  });
+
+  it("respects a live agent that has been disabled", () => {
+    const snapshotAgent = runtimeAgent();
+    const liveAgent = runtimeAgent();
+    liveAgent.enabled = false;
+
+    const resolved = runtimeCore(new MemoryAgentConfigs({ agent: liveAgent }))
+      .resolveExecutionConfig({ teamSnapshot: teamSnapshot({ agent: snapshotAgent }) });
+
+    expect(resolved.readiness.configuration_ready).toBe(false);
+    expect(resolved.readiness.requirements).toContainEqual(expect.objectContaining({
+      key: "agent_enabled",
+      satisfied: false,
+    }));
+  });
+});
+
 function runtimeCore(agentConfigs: RuntimeAgentConfigPort): RuntimeCoreService {
   return new RuntimeCoreService(
     agentConfigs,
@@ -208,6 +289,17 @@ function runtimeAgent(llmTiers?: Record<string, unknown>): AgentConfig {
       behavior: { system_prompt: "You are an agent." },
     },
   });
+}
+
+function teamSnapshot(agents: Record<string, AgentConfig>): SessionTeamSnapshot {
+  const entryAgentName = Object.values(agents).find((config) => config.default_entry)?.agent_name
+    ?? Object.keys(agents)[0];
+  return {
+    team_name: "team",
+    team_revision: "revision-1",
+    entry_agent_name: entryAgentName,
+    agents,
+  };
 }
 
 function systemLlm(): SystemLlmConfig {

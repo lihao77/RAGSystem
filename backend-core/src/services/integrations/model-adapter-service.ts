@@ -17,6 +17,14 @@ import type {
 import { MODEL_MODALITIES, THINKING_STRENGTH_LEVELS, type ThinkingStrengthLevel } from "../../contracts/integrations/model-adapter.js";
 import { ModelsDevCatalog } from "./models-dev-catalog.js";
 import {
+  canonicalizeProviderConfig,
+  canonicalizeProviderType,
+  isChatProviderConfig,
+  normalizeModels,
+  normalizeProviderRuntimeConfig,
+  runProviderFormNormalization,
+} from "./model-adapter-hydration.js";
+import {
   DEFAULT_PROVIDER_RETRY_ATTEMPTS,
   DEFAULT_PROVIDER_RETRY_BACKOFF_FACTOR,
   DEFAULT_PROVIDER_RETRY_DELAY_SECONDS,
@@ -43,22 +51,6 @@ const UPDATE_FIELDS = [
   "cache_ttl_seconds",
   "models",
   "api_endpoint",
-] as const;
-
-/** 厂商思考形状合法值（透传 agent-llm describeThinking 覆盖）。 */
-const THINKING_KINDS = new Set(["effort", "budget", "toggle", "none"]);
-
-/** 已废弃的 provider 级字段（模型映射/运行参数已下沉到模型条目/厂商目录临时补丁），加载/写入时剥离。 */
-const LEGACY_PROVIDER_FIELDS = [
-  "model",
-  "model_map",
-  "temperature",
-  "max_tokens",
-  "max_completion_tokens",
-  "max_context_tokens",
-  "supports_function_calling",
-  "supports_vision",
-  "catalog_provider_id",
 ] as const;
 
 export class ModelAdapterServiceError extends Error {
@@ -126,9 +118,10 @@ export class ModelAdapterService {
     for (const value of providers) {
       const config = cloneProviderConfig(value);
       config.name = String(config.name ?? "").trim();
-      config.provider_type = String(config.provider_type ?? "").trim().toLowerCase();
-      // 与磁盘水合同规：runtime 快照也走别名归一（openai_compatible_chat 等），避免同一条目两条路径判定不一
-      config.api_format = canonicalizeProviderType(config.api_format, undefined);
+      // 与磁盘水合同规：runtime 快照与 loadProvidersFromDisk 共用同一组形态归一
+      // 步骤（别名归一/废弃字段剥离/模型条目归一），避免同一条目两条路径判定不一。
+      // 本层是纯内存快照，无持久层、无应用戳。
+      runProviderFormNormalization(config);
       const providerKey = String(value.key ?? "").trim() || makeProviderKey(config);
       if (!providerKey || !config.name) {
         throw new ModelAdapterServiceError(`无效的运行时 Provider 配置: ${providerKey || config.name || "unknown"}`, 500);
@@ -138,7 +131,6 @@ export class ModelAdapterService {
       if (!isChatProviderConfig(config, (format) => this.isKnownApiFormat(format))) {
         continue;
       }
-      normalizeProviderRuntimeConfig(config);
       next.set(providerKey, config);
     }
     this.providers.clear();
@@ -474,14 +466,14 @@ export class ModelAdapterService {
       if (!isRecord(value)) {
         continue;
       }
-      const normalized = canonicalizeProviderConfig(value);
-      const config = normalized as ModelProviderConfig;
+      const config = canonicalizeProviderConfig(value) as unknown as ModelProviderConfig;
       config.name = String(config.name ?? "");
-      config.provider_type = String(config.provider_type ?? "").trim().toLowerCase();
+      // 形态归一链与 replaceRuntimeProviders 共用同一组步骤（对将被过滤条目的
+      // 归一不可观察——过滤在链后判定），保证磁盘加载与运行时快照同一水合口径。
+      runProviderFormNormalization(config);
       if (!config.name || !isChatProviderConfig(config, (format) => this.isKnownApiFormat(format))) {
         continue;
       }
-      normalizeProviderRuntimeConfig(config);
       this.providers.set(providerKey, cloneProviderConfig(config));
     }
   }
@@ -510,42 +502,6 @@ function resolveProvidersConfigPath(options: {
     return null;
   }
   return path.join(path.resolve(options.dataRoot), PROVIDERS_CONFIG_RELATIVE_PATH);
-}
-
-function canonicalizeProviderConfig(config: ProviderPayload): ProviderPayload {
-  const normalized: ProviderPayload = { ...config };
-  // provider_type = 厂商（自由字符串，仅归一大小写/空白）；API 格式别名归一只作用于 api_format。
-  normalized.provider_type = String(normalized.provider_type ?? "").trim().toLowerCase();
-  normalized.api_format = canonicalizeProviderType(normalized.api_format, normalized.api_mode);
-  return normalized;
-}
-
-/** chat provider 有效 = 厂商非空 + API 格式在 kernel 封闭清单（水合/加载过滤用）。 */
-function isChatProviderConfig(
-  config: ModelProviderConfig,
-  isKnownApiFormat: (apiFormat: string) => boolean,
-): boolean {
-  return Boolean(String(config.provider_type ?? "").trim())
-    && isKnownApiFormat(String(config.api_format ?? "").trim().toLowerCase());
-}
-
-function canonicalizeProviderType(providerType: unknown, apiMode: unknown): string {
-  const rawProviderType = String(providerType ?? "").trim().toLowerCase();
-  const normalizedApiMode = String(apiMode ?? "").trim().toLowerCase();
-  if (rawProviderType === "openai") {
-    return normalizedApiMode === "responses" ? "openai_resp" : "openai_chat";
-  }
-  if (rawProviderType === "openai_responses" || rawProviderType === "openai_resp") {
-    return "openai_resp";
-  }
-  if (rawProviderType === "openai_chat_completions" || rawProviderType === "openai_chat") {
-    return "openai_chat";
-  }
-  // openai_proxy（兼容网关档位）已并入 openai_chat：官方差异由端点/能力位守卫处理，存量条目别名归一。
-  if (rawProviderType === "openai_compatible_chat" || rawProviderType === "openai_proxy") {
-    return "openai_chat";
-  }
-  return rawProviderType;
 }
 
 function labelProviderType(providerType: string): string {
@@ -633,97 +589,6 @@ function makeProviderKey(config: Pick<ModelProviderConfig, "name" | "provider_ty
 }
 
 /**
- * 运行时形态归一：剥离已废弃的 provider 级字段（模型映射/运行参数），models 归一为模型条目数组。
- * create/update/load/replaceRuntime 四个入口共用，保证内存与磁盘上的 provider 恒为新形态。
- */
-function normalizeProviderRuntimeConfig(config: ModelProviderConfig): void {
-  for (const field of LEGACY_PROVIDER_FIELDS) {
-    delete config[field];
-  }
-  const thinkingKind = String(config.thinking_kind ?? "").trim().toLowerCase();
-  // thinking_kind 非法值静默剔除（回落格式默认形状）：形状声明是增强项，拼写错误不应阻断
-  // 连接配置；对比 api_format 是封闭枚举、直接 400。
-  if (thinkingKind && THINKING_KINDS.has(thinkingKind)) {
-    config.thinking_kind = thinkingKind;
-  } else {
-    delete config.thinking_kind;
-  }
-  config.models = normalizeModels(config.models);
-}
-
-/** 模型条目数组归一：只保留已知键，name trim 非空去重，数值/布尔/模态非法值丢弃；非数组 → []。 */
-function normalizeModels(value: unknown): ProviderModelEntry[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  const models: ProviderModelEntry[] = [];
-  const seen = new Set<string>();
-  for (const item of value) {
-    if (!isRecord(item)) {
-      continue;
-    }
-    const name = String(item.name ?? "").trim();
-    if (!name || seen.has(name)) {
-      continue;
-    }
-    const entry: ProviderModelEntry = { name };
-    const temperature = asOptionalNumber(item.temperature);
-    if (temperature !== undefined) entry.temperature = temperature;
-    const maxCompletionTokens = asOptionalNumber(item.max_completion_tokens);
-    if (maxCompletionTokens !== undefined) entry.max_completion_tokens = maxCompletionTokens;
-    const maxContextTokens = asOptionalNumber(item.max_context_tokens);
-    if (maxContextTokens !== undefined) entry.max_context_tokens = maxContextTokens;
-    if (item.supports_function_calling === true) entry.supports_function_calling = true;
-    const inputModalities = normalizeModalityList(item.input_modalities);
-    if (inputModalities) entry.input_modalities = inputModalities;
-    const outputModalities = normalizeModalityList(item.output_modalities);
-    if (outputModalities) entry.output_modalities = outputModalities;
-    const thinkingLevels = normalizeThinkingLevelList(item.thinking_levels);
-    if (thinkingLevels) entry.thinking_levels = thinkingLevels;
-    if (item.reasoning_field === "reasoning_content" || item.reasoning_field === "reasoning_details") {
-      entry.reasoning_field = item.reasoning_field;
-    }
-    models.push(entry);
-    seen.add(name);
-  }
-  return models;
-}
-
-/** 思考档位子集归一：小写 trim、只留已知强度档位、按全集顺序输出；非数组/过滤后为空 → undefined。 */
-function normalizeThinkingLevelList(value: unknown): ThinkingStrengthLevel[] | undefined {
-  if (!Array.isArray(value)) {
-    return undefined;
-  }
-  const known = new Set<string>(THINKING_STRENGTH_LEVELS);
-  const seen = new Set<string>();
-  for (const item of value) {
-    const token = String(item ?? "").trim().toLowerCase();
-    if (token && known.has(token)) {
-      seen.add(token);
-    }
-  }
-  const result = THINKING_STRENGTH_LEVELS.filter((level) => seen.has(level));
-  return result.length > 0 ? [...result] : undefined;
-}
-
-/** 模态数组归一：小写 trim、只留已知值、去重；非数组/过滤后为空 → undefined（键不落盘）。 */
-function normalizeModalityList(value: unknown): ModelModality[] | undefined {
-  if (!Array.isArray(value)) {
-    return undefined;
-  }
-  const known = new Set<string>(MODEL_MODALITIES);
-  const result: ModelModality[] = [];
-  const seen = new Set<string>();
-  for (const item of value) {
-    const token = String(item ?? "").trim().toLowerCase();
-    if (!token || !known.has(token) || seen.has(token)) {
-      continue;
-    }
-    seen.add(token);
-    result.push(token as ModelModality);
-  }
-  return result.length > 0 ? result : undefined;
-}
 
 /** 按名称查模型条目（trim 精确匹配）；找不到返回 null（模型未在目录中不算错误）。 */
 function findModelEntryByName(provider: ModelProviderConfig, modelName: string): ProviderModelEntry | null {

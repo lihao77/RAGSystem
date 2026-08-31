@@ -29,6 +29,11 @@ export const agentConfigPresets = {
   cheap: { temperature: 0.5, max_completion_tokens: 2048 },
 } as const;
 
+/**
+ * 历史上内置默认 team 曾把这组示例值写进每个系统 Agent 的 default tier，随租户
+ * 初始化持久化后成为指向不存在 provider 的失效引用（无头执行/定时任务直接失败）。
+ * 保留常量仅供加载自愈迁移做精确识别（isStockDefaultLlmTierMap），新配置不再写入。
+ */
 export const defaultLlmTier = {
   provider: "my",
   provider_type: "deepseek",
@@ -38,6 +43,34 @@ export const defaultLlmTier = {
   max_context_tokens: 128000,
   extra_params: {},
 };
+
+/** tier map 是否为「原样出厂示例副本」：仅 default 档且每个字段与出厂常量全等。 */
+export function isStockDefaultLlmTierMap(llmTiers: unknown): boolean {
+  if (!isRecord(llmTiers)) {
+    return false;
+  }
+  const keys = Object.keys(llmTiers);
+  if (keys.length !== 1 || keys[0] !== "default") {
+    return false;
+  }
+  const tier = llmTiers.default as unknown;
+  if (!isRecord(tier)) {
+    return false;
+  }
+  const expected: Record<string, unknown> = { ...defaultLlmTier };
+  const actualKeys = Object.keys(tier);
+  const expectedKeys = Object.keys(expected);
+  if (actualKeys.length !== expectedKeys.length || !expectedKeys.every((key) => actualKeys.includes(key))) {
+    return false;
+  }
+  return expectedKeys.every((key) => {
+    const value = tier[key];
+    if (isRecord(expected[key])) {
+      return isRecord(value) && Object.keys(value).length === 0;
+    }
+    return value === expected[key];
+  });
+}
 
 export function buildDefaultAgentConfigs(): Record<string, AgentConfig> {
   const specialistAgents = ["plan_agent", "explor_agent", "general_agent", "review_agent", "test_agent"];
@@ -159,7 +192,9 @@ function buildSystemAgentConfig(input: {
     description: input.description,
     enabled: true,
     default_entry: input.default_entry ?? false,
-    llm_tiers: { default: { ...defaultLlmTier } },
+    // 不写死示例 tier：无 tier 的系统 Agent 在运行时继承系统 LLM 配置
+    // （RuntimeCoreService 的 system_config.llm 回退），避免出厂即携带失效引用。
+    llm_tiers: null,
     tools: { enabled_tools: input.tools ?? ["read_file", "preview_data_structure"] },
     goals: { enabled: false, ...(input.goals ?? {}) },
     tasks: { background: false, ...(input.tasks ?? {}) },

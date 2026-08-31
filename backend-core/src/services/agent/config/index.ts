@@ -19,7 +19,6 @@ import {
   configToAgentInfo,
   configsToRecord,
   deepMerge,
-  defaultLlmTier,
   isRecord,
   normalizeAgentName,
   normalizeConfig,
@@ -35,6 +34,8 @@ import {
   TEAM_RENAMED_EVENT,
 } from "../../../contracts/runtime/entity-lifecycle-events.js";
 import { computeSessionTeamRevision, type SessionTeamSnapshot } from "../../../contracts/session/session.js";
+import { runHydrationChain, type AppliedHydrationStep } from "../../config/hydration.js";
+import { AGENT_CONFIG_MIGRATION_STEPS } from "./agent-config-hydration.js";
 import { listAvailableTools as listAvailableRuntimeTools } from "./tools.js";
 import { toYaml } from "./yaml.js";
 
@@ -207,16 +208,20 @@ export class AgentConfigService {
 
     const updated = normalizeConfig({
       ...cloneConfig(config),
-      llm_tiers: Object.fromEntries(
-        Object.entries(config.llm_tiers ?? { default: { ...defaultLlmTier } }).map(([tierName, llm]) => [
-          tierName,
-          {
-            ...llm,
-            temperature: preset.temperature,
-            max_completion_tokens: preset.max_completion_tokens,
-          },
-        ]),
-      ),
+      // 无 tier 的 Agent（继承系统 LLM）没有可调温度的档位：预设只作用于已存在的
+      // tier，不物化出厂示例引用——那会重新制造指向不存在 provider 的失效配置。
+      llm_tiers: config.llm_tiers
+        ? Object.fromEntries(
+          Object.entries(config.llm_tiers).map(([tierName, llm]) => [
+            tierName,
+            {
+              ...llm,
+              temperature: preset.temperature,
+              max_completion_tokens: preset.max_completion_tokens,
+            },
+          ]),
+        )
+        : null,
     });
     this.getActiveConfigs().set(agentName, updated);
     await this.saveAll();
@@ -569,34 +574,16 @@ export class AgentConfigService {
       this.teams.set(teamName, configs);
     }
     this.activeTeam = loaded.activeTeam;
-    // 自愈历史脏数据：剔除 enabled_agents 中指向本 team 不存在 agent 的悬空引用，改动一次性回写。
-    if (this.normalizeTeamReferences()) {
-      await this.saveAll();
+    // 自愈历史脏数据：迁移链所有步骤无条件按序执行（旧实现用 || 串联存在短路，
+    // 同一次加载只会治理先命中的那一项），生效步骤随数据一次性回写并记录应用戳。
+    const applied = runHydrationChain(AGENT_CONFIG_MIGRATION_STEPS, this.teams);
+    if (applied.length > 0) {
+      await this.saveAll(applied);
     }
   }
 
-  /** 规整所有 team 的委派引用：剔除指向本 team 不存在 agent 的 enabled_agents 条目。返回是否有改动。 */
-  private normalizeTeamReferences(): boolean {
-    let changed = false;
-    for (const configs of this.teams.values()) {
-      const members = new Set(configs.keys());
-      for (const [name, config] of configs) {
-        const enabledAgents = config.delegation?.enabled_agents;
-        if (!enabledAgents?.length) continue;
-        const next = enabledAgents.filter((target) => members.has(target));
-        if (next.length === enabledAgents.length) continue;
-        changed = true;
-        configs.set(name, {
-          ...config,
-          delegation: { ...config.delegation, enabled_agents: next },
-        });
-      }
-    }
-    return changed;
-  }
-
-  private async saveAll(): Promise<void> {
-    await this.teamStore.saveAll(this.activeTeam, this.teams);
+  private async saveAll(appliedMigrations?: readonly AppliedHydrationStep[]): Promise<void> {
+    await this.teamStore.saveAll(this.activeTeam, this.teams, appliedMigrations);
   }
 
   private async ensureInitialized(): Promise<void> {

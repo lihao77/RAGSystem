@@ -120,7 +120,11 @@ export class RuntimeCoreService {
     const requested = input.agentName?.trim();
     if (input.teamSnapshot) {
       const agentName = requested || input.teamSnapshot.entry_agent_name;
-      return input.teamSnapshot.agents[agentName] ?? null;
+      // 会话快照只是身份记录（属于哪个 team、入口是谁）：执行配置（含 llm_tiers
+      // 引用）每次运行按快照 team 名读取当前配置，避免存量会话被过期引用永久卡死。
+      // team/agent 已删除时直接判缺失（readiness 报缺少入口智能体），不回退快照
+      // 副本——静默兜底会掩盖配置问题，让故障无法定位。
+      return this.agentConfigs.getConfig(agentName, { teamName: input.teamSnapshot.team_name });
     }
     const teamName = input.teamName?.trim() || null;
     if (requested) {

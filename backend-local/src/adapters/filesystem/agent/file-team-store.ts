@@ -11,6 +11,7 @@ import {
   normalizeTeamName,
 } from "@ragsystem/backend-core/contracts/agent/config-normalize.js";
 import type { AgentConfigTeam, IAgentConfigTeamStore, LoadedAgentConfigTeams } from "@ragsystem/backend-core/contracts/agent/team-store.js";
+import type { AppliedHydrationStep } from "@ragsystem/backend-core/services/config/hydration.js";
 import { isRecord } from "@ragsystem/backend-core/utils/guards.js";
 
 const AGENT_CONFIG_RELATIVE_ROOT = path.join("config", "agents");
@@ -63,7 +64,11 @@ export class FileAgentConfigTeamStore implements IAgentConfigTeamStore {
     };
   }
 
-  async saveAll(activeTeam: string, teams: Map<string, AgentConfigTeam>): Promise<void> {
+  async saveAll(
+    activeTeam: string,
+    teams: Map<string, AgentConfigTeam>,
+    appliedMigrations?: readonly AppliedHydrationStep[],
+  ): Promise<void> {
     if (!this.configRoot) {
       return;
     }
@@ -71,6 +76,39 @@ export class FileAgentConfigTeamStore implements IAgentConfigTeamStore {
     this.saveTeamIndex(activeTeam, teams);
     for (const teamName of teams.keys()) {
       this.saveTeam(teamName, teams);
+    }
+    // 应用戳仅随迁移回写（干净数据不会有传值）；写失败只影响审计可见性，不阻断配置回写。
+    if (appliedMigrations?.length) {
+      this.appendMigrationStamp(appliedMigrations);
+    }
+  }
+
+  /**
+   * 追加迁移应用记录到 config/agents/.migrations.json（追加式历史，含 applied_at，
+   * 上限截断防无限增长）。纯审计用途：读取方为人工排查，加载路径不依赖它。
+   */
+  private appendMigrationStamp(applied: readonly AppliedHydrationStep[]): void {
+    if (!this.configRoot) {
+      return;
+    }
+    try {
+      const stampPath = path.join(this.configRoot, ".migrations.json");
+      const entries: AppliedHydrationStep[] = [];
+      if (fs.existsSync(stampPath)) {
+        try {
+          const parsed = JSON.parse(fs.readFileSync(stampPath, "utf8")) as unknown;
+          if (Array.isArray(parsed)) {
+            entries.push(...parsed.filter(isAppliedHydrationStep));
+          }
+        } catch {
+          // 损坏的 sidecar 重建为只含本次记录的干净历史（纯审计数据，可弃不可信）。
+        }
+      }
+      entries.push(...applied.map((item) => ({ ...item })));
+      fs.mkdirSync(this.configRoot, { recursive: true });
+      fs.writeFileSync(stampPath, JSON.stringify(entries.slice(-200), null, 2), "utf8");
+    } catch {
+      // 戳是尽力而为的审计痕迹：损坏/权限失败不阻断配置持久化与后续加载。
     }
   }
 
@@ -239,6 +277,12 @@ function loadTeamConfigFile(teamPath: string): AgentConfigTeam | null {
 function slugifyTeamName(teamName: string): string {
   const slug = teamName.trim().replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^[-._]+|[-._]+$/g, "");
   return slug || "default";
+}
+
+function isAppliedHydrationStep(value: unknown): value is AppliedHydrationStep {
+  return isRecord(value)
+    && typeof value.id === "string" && value.id.trim().length > 0
+    && typeof value.applied_at === "string" && value.applied_at.trim().length > 0;
 }
 
 function compactTimestamp(date: Date): string {
