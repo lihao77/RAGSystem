@@ -344,7 +344,7 @@ function detectMode(config) {
   const pt = config.provider.provider_type;
   const fc = config.provider.supports_function_calling;
   if (pt === 'anthropic') return 'native';
-  if (['openai_chat','openai_proxy','deepseek','openrouter','modelscope'].includes(pt) && fc === true) return 'native';
+  if (['openai_chat'].includes(pt) && fc === true) return 'native';
   return 'xml';
 }
 

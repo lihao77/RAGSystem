@@ -19,8 +19,9 @@ test('PROVIDER_TYPE_CATALOG_IDS 已删除：provider_type 即厂商，格式映�
   assert.equal(typeof catalogVendorProfile, 'function');
 });
 
-test('CORE_API_FORMATS: 格式清单封闭为 5 种纯协议（无厂商类型）', () => {
-  assert.deepEqual(CORE_API_FORMATS, ['openai_chat', 'openai_proxy', 'openai_resp', 'anthropic', 'gemini']);
+test('CORE_API_FORMATS: 格式清单封闭为 4 种纯协议（openai_proxy 已并入 openai_chat）', () => {
+  assert.deepEqual(CORE_API_FORMATS, ['openai_chat', 'openai_resp', 'anthropic', 'gemini']);
+  assert.equal(isCoreApiFormat('openai_proxy'), false, 'openai_proxy 已并入 openai_chat');
   for (const format of CORE_API_FORMATS) assert.equal(isCoreApiFormat(format), true);
   // 厂商类型不再是 API 格式
   for (const format of ['mistral', 'groq', 'qwen', 'deepseek', 'openrouter', 'modelscope']) {
@@ -29,17 +30,17 @@ test('CORE_API_FORMATS: 格式清单封闭为 5 种纯协议（无厂商类型�
 });
 
 test('catalogVendorProfile: 档案 = 后端目录摘要的推导字段（无前端硬编码厂商表）', () => {
-  // qwen 系（alibaba）：openai_proxy + 后端从 reasoning_options 推导的 toggle 声明
+  // qwen 系（alibaba）：openai_chat + 后端从 reasoning_options 推导的 toggle 声明
   assert.deepEqual(
-    catalogVendorProfile({ id: 'alibaba', api_format: 'openai_proxy', thinking_kind: 'toggle' }),
-    { api_format: 'openai_proxy', thinking_kind: 'toggle' },
+    catalogVendorProfile({ id: 'alibaba', api_format: 'openai_chat', thinking_kind: 'toggle' }),
+    { api_format: 'openai_chat', thinking_kind: 'toggle' },
   );
   // 格式默认思考形状（openai 系 effort）不带 thinking_kind
   assert.deepEqual(catalogVendorProfile({ id: 'openai', api_format: 'openai_chat', thinking_kind: null }), { api_format: 'openai_chat' });
   // 专用 SDK 厂商（bedrock/mistral 等）：无推导格式 → null 不可直连
   assert.equal(catalogVendorProfile({ id: 'mistral', api_format: null, thinking_kind: null }), null);
   assert.equal(catalogVendorProfile(null), null);
-  assert.equal(isCatalogVendorConnectable({ api_format: 'openai_proxy', thinking_kind: null }), true);
+  assert.equal(isCatalogVendorConnectable({ api_format: 'openai_chat', thinking_kind: null }), true);
   assert.equal(isCatalogVendorConnectable({ api_format: null }), false);
 });
 

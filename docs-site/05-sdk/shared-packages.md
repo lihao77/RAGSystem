@@ -72,19 +72,22 @@ Agent 运行时的内核实现，被 `backend-ts` 的 `services/agent/sdk/` 层�
 
 ## agent-llm（LLM Provider 适配）
 
-封装不同 LLM Provider 的协议差异。
+封装不同 LLM Provider 的协议差异。线协议（URL/鉴权/SSE 解析）依托官方 SDK（`openai` / `@anthropic-ai/sdk` / `@google/genai`，按 openai_chat / openai_resp / anthropic / gemini 四格式分派）；重试调度、熔断、尝试生命周期事件、超时看门狗与 ipc_socket 传输由本包策略层自持。
 
 `src/` 结构：
 
 | 模块 | 职责 |
 |------|------|
-| `provider-registry.ts` | Provider 注册表 |
+| `provider-registry.ts` | 协议格式注册表（封闭 4 格式清单） |
+| `transport.ts` | 策略层执行核：重试/熔断/生命周期事件/看门狗/ipc fetch 注入 |
 | `llm-client.ts` | Provider-agnostic LLM client facade；`openai-compatible-client.ts` 仅保留旧名称兼容导出 |
+| `providers/` | 四格式适配器（SDK 事件 → 块累加器 → 归一化结果），`internal/stream-blocks.ts` 为共享流式块模型 |
+| `thinking.ts` | 思考档位 → 厂商思考参数形状 |
 | `content-parts.ts` | 内容块处理 |
 | `record-utils.ts` | 记录工具 |
 | `types.ts` | 类型定义 |
 
-`backend-ts` 的 `ModelAdapterService` 负责配置管理，实际的 LLM 调用委托给此包。`provider-registry` 支持多 provider（OpenAI / Anthropic 等），`backend-ts/package.json` 同时依赖 `@modelcontextprotocol/sdk` 与此包。
+`backend-ts` 的 `ModelAdapterService` 负责配置管理，实际的 LLM 调用委托给此包。
 
 ## agent-widget（第三方嵌入 Widget）
 

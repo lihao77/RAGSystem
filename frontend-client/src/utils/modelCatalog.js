@@ -19,10 +19,10 @@ export const MODALITY_LABELS = {
 export const MODALITY_OPTIONS = MODEL_MODALITIES.map((value) => ({ value, label: MODALITY_LABELS[value] }));
 
 /**
- * 核心 API 格式（真正的协议家族，格式下拉只列这 5 个）：
- * openai_chat 与 openai_proxy 线协议相同但缓存行为不同（官方 Chat 带自动前缀缓存统计）。
+ * 核心 API 格式（真正的协议家族，格式下拉只列这 4 个）：
+ * openai_chat 统一覆盖官方端点与 OpenAI 兼容网关，缓存行为差异由 supports_prompt_caching 表达。
  */
-export const CORE_API_FORMATS = ['openai_chat', 'openai_proxy', 'openai_resp', 'anthropic', 'gemini'];
+export const CORE_API_FORMATS = ['openai_chat', 'openai_resp', 'anthropic', 'gemini'];
 
 export function isCoreApiFormat(apiFormat) {
   return CORE_API_FORMATS.includes(apiFormat);

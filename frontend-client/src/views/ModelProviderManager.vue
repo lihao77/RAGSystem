@@ -660,7 +660,7 @@ const toast = useToast();
 const dictStore = useDictionariesStore();
 
 const apiFormatMeta = ref({});
-// 格式下拉固定 5 种核心协议（kernel 封闭清单，纯协议无厂商类型）。
+// 格式下拉固定 4 种核心协议（kernel 封闭清单，纯协议无厂商类型）。
 const apiFormatOptions = computed(() => CORE_API_FORMATS.map((value) => ({
   value,
   label: apiFormatMeta.value[value]?.label || value,
@@ -690,8 +690,7 @@ function fallbackConfigFields(apiFormat) {
 // API 格式封闭清单兜底（与后端 agent-llm 纯协议清单一致；接口失败时仍可配置）。
 const FALLBACK_API_FORMATS = [
   { value: 'openai_resp', label: 'OpenAI Responses', default_endpoint: 'https://api.openai.com/v1' },
-  { value: 'openai_chat', label: 'OpenAI Chat', default_endpoint: 'https://api.openai.com/v1' },
-  { value: 'openai_proxy', label: 'OpenAI Compatible', default_endpoint: 'https://api.openai.com/v1' },
+  { value: 'openai_chat', label: 'OpenAI Chat (Compatible)', default_endpoint: 'https://api.openai.com/v1' },
   { value: 'anthropic', label: 'Anthropic', default_endpoint: 'https://api.anthropic.com' },
   { value: 'gemini', label: 'Google Gemini', default_endpoint: 'https://generativelanguage.googleapis.com/v1beta' },
 ].map((item) => ({ ...item, config_fields: fallbackConfigFields(item.value) }));

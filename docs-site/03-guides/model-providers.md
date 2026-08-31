@@ -60,7 +60,7 @@ interface ProviderTypeInfo {
 | Provider 类型 | 协议路径 | Embedding | Rerank |
 |------|------|------|------|
 | `openai_resp` | OpenAI Responses | 支持 | 不支持 |
-| `openai_chat` / `openai_proxy` | OpenAI Chat Completions | 支持 | 不支持 |
+| `openai_chat` | OpenAI Chat Completions（官方 + 兼容网关统一格式） | 支持 | 不支持 |
 | `anthropic` | Anthropic Messages | 不支持 | 不支持 |
 | `gemini` | Gemini GenerateContent | 不支持 | 不支持 |
 | `mistral` | OpenAI-compatible Chat | 支持 | 不支持 |

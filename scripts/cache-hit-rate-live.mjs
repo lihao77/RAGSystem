@@ -95,6 +95,9 @@ if (options.strict && providerResults.some((result) => result.status !== "ok")) 
 
 async function runProviderBenchmark(selected, context) {
   const client = new LlmProviderClient();
+  // 运行时桥接同款（backend-core sdk/projection.ts）：分发格式取 api_format，缺省回退厂商类型。
+  const effectiveType = String(selected.provider.api_format ?? selected.provider.provider_type);
+  const provider = { ...selected.provider, provider_type: effectiveType };
   const stablePrefix = buildPayload(
     context.stableBytes,
     `RAGSYSTEM CACHE PROBE STABLE PREFIX ${context.runId} ${selected.key} ${selected.model}`,
@@ -134,9 +137,9 @@ async function runProviderBenchmark(selected, context) {
   for (let round = 1; round <= context.rounds; round += 1) {
     const phase = round === 1 ? "cold_initial" : round === 2 ? "tool_result_continuation" : "stable_followup";
     const request = {
-      provider: selected.provider,
+      provider,
       model: selected.model,
-      messages: context.openAiExplicitBreakpoint && selected.provider.provider_type === "openai_chat"
+      messages: context.openAiExplicitBreakpoint && effectiveType === "openai_chat"
         ? addOpenAiExplicitBreakpoint(messages)
         : structuredClone(messages),
       tools,
@@ -149,7 +152,7 @@ async function runProviderBenchmark(selected, context) {
     const body = buildWireBody(request);
     const record = {
       providerKey: selected.key,
-      providerType: selected.provider.provider_type,
+      providerType: effectiveType,
       model: selected.model,
       round,
       phase,
@@ -197,7 +200,7 @@ async function runProviderBenchmark(selected, context) {
 
   return {
     providerKey: selected.key,
-    providerType: selected.provider.provider_type,
+    providerType: effectiveType,
     model: selected.model,
     status: roundRecords.length === context.rounds && roundRecords.every((record) => record.status === "ok") ? "ok" : "partial",
     rounds: roundRecords,
@@ -307,7 +310,7 @@ function selectProviders(configs, selection) {
     .map((item) => ({
       ...item,
       provider: (selection.forcePromptCacheKey || selection.openAiExplicitBreakpoint)
-        && item.provider.provider_type === "openai_chat"
+        && String(item.provider.api_format ?? item.provider.provider_type) === "openai_chat"
         ? { ...item.provider, supports_prompt_caching: true }
         : item.provider,
       model: selection.model ?? chooseChatModel(item.models),
