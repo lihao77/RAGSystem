@@ -67,8 +67,9 @@ describe("出厂示例 LLM tier 治理", () => {
   });
 
   it("同一 team 同时存在两类脏数据时，一次加载全部治理且仅回写一次", async () => {
-    // 旧实现用 || 串联两个治理步骤：短路会让同一次加载只治理先命中的一项。
-    // 链化后所有步骤无条件执行，此夹具锁定该行为差异（改进）不回退。
+    // 锁定链内核的关键语义：所有步骤无条件按序执行、改动合并为一次回写。
+    // 防止未来有人把链执行改回条件短路（任一步骤命中就跳过后续），让同一次
+    // 加载只治理部分脏数据。
     const dualDirty = AgentConfigSchema.parse({
       agent_name: "orchestrator_agent",
       display_name: "Agent",

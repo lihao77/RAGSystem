@@ -11,6 +11,7 @@ const MANIFEST_PATH = path.resolve(path.dirname(fileURLToPath(import.meta.url)),
 /**
  * 清单自证：代码中注册的每个水合/迁移步骤 id 必须出现在 backend-core/MIGRATIONS.md。
  * 把"新增步骤必须登记"从口头约定变成可执行检查；漏登记会在 CI 直接失败。
+ * 注意校验是单向的（代码 → 文档）：文档允许保留已退役步骤的历史行，反向锁会误伤。
  */
 describe("hydration manifest", () => {
   const manifest = readFileSync(MANIFEST_PATH, "utf8");

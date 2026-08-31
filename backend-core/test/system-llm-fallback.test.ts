@@ -293,7 +293,8 @@ function runtimeAgent(llmTiers?: Record<string, unknown>): AgentConfig {
 
 function teamSnapshot(agents: Record<string, AgentConfig>): SessionTeamSnapshot {
   const entryAgentName = Object.values(agents).find((config) => config.default_entry)?.agent_name
-    ?? Object.keys(agents)[0];
+    ?? Object.keys(agents)[0]
+    ?? "";
   return {
     team_name: "team",
     team_revision: "revision-1",

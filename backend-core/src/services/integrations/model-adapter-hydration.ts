@@ -105,7 +105,10 @@ export function normalizeProviderRuntimeConfig(config: ModelProviderConfig): voi
 function canonicalizeApiFormatStep(config: ModelProviderConfig): boolean {
   const before = `${String(config.provider_type ?? "")}\u0000${String(config.api_format ?? "")}`;
   // api_mode 是 load 路径的旧 payload 键：canonicalizeProviderConfig 通常已消费，
-  // 直接读 config 上的残留值兜底（与旧版逐路径行为一致）。
+  // 这里读 config 上的残留值。行为说明：磁盘水合路径历来如此；replaceRuntime 路径
+  // 旧版显式传 undefined，链化后统一消费残留 api_mode——携带 api_mode:"responses" +
+  // api_format:"openai" 的运行时快照条目会归一为 openai_resp 而非 openai_chat，
+  // 这是两条路径水合口径统一的既定意图。
   const apiMode = (config as unknown as Record<string, unknown>).api_mode;
   config.provider_type = String(config.provider_type ?? "").trim().toLowerCase();
   config.api_format = canonicalizeProviderType(config.api_format, apiMode);

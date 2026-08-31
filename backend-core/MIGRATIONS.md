@@ -24,7 +24,7 @@
 | id | 针对的历史形状 | 说明 | 引入 |
 | --- | --- | --- | --- |
 | `strip_dangling_delegation_refs` | `enabled_agents` 引用了本 team 不存在的 agent | 剔除悬空委派引用 | 早期自愈逻辑 |
-| `strip_stock_default_llm_tier` | 内置默认 team 出厂携带的示例 tier（`my`/`deepseek`/`deepseek-chat` 全等副本） | 剥除后继承系统 LLM；用户改过参数或另有档位的不动 | 2026-08（对应 Oceanx 定时任务 readiness 故障） |
+| `strip_stock_default_llm_tier` | 内置默认 team 出厂携带的示例 tier（`my`/`deepseek`/`deepseek-chat` 全等副本） | 剥除后继承系统 LLM；用户改过参数或另有档位的不动。已知限制：与出厂常量逐字段全等（含仅 default 档、空 extra_params）的手工配置也会被剥除——provider "my" 实际不存在，误伤面趋近于零 | 2026-08（对应 Oceanx 定时任务 readiness 故障） |
 
 ## 形态归一层
 

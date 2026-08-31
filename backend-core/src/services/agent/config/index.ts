@@ -574,8 +574,8 @@ export class AgentConfigService {
       this.teams.set(teamName, configs);
     }
     this.activeTeam = loaded.activeTeam;
-    // 自愈历史脏数据：迁移链所有步骤无条件按序执行（旧实现用 || 串联存在短路，
-    // 同一次加载只会治理先命中的那一项），生效步骤随数据一次性回写并记录应用戳。
+    // 自愈历史脏数据：迁移链所有步骤无条件按序执行并一次回写；应用记录（含时间）
+    // 交由持久层落盘，仅用于排查审计——执行始终由数据形状驱动，不依赖该记录。
     const applied = runHydrationChain(AGENT_CONFIG_MIGRATION_STEPS, this.teams);
     if (applied.length > 0) {
       await this.saveAll(applied);
