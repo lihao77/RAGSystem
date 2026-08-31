@@ -1,55 +1,114 @@
+/**
+ * Google Gemini 方言：线协议走 @google/genai。candidate parts 原样回放（含
+ * thoughtSignature）是本方言的核心语义；genai 对 config 未知字段会丢弃，厂商扩展
+ * 经 httpOptions.extraBody 深合并兜底透传。
+ */
+import { GoogleGenAI } from "@google/genai";
+import type { GenerateContentParameters } from "@google/genai";
 import type {
   ChatMessage,
   ChatToolCall,
   LlmRequest,
   LlmResult,
   LlmStreamHandler,
+  ProviderConfig,
   ProviderContinuationState,
-  TokenUsage,
 } from "../types.js";
 import type { LlmProviderAdapter } from "./adapter.js";
+import type { AttemptGuard } from "../transport.js";
 import { extractText, parseDataUrl, toContentParts } from "../content-parts.js";
 import { isRecord } from "../internal/records.js";
-import { readSse } from "../internal/sse.js";
 import { extractGeminiUsage } from "../internal/usage.js";
-import { providerDefaultEndpoint } from "../provider-registry.js";
 import { compactRecord } from "../record-utils.js";
 import {
   consumeProviderStream,
-  executeProviderCall,
-  extractErrorMessage,
-  geminiHeaders,
-  providerTimeoutMs,
-  requestInit,
+  executeProviderOperation,
+  geminiBaseURL,
   requireApiKey,
-  requireOkJson,
+  settleAsyncIterator,
+  withProviderGuards,
 } from "../transport.js";
 
 type GeminiPart = Record<string, unknown>;
 type GeminiContent = { role: "user" | "model"; parts: GeminiPart[] };
 type GeminiToolMetadata = { name: string; providerId: string | undefined };
 
+/** GenerateContentConfig 已知字段（可直下 config）；其余厂商扩展进 extraBody 深合并。
+ * 注意 labels/routingConfig 不列于此：genai 的 MLdev 转换器会丢弃这两键（仅 Vertex 生效），
+ * 走 extraBody 透传才能到达自定义网关。 */
+const GEMINI_CONFIG_KEYS = new Set([
+  "systemInstruction", "tools", "toolConfig", "temperature", "topP", "topK", "maxOutputTokens",
+  "candidateCount", "stopSequences", "responseMimeType", "responseSchema", "responseJsonSchema",
+  "safetySettings", "thinkingConfig", "cachedContent", "responseModalities",
+  "mediaResolution", "audioTimestamp", "speechConfig", "imageConfig",
+]);
+
 export class GeminiAdapter implements LlmProviderAdapter {
   async complete(request: LlmRequest): Promise<LlmResult> {
-    return this.call(request, false, async (response) => parseGeminiResponse(await requireOkJson(response, request)));
+    return executeProviderOperation(request, ({ signal }) =>
+      withProviderGuards(request, signal, async (guard) => {
+        const response = await guard.total(
+          createGeminiClient(request.provider).models.generateContent(generateContentParameters(request, guard)),
+        );
+        return parseGeminiResponse(response as unknown as Record<string, unknown>);
+      }),
+    );
   }
 
   async stream(request: LlmRequest, onChunk: LlmStreamHandler): Promise<LlmResult> {
-    return this.call(request, true, async (response) => {
-      if (!response.ok) await requireOkJson(response, request);
-      return consumeProviderStream(onChunk, (guardedOnChunk) => parseGeminiStream(response, request, guardedOnChunk));
-    });
-  }
-
-  private call<T>(request: LlmRequest, stream: boolean, consume: (response: Response) => Promise<T>): Promise<T> {
-    const apiKey = requireApiKey(request.provider);
-    return executeProviderCall(
-      request,
-      resolveGeminiEndpoint(request, stream),
-      requestInit(request, geminiHeaders(apiKey), buildGeminiBody(request)),
-      consume,
+    return executeProviderOperation(request, ({ signal }) =>
+      withProviderGuards(request, signal, async (guard) => {
+        const generator = await guard.total(
+          createGeminiClient(request.provider).models.generateContentStream(generateContentParameters(request, guard)),
+        );
+        return consumeProviderStream(onChunk, (emit) => consumeGeminiStream(generator, request, guard, emit));
+      }),
     );
   }
+}
+
+/** 按请求构造；baseUrl 含版本段 + apiVersion:""（pi-ai 同款姿势，防版本段翻倍）。 */
+function createGeminiClient(provider: ProviderConfig): GoogleGenAI {
+  if (provider.transport?.type === "ipc_socket") {
+    // @google/genai 无 fetch 注入口，本地组网传输不适用于本方言（openai/anthropic 支持）。
+    throw new Error(`Provider '${provider.name}' does not support the ipc_socket transport`);
+  }
+  return new GoogleGenAI({
+    apiKey: requireApiKey(provider),
+    httpOptions: { baseUrl: geminiBaseURL(provider), apiVersion: "" },
+  });
+}
+
+function generateContentParameters(request: LlmRequest, guard: AttemptGuard): GenerateContentParameters {
+  const body = buildGeminiBody(request);
+  const normalizedModel = request.model.replace(/^models\//, "").trim();
+  if (!normalizedModel) throw new Error("Gemini model is required");
+  const config = toGeminiConfig(body, guard.signal);
+  return { model: normalizedModel, contents: body.contents, config } as unknown as GenerateContentParameters;
+}
+
+/** wire body（v1beta REST 形状，buildGeminiBody 产出）→ genai config：已知字段直下，未知进 extraBody。 */
+function toGeminiConfig(body: Record<string, unknown>, signal: AbortSignal): Record<string, unknown> {
+  const config: Record<string, unknown> = {};
+  const extraBody: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(body)) {
+    if (key === "contents") continue;
+    if (key === "generationConfig") {
+      const generationConfig = isRecord(value) ? value : {};
+      const generationExtras: Record<string, unknown> = {};
+      for (const [genKey, genValue] of Object.entries(generationConfig)) {
+        if (GEMINI_CONFIG_KEYS.has(genKey)) config[genKey] = genValue;
+        else generationExtras[genKey] = genValue;
+      }
+      if (Object.keys(generationExtras).length) extraBody.generationConfig = generationExtras;
+      continue;
+    }
+    if (GEMINI_CONFIG_KEYS.has(key)) config[key] = value;
+    else extraBody[key] = value;
+  }
+  if (Object.keys(extraBody).length) config.httpOptions = { extraBody };
+  config.abortSignal = signal;
+  return config;
 }
 
 export function buildGeminiBody(request: LlmRequest): Record<string, unknown> {
@@ -90,23 +149,6 @@ export function buildGeminiBody(request: LlmRequest): Record<string, unknown> {
       ? { functionCallingConfig: { mode: request.toolChoice === "none" ? "NONE" : "AUTO" } }
       : undefined,
   });
-}
-
-export function resolveGeminiEndpoint(request: LlmRequest, stream: boolean): string {
-  const configured = String(request.provider.api_endpoint ?? providerDefaultEndpoint(request.provider.provider_type)).trim();
-  if (!configured) throw new Error(`Provider '${request.provider.name}' is missing api_endpoint`);
-  const method = stream ? "streamGenerateContent" : "generateContent";
-  const normalizedModel = request.model.replace(/^models\//, "").trim();
-  if (!normalizedModel) throw new Error("Gemini model is required");
-  const withoutTrailingSlash = configured.replace(/\/+$/, "");
-  const methodPattern = /\/models\/[^/?]+:(?:streamGenerateContent|generateContent)(?=\?|$)/;
-  const endpoint = methodPattern.test(withoutTrailingSlash)
-    ? withoutTrailingSlash.replace(/:(?:streamGenerateContent|generateContent)(?=\?|$)/, `:${method}`)
-    : `${withoutTrailingSlash.replace(/\/models$/, "")}/models/${encodeURIComponent(normalizedModel)}:${method}`;
-  if (!stream) return endpoint;
-  const url = new URL(endpoint);
-  url.searchParams.set("alt", "sse");
-  return url.toString();
 }
 
 function mapGeminiMessage(message: ChatMessage, toolMetadata: ReadonlyMap<string, GeminiToolMetadata>): GeminiContent {
@@ -220,7 +262,8 @@ function geminiContinuation(
 }
 
 function parseGeminiResponse(body: Record<string, unknown>): LlmResult {
-  if (isRecord(body.error)) throw new Error(extractErrorMessage(body) ?? "Gemini response returned an error");
+  // genai 仅按 HTTP status 抛错；200 + error 体的网关在此显式报错（SDK 不会替我们检查）。
+  if (isRecord(body.error)) throw new Error(extractGeminiErrorMessage(body));
   const candidate = firstCandidate(body);
   const parts = candidateParts(candidate);
   const content = visibleText(parts);
@@ -246,9 +289,10 @@ function parseGeminiResponse(body: Record<string, unknown>): LlmResult {
   return result;
 }
 
-async function parseGeminiStream(
-  response: Response,
+async function consumeGeminiStream(
+  generator: AsyncIterable<unknown>,
   request: LlmRequest,
+  guard: AttemptGuard,
   onChunk: LlmStreamHandler,
 ): Promise<LlmResult> {
   let content = "";
@@ -259,64 +303,61 @@ async function parseGeminiStream(
   const replayParts: GeminiPart[] = [];
   const toolCalls: ChatToolCall[] = [];
   let functionCallIndex = 0;
+  const iterator = generator[Symbol.asyncIterator]();
 
-  await readSse(response, providerTimeoutMs(request), async (event) => {
-    const data = event.data.trim();
-    if (!data || data === "[DONE]") return data === "[DONE]";
-    let body: Record<string, unknown>;
-    try {
-      body = JSON.parse(data) as Record<string, unknown>;
-    } catch {
-      throw new Error(`Gemini stream returned invalid JSON: ${data.slice(0, 160)}`);
-    }
-    if (event.event === "error" || isRecord(body.error)) {
-      throw new Error(extractErrorMessage(body) ?? "Gemini stream returned an error event");
-    }
-    if (isRecord(body.usageMetadata)) Object.assign(usageMetadata, body.usageMetadata);
-    const candidate = firstCandidate(body);
-    if (!candidate) return;
-    if (typeof candidate.finishReason === "string") finishReason = candidate.finishReason;
-    for (const part of candidateParts(candidate)) {
-      replayParts.push({ ...part });
-      if (isRecord(part.functionCall)) {
-        const call = extractGeminiToolCall(part, functionCallIndex);
-        if (call) toolCalls.push(call);
-        functionCallIndex += 1;
-        continue;
-      }
-      if (typeof part.text !== "string") continue;
-      if (part.thought === true) {
-        reasoning += part.text;
-        const control = await onChunk({ content: "", reasoning: part.text, finishReason, raw: body });
+  try {
+    while (true) {
+      const result = await guard.next(iterator.next());
+      if (result.done) break;
+      const chunk = result.value as Record<string, unknown>;
+      if (isRecord(chunk.usageMetadata)) Object.assign(usageMetadata, chunk.usageMetadata);
+      const candidate = firstCandidate(chunk);
+      if (!candidate) continue;
+      if (typeof candidate.finishReason === "string") finishReason = candidate.finishReason;
+      for (const part of candidateParts(candidate)) {
+        replayParts.push({ ...part });
+        if (isRecord(part.functionCall)) {
+          const call = extractGeminiToolCall(part, functionCallIndex);
+          if (call) toolCalls.push(call);
+          functionCallIndex += 1;
+          continue;
+        }
+        if (typeof part.text !== "string") continue;
+        if (part.thought === true) {
+          reasoning += part.text;
+          const control = await onChunk({ content: "", reasoning: part.text, finishReason, raw: chunk });
+          if (control?.stop) {
+            stopped = true;
+            break;
+          }
+          continue;
+        }
+        content += part.text;
+        const control = await onChunk({ content: part.text, finishReason, raw: chunk });
         if (control?.stop) {
           stopped = true;
-          return true;
+          break;
         }
-        continue;
       }
-      content += part.text;
-      const control = await onChunk({ content: part.text, finishReason, raw: body });
-      if (control?.stop) {
-        stopped = true;
-        return true;
-      }
+      if (stopped) break;
     }
-    return false;
-  }, request.signal);
+    guard.throwIfAborted();
+  } finally {
+    await settleAsyncIterator(iterator);
+  }
 
-  const completedTools = toolCalls;
-  if (completedTools.length && !stopped) await onChunk({ content: "", finishReason, toolCalls: completedTools });
-  if (!content && !reasoning && !completedTools.length && !stopped && !request.allowEmptyStream) {
+  if (toolCalls.length && !stopped) await onChunk({ content: "", finishReason, toolCalls });
+  if (!content && !reasoning && !toolCalls.length && !stopped && !request.allowEmptyStream) {
     throw new Error(`Gemini streaming response did not include assistant content (finishReason=${finishReason ?? "unknown"})`);
   }
   const result: LlmResult = { content, finishReason };
   if (reasoning) result.reasoning = reasoning;
-  if (completedTools.length) result.toolCalls = completedTools;
+  if (toolCalls.length) result.toolCalls = toolCalls;
   // 同 parseGeminiResponse：纯文字轮也保留 replayParts 原样回放。
   if (replayParts.length) {
     result.providerContinuation = {
       protocol: "gemini_generate_content",
-      toolCallIds: completedTools.map((call) => call.id),
+      toolCallIds: toolCalls.map((call) => call.id),
       parts: replayParts,
     };
   }
@@ -364,4 +405,10 @@ function extractGeminiToolCall(part: GeminiPart, index: number): ChatToolCall | 
   };
 }
 
-export { extractGeminiUsage };
+/** usageMetadata 提取的单一实现位于 internal/usage.ts，此处 re-export 维持历史导出路径。 */
+export { extractGeminiUsage } from "../internal/usage.js";
+
+function extractGeminiErrorMessage(body: Record<string, unknown>): string {
+  if (isRecord(body.error) && typeof body.error.message === "string") return body.error.message;
+  return typeof body.message === "string" ? body.message : "Gemini response returned an error";
+}

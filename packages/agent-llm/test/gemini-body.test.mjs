@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildGeminiBody, resolveGeminiEndpoint } from "../dist/providers/gemini.js";
+import { buildGeminiBody } from "../dist/providers/gemini.js";
 
 const continuationParts = [
   { text: "checking", thought: true },
@@ -114,18 +114,3 @@ test("Gemini omits a fabricated function response id when the provider omitted o
   });
 });
 
-test("Gemini endpoints select generateContent and SSE stream methods", () => {
-  const request = {
-    provider: { key: "gemini", name: "Gemini", provider_type: "gemini", api_key: "secret" },
-    model: "models/gemini-2.5-flash",
-    messages: [{ role: "user", content: "hello" }],
-  };
-  assert.equal(
-    resolveGeminiEndpoint(request, false),
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
-  );
-  assert.equal(
-    resolveGeminiEndpoint(request, true),
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse",
-  );
-});

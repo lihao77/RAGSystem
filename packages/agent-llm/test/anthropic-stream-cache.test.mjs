@@ -114,3 +114,37 @@ test("Anthropic 流式无缓存事件时不伪造缓存字段", async () => {
     globalThis.fetch = originalFetch;
   }
 });
+
+test("Anthropic 流在 content_block_stop 前结束时仍携带已累积的工具调用", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(sseBody([
+    { type: "message_start", data: { type: "message_start", message: { usage: { input_tokens: 5, output_tokens: 0 } } } },
+    {
+      type: "content_block_start",
+      data: { type: "content_block_start", index: 0, content_block: { type: "tool_use", id: "toolu_1", name: "search", input: {} } },
+    },
+    {
+      type: "content_block_delta",
+      data: { type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: '{"q":"x' } },
+    },
+    // 对端提前收流：没有 content_block_stop，直接 message_delta + message_stop
+    { type: "message_delta", data: { type: "message_delta", delta: { stop_reason: "tool_use" }, usage: { output_tokens: 2 } } },
+    { type: "message_stop", data: { type: "message_stop" } },
+  ]), { headers: { "content-type": "text/event-stream" } });
+  try {
+    const result = await new AnthropicAdapter().stream(
+      {
+        provider: { key: "a", name: "A", provider_type: "anthropic", api_key: "secret", api_endpoint: "https://api.anthropic.com" },
+        model: "m",
+        messages: [{ role: "user", content: "hi" }],
+      },
+      async () => undefined,
+    );
+    assert.deepEqual(result.toolCalls, [
+      { id: "toolu_1", type: "function", function: { name: "search", arguments: '{"q":"x' } },
+    ]);
+    assert.deepEqual(result.usage, { inputTokens: 5, outputTokens: 2, totalTokens: 7 });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

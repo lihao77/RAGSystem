@@ -1,7 +1,9 @@
 /**
  * @ragsystem/agent-llm —— LLM 通信基金层类型。
  *
- * 与厂商解耦的纯类型 + LlmClient 端口。零内部依赖、可独立使用（不绑 agent 循环）：
+ * 与厂商解耦的纯类型 + LlmClient 端口。线协议依托官方 SDK（openai /
+ * @anthropic-ai/sdk / @google/genai），本层持有策略（重试/熔断/看门狗）与厂商语义
+ * （续传态/思考档位/缓存断点）；可独立使用（不绑 agent 循环）：
  * 消费者可直接用 LlmProviderClient 调模型（complete/stream），无需 agent-sdk。
  *
  * agent-sdk 依赖本包，import 这些类型。LlmRequest 不含 agent——生成参数由消费者解析后传入，

@@ -1,50 +1,65 @@
-import type { ChatMessage, ChatToolCall, LlmRequest, LlmResult, LlmStreamHandler, ProviderContinuationState, TokenUsage } from "../types.js";
+/**
+ * OpenAI Responses 方言：线协议走 openai SDK。无状态回放（reasoning items 带加密内容
+ * 逐条原样回传）是本方言的核心语义，由 buildResponsesBody（请求侧）持有。
+ */
+import OpenAI from "openai";
+import type { ChatMessage, ChatToolCall, LlmRequest, LlmResult, LlmStreamHandler, ProviderConfig, ProviderContinuationState, TokenUsage } from "../types.js";
 import type { LlmProviderAdapter } from "./adapter.js";
+import type { AttemptGuard } from "../transport.js";
+import { StreamingBlocks } from "./internal/stream-blocks.js";
 import { extractText, toResponsesContent } from "../content-parts.js";
 import { compactRecord } from "../record-utils.js";
 import { effectiveReasoningEffort } from "../thinking.js";
 import { isRecord } from "../internal/records.js";
 import { extractOpenAiUsage } from "../internal/usage.js";
-import { readSse } from "../internal/sse.js";
 import {
-  bearerHeaders,
-  extractErrorMessage,
   consumeProviderStream,
-  executeProviderCall,
-  providerTimeoutMs,
-  requestInit,
+  createIpcFetch,
+  executeProviderOperation,
+  openAiBaseURL,
   requireApiKey,
-  requireOkJson,
-  resolveEndpoint,
+  settleAsyncIterator,
+  withProviderGuards,
 } from "../transport.js";
-
-interface ResponseToolAccumulator {
-  id: string;
-  name: string;
-  arguments: string;
-}
 
 export class OpenAiResponsesAdapter implements LlmProviderAdapter {
   async complete(request: LlmRequest): Promise<LlmResult> {
-    return this.call(request, false, async (response) => parseResponse(await requireOkJson(response, request)));
+    return executeProviderOperation(request, ({ signal }) =>
+      withProviderGuards(request, signal, async (guard) => {
+        const response = await guard.total(
+          createResponsesClient(request.provider).responses.create(
+            buildResponsesBody(request) as unknown as OpenAI.Responses.ResponseCreateParamsNonStreaming,
+            guard.requestOptions(),
+          ),
+        );
+        return parseResponse(response as unknown as Record<string, unknown>);
+      }),
+    );
   }
 
   async stream(request: LlmRequest, onChunk: LlmStreamHandler): Promise<LlmResult> {
-    return this.call(request, true, async (response) => {
-      if (!response.ok) await requireOkJson(response, request);
-      return consumeProviderStream(onChunk, (guardedOnChunk) => parseResponseStream(response, request, guardedOnChunk));
-    });
-  }
-
-  private call<T>(request: LlmRequest, stream: boolean, consume: (response: Response) => Promise<T>): Promise<T> {
-    const apiKey = requireApiKey(request.provider);
-    return executeProviderCall(
-      request,
-      resolveEndpoint(request.provider, "responses"),
-      requestInit(request, bearerHeaders(apiKey), buildResponsesBody(request, stream)),
-      consume,
+    return executeProviderOperation(request, ({ signal }) =>
+      withProviderGuards(request, signal, async (guard) => {
+        const stream = await guard.total(
+          createResponsesClient(request.provider).responses.create(
+            buildResponsesBody(request, true) as unknown as OpenAI.Responses.ResponseCreateParamsStreaming,
+            guard.requestOptions(),
+          ),
+        );
+        return consumeProviderStream(onChunk, (emit) => consumeResponsesStream(stream, request, guard, emit));
+      }),
     );
   }
+}
+
+function createResponsesClient(provider: ProviderConfig): OpenAI {
+  const fetch = createIpcFetch(provider);
+  return new OpenAI({
+    apiKey: requireApiKey(provider),
+    baseURL: openAiBaseURL(provider, "/responses"),
+    maxRetries: 0,
+    ...(fetch ? { fetch } : {}),
+  });
 }
 
 export function buildResponsesBody(request: LlmRequest, stream = false): Record<string, unknown> {
@@ -125,9 +140,10 @@ function parseResponse(body: Record<string, unknown>): LlmResult {
   return result;
 }
 
-async function parseResponseStream(
-  response: Response,
+async function consumeResponsesStream(
+  stream: AsyncIterable<OpenAI.Responses.ResponseStreamEvent>,
   request: LlmRequest,
+  guard: AttemptGuard,
   onChunk: LlmStreamHandler,
 ): Promise<LlmResult> {
   let content = "";
@@ -135,86 +151,84 @@ async function parseResponseStream(
   let finishReason: string | null = null;
   let usage: TokenUsage | null = null;
   let stopped = false;
-  const tools = new Map<number, ResponseToolAccumulator>();
+  const blocks = new StreamingBlocks();
   const reasoningItems = new Map<number, Record<string, unknown>>();
+  const iterator = stream[Symbol.asyncIterator]();
 
-  await readSse(response, providerTimeoutMs(request), async (event) => {
-    const data = event.data.trim();
-    if (data === "[DONE]") return true;
-    let body: Record<string, unknown>;
-    try {
-      body = JSON.parse(data) as Record<string, unknown>;
-    } catch {
-      throw new Error(`OpenAI Responses stream returned invalid JSON: ${data.slice(0, 160)}`);
-    }
-    const type = typeof body.type === "string" ? body.type : event.event;
-    if (type === "error" || type === "response.failed") {
-      throw new Error(extractErrorMessage(body) ?? extractNestedResponseError(body) ?? "OpenAI Responses stream failed");
-    }
-    if (type === "response.output_text.delta" && typeof body.delta === "string") {
-      content += body.delta;
-      const control = await onChunk({ content: body.delta, finishReason, raw: body });
-      if (control?.stop) {
-        stopped = true;
-        return true;
+  try {
+    while (true) {
+      const result = await guard.next(iterator.next());
+      if (result.done) break;
+      const event = result.value as unknown as Record<string, unknown>;
+      const type = typeof event.type === "string" ? event.type : "";
+      if (type === "error" || type === "response.failed") {
+        throw new Error(extractErrorMessage(event) ?? extractNestedResponseError(event) ?? "OpenAI Responses stream failed");
       }
-    } else if (type === "response.reasoning_summary_text.delta" && typeof body.delta === "string") {
-      reasoning += body.delta;
-      const control = await onChunk({ content: "", reasoning: body.delta, finishReason, raw: body });
-      if (control?.stop) {
-        stopped = true;
-        return true;
-      }
-    } else if (type === "response.output_item.added" && isRecord(body.item)) {
-      const index = typeof body.output_index === "number" ? body.output_index : tools.size + reasoningItems.size;
-      if (body.item.type === "function_call") tools.set(index, toolFromResponseItem(body.item, index));
-      if (body.item.type === "reasoning") reasoningItems.set(index, body.item);
-    } else if (type === "response.function_call_arguments.delta" && typeof body.delta === "string") {
-      const index = typeof body.output_index === "number" ? body.output_index : 0;
-      const current = tools.get(index) ?? { id: responseCallId(body, index), name: "", arguments: "" };
-      current.arguments += body.delta;
-      tools.set(index, current);
-    } else if (type === "response.output_item.done" && isRecord(body.item) && body.item.type === "function_call") {
-      const index = typeof body.output_index === "number" ? body.output_index : tools.size;
-      const parsed = toolFromResponseItem(body.item, index);
-      const current = tools.get(index);
-      tools.set(index, {
-        id: parsed.id || current?.id || `tool_call_${index}`,
-        name: parsed.name || current?.name || "",
-        arguments: parsed.arguments || current?.arguments || "",
-      });
-    } else if (type === "response.output_item.done" && isRecord(body.item) && body.item.type === "reasoning") {
-      const index = typeof body.output_index === "number" ? body.output_index : reasoningItems.size;
-      reasoningItems.set(index, body.item);
-    }
-    if ((type === "response.completed" || type === "response.incomplete") && isRecord(body.response)) {
-      finishReason = typeof body.response.status === "string" ? body.response.status : type.slice("response.".length);
-      usage = extractOpenAiUsage(body.response) ?? usage;
-      if (!content) content = extractOutputText(body.response);
-      if (!reasoning) reasoning = extractResponseReasoning(body.response);
-      for (const [index, item] of extractResponseReasoningItems(body.response).entries()) {
-        if (![...reasoningItems.values()].some((current) => current.id === item.id && item.id !== undefined)) {
-          reasoningItems.set(reasoningItems.size + index, item);
+      const outputIndex = typeof event.output_index === "number" ? event.output_index : undefined;
+      if (type === "response.output_text.delta" && typeof event.delta === "string") {
+        content += event.delta;
+        const control = await onChunk({ content: event.delta, finishReason, raw: event });
+        if (control?.stop) {
+          stopped = true;
+          break;
         }
-      }
-      for (const [index, call] of extractResponseToolCalls(body.response).entries()) {
-        if (![...tools.values()].some((item) => item.id === call.id)) {
-          tools.set(tools.size + index, { id: call.id, name: call.function.name, arguments: call.function.arguments });
+      } else if (type === "response.reasoning_summary_text.delta" && typeof event.delta === "string") {
+        reasoning += event.delta;
+        const control = await onChunk({ content: "", reasoning: event.delta, finishReason, raw: event });
+        if (control?.stop) {
+          stopped = true;
+          break;
         }
+      } else if (type === "response.output_item.added" && isRecord(event.item)) {
+        const index = outputIndex ?? blocks.toolCallBlocks().length + reasoningItems.size;
+        if (event.item.type === "function_call") openResponseTool(blocks, index, event.item);
+        if (event.item.type === "reasoning") reasoningItems.set(index, event.item);
+      } else if (type === "response.function_call_arguments.delta" && typeof event.delta === "string") {
+        const index = outputIndex ?? 0;
+        blocks.open({ kind: "toolCall", index, id: responseCallId(event, index), name: "", partialJson: "" });
+        blocks.appendToolArguments(index, event.delta);
+      } else if (type === "response.output_item.done" && isRecord(event.item) && event.item.type === "function_call") {
+        const index = outputIndex ?? blocks.toolCallBlocks().length;
+        openResponseTool(blocks, index, event.item);
+      } else if (type === "response.output_item.done" && isRecord(event.item) && event.item.type === "reasoning") {
+        const index = outputIndex ?? reasoningItems.size;
+        reasoningItems.set(index, event.item);
       }
-      return true;
+      if (type === "response.completed" || type === "response.incomplete") {
+        if (isRecord(event.response)) {
+          finishReason = typeof event.response.status === "string" ? event.response.status : type.slice("response.".length);
+          usage = extractOpenAiUsage(event.response) ?? usage;
+          if (!content) content = extractOutputText(event.response);
+          if (!reasoning) reasoning = extractResponseReasoning(event.response);
+          for (const [index, item] of extractResponseReasoningItems(event.response).entries()) {
+            if (![...reasoningItems.values()].some((current) => current.id === item.id && item.id !== undefined)) {
+              reasoningItems.set(reasoningItems.size + index, item);
+            }
+          }
+          for (const [index, call] of extractResponseToolCalls(event.response).entries()) {
+            if (!blocks.toolCallBlocks().some((block) => block.id === call.id)) {
+              blocks.open({
+                kind: "toolCall",
+                index: blocks.toolCallBlocks().length + index,
+                id: call.id,
+                name: call.function.name,
+                partialJson: call.function.arguments,
+              });
+            }
+          }
+        }
+        break;
+      }
     }
-    return false;
-  }, request.signal);
+    guard.throwIfAborted();
+  } finally {
+    await settleAsyncIterator(iterator);
+  }
 
-  const toolCalls = [...tools.entries()]
-    .sort(([a], [b]) => a - b)
-    .flatMap(([, tool]) => tool.name
-      ? [{ id: tool.id, type: "function" as const, function: { name: tool.name, arguments: tool.arguments } }]
-      : []);
+  const toolCalls = blocks.toolCalls();
   if (toolCalls.length && !stopped) await onChunk({ content: "", finishReason, toolCalls });
   if (!content && !reasoning && !toolCalls.length && !stopped && !request.allowEmptyStream) {
-    throw new Error(`OpenAI Responses stream did not include assistant content (status=${finishReason ?? "unknown"})`);
+    throw new Error(`OpenAI Responses streaming response did not include assistant content (status=${finishReason ?? "unknown"})`);
   }
   const result: LlmResult = { content, finishReason };
   if (reasoning) result.reasoning = reasoning;
@@ -224,6 +238,24 @@ async function parseResponseStream(
   if (continuation) result.providerContinuation = continuation;
   if (usage) result.usage = usage;
   return result;
+}
+
+function openResponseTool(blocks: StreamingBlocks, index: number, item: Record<string, unknown>): void {
+  const block = blocks.open({
+    kind: "toolCall",
+    index,
+    id: typeof item.call_id === "string" && item.call_id ? item.call_id : `tool_call_${index}`,
+    name: typeof item.name === "string" ? item.name : "",
+    partialJson: typeof item.arguments === "string" ? item.arguments : "",
+  });
+  // done 事件携带定稿值（name/arguments 可能只在此时出现），非空即覆盖累积值。
+  if (typeof item.call_id === "string" && item.call_id) block.id = item.call_id;
+  if (typeof item.name === "string" && item.name) block.name = item.name;
+  if (typeof item.arguments === "string" && item.arguments) block.partialJson = item.arguments;
+}
+
+function extractErrorMessage(body: Record<string, unknown>): string | null {
+  return isRecord(body.error) && typeof body.error.message === "string" ? body.error.message : null;
 }
 
 function extractOutputText(body: unknown): string {
@@ -273,14 +305,6 @@ function extractResponseToolCalls(body: unknown): ChatToolCall[] {
       function: { name: item.name, arguments: typeof item.arguments === "string" ? item.arguments : JSON.stringify(item.arguments ?? {}) },
     }];
   });
-}
-
-function toolFromResponseItem(item: Record<string, unknown>, index: number): ResponseToolAccumulator {
-  return {
-    id: typeof item.call_id === "string" && item.call_id ? item.call_id : `tool_call_${index}`,
-    name: typeof item.name === "string" ? item.name : "",
-    arguments: typeof item.arguments === "string" ? item.arguments : "",
-  };
 }
 
 function responseCallId(body: Record<string, unknown>, index: number): string {

@@ -179,7 +179,7 @@ test("provider attempt lifecycle follows physical retries and full stream consum
       messages: [{ role: "user", content: "stream" }],
       onAttemptLifecycle: (event) => streamAttempts.push(event),
     }, async () => undefined),
-    /invalid JSON/,
+    /malformed server-sent event JSON/,
   );
   assert.deepEqual(streamAttempts.map((event) => event.phase), ["started", "failed"]);
   assert.equal(streamAttempts[1].attemptId, streamAttempts[0].attemptId);

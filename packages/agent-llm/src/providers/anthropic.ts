@@ -1,28 +1,33 @@
+/**
+ * Anthropic Messages 方言：线协议走 @anthropic-ai/sdk。缓存断点布局与 thinking
+ * 块原样回放是本方言的核心语义，由 buildAnthropicBody（请求侧）与流式块模型（响应侧）持有。
+ */
+import Anthropic from "@anthropic-ai/sdk";
 import type {
   ChatMessage,
   ChatToolCall,
   LlmRequest,
   LlmResult,
   LlmStreamHandler,
+  ProviderConfig,
   ReasoningBlock,
 } from "../types.js";
 import type { LlmProviderAdapter } from "./adapter.js";
+import type { AttemptGuard } from "../transport.js";
+import { StreamingBlocks } from "./internal/stream-blocks.js";
 import { extractText, toAnthropicContent } from "../content-parts.js";
 import { compactRecord } from "../record-utils.js";
 import { effectiveThinkingBudget } from "../thinking.js";
 import { isRecord } from "../internal/records.js";
 import { extractAnthropicUsage } from "../internal/usage.js";
-import { readSse } from "../internal/sse.js";
 import {
-  anthropicHeaders,
-  extractErrorMessage,
+  anthropicBaseURL,
   consumeProviderStream,
-  executeProviderCall,
-  providerTimeoutMs,
-  requestInit,
+  createIpcFetch,
+  executeProviderOperation,
   requireApiKey,
-  requireOkJson,
-  resolveEndpoint,
+  settleAsyncIterator,
+  withProviderGuards,
 } from "../transport.js";
 
 type CacheControl = { type: "ephemeral" };
@@ -33,30 +38,46 @@ type CacheableTool = {
   input_schema: Record<string, unknown>;
   cache_control?: CacheControl;
 };
-type ToolAccumulator = { id: string; name: string; arguments: string };
-type ThinkingAccumulator = { type: "thinking"; thinking: string; signature: string };
 
 export class AnthropicAdapter implements LlmProviderAdapter {
   async complete(request: LlmRequest): Promise<LlmResult> {
-    return this.call(request, false, async (response) => parseAnthropicResponse(await requireOkJson(response, request)));
+    return executeProviderOperation(request, ({ signal }) =>
+      withProviderGuards(request, signal, async (guard) => {
+        const message = await guard.total(
+          createMessagesClient(request.provider).messages.create(
+            buildAnthropicBody(request) as unknown as Anthropic.MessageCreateParamsNonStreaming,
+            guard.requestOptions(),
+          ),
+        );
+        return parseAnthropicResponse(message as unknown as Record<string, unknown>);
+      }),
+    );
   }
 
   async stream(request: LlmRequest, onChunk: LlmStreamHandler): Promise<LlmResult> {
-    return this.call(request, true, async (response) => {
-      if (!response.ok) await requireOkJson(response, request);
-      return consumeProviderStream(onChunk, (guardedOnChunk) => parseAnthropicStream(response, request, guardedOnChunk));
-    });
-  }
-
-  private call<T>(request: LlmRequest, stream: boolean, consume: (response: Response) => Promise<T>): Promise<T> {
-    const apiKey = requireApiKey(request.provider);
-    return executeProviderCall(
-      request,
-      resolveEndpoint(request.provider, "anthropic"),
-      requestInit(request, anthropicHeaders(apiKey), buildAnthropicBody(request, stream)),
-      consume,
+    return executeProviderOperation(request, ({ signal }) =>
+      withProviderGuards(request, signal, async (guard) => {
+        const stream = await guard.total(
+          createMessagesClient(request.provider).messages.create(
+            buildAnthropicBody(request, true) as unknown as Anthropic.MessageCreateParamsStreaming,
+            guard.requestOptions(),
+          ),
+        );
+        return consumeProviderStream(onChunk, (emit) => consumeAnthropicStream(stream, request, guard, emit));
+      }),
     );
   }
+}
+
+/** 按请求构造（pi-ai 同款 createClient 模式）；重试/超时归策略层。 */
+function createMessagesClient(provider: ProviderConfig): Anthropic {
+  const fetch = createIpcFetch(provider);
+  return new Anthropic({
+    apiKey: requireApiKey(provider),
+    baseURL: anthropicBaseURL(provider),
+    maxRetries: 0,
+    ...(fetch ? { fetch } : {}),
+  });
 }
 
 export function buildAnthropicBody(request: LlmRequest, stream = false): Record<string, unknown> {
@@ -236,12 +257,12 @@ function parseAnthropicResponse(body: Record<string, unknown>): LlmResult {
   return result;
 }
 
-async function parseAnthropicStream(
-  response: Response,
+async function consumeAnthropicStream(
+  stream: AsyncIterable<Anthropic.RawMessageStreamEvent>,
   request: LlmRequest,
+  guard: AttemptGuard,
   onChunk: LlmStreamHandler,
 ): Promise<LlmResult> {
-  let content = "";
   let finishReason: string | null = null;
   let inputTokens = 0;
   let outputTokens = 0;
@@ -249,116 +270,119 @@ async function parseAnthropicStream(
   let cacheCreationInputTokens: number | null = null;
   let hasUsage = false;
   let stopped = false;
-  const tools = new Map<number, ToolAccumulator>();
+  const blocks = new StreamingBlocks();
+  // redacted_thinking 是终块（无 delta），按出现 index 与 thinking 块合并排序回放。
+  const redacted: { index: number; block: ReasoningBlock }[] = [];
   const completedTools: ChatToolCall[] = [];
-  const thinking = new Map<number, ThinkingAccumulator>();
-  const reasoningBlocks: ReasoningBlock[] = [];
+  const iterator = stream[Symbol.asyncIterator]();
 
   const finishTool = async (index: number): Promise<void> => {
-    const tool = tools.get(index);
-    if (!tool?.name) return;
-    tools.delete(index);
-    const call: ChatToolCall = { id: tool.id, type: "function", function: { name: tool.name, arguments: tool.arguments } };
+    const block = blocks.find(index);
+    if (block?.kind !== "toolCall" || !block.name) return;
+    const call = { id: block.id, type: "function" as const, function: { name: block.name, arguments: block.partialJson } };
     completedTools.push(call);
     if (!stopped) await onChunk({ content: "", finishReason, toolCalls: [call] });
   };
-  const finishThinking = (index: number): void => {
-    const block = thinking.get(index);
-    if (!block) return;
-    thinking.delete(index);
-    if (block.signature) reasoningBlocks.push(block);
-  };
 
-  await readSse(response, providerTimeoutMs(request), async (event) => {
-    let body: Record<string, unknown>;
-    try {
-      body = JSON.parse(event.data) as Record<string, unknown>;
-    } catch {
-      throw new Error(`Anthropic stream returned invalid JSON: ${event.data.slice(0, 160)}`);
+  try {
+    while (true) {
+      const result = await guard.next(iterator.next());
+      if (result.done) break;
+      const event = result.value as unknown as Record<string, unknown>;
+      const type = typeof event.type === "string" ? event.type : "";
+      if (type === "message_start" && isRecord(event.message)) {
+        // usage 在 message_start 落底：即使流早退也保有输入侧计数（pi-ai 同款容错）。
+        const usage = extractAnthropicUsage(event.message);
+        if (usage) {
+          inputTokens = usage.inputTokens;
+          outputTokens = usage.outputTokens;
+          cachedInputTokens = usage.cachedInputTokens ?? cachedInputTokens;
+          cacheCreationInputTokens = usage.cacheCreationInputTokens ?? cacheCreationInputTokens;
+          hasUsage = true;
+        }
+      } else if (type === "content_block_start") {
+        const index = numericIndex(event.index);
+        const block = isRecord(event.content_block) ? event.content_block : null;
+        if (block?.type === "tool_use") {
+          blocks.open({
+            kind: "toolCall",
+            index,
+            id: typeof block.id === "string" && block.id ? block.id : `tool_call_${index}`,
+            name: typeof block.name === "string" ? block.name : "",
+            partialJson: typeof block.input === "string" ? block.input : "",
+          });
+        } else if (block?.type === "thinking") {
+          blocks.open({
+            kind: "thinking",
+            index,
+            thinking: typeof block.thinking === "string" ? block.thinking : "",
+            signature: typeof block.signature === "string" ? block.signature : "",
+          });
+        } else if (block?.type === "redacted_thinking" && typeof block.data === "string") {
+          redacted.push({ index, block: { type: "redacted_thinking", data: block.data } });
+        } else if (block?.type === "text" && typeof block.text === "string" && block.text) {
+          blocks.appendText(index, block.text);
+          const control = await onChunk({ content: block.text, finishReason, raw: event });
+          if (control?.stop) {
+            stopped = true;
+            break;
+          }
+        }
+      } else if (type === "content_block_delta" && isRecord(event.delta)) {
+        const index = numericIndex(event.index);
+        if (event.delta.type === "text_delta" && typeof event.delta.text === "string") {
+          blocks.appendText(index, event.delta.text);
+          const control = await onChunk({ content: event.delta.text, finishReason, raw: event });
+          if (control?.stop) {
+            stopped = true;
+            break;
+          }
+        } else if (event.delta.type === "input_json_delta" && typeof event.delta.partial_json === "string") {
+          blocks.appendToolArguments(index, event.delta.partial_json);
+        } else if (event.delta.type === "thinking_delta" && typeof event.delta.thinking === "string") {
+          blocks.appendThinking(index, event.delta.thinking);
+          const control = await onChunk({ content: "", reasoning: event.delta.thinking, finishReason, raw: event });
+          if (control?.stop) {
+            stopped = true;
+            break;
+          }
+        } else if (event.delta.type === "signature_delta" && typeof event.delta.signature === "string") {
+          blocks.appendSignature(index, event.delta.signature);
+        }
+      } else if (type === "content_block_stop") {
+        const index = numericIndex(event.index);
+        await finishTool(index);
+      } else if (type === "message_delta") {
+        if (isRecord(event.delta) && typeof event.delta.stop_reason === "string") finishReason = event.delta.stop_reason;
+        const usage = extractAnthropicUsage(event);
+        if (usage) {
+          // message_delta 仅更新非空字段：部分代理不回传 input 侧（pi-ai 同款容错）。
+          outputTokens = usage.outputTokens;
+          cachedInputTokens = usage.cachedInputTokens ?? cachedInputTokens;
+          cacheCreationInputTokens = usage.cacheCreationInputTokens ?? cacheCreationInputTokens;
+          hasUsage = true;
+        }
+      } else if (type === "message_stop") {
+        break;
+      }
     }
-    const type = typeof body.type === "string" ? body.type : event.event;
-    if (type === "error") throw new Error(extractErrorMessage(body) ?? "Anthropic stream returned an error event");
-    if (type === "message_start" && isRecord(body.message)) {
-      const usage = extractAnthropicUsage(body.message);
-      if (usage) {
-        inputTokens = usage.inputTokens;
-        outputTokens = usage.outputTokens;
-        cachedInputTokens = usage.cachedInputTokens ?? cachedInputTokens;
-        cacheCreationInputTokens = usage.cacheCreationInputTokens ?? cacheCreationInputTokens;
-        hasUsage = true;
-      }
-    } else if (type === "content_block_start") {
-      const index = numericIndex(body.index);
-      const block = isRecord(body.content_block) ? body.content_block : null;
-      if (block?.type === "tool_use") {
-        tools.set(index, {
-          id: typeof block.id === "string" && block.id ? block.id : `tool_call_${index}`,
-          name: typeof block.name === "string" ? block.name : "",
-          arguments: typeof block.input === "string" ? block.input : "",
-        });
-      } else if (block?.type === "thinking") {
-        thinking.set(index, {
-          type: "thinking",
-          thinking: typeof block.thinking === "string" ? block.thinking : "",
-          signature: typeof block.signature === "string" ? block.signature : "",
-        });
-      } else if (block?.type === "redacted_thinking" && typeof block.data === "string") {
-        reasoningBlocks.push({ type: "redacted_thinking", data: block.data });
-      } else if (block?.type === "text" && typeof block.text === "string" && block.text) {
-        content += block.text;
-        const control = await onChunk({ content: block.text, finishReason, raw: body });
-        if (control?.stop) {
-          stopped = true;
-          return true;
-        }
-      }
-    } else if (type === "content_block_delta" && isRecord(body.delta)) {
-      const index = numericIndex(body.index);
-      if (body.delta.type === "text_delta" && typeof body.delta.text === "string") {
-        content += body.delta.text;
-        const control = await onChunk({ content: body.delta.text, finishReason, raw: body });
-        if (control?.stop) {
-          stopped = true;
-          return true;
-        }
-      } else if (body.delta.type === "input_json_delta" && typeof body.delta.partial_json === "string") {
-        const tool = tools.get(index);
-        if (tool) tool.arguments += body.delta.partial_json;
-      } else if (body.delta.type === "thinking_delta" && typeof body.delta.thinking === "string") {
-        const block = thinking.get(index) ?? { type: "thinking", thinking: "", signature: "" };
-        block.thinking += body.delta.thinking;
-        thinking.set(index, block);
-        const control = await onChunk({ content: "", reasoning: body.delta.thinking, finishReason, raw: body });
-        if (control?.stop) {
-          stopped = true;
-          return true;
-        }
-      } else if (body.delta.type === "signature_delta" && typeof body.delta.signature === "string") {
-        const block = thinking.get(index) ?? { type: "thinking", thinking: "", signature: "" };
-        block.signature += body.delta.signature;
-        thinking.set(index, block);
-      }
-    } else if (type === "content_block_stop") {
-      const index = numericIndex(body.index);
-      finishThinking(index);
-      await finishTool(index);
-    } else if (type === "message_delta") {
-      if (isRecord(body.delta) && typeof body.delta.stop_reason === "string") finishReason = body.delta.stop_reason;
-      const usage = extractAnthropicUsage(body);
-      if (usage) {
-        outputTokens = usage.outputTokens;
-        cachedInputTokens = usage.cachedInputTokens ?? cachedInputTokens;
-        cacheCreationInputTokens = usage.cacheCreationInputTokens ?? cacheCreationInputTokens;
-        hasUsage = true;
-      }
-    } else if (type === "message_stop") {
-      return true;
-    }
-    return false;
-  }, request.signal);
+    guard.throwIfAborted();
+  } finally {
+    await settleAsyncIterator(iterator);
+  }
 
-  for (const index of [...thinking.keys()].sort((a, b) => a - b)) finishThinking(index);
-  for (const index of [...tools.keys()].sort((a, b) => a - b)) await finishTool(index);
+  const content = blocks.text();
+  // 流在 content_block_stop 前结束（stop 控制/对端提前收流）时补 flush 未完结工具块：
+  // 结果仍携带已累积工具（旧版收尾循环语义），stopped 时不补发 chunk。
+  for (const block of blocks.toolCallBlocks()) {
+    if (!block.name || completedTools.some((call) => call.id === block.id)) continue;
+    const call = { id: block.id, type: "function" as const, function: { name: block.name, arguments: block.partialJson } };
+    completedTools.push(call);
+    if (!stopped) await onChunk({ content: "", finishReason, toolCalls: [call] });
+  }
+  const reasoningBlocks = [...redacted, ...blocks.reasoningEntries()]
+    .sort((a, b) => a.index - b.index)
+    .map((entry) => entry.block);
   const reasoning = reasoningBlocks.flatMap((block) => block.type === "thinking" ? [block.thinking] : []).join("");
   if (!content && !reasoningBlocks.length && !completedTools.length && finishReason !== "interrupted" && !stopped && !request.allowEmptyStream) {
     throw new Error(`Anthropic streaming response did not include assistant content (stopReason=${finishReason ?? "unknown"})`);
