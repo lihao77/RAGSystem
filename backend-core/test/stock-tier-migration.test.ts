@@ -139,6 +139,86 @@ describe("出厂示例 LLM tier 治理", () => {
   });
 });
 
+describe("零信息 LLM tier 治理", () => {
+  it("provider 与 model_name 均空的 default tier 剔除后置 null，继承系统 LLM", async () => {
+    // 历史形状：Agent Studio 对未配置档位的落盘形态——字段全空串，
+    // provider_type 可能残留旧值（孤儿 type 不参与解析，同样视为零信息）。
+    const store = new PreloadedTeamStore(new Map([
+      ["default", new Map([
+        ["empty_agent", agentWithTier({
+          provider: "",
+          provider_type: "deepseek",
+          model_name: "",
+          temperature: 0.2,
+          max_completion_tokens: 4096,
+          max_context_tokens: 128000,
+          extra_params: {},
+        }, undefined, "empty_agent")],
+      ])],
+    ]));
+
+    const service = new AgentConfigService(store);
+    await service.initialize();
+
+    expect(service.getConfig("empty_agent")?.llm_tiers).toBeNull();
+    expect(store.lastAppliedMigrations?.map((item) => item.id)).toEqual(["strip_empty_llm_tiers"]);
+    // 回写后幂等：二次加载不再触发。
+    const reloaded = new AgentConfigService(store);
+    await reloaded.initialize();
+    expect(store.saveAllCalls).toBe(1);
+  });
+
+  it("空条目与真实档位混存时只剔空，真实档位保留", async () => {
+    const store = new PreloadedTeamStore(new Map([
+      ["default", new Map([
+        ["mixed_agent", agentWithTier(null, {
+          default: { provider: "", provider_type: "", model_name: "" },
+          fast: { provider: "real", provider_type: "vendor", model_name: "real-model" },
+        }, "mixed_agent")],
+      ])],
+    ]));
+
+    const service = new AgentConfigService(store);
+    await service.initialize();
+
+    const tiers = service.getConfig("mixed_agent")?.llm_tiers;
+    expect(tiers).not.toHaveProperty("default");
+    expect(tiers?.fast).toMatchObject({ provider: "real", model_name: "real-model" });
+  });
+
+  it("空 map（无任何档位键）同样归一为 null", async () => {
+    const store = new PreloadedTeamStore(new Map([
+      ["default", new Map([["agent", agentWithTier(null, {}, "agent")]])],
+    ]));
+
+    const service = new AgentConfigService(store);
+    await service.initialize();
+
+    expect(service.getConfig("agent")?.llm_tiers).toBeNull();
+  });
+
+  it("半空条目（provider 与 model_name 仅其一非空）是真实配置错误，不做兜底剥除", async () => {
+    const store = new PreloadedTeamStore(new Map([
+      ["default", new Map([
+        ["half_agent", agentWithTier({
+          provider: "real",
+          provider_type: "vendor",
+          model_name: "",
+        }, undefined, "half_agent")],
+      ])],
+    ]));
+
+    const service = new AgentConfigService(store);
+    await service.initialize();
+
+    // 保留原样：静默剥除会掩盖配置问题，运行期由 readiness 显式报缺失。
+    expect(service.getConfig("half_agent")?.llm_tiers?.default).toMatchObject({
+      provider: "real",
+      model_name: "",
+    });
+  });
+});
+
 function agentWithTier(
   defaultTier: Record<string, unknown> | null,
   tiers?: Record<string, unknown>,
