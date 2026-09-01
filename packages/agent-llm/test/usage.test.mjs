@@ -50,6 +50,71 @@ test("DeepSeek usage maps cache hit and miss tokens", () => {
   });
 });
 
+test("hit+miss outranks an input_tokens total that excludes cached input", () => {
+  // 兼容网关病态形状：input_tokens 不含缓存部分，却又单独上报 hit/miss。
+  // 分母必须取 hit+miss 完整分解，否则命中率虚高（90/10 = 900%）。
+  assert.deepEqual(extractOpenAiUsage({
+    usage: {
+      input_tokens: 10,
+      prompt_cache_hit_tokens: 90,
+      prompt_cache_miss_tokens: 10,
+      completion_tokens: 4,
+    },
+  }), {
+    inputTokens: 100,
+    outputTokens: 4,
+    totalTokens: 104,
+    cachedInputTokens: 90,
+  });
+});
+
+test("hit-only usage without miss falls back to the reported prompt total", () => {
+  // 只报 hit 不报 miss 时无法重构总量，回到网关自报的 prompt_tokens（含缓存的口径）。
+  assert.deepEqual(extractOpenAiUsage({
+    usage: {
+      prompt_tokens: 100,
+      prompt_cache_hit_tokens: 90,
+      completion_tokens: 4,
+    },
+  }), {
+    inputTokens: 100,
+    outputTokens: 4,
+    totalTokens: 104,
+    cachedInputTokens: 90,
+  });
+});
+
+test("cached-only round without a top-level input total floors input at the cache detail", () => {
+  // 实测网关形状：usage 只带 input_tokens_details.cached_tokens 与 output_tokens，
+  // 缺顶层 input_tokens/prompt_tokens。输入必须至少计入缓存部分，否则该轮
+  // 分子加 cached、分母加 0，会话命中率会超过 100%。
+  assert.deepEqual(extractOpenAiUsage({
+    usage: {
+      output_tokens: 4,
+      input_tokens_details: { cached_tokens: 9728 },
+    },
+  }), {
+    inputTokens: 9728,
+    outputTokens: 4,
+    totalTokens: 9732,
+    cachedInputTokens: 9728,
+  });
+});
+
+test("reported input total below the cache detail is raised to the cache floor", () => {
+  // 网关把 input_tokens 报成不含缓存部分的小值：输入抬升到 cached+write 下限。
+  const parsed = extractOpenAiUsage({
+    usage: {
+      input_tokens: 500,
+      output_tokens: 4,
+      input_tokens_details: { cached_tokens: 9728, cache_write_tokens: 30 },
+    },
+  });
+  assert.equal(parsed.inputTokens, 9758);
+  assert.equal(parsed.cachedInputTokens, 9728);
+  assert.equal(parsed.cacheCreationInputTokens, 30);
+});
+
 test("Qwen-compatible usage maps cache creation tokens when reported", () => {
   assert.deepEqual(extractOpenAiUsage({
     usage: {

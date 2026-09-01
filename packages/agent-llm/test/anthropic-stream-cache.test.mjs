@@ -148,3 +148,51 @@ test("Anthropic 流在 content_block_stop 前结束时仍携带已累积的工�
     globalThis.fetch = originalFetch;
   }
 });
+
+test("zhipu 网关形状：message_start 全 0、真实 input/cache 只随 message_delta 到达", async () => {
+  // 形状取自 wire 抓取实测（llm-wire-report --usage-shapes）：
+  // message_start.usage 全 0；message_delta.usage 带 input_tokens + cache_read_input_tokens
+  // + 非数值附加字段（server_tool_use/service_tier）。input 侧必须从 delta 采纳，
+  // 否则 run 级 token_in=0、该轮缓存进分子不进分母（会话命中率 >100%）。
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(sseBody([
+    { type: "message_start", data: { type: "message_start", message: { usage: { input_tokens: 0, output_tokens: 0 } } } },
+    { type: "content_block_start", data: { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } } },
+    { type: "content_block_delta", data: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "ok" } } },
+    { type: "content_block_stop", data: { type: "content_block_stop", index: 0 } },
+    {
+      type: "message_delta",
+      data: {
+        type: "message_delta",
+        delta: { stop_reason: "end_turn" },
+        usage: {
+          input_tokens: 1303,
+          output_tokens: 142,
+          cache_read_input_tokens: 9472,
+          server_tool_use: { web_search_requests: 0 },
+          service_tier: "standard",
+        },
+      },
+    },
+    { type: "message_stop", data: { type: "message_stop" } },
+  ]), { headers: { "content-type": "text/event-stream" } });
+  try {
+    const result = await new AnthropicAdapter().stream(
+      {
+        provider: { key: "pqy", name: "P", provider_type: "anthropic", api_key: "secret", api_endpoint: "https://gw.example" },
+        model: "glm-5.3-flash",
+        messages: [{ role: "user", content: "hi" }],
+      },
+      async () => undefined,
+    );
+    // input = 1303(uncached) + 9472(cache_read)；cached 单列。
+    assert.deepEqual(result.usage, {
+      inputTokens: 10775,
+      outputTokens: 142,
+      totalTokens: 10917,
+      cachedInputTokens: 9472,
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

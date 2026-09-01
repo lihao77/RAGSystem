@@ -216,7 +216,7 @@ export function readPersistedSessionContextTokenUsage(
   };
 }
 
-/** 读取会话级缓存命中累计（_cache_session_totals）；未写入过或关键字段非法时返回 null。 */
+/** 读取会话级缓存命中累计（_cache_session_totals）；未写入过返回 null，部分字段非法时按字段容错收敛。 */
 export function readPersistedSessionCacheTotals(
   metadata: Record<string, unknown>,
 ): SessionCacheTotals | null {
@@ -225,11 +225,13 @@ export function readPersistedSessionCacheTotals(
   const cachedInputTokens = nonNegativeInteger(entry.cached_input_tokens);
   const cacheCreationInputTokens = nonNegativeInteger(entry.cache_creation_input_tokens);
   const inputTokens = nonNegativeInteger(entry.input_tokens);
-  if (cachedInputTokens === null || inputTokens === null) return null;
+  // 全部字段非法才视为不存在；单字段损坏（滚动升级旧写入/外部改写）只收敛该字段、
+  // 保留其余有效累计——整体判无效会让下一次累计从 0 重建，历史命中量被静默清零。
+  if (cachedInputTokens === null && cacheCreationInputTokens === null && inputTokens === null) return null;
   return {
-    cachedInputTokens,
+    cachedInputTokens: cachedInputTokens ?? 0,
     cacheCreationInputTokens: cacheCreationInputTokens ?? 0,
-    inputTokens,
+    inputTokens: inputTokens ?? 0,
   };
 }
 

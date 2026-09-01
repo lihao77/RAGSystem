@@ -23,7 +23,7 @@ import { extractAnthropicUsage } from "../internal/usage.js";
 import {
   anthropicBaseURL,
   consumeProviderStream,
-  createIpcFetch,
+  resolveSdkFetch,
   executeProviderOperation,
   requireApiKey,
   settleAsyncIterator,
@@ -71,7 +71,7 @@ export class AnthropicAdapter implements LlmProviderAdapter {
 
 /** 按请求构造（pi-ai 同款 createClient 模式）；重试/超时归策略层。 */
 function createMessagesClient(provider: ProviderConfig): Anthropic {
-  const fetch = createIpcFetch(provider);
+  const fetch = resolveSdkFetch(provider);
   return new Anthropic({
     apiKey: requireApiKey(provider),
     baseURL: anthropicBaseURL(provider),
@@ -357,6 +357,10 @@ async function consumeAnthropicStream(
         const usage = extractAnthropicUsage(event);
         if (usage) {
           // message_delta 仅更新非空字段：部分代理不回传 input 侧（pi-ai 同款容错）。
+          // 实测有网关（zhipu anthropic 兼容层）message_start 全 0、真实 input/cache
+          // 只随 message_delta 到达——input 侧带值时必须采纳，否则该轮缓存进分子而
+          // input 恒 0（表现为 run 级 token_in=0、会话命中率 >100%）。
+          if (usage.inputTokens > 0) inputTokens = usage.inputTokens;
           outputTokens = usage.outputTokens;
           cachedInputTokens = usage.cachedInputTokens ?? cachedInputTokens;
           cacheCreationInputTokens = usage.cacheCreationInputTokens ?? cacheCreationInputTokens;

@@ -190,7 +190,13 @@ async function accumulateSessionCacheTotals(
 ): Promise<void> {
   const deltaCached = usage.cachedInputTokens ?? 0;
   const deltaCreation = usage.cacheCreationInputTokens ?? 0;
-  const deltaInput = usage.inputTokens;
+  // 口径对齐 kernel 的 context_usage 事件（仅 cached/creation 非零才上报）：会话命中率
+  // 的分子分母必须来自同一调用集合——不上报缓存字段的 provider 既不进分子也不进分母，
+  // 否则中途换模型会被无缓存调用稀释命中率，与前端实时面板口径不一致。
+  if (usage.cachedInputTokens === undefined && usage.cacheCreationInputTokens === undefined) return;
+  // 缓存 token 本身就是输入 token：分母下限收敛到分子，实测有网关轮次只报缓存明细
+  // 而缺顶层 input 总量（解析层已兜底，这里再挡一道外部直传的 usage）。
+  const deltaInput = Math.max(usage.inputTokens, deltaCached + deltaCreation);
   if (deltaCached <= 0 && deltaCreation <= 0 && deltaInput <= 0) return;
   await serializeSessionMutation(sessionId, async () => {
     const session = await storage.conversation.getSession(sessionId);
