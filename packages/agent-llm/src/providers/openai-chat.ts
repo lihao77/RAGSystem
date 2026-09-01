@@ -14,7 +14,7 @@ import { extractOpenAiUsage } from "../internal/usage.js";
 import { providerTypeSpec } from "../provider-registry.js";
 import {
   consumeProviderStream,
-  createIpcFetch,
+  resolveSdkFetch,
   executeProviderOperation,
   openAiBaseURL,
   requireApiKey,
@@ -67,7 +67,7 @@ export class OpenAiChatAdapter implements LlmProviderAdapter {
 
 /** 按请求构造（构造时解析 fetch，测试 stub globalThis.fetch 依赖这一点）；重试/超时归策略层。 */
 function createChatClient(provider: ProviderConfig): OpenAI {
-  const fetch = createIpcFetch(provider);
+  const fetch = resolveSdkFetch(provider);
   return new OpenAI({
     apiKey: requireApiKey(provider),
     baseURL: openAiBaseURL(provider, "/chat/completions"),

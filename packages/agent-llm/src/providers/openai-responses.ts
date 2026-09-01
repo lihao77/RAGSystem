@@ -14,7 +14,7 @@ import { isRecord } from "../internal/records.js";
 import { extractOpenAiUsage } from "../internal/usage.js";
 import {
   consumeProviderStream,
-  createIpcFetch,
+  resolveSdkFetch,
   executeProviderOperation,
   openAiBaseURL,
   requireApiKey,
@@ -53,7 +53,7 @@ export class OpenAiResponsesAdapter implements LlmProviderAdapter {
 }
 
 function createResponsesClient(provider: ProviderConfig): OpenAI {
-  const fetch = createIpcFetch(provider);
+  const fetch = resolveSdkFetch(provider);
   return new OpenAI({
     apiKey: requireApiKey(provider),
     baseURL: openAiBaseURL(provider, "/responses"),

@@ -118,3 +118,6 @@ dist/
 .tmp-patch-*.cjs
 .tmp-verify-data/
 .tmp-verify-server.log
+
+# LLM wire capture (dev infra; contains request bodies with user content)
+llm-wire-logs/

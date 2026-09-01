@@ -13,5 +13,12 @@ export * from "./content-parts.js";
 export * from "./external-call-policy.js";
 export * from "./provider-continuation.js";
 export { LlmProviderClient, OpenAiCompatibleClient } from "./llm-client.js";
+export {
+  configureWireCapture,
+  isWireCaptureEnabled,
+  wireCaptureStatus,
+  wrapFetchWithWireCapture,
+  type WireCaptureOptions,
+} from "./wire-capture.js";
 export { buildAnthropicBody } from "./providers/anthropic.js";
 export { GeminiAdapter, buildGeminiBody, extractGeminiUsage } from "./providers/gemini.js";

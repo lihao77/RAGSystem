@@ -15,6 +15,7 @@
   ],
   "scripts": {
     "test:cache-live": "npm -w @ragsystem/agent-llm run build && node scripts/cache-hit-rate-live.mjs",
+    "llm:wire-report": "node scripts/llm-wire-report.mjs",
     "build:contracts": "npm run build:protocol && npm -w @ragsystem/api-contracts run build",
     "build:chat-sdk": "npm run build:contracts && npm -w @ragsystem/chat-sdk-core run build",
     "typecheck:contracts": "npm run build:protocol && npm -w @ragsystem/api-contracts run typecheck",

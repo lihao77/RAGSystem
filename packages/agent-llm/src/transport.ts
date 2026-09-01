@@ -23,6 +23,7 @@ import {
   RetryableHttpError,
 } from "./external-call-policy.js";
 import { isRecord } from "./internal/records.js";
+import { isWireCaptureEnabled, wrapFetchWithWireCapture } from "./wire-capture.js";
 
 export function requireApiKey(provider: ProviderConfig): string {
   const apiKey = String(provider.api_key ?? "").trim();
@@ -251,6 +252,19 @@ function isRetryProviderError(error: unknown): boolean {
 
 /** 注入 openai/anthropic SDK 的 fetch：仅 ipc_socket 组网时启用，默认走 SDK 自带 fetch。 */
 export type ProviderFetch = (input: Request | URL | string, init?: RequestInit) => Promise<Response>;
+
+/**
+ * SDK fetch 统一解析口：ipc_socket 组网与线级抓取（wire-capture，开发基础设施，
+ * env/程序化开关，默认零开销）正交组合。未启用任何一项时返回 undefined，
+ * SDK 走自带 fetch——测试 stub globalThis.fetch 依赖这一点（包装层惰性读取
+ * globalThis.fetch，stub 语义不变）。
+ */
+export function resolveSdkFetch(provider: ProviderConfig): ProviderFetch | undefined {
+  const ipc = createIpcFetch(provider);
+  if (!isWireCaptureEnabled()) return ipc;
+  const base = ipc ?? ((input: Request | URL | string, init?: RequestInit) => globalThis.fetch(input, init));
+  return wrapFetchWithWireCapture(base, { provider: String(provider.key ?? provider.name ?? provider.provider_type) });
+}
 
 export function createIpcFetch(provider: ProviderConfig): ProviderFetch | undefined {
   const transport = provider.transport;
