@@ -36,6 +36,7 @@ backend-ts/.env
 backend-ts/.env.local
 backend-ts/.test-data/
 backend-ts/.tmp/
+.tmp/
 backend-ts/data/
 backend-ts/-
 /backend-fastapi/

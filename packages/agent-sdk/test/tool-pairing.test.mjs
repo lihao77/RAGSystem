@@ -51,6 +51,35 @@ test("缺 tool_call_id 的 tool 消息被丢弃", () => {
   assert.equal(result.messages.length, 1);
 });
 
+test("同一 tool_call_id 的第二次应答被丢弃(refresh 索引错位注入重复 tool 消息的复现形态)", () => {
+  const messages = [
+    { role: "user", content: "task" },
+    assistantWithCalls("a", "b"),
+    toolResult("a"),
+    toolResult("b"),
+    toolResult("b"),
+  ];
+  const result = sanitizeToolPairing(messages);
+  assert.deepEqual(result.droppedToolCallIds, ["b"]);
+  assert.deepEqual(result.messages.map((m) => m.role), ["user", "assistant", "tool", "tool"]);
+  assert.equal(result.messages.filter((m) => m.role === "tool" && m.tool_call_id === "b").length, 1);
+});
+
+test("后续 assistant 轮重新声明同 id 时,新一轮的应答合法保留(适配器合成 id 跨轮重名形态)", () => {
+  // provider 不回 call id 时适配器按序号合成（如 tool_call_0），两轮单调用各自合法。
+  const messages = [
+    { role: "user", content: "task" },
+    assistantWithCalls("tool_call_0"),
+    toolResult("tool_call_0"),
+    { role: "user", content: "again" },
+    assistantWithCalls("tool_call_0"),
+    toolResult("tool_call_0"),
+  ];
+  const result = sanitizeToolPairing(messages);
+  assert.equal(result.droppedToolCallIds.length, 0);
+  assert.equal(result.messages.filter((m) => m.role === "tool").length, 2);
+});
+
 test("悬空 tool_calls(无 tool 结果)不动,留给内核恢复契约", () => {
   const messages = [
     { role: "user", content: "task" },

@@ -614,7 +614,7 @@ export async function executeRunWithSdk(
     updateSessionMetadata: (sid: string, patch: Record<string, unknown>) =>
       sessionMetadata.updateSessionMetadata?.(sid, patch) ?? null,
   };
-  const { built, contextBuilder, cacheTracker } = await buildBackendAgentContext(input.agent, profile, historyPort, {
+  const { built, contextBuilder, recentSource, cacheTracker } = await buildBackendAgentContext(input.agent, profile, historyPort, {
     dataRoot: deps.dataRoot,
     sessionId: input.sessionId,
     threadKey: input.threadKey,
@@ -788,18 +788,23 @@ export async function executeRunWithSdk(
         if (lastMsg && typeof lastMsg.seq === "number") lastSeq = Math.max(lastSeq, lastMsg.seq);
         lastSeq = Math.max(lastSeq, mailboxMaxSeq);
         if (accepted.length === 0 && mailboxAcceptedIds.size === 0) return createRefreshResult([]);
-        // Reuse the canonical history pipeline for follow-ups so command_ref, attachments,
-        // and metadata extensions have the exact same Agent projection as the first request.
-        const refreshed = await contextBuilder.buildContext({
+        // 投递物不再从全量重建视图按索引筛选：conversation/rawMessages 的索引对齐曾因
+        // 孤儿补齐插入而错位（并行批次部分落库窗口），把真实 tool 消息误当"新认领的
+        // user 消息"追加——同 tool_call_id 重复应答被上游 400。改为对本轮认领/接受的
+        // user 行单独跑同一规范投影（projectRows），交付物与首次请求同形、不依赖全量
+        // 视图几何，也省去每次投递的全量历史重建。
+        const acceptedIds = new Set([...mailboxAcceptedIds, ...accepted]);
+        const acceptedRows = newerRaw.filter((message) => message.role === "user" && acceptedIds.has(message.id));
+        const delivered = await recentSource.projectRows(acceptedRows, {
           sessionId: sid,
           threadKey: tk,
+          cacheAlive: false,
+          touch: false,
         });
+        // 维持原重建路径的副作用语义：refresh 处于真正发请求的 run 路径，续期 provider cache 活性。
+        cacheTracker.touch(sid, tk, Date.now() / 1000);
         await sessionMetadata.flush();
-        const acceptedIds = new Set([...mailboxAcceptedIds, ...accepted]);
-        return createRefreshResult(refreshed.conversation.flatMap((message, index): ChatMessage[] => {
-          const raw = refreshed.rawMessages[index];
-          return raw?.role === "user" && acceptedIds.has(raw.id) ? [message] : [];
-        }));
+        return createRefreshResult(delivered);
       } catch (error) {
         throw error;
       }

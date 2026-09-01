@@ -4,6 +4,7 @@ import { MSG_TYPE } from "../src/contracts/message-kinds.js";
 import type { MessageProviderState } from "../src/contracts/conversation-store/types.js";
 import type { MessageInfo } from "../src/contracts/session/session.js";
 import type { ConversationHistoryPort } from "../src/services/agent/context/types.js";
+import { createDefaultProjectionRegistry } from "../src/services/agent/context/extensions/index.js";
 import { ProjectionRegistry } from "../src/services/agent/context/extensions/registry.js";
 import { RecentMessagesContextSource } from "../src/services/agent/context/recent-messages-source.js";
 
@@ -348,5 +349,97 @@ describe("RecentMessagesContextSource", () => {
     expect(lastEntry.role).toBe("tool");
     expect(lastEntry.tool_call_id).toBe("call-2");
     expect(lastEntry.content).toContain("No result provided");
+  });
+
+  it("keeps originals index-aligned when closing orphaned tool calls (refresh misdelivery regression)", async () => {
+    // 2026-08-31 线上 400 的失败形状：并行工具批次部分落库（call-1 未落、call-2 已落），
+    // 其后紧跟刚被 refresh 认领的 user 消息。closeOrphanedToolCalls 插入合成结果后，
+    // conversation 与 rawMessages 必须保持逐 index 对齐——错位曾让按索引筛选的消费者
+    // 把真实 tool 消息误当"新接受的 user 消息"追加，产生同 tool_call_id 的重复应答
+    //（OpenAI 兼容协议 400）。refresh 投递已改走 projectRows（不依赖该对齐），但对齐
+    // 契约仍被调试快照（monitoring 按 index 回绑元数据）等消费者依赖，必须守住。
+    const history: MessageInfo[] = [
+      message({ id: "user-task", seq: 1, role: "user", content_parts: [{ type: "text", text: "task" }], metadata: {} }),
+      message({
+        id: "intent-parallel",
+        seq: 2,
+        role: "assistant",
+        metadata: { msg_type: MSG_TYPE.ROUND },
+        tool_calls: [
+          { id: "call-1", type: "function" as const, function: { name: "task_output", arguments: "{}" } },
+          { id: "call-2", type: "function" as const, function: { name: "list_child_agents", arguments: "{}" } },
+        ],
+      }),
+      message({
+        id: "observation-2",
+        seq: 3,
+        role: "tool",
+        content_parts: [{ type: "text", text: "result 2" }],
+        metadata: { msg_type: MSG_TYPE.OBSERVATION },
+        tool_call_id: "call-2",
+        name: "list_child_agents",
+      }),
+      message({
+        id: "claimed-agent-result",
+        seq: 4,
+        role: "user",
+        content_parts: [{ type: "text", text: "[agent-message kind=result]" }],
+        // ui_context 扩展投影夹具：默认注册表会把它渲染成 <ui_context> 文本块追加到
+        // content——等价性断言由此覆盖"交付物与首次请求同形（扩展投影一致）"的主张。
+        metadata: {
+          agent_message: true,
+          extensions: [{ kind: "ui_context", data: { entries: [{ label: "页面", value: "工作台", detail: "冒烟测试" }] } }],
+        },
+      }),
+    ];
+    const historyPort: ConversationHistoryPort = {
+      getRecentMessages: vi.fn(async () => history),
+    } as ConversationHistoryPort;
+    const source = new RecentMessagesContextSource(historyPort, false, createDefaultProjectionRegistry());
+    const result = await source.build({ sessionId: "session-1", threadKey: "root", cacheAlive: false, touch: false });
+
+    const conversation = result.conversation ?? [];
+    // 合成结果插入在 assistant 之后，长度与 originals 严格相等（对齐不变量）。
+    expect(conversation.length).toBe(result.rawMessages!.length);
+    expect(conversation.map((entry) => entry.role)).toEqual(["user", "assistant", "tool", "tool", "user"]);
+
+    // 复刻按索引识别投递物的消费方式（修复后应正确选中 user 消息本身）。
+    const acceptedIds = new Set(["claimed-agent-result"]);
+    const delivered = conversation.flatMap((entry, index) => {
+      const raw = result.rawMessages![index];
+      return raw?.role === "user" && acceptedIds.has(raw.id) ? [entry] : [];
+    });
+    // 必须投递 user 消息本身——而不是错位后对上的真实 tool 消息（回归点）。
+    expect(delivered).toHaveLength(1);
+    expect(delivered[0]!.role).toBe("user");
+    expect(String(delivered[0]!.content)).toContain("[agent-message kind=result]");
+
+    // refresh 投递现路径（projectRows）在同样的失败形状上必须交付等价物——
+    // 只依赖被认领的行本身，与全量视图的几何（含孤儿补齐）完全解耦；
+    // 且扩展投影（ui_context）在两条路径上一致生效。
+    const projected = await source.projectRows(
+      history.filter((row) => row.id === "claimed-agent-result"),
+      { sessionId: "session-1", threadKey: "root", cacheAlive: false, touch: false },
+    );
+    expect(String(delivered[0]!.content)).toContain("<ui_context>");
+    expect(projected).toEqual(delivered);
+  });
+
+  it("projectRows applies the same visibility filter as the full build", async () => {
+    const source = new RecentMessagesContextSource(
+      { getRecentMessages: vi.fn(async () => []) } as unknown as ConversationHistoryPort,
+      false,
+      new ProjectionRegistry(),
+    );
+    const rows: MessageInfo[] = [
+      message({ id: "claimed", seq: 1, role: "user", content_parts: [{ type: "text", text: "claimed input" }], metadata: {} }),
+      message({ id: "hidden-claimed", seq: 2, role: "user", content_parts: [{ type: "text", text: "hidden" }], metadata: { hidden: true } }),
+      message({ id: "display-only", seq: 3, role: "user", content_parts: [{ type: "text", text: "ui only" }], metadata: { display_only: true } }),
+    ];
+    const projected = await source.projectRows(rows, { sessionId: "session-1", threadKey: "root", cacheAlive: false, touch: false });
+
+    expect(projected).toHaveLength(1);
+    expect(projected[0]!.role).toBe("user");
+    expect(String(projected[0]!.content)).toContain("claimed input");
   });
 });
