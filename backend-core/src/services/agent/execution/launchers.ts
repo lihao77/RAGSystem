@@ -982,6 +982,8 @@ class AgentLaunchers {
       rootCallId,
       requestId: `${MAILBOX_CONTINUATION_REQUEST_PREFIX}${target.sourceMessageId}`,
       task,
+      // mailbox 续接无父工具上下文可继承，回退会话 owner 作为 run 用户身份。
+      userId: sessionIdentity.ownerUserId,
       executionKind: "system.agent_message",
       agent: ready.agent,
       provider: ready.provider,
@@ -1266,6 +1268,9 @@ class AgentLaunchers {
           requestId: `session_followup_${firstMailbox.message_id}`,
           task: "处理待接收的用户消息，并继续当前任务。",
           executionKind: "session_followup",
+          // 系统触发的 root run 无请求 identity，回退会话 owner 作为 run 用户身份
+          //（memory 等按 user 归属的工具依赖 ToolExecContext.userId）。
+          userId: sessionIdentity.ownerUserId,
           agent: ready.agent,
           provider: ready.provider,
           modelName: ready.modelName,
@@ -1376,6 +1381,8 @@ class AgentLaunchers {
         agent: ready.agent,
         provider: ready.provider,
         modelName: ready.modelName,
+        // 同 session_followup：系统触发的 root run 回退会话 owner 作为用户身份。
+        userId: sessionIdentity.ownerUserId,
         persistUserMessage: {
           contentParts: [{ type: "text", text: task }],
           inputType: claimedGoal ? "goal_continuation" : "system_notification",

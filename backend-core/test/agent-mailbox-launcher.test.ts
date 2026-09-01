@@ -129,7 +129,7 @@ describe("Agent mailbox continuation launcher", () => {
     const session = {
       session_id: "session-1",
       tenant_id: "tenant-1",
-      owner_user_id: null,
+      owner_user_id: "owner-9",
       visibility: "private",
       origin_type: "direct",
       origin_id: null,
@@ -306,6 +306,8 @@ describe("Agent mailbox continuation launcher", () => {
       scope: "child",
       execution: "background",
       executionKind: "system.agent_message",
+      // mailbox 续接无父工具上下文，run 用户身份回退会话 owner。
+      userId: "owner-9",
       mailboxTargetRunId: "child-run",
       mailboxTargetAgentCallId: "child-call",
       initialMessage: expect.objectContaining({ id: "request-1" }),

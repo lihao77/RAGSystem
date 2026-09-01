@@ -63,6 +63,8 @@ interface ChildRunInput {
   executionKind: string;
   rootTask: string;
   source: "agent_call";
+  /** 发起委派的用户（父工具上下文 userId），子 run 的工具执行上下文需要它（如 memory 工具的 scope 归属）。 */
+  userId: string | null;
   /** 通信模式直启 child run：父消息初始行的 agent_message 元数据（对齐 mailbox 认领路径 canonical 口径）。 */
   initialMessageMetadata?: Record<string, unknown>;
   signal?: AbortSignal | undefined;
@@ -114,6 +116,8 @@ interface ActiveChildRunRoute {
   parentRunId: string | null;
   parentCallId: string | null;
   lineageParentCallId: string | null;
+  /** 后台委派对应的 BackgroundTask id；前台委派为 null。cancel_agent 取消 run 时需连任务一起取消。 */
+  backgroundTaskId: string | null;
 }
 
 type LocalCancelResult = "aborted" | "already_aborted" | "no_active_run";
@@ -210,6 +214,7 @@ export class AgentDelegationService implements DelegationPort, ParticipantRunLif
       parentRunId: route.parentRunId,
       parentCallId: route.parentCallId,
       lineageParentCallId: route.lineageParentCallId,
+      backgroundTaskId: null,
     };
     this.activeChildRuns.set(route.childAgentId, activeRoute);
   }
@@ -496,6 +501,7 @@ export class AgentDelegationService implements DelegationPort, ParticipantRunLif
       parentRunId: lastRun.parent_run_id,
       parentCallId: lastRun.parent_call_id,
       lineageParentCallId: lastRun.lineage_parent_call_id,
+      backgroundTaskId: null,
     } : null);
     if (!runningChildRoute) {
       if (!lastRun) {
@@ -521,7 +527,13 @@ export class AgentDelegationService implements DelegationPort, ParticipantRunLif
       }
       return errorResult(`子 Agent '${childAgentId}' 当前没有可取消的运行实例`, toolName);
     }
+    // 先本地 abort（即时生效、回执准确），再取消 BackgroundTask 本体：只 abort run
+    // 的话，任务会在 executeCallableTask 里以 interrupted→success:false 收尾成
+    // "failed"，触发 failed 生命周期推送 + 系统通知二连发。任务落 cancelled 后，
+    // run 收尾回调会被 isDone 守卫短路；input.signal 同步 abort 也让 mailbox
+    // 终态投递被主动取消分支抑制。
     const cancellation = this.cancelLocalRun?.(runningChildRoute.runId, "agent_cancelled") ?? "no_active_run";
+    await this.cancelBackgroundTaskForRoute(sessionId, runningChildRoute);
     if (cancellation === "aborted") {
       return successResult({
         child_agent_id: childAgentId,
@@ -558,6 +570,32 @@ export class AgentDelegationService implements DelegationPort, ParticipantRunLif
       metadata: { agent_name: child.agent_name, child_agent_id: childAgentId, run_id: runningChildRoute.runId },
       toolName,
     });
+  }
+
+  /**
+   * 取消后台委派 run 关联的 BackgroundTask。activeChildRuns 里没记 taskId 的场合
+   * （如刚注册、或经 registerParticipantRun 恢复的运行），按 run_id 在会话任务表里
+   * 回查。回查不按 kind 过滤：child run 自己启动的后台 bash 任务共用同一 run_id，
+   * 取消 child 时一并终止是其子树清理的一部分。回查失败只记日志——本地 abort 已
+   * 生效，取消不能因回查异常以工具错误收场。
+   */
+  private async cancelBackgroundTaskForRoute(sessionId: string, route: ActiveChildRunRoute): Promise<void> {
+    if (!this.backgroundTasks) return;
+    let taskId = route.backgroundTaskId;
+    if (!taskId) {
+      try {
+        const tasks = await this.backgroundTasks.listSessionTasks(sessionId);
+        taskId = tasks.find((task) => task.run_id === route.runId && task.status === "running")?.task_id ?? null;
+      } catch (error) {
+        this.logger?.error({
+          session_id: sessionId,
+          run_id: route.runId,
+          error: error instanceof Error ? error.message : String(error),
+        }, "failed to look up background task for cancel");
+        return;
+      }
+    }
+    if (taskId) this.backgroundTasks.cancel(taskId);
   }
 
   private async createChild(call: CreateChildCall, ctx: ToolExecContext): Promise<ToolExecutionResult> {
@@ -735,6 +773,7 @@ export class AgentDelegationService implements DelegationPort, ParticipantRunLif
       parentRunId: lastRun.parent_run_id,
       parentCallId: lastRun.parent_call_id,
       lineageParentCallId: lastRun.lineage_parent_call_id,
+      backgroundTaskId: null,
     } : null);
     const kind = input.kind ?? "request";
     if (!runningChildRoute && lastRun?.status === "suspended") {
@@ -1058,6 +1097,7 @@ export class AgentDelegationService implements DelegationPort, ParticipantRunLif
       executionKind: spec.ctx.executionKind ?? "agent",
       rootTask: spec.rootTask,
       source: "agent_call",
+      userId: normalizeString(spec.ctx.userId),
       teamSnapshot: spec.teamSnapshot,
       workspaceRoot: getChildWorkspaceRoot(spec.childAgent, spec.ctx),
       parentThreadKey: normalizeString(spec.ctx.threadKey) ?? "root",
@@ -1086,6 +1126,7 @@ export class AgentDelegationService implements DelegationPort, ParticipantRunLif
       parentRunId: runInput.parentRunId,
       parentCallId: runInput.runParentCallId,
       lineageParentCallId: runInput.lineageParentCallId,
+      backgroundTaskId: null,
     };
     this.activeChildRuns.set(childAgentId, activeRoute);
     if (spec.runInBackground) {
@@ -1108,6 +1149,7 @@ export class AgentDelegationService implements DelegationPort, ParticipantRunLif
             }
           },
         });
+        activeRoute.backgroundTaskId = backgroundTask.task_id;
       } catch (error) {
         if (this.activeChildRuns.get(childAgentId) === activeRoute) this.activeChildRuns.delete(childAgentId);
         throw error;
@@ -1233,6 +1275,10 @@ export class AgentDelegationService implements DelegationPort, ParticipantRunLif
     }
     throwIfAborted(input.signal);
 
+    // 子 run 的用户身份：优先父工具上下文的 userId，缺失时回退会话 owner——
+    // memory 等按 user/workspace 归属的工具依赖 ToolExecContext.userId。
+    const sessionIdentity = toSessionIdentity(session);
+    const childUserId = normalizeString(input.userId) ?? sessionIdentity.ownerUserId;
     const invocationService = this.invocationService;
     if (!invocationService) {
       const message = "AgentInvocationService 未注入，无法执行子 Agent";
@@ -1258,7 +1304,7 @@ export class AgentDelegationService implements DelegationPort, ParticipantRunLif
       mode: input.resumeRunId ? "resume" : "create",
       execution: input.ownsRunLease ? "background" : "foreground",
       sessionId: input.sessionId,
-      sessionIdentity: toSessionIdentity(session),
+      sessionIdentity,
       runId: childRunId,
       taskId: randomUUID(),
       rootCallId: input.rootCallId,
@@ -1268,6 +1314,7 @@ export class AgentDelegationService implements DelegationPort, ParticipantRunLif
       requestId: input.requestId ?? "",
       task: input.task,
       startedAt: new Date(),
+      ...(childUserId ? { userId: childUserId } : {}),
       ...(input.signal ? { signal: input.signal } : {}),
       agent: targetAgent,
       provider: resolved.provider,
@@ -1331,6 +1378,13 @@ export class AgentDelegationService implements DelegationPort, ParticipantRunLif
     result: DelegationRunResult,
   ): Promise<DelegationRunResult> {
     if (!input.ownsRunLease || !this.mailbox || !input.tenantId || !input.parentRunId || result.suspended) return result;
+    // 主动取消（cancel_agent / 任务取消）不是子 Agent 的产出结果：取消方已拿到明确
+    // 回执，再投递 mailbox 终态只会唤醒父 run 造成取消后的二次推送。timeout 走
+    // invokeChild 的本地 controller，不会置 input.signal.aborted，仍正常投递。
+    // 早退同时跳过 wakePendingMessagesForCompletedChild：指向该 child 的 pending
+    // 消息不即时唤醒，由 cancelKnownTask → scheduleAutoTrigger → startSessionIdleRun
+    // 的 pending 扫描兜底消费，不会丢失。
+    if (input.signal?.aborted && (result.interrupted || !result.success)) return result;
     const parent = await this.store.getRun(input.sessionId, input.parentRunId);
     if (!parent) return result;
     const status = result.success

@@ -14,6 +14,7 @@ import { BackgroundTaskService } from "../src/services/runtime/background-task-s
 import { AgentDelegationService } from "../src/services/agent/delegation/index.js";
 import { createResumeExecutor } from "../src/services/agent/execution/resume-executor.js";
 import { AgentInvocationService } from "../src/services/agent/execution/invocation-service.js";
+import { AgentExecutionStatusTracker } from "../src/services/agent/execution/status-tracker.js";
 import { buildChildMetadata } from "../src/services/agent/delegation/helpers.js";
 import type { DelegationPort } from "../src/services/agent/delegation/port.js";
 import { createTestTeamSnapshot } from "./session-team-fixture.js";
@@ -1065,6 +1066,160 @@ describe("background child-agent delegation", () => {
     }));
   });
 
+  it("cancels the background task instead of failing it and suppresses duplicate terminal pushes", async () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "ragsystem-delegation-cancel-"));
+    tempRoots.push(root);
+    const backgroundTasks = new BackgroundTaskService();
+    const child = childAgent();
+    const delegationStore = store(child);
+    const enqueue = vi.fn();
+    const mailbox = {
+      enqueue,
+      get: vi.fn(),
+      listPending: vi.fn(async () => []),
+      claim: vi.fn(),
+      ack: vi.fn(),
+      release: vi.fn(),
+      expire: vi.fn(),
+    };
+    let resolveRunSettled!: () => void;
+    const runSettled = new Promise<void>((resolve) => { resolveRunSettled = resolve; });
+    const executeRun = vi.fn(async (input: { abortController: AbortController }) => {
+      await new Promise<void>((resolve) => {
+        if (input.abortController.signal.aborted) resolve();
+        else input.abortController.signal.addEventListener("abort", () => resolve(), { once: true });
+      });
+      resolveRunSettled();
+      return { success: false, content: "child run interrupted" };
+    });
+    // getRun 必须返回存在的 parent run：否则 enqueueChildTerminalResult 会在
+    // mailbox.enqueue 之前因查不到 parent 短路，enqueue/wakeup 断言就检测不到
+    // 主动取消抑制分支被删的回归。
+    vi.mocked(delegationStore.getRun).mockResolvedValue({
+      run_id: "parent-run",
+      session_id: "session-1",
+      tenant_id: "tenant-1",
+      entrypoint: "agent_stream",
+      status: "completed",
+      task_summary: "parent task",
+      terminal_reason: null,
+      request_id: "request-1",
+      user_id: null,
+      agent_name: "parent",
+      agent_call_id: "parent-agent-call",
+      lineage_parent_call_id: null,
+      agent_display_name: "Parent",
+      lease_root_run_id: "parent-run",
+      thread_key: "root",
+      parent_run_id: null,
+      parent_call_id: null,
+      child_agent_id: null,
+      final_message_id: null,
+      created_at: new Date(0).toISOString(),
+      updated_at: new Date(0).toISOString(),
+    } as never);
+    const statusTracker = new AgentExecutionStatusTracker();
+    const service = new AgentDelegationService(
+      delegationStore,
+      runtimeCore(workerAgent()),
+      null,
+      backgroundTasks,
+      root,
+      mailbox as never,
+      null,
+      "tenant-1",
+    );
+    const wakeup = vi.fn();
+    service.setMailboxWakeup(wakeup);
+    service.setInvocationService(new AgentInvocationService({ executeRun } as never, statusTracker));
+    service.setLocalRunCanceller((runId, reason) => statusTracker.cancelRun(runId, reason));
+
+    const result = await invokeCreate(service, {
+      agent: parentAgent(true),
+      teamName: null,
+      input: { agentName: "worker", task: "long running work", runInBackground: true, callId: "parent-call" },
+    }, context(new AbortController().signal));
+    const taskId = String((result.content as Record<string, unknown>).background_task_id);
+    const runningChildAgentId = String((result.content as Record<string, unknown>).child_agent_id);
+    await waitFor(() => executeRun.mock.calls.length > 0);
+
+    const cancelled = await invokeCancel(service, {
+      agent: parentAgent(true),
+      teamName: null,
+      input: { childAgentId: runningChildAgentId },
+    }, context(new AbortController().signal));
+
+    expect(cancelled.content).toEqual(expect.objectContaining({ status: "cancelled", cancellation: "local_abort" }));
+    await waitFor(() => backgroundTasks.getTaskSnapshot(taskId)?.status === "cancelled");
+    // 等 run 完整收尾（executeRun resolve 后的微任务链会走到 enqueueChildTerminalResult），
+    // 否则任务状态同步落 cancelled 时 run 终态投递还没执行，enqueue 断言会查早了。
+    await runSettled;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    // 取消是显式控制动作：任务不得以 failed 收尾，也不得再产生 agent 通知。
+    expect(backgroundTasks.hasPendingNotifications("session-1")).toBe(false);
+    // 主动取消不投递 mailbox 终态、不唤醒父 run，避免取消后的二次推送。
+    expect(enqueue).not.toHaveBeenCalled();
+    expect(wakeup).not.toHaveBeenCalled();
+  });
+
+  it("passes the parent tool-context userId into the child run input", async () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "ragsystem-delegation-user-"));
+    tempRoots.push(root);
+    const backgroundTasks = new BackgroundTaskService();
+    const delegationStore = store(childAgent());
+    const executeRun = vi.fn(async () => ({ success: true, content: "done" }));
+    const service = new AgentDelegationService(
+      delegationStore,
+      runtimeCore(workerAgent()),
+      null,
+      backgroundTasks,
+      root,
+      { enqueue: vi.fn(), get: vi.fn(), claim: vi.fn(), ack: vi.fn(), release: vi.fn(), expire: vi.fn() } as never,
+    );
+    service.setInvocationService(new AgentInvocationService({ executeRun } as never));
+
+    const result = await invokeCreate(service, {
+      agent: parentAgent(true),
+      teamName: null,
+      input: { agentName: "worker", task: "memory scoped work", runInBackground: true, callId: "parent-call" },
+    }, {
+      ...context(new AbortController().signal),
+      userId: "user-42",
+    } as never);
+    const taskId = String((result.content as Record<string, unknown>).background_task_id);
+    await waitFor(() => backgroundTasks.getTaskSnapshot(taskId)?.status === "completed");
+
+    expect(executeRun).toHaveBeenCalledWith(expect.objectContaining({ userId: "user-42" }));
+  });
+
+  it("falls back to the session owner as the child run user when the parent context has no userId", async () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "ragsystem-delegation-owner-"));
+    tempRoots.push(root);
+    const backgroundTasks = new BackgroundTaskService();
+    const delegationStore = store(childAgent());
+    vi.mocked(delegationStore.getSession).mockResolvedValue({ ...session(), owner_user_id: "owner-7" });
+    const executeRun = vi.fn(async () => ({ success: true, content: "done" }));
+    const service = new AgentDelegationService(
+      delegationStore,
+      runtimeCore(workerAgent()),
+      null,
+      backgroundTasks,
+      root,
+      { enqueue: vi.fn(), get: vi.fn(), claim: vi.fn(), ack: vi.fn(), release: vi.fn(), expire: vi.fn() } as never,
+    );
+    service.setInvocationService(new AgentInvocationService({ executeRun } as never));
+
+    const result = await invokeCreate(service, {
+      agent: parentAgent(true),
+      teamName: null,
+      input: { agentName: "worker", task: "memory scoped work", runInBackground: true, callId: "parent-call" },
+    }, context(new AbortController().signal));
+    const taskId = String((result.content as Record<string, unknown>).background_task_id);
+    await waitFor(() => backgroundTasks.getTaskSnapshot(taskId)?.status === "completed");
+
+    expect(executeRun).toHaveBeenCalledWith(expect.objectContaining({ userId: "owner-7" }));
+  });
+
   it("reconstructs a terminal mailbox result after a background owner lease expires", async () => {
     const child = childAgent();
     const delegationStore = store(child);
@@ -1684,7 +1839,7 @@ describe("background child-agent delegation", () => {
       task: "continue the child task",
       requestId: "request-1",
       executionKind: "agent",
-      userId: null,
+      userId: "user-9",
       sessionIdentity: toSessionIdentity(session()),
       resolutions: [],
     };
@@ -1701,6 +1856,7 @@ describe("background child-agent delegation", () => {
       childAgentId: "child_worker",
       ownsRunLease: true,
       threadKey: "child:child_worker",
+      userId: "user-9",
     }));
     const executeInput = executeRun.mock.calls[0]?.[0];
     expect(executeInput?.agent?.custom_params?.workspace_root).toBe("C:\\workspace");
