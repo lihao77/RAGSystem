@@ -579,11 +579,23 @@ export function createSessionEnvelopeDispatcher({
             ? 'goal_continuation'
             : null;
         if (systemUserMessageSource && event.payload?.task) {
-          messages.value.push(createUserMessage(event.payload.task, [], {
-            source: systemUserMessageSource,
-            request_id: event.payload?.request_id || null,
-            run_id: nextRunId,
-          }));
+          // 回放（active_run_snapshot / durable outbox）会重发 run_started，而历史加载
+          // 已返回持久化通知行（metadata 带 request_id/run_id）。按 source + 
+          // request_id/run_id 去重，避免切回前台时同一通知再插入一张无 id 合成卡。
+          const systemRequestId = event.payload?.request_id || null;
+          const notificationCardExists = messages.value.some(message => (
+            message?.role === 'user'
+            && message.metadata?.source === systemUserMessageSource
+            && ((systemRequestId && message.metadata?.request_id === systemRequestId)
+              || (nextRunId && getMessageRunId(message) === nextRunId))
+          ));
+          if (!notificationCardExists) {
+            messages.value.push(createUserMessage(event.payload.task, [], {
+              source: systemUserMessageSource,
+              request_id: systemRequestId,
+              run_id: nextRunId,
+            }));
+          }
         }
         messages.value.push(deps.createAssistantMessage({ run_id: nextRunId }));
         activeRun.assistantMsgIndex = messages.value.length - 1;

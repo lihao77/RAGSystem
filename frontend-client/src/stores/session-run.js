@@ -39,6 +39,9 @@ const parseRuntimeTimestampSeconds = (value) => {
 
 const getMessageRunId = message => message?.run_id || message?.metadata?.run_id || null;
 
+/** 系统合成用户卡（后台任务通知 / goal 续跑）：无持久 id 时按 source+run/request 合并的匹配域。 */
+const SYSTEM_USER_MESSAGE_SOURCES = new Set(['background_notification', 'goal_continuation']);
+
 const participantMessagesMatch = (current, incoming) => Boolean(
   (incoming?.id && current?.id === incoming.id)
   || (
@@ -46,6 +49,16 @@ const participantMessagesMatch = (current, incoming) => Boolean(
     && current?.role === 'assistant'
     && getMessageRunId(incoming)
     && getMessageRunId(current) === getMessageRunId(incoming)
+  )
+  || (
+    incoming?.role === 'user'
+    && current?.role === 'user'
+    && SYSTEM_USER_MESSAGE_SOURCES.has(current?.metadata?.source)
+    && current?.metadata?.source === incoming?.metadata?.source
+    && (
+      (getMessageRunId(incoming) && getMessageRunId(current) === getMessageRunId(incoming))
+      || (incoming?.metadata?.request_id && current?.metadata?.request_id === incoming.metadata.request_id)
+    )
   )
 );
 
