@@ -1427,23 +1427,66 @@ test("trial run executes acceptance inputs and cleans up the staging team", asyn
   }
 });
 
-test("explicit trial inputs override acceptance and clamp to five per call", async () => {
+test("explicit trial inputs above five are rejected instead of silently truncated", async () => {
   const fixture = await createFixture();
   try {
     const fake = fakeTrialRegistry();
     const { workspace, draftId } = await createTrialWorkspace(fixture);
-    const inputs = Array.from({ length: 7 }, (_, index) => ({ case: `input-${index}` }));
+    const inputs = Array.from({ length: 6 }, (_, index) => ({ case: `input-${index}` }));
+
+    await assert.rejects(
+      runDraftTrial(
+        { service: fixture.service, registry: fake.registry, tenantId: "tenant-test", bindings: memoryBindings() },
+        draftId,
+        workspace,
+        inputs,
+      ),
+      /最多 5 条|分批/,
+    );
+    // 拒绝发生在物化之前：没有暂存 Team，也没有模型调用
+    assert.equal(fake.calls.executed.length, 0);
+    const teams = await fixture.agentConfig.listTeams();
+    assert.equal(teams.teams.some((team) => team.team_name.startsWith("staging-")), false);
+
+    // 工具层同一条规则：zod schema 拒绝，暴露给模型的 JSON Schema 也声明 maxItems=5
+    const tool = createAgentBuilderTools(fixture.service, undefined, {
+      registry: fake.registry,
+      tenantId: "tenant-test",
+      bindingsProvider: async () => memoryBindings(),
+    }).find((item) => item.name === "try_agent_draft");
+    assert.equal(tool.parameters.properties.inputs.maxItems, 5);
+    const parsed = tool.inputSchema.safeParse({ draft_id: draftId, inputs });
+    assert.equal(parsed.success, false);
+    assert.match(String(parsed.error?.issues?.[0]?.message ?? ""), /最多 5 条|分批/);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("acceptance defaults beyond five are truncated and the dropped cases are listed", async () => {
+  const fixture = await createFixture();
+  try {
+    const fake = fakeTrialRegistry();
+    const { workspace, draftId } = await createTrialWorkspace(fixture);
+    const blueprintPath = path.join(fixture.root, "session-workspace", ".ragsystem", "agent-builder", "drafts", draftId, "blueprint.json");
+    const localBlueprint = JSON.parse(fs.readFileSync(blueprintPath, "utf8"));
+    localBlueprint.acceptance = Array.from({ length: 7 }, (_, index) => ({
+      case: `case-${index}`,
+      expect_contains: ["echo:"],
+      source: "sample",
+    }));
+    fs.writeFileSync(blueprintPath, `${JSON.stringify(localBlueprint, null, 2)}\n`);
 
     const report = await runDraftTrial(
       { service: fixture.service, registry: fake.registry, tenantId: "tenant-test", bindings: memoryBindings() },
       draftId,
       workspace,
-      inputs,
     );
 
     assert.equal(report.results.length, 5);
     assert.equal(report.inputs_truncated, true);
-    assert.deepEqual(report.results.map((item) => item.input), ["input-0", "input-1", "input-2", "input-3", "input-4"]);
+    assert.deepEqual(report.truncated_inputs, ["case-5", "case-6"]);
+    assert.equal(report.summary.total, 5);
   } finally {
     fixture.cleanup();
   }
@@ -1576,6 +1619,155 @@ test("migration converges a torn mid-upgrade state even when the version stamp i
     assert.match(orchestrator.custom_params.behavior.system_prompt, /Trial protocol:/);
     assert.ok(orchestrator.tools.enabled_tools.includes("try_agent_draft"));
     assert.equal(await ensureAgentBuilderTeam(fixture.agentConfig), false);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+function modelCatalogFixture() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-builder-"));
+  return {
+    root,
+    agentConfig: new AgentConfigService(new MemoryTeamStore()),
+    get service() {
+      return new AgentBuilderService(
+        new FilesystemAgentBuilderStore(root),
+        this.agentConfig,
+        [],
+        null,
+        {
+          listProviders: () => [
+            { name: "DeepSeek", key: null, provider_type: "deepseek", models: [{ name: "deepseek-chat" }] },
+            { name: "Relay Gateway", key: "relay", provider_type: "openai_compatible", models: [{ name: "k2" }] },
+          ],
+        },
+      );
+    },
+    cleanup: () => fs.rmSync(root, { recursive: true, force: true }),
+  };
+}
+
+test("publishing backfills missing llm_tiers.provider_type from the model catalog", async () => {
+  const fixture = modelCatalogFixture();
+  try {
+    await fixture.agentConfig.initialize();
+    const draft = await fixture.service.createDraft(blueprint({
+      agents: [
+        agent("lead", { tools: ["read_file"], delegates: ["worker"], llm: { provider: " deepseek ", model_name: "deepseek-chat" } }),
+        agent("worker", {
+          tools: ["write_file"],
+          llm_tiers: {
+            default: { provider: "relay", model_name: "k2" },
+            fallback: { provider: "unknown-vendor", model_name: "mystery" },
+            pinned: { provider: "DeepSeek", provider_type: "keep-me", model_name: "deepseek-chat" },
+          },
+        }),
+      ],
+    }));
+    await fixture.service.publishDraft(draft.id, draft.revision, memoryBindings());
+
+    const lead = fixture.agentConfig.getConfig("lead", { teamName: "support-team" });
+    assert.equal(lead.llm_tiers.default.provider_type, "deepseek");
+    const worker = fixture.agentConfig.getConfig("worker", { teamName: "support-team" });
+    assert.equal(worker.llm_tiers.default.provider_type, "openai_compatible");
+    assert.ok(worker.llm_tiers.fallback.provider_type == null, "unresolvable provider stays unbackfilled");
+    assert.equal(worker.llm_tiers.pinned.provider_type, "keep-me");
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("trial staging materialization backfills provider_type identically to publish", async () => {
+  const fixture = modelCatalogFixture();
+  try {
+    await fixture.agentConfig.initialize();
+    const bindings = memoryBindings();
+    const workspace = path.join(fixture.root, "session-workspace");
+    const created = await fixture.service.createWorkspaceDraft("tier-team", "Tier draft", workspace);
+    const blueprintPath = path.join(created.workspacePath, "blueprint.json");
+    const localBlueprint = JSON.parse(fs.readFileSync(blueprintPath, "utf8"));
+    localBlueprint.entry_agent = "lead";
+    localBlueprint.agents = [
+      {
+        name: "lead",
+        description: "lead agent",
+        instructions: "Lead resolves routine requests directly.",
+        tools: ["read_file"],
+        llm_tiers: { default: { provider: "DeepSeek", model_name: "deepseek-chat" } },
+        delegates: [],
+      },
+    ];
+    localBlueprint.acceptance = [{ case: "hello", expect_contains: ["echo:"], source: "sample" }];
+    fs.writeFileSync(blueprintPath, `${JSON.stringify(localBlueprint, null, 2)}\n`);
+
+    const original = fixture.agentConfig.applyTeamPayload.bind(fixture.agentConfig);
+    const payloads = [];
+    fixture.agentConfig.applyTeamPayload = async (teamName, agents) => {
+      payloads.push(structuredClone({ teamName, agents }));
+      return original(teamName, agents);
+    };
+
+    const fake = fakeTrialRegistry();
+    const report = await runDraftTrial(
+      { service: fixture.service, registry: fake.registry, tenantId: "tenant-test", bindings },
+      created.draft.id,
+      workspace,
+    );
+
+    const stagingPayload = payloads.find((payload) => payload.teamName === report.staging_team);
+    assert.ok(stagingPayload, "staging team payload was captured");
+    assert.equal(stagingPayload.agents.lead.llm_tiers.default.provider_type, "deepseek");
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("two consecutive identical errors short-circuit the remaining inputs as skipped", async () => {
+  const fixture = await createFixture();
+  try {
+    const fake = fakeTrialRegistry({
+      resultFor: () => ({ success: false, suspended: false, answer: null, error: "missing_llm_provider_type: 缺少 LLM provider_type" }),
+    });
+    const { workspace, draftId } = await createTrialWorkspace(fixture);
+    const inputs = Array.from({ length: 4 }, (_, index) => ({ case: `input-${index}` }));
+
+    const report = await runDraftTrial(
+      { service: fixture.service, registry: fake.registry, tenantId: "tenant-test", bindings: memoryBindings() },
+      draftId,
+      workspace,
+      inputs,
+    );
+
+    assert.deepEqual(report.results.map((item) => item.status), ["failed", "failed", "skipped", "skipped"]);
+    assert.match(report.results[2].skipped_reason, /missing_llm_provider_type/);
+    assert.equal(report.results[2].error, null);
+    // 短路后不再消耗模型调用
+    assert.equal(fake.calls.executed.length, 2);
+    assert.equal(report.summary.failed, 2);
+    assert.equal(report.summary.skipped, 2);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("missing execution_time falls back to wall-clock timing", async () => {
+  const fixture = await createFixture();
+  try {
+    const fake = fakeTrialRegistry({
+      resultFor: (request) => ({ success: true, suspended: false, answer: `echo:${request.task}` }),
+    });
+    const { workspace, draftId } = await createTrialWorkspace(fixture);
+
+    const report = await runDraftTrial(
+      { service: fixture.service, registry: fake.registry, tenantId: "tenant-test", bindings: memoryBindings() },
+      draftId,
+      workspace,
+    );
+
+    for (const row of report.results) {
+      assert.equal(typeof row.execution_time_ms, "number");
+      assert.ok(row.execution_time_ms >= 0);
+    }
   } finally {
     fixture.cleanup();
   }

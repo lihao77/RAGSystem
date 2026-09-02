@@ -27,7 +27,9 @@ const TryDraftToolInputSchema = z.object({
   inputs: z.array(z.object({
     case: z.string().trim().min(1).max(2_000),
     expect_contains: z.array(z.string().trim().min(1).max(500)).max(20).optional(),
-  }).strict()).min(1).max(20).optional(),
+  }).strict()).min(1).max(MAX_TRIAL_INPUTS_PER_CALL, {
+    message: `inputs 一次最多 ${MAX_TRIAL_INPUTS_PER_CALL} 条（每条都是真实模型调用）；更多样本请分批调用`,
+  }).optional(),
 }).strict();
 export interface AgentBuilderToolOptions {
   autoApproveDraft?: (draft: AgentDraft) => Promise<AgentDraft>;
@@ -237,7 +239,7 @@ export function createAgentBuilderTools(
     }),
     buildTool({
       name: "try_agent_draft",
-      description: `Trial-run the current workspace draft before publishing: materialize it to a throwaway staging Team, run each input end-to-end headlessly, and return observations (the entry agent's answer, which expect_contains fragments were missing, which sub-agents were delegated to). Inputs default to the blueprint's acceptance cases; each call runs at most ${MAX_TRIAL_INPUTS_PER_CALL} inputs because every input is a real model call. The staging Team and trial sessions are deleted afterwards. Treat the report as design evidence, not a gate: improve the blueprint from what you observe, and reuse earlier observations instead of re-running unchanged samples.`,
+      description: `Trial-run the current workspace draft before publishing: materialize it to a throwaway staging Team, run each input end-to-end headlessly, and return observations (the entry agent's answer, which expect_contains fragments were missing, which sub-agents were delegated to). Inputs default to the blueprint's acceptance cases (beyond ${MAX_TRIAL_INPUTS_PER_CALL} they are truncated and reported in truncated_inputs); explicitly passing more than ${MAX_TRIAL_INPUTS_PER_CALL} inputs is rejected — split into batches instead, because every input is a real model call. Two consecutive inputs failing with the identical error short-circuit the rest as skipped (a config-level error will not change with new inputs). The staging Team and trial sessions are deleted afterwards. Treat the report as design evidence, not a gate: improve the blueprint from what you observe, and reuse earlier observations instead of re-running unchanged samples.`,
       inputSchema: TryDraftToolInputSchema,
       parameters: {
         type: "object",
@@ -247,7 +249,7 @@ export function createAgentBuilderTools(
           draft_id: { type: "string", minLength: 1 },
           inputs: {
             type: "array",
-            description: `Inputs to run; defaults to the blueprint acceptance cases. At most ${MAX_TRIAL_INPUTS_PER_CALL} run per call.`,
+            description: `Inputs to run; defaults to the blueprint acceptance cases. At most ${MAX_TRIAL_INPUTS_PER_CALL} accepted per call.`,
             items: {
               type: "object",
               additionalProperties: false,
@@ -257,6 +259,7 @@ export function createAgentBuilderTools(
                 expect_contains: { type: "array", items: { type: "string", minLength: 1, maxLength: 500 }, maxItems: 20 },
               },
             },
+            maxItems: MAX_TRIAL_INPUTS_PER_CALL,
           },
         },
       },
@@ -288,7 +291,7 @@ export function createAgentBuilderTools(
             ...report,
           }, {
             toolName: "try_agent_draft",
-            summary: `Trial of draft '${input.draft_id}' on staging Team '${report.staging_team}': ${report.summary.completed}/${report.summary.total} completed${report.summary.failed ? `, ${report.summary.failed} failed` : ""}${report.summary.suspended ? `, ${report.summary.suspended} suspended` : ""}${report.summary.all_expectations_met ? "; all expectations met" : "; expectations missing"}`,
+            summary: `Trial of draft '${input.draft_id}' on staging Team '${report.staging_team}': ${report.summary.completed}/${report.summary.total} completed${report.summary.failed ? `, ${report.summary.failed} failed` : ""}${report.summary.suspended ? `, ${report.summary.suspended} suspended` : ""}${report.summary.skipped ? `, ${report.summary.skipped} skipped` : ""}${report.summary.all_expectations_met ? "; all expectations met" : "; expectations missing"}`,
             outputType: "json",
           });
         } catch (error) {

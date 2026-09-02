@@ -23,7 +23,7 @@ blueprint.json 是本草稿的唯一编辑对象；manifest.json 由系统维护
 | description | 否 | 不超过 500 字符 |
 | instructions | 是 | 提示词唯一来源（1..30000 字符）。发布时派生为运行时 behavior.system_prompt；不要在 custom_params.behavior.system_prompt 里重复书写 |
 | enabled | 否 | 默认 true |
-| llm / llm_tiers | 否 | 模型配置。llm_tiers 形如 \`{"default": {"provider": "...", "model_name": "..."}}\`；合法 provider 与 model 枚举以 list_agent_builder_capabilities 返回的 llm_providers 为准。未配置时运行在租户默认模型上（发布校验给出警告，不阻止发布） |
+| llm / llm_tiers | 否 | 模型配置。llm_tiers 形如 \`{"default": {"provider": "...", "model_name": "..."}}\`；provider 写模型目录里 provider 的 name 或 key（以 list_agent_builder_capabilities 返回的 llm_providers 为准），provider_type 可省略——发布/试运行物化时会按模型目录自动回填。未配置时运行在租户默认模型上（发布校验给出警告，不阻止发布） |
 | tools | 否 | 工具白名单，只能引用能力清单返回的工具名 |
 | capabilities | 否 | 形如 \`{"skills": [...], "mcp": [...]}\`，只能引用能力清单返回的能力名。为 Agent 绑定 Skill 后，运行时会自动注入 activate_skill / load_skill_resource / execute_skill_script 工具——它们无需也无法写进 tools |
 | delegates | 否 | 可委派的子 Agent 名单；不允许自委派与委派环 |

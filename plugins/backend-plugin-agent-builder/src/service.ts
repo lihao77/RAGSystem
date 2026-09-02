@@ -8,6 +8,7 @@ import type { AgentCapabilityProvider } from "@ragsystem/backend-core/plugins/ag
 import type { BackendToolDescriptor } from "@ragsystem/backend-core/plugins/backend-plugin.js";
 import type { SystemConfigPort } from "@ragsystem/backend-core/contracts/runtime/system-config.js";
 import { isRecord } from "@ragsystem/backend-core/utils/guards.js";
+import { findProviderByRef } from "@ragsystem/backend-core/services/runtime/provider-lookup.js";
 
 import {
   AgentBlueprintAgentSchema,
@@ -526,25 +527,56 @@ export class AgentBuilderService {
     bindings: AgentBuilderBindings,
     snapshot: MaterializationSnapshot,
   ): Promise<void> {
+    // 蓝图 tier 允许省略 provider_type（schema 可选），但运行时 readiness 要求它非空——
+    // 缺失即「能过校验、能发布、必跑挂」。物化前按模型目录回填，publish 与 trial 共用。
+    const expanded = this.expandBlueprintLlmTiers(blueprint);
     await this.agentConfig.applyTeamPayload(
       teamName,
-      Object.fromEntries(blueprint.agents.map((agent) => [
+      Object.fromEntries(expanded.agents.map((agent) => [
         agent.name,
-        toRuntimeAgent(agent, agent.name === blueprint.entry_agent),
+        toRuntimeAgent(agent, agent.name === expanded.entry_agent),
       ])),
     );
-    for (const agent of blueprint.agents) {
+    for (const agent of expanded.agents) {
       for (const provider of bindings.providers) {
         await provider.putAgentConfig(teamName, agent.name, agent.capabilities[provider.id] ?? []);
       }
     }
-    const nextNames = new Set(blueprint.agents.map((agent) => agent.name));
+    const nextNames = new Set(expanded.agents.map((agent) => agent.name));
     for (const previousName of Object.keys(snapshot.agents ?? {})) {
       if (nextNames.has(previousName)) continue;
       for (const provider of bindings.providers) {
         await provider.putAgentConfig(teamName, previousName, []);
       }
     }
+  }
+
+  /** tier 快照的 provider_type 回填：provider 按 name/key 可唯一匹配时补全缺失的 provider_type。 */
+  expandBlueprintLlmTiers(blueprint: AgentBlueprint): AgentBlueprint {
+    const providers = this.modelAdapter?.listProviders() ?? [];
+    if (providers.length === 0) return blueprint;
+    const expandTier = (tier: AgentLlmConfig): AgentLlmConfig => {
+      const providerType = typeof tier.provider_type === "string" ? tier.provider_type.trim() : "";
+      if (providerType || !tier.provider?.trim()) return tier;
+      const matched = findProviderByRef(providers, { provider: tier.provider ?? null, provider_type: null });
+      return matched ? { ...tier, provider_type: matched.provider_type } : tier;
+    };
+    return {
+      ...blueprint,
+      agents: blueprint.agents.map((agent) => {
+        if (agent.llm_tiers) {
+          return {
+            ...agent,
+            llm_tiers: Object.fromEntries(Object.entries(agent.llm_tiers).map(([tier, config]) => [
+              tier,
+              expandTier(config),
+            ])),
+          };
+        }
+        if (agent.llm) return { ...agent, llm: expandTier(agent.llm) };
+        return agent;
+      }),
+    };
   }
 
   private async restoreMaterialization(

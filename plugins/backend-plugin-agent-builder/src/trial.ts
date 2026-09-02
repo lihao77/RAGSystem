@@ -20,13 +20,15 @@ export interface DraftTrialInput {
 
 export interface DraftTrialCaseResult {
   input: string;
-  status: "completed" | "suspended" | "failed";
+  status: "completed" | "suspended" | "failed" | "skipped";
   answer: string | null;
   matched: string[];
   missed: string[];
   delegated_agents: string[];
   execution_time_ms: number | null;
   error: string | null;
+  /** status=skipped 时的原因（连续相同错误短路），其余状态为 null。 */
+  skipped_reason: string | null;
 }
 
 export interface DraftTrialReport {
@@ -35,11 +37,14 @@ export interface DraftTrialReport {
   revision: number;
   results: DraftTrialCaseResult[];
   inputs_truncated: boolean;
+  /** 被截断丢弃的输入文本（默认 acceptance 超上限时），供调用方确认丢弃了什么。 */
+  truncated_inputs: string[];
   summary: {
     total: number;
     completed: number;
     suspended: number;
     failed: number;
+    skipped: number;
     all_expectations_met: boolean;
   };
 }
@@ -80,9 +85,17 @@ export async function runDraftTrial(
   if (requested.length === 0) {
     throw new Error("没有可运行的输入：请传入 inputs，或在蓝图 acceptance 里登记验收用例");
   }
-  const inputsTruncated = requested.length > MAX_TRIAL_INPUTS_PER_CALL;
+  if (inputs && inputs.length > MAX_TRIAL_INPUTS_PER_CALL) {
+    // 显式超限直接拒绝而不是静默截断：调用方明确想跑的样本被丢弃只会造成误判。
+    // 默认走 acceptance 超限时才截断（truncated_inputs 会列出被丢弃的样本）。
+    throw new Error(`inputs 一次最多 ${MAX_TRIAL_INPUTS_PER_CALL} 条（收到 ${inputs.length} 条），更多样本请分批调用`);
+  }
   const batch = requested.slice(0, MAX_TRIAL_INPUTS_PER_CALL);
+  const truncatedInputs = requested.slice(MAX_TRIAL_INPUTS_PER_CALL).map((item) => item.case);
 
+  // 与 publish 物化同一入口回填 provider_type：蓝图省略它时运行时 readiness 必挂，
+  // 试运行必须跑在与发布完全一致的物化结果上，否则试过 ≠ 能跑。
+  const materialized = deps.service.expandBlueprintLlmTiers(blueprint);
   const agentConfig = deps.service.getAgentConfigPort();
   const stagingTeam = await allocateStagingTeamName(async () => agentConfig.listTeams(), blueprint);
   const results: DraftTrialCaseResult[] = [];
@@ -90,12 +103,12 @@ export async function runDraftTrial(
   try {
     await agentConfig.applyTeamPayload(
       stagingTeam,
-      Object.fromEntries(blueprint.agents.map((agent) => [
+      Object.fromEntries(materialized.agents.map((agent) => [
         agent.name,
-        toRuntimeAgent(agent, agent.name === blueprint.entry_agent),
+        toRuntimeAgent(agent, agent.name === materialized.entry_agent),
       ])),
     );
-    for (const agent of blueprint.agents) {
+    for (const agent of materialized.agents) {
       for (const provider of deps.bindings.providers) {
         await provider.putAgentConfig(stagingTeam, agent.name, agent.capabilities[provider.id] ?? []);
       }
@@ -104,21 +117,40 @@ export async function runDraftTrial(
     const runtime = lease.runtime;
     const teamSnapshot = runtime.agentConfig.createTeamSnapshot({
       teamName: stagingTeam,
-      entryAgentName: blueprint.entry_agent,
+      entryAgentName: materialized.entry_agent,
     });
+    // 连续两条相同错误即判定为配置级故障（换输入也不会变），短路剩余输入：
+    // 每条输入都是真实模型调用，重复烧钱买同一份报错没有观察价值。
+    let previousError: string | null = null;
+    let shortCircuitReason: string | null = null;
     for (const [index, input] of batch.entries()) {
+      if (shortCircuitReason) {
+        results.push({
+          input: input.case,
+          status: "skipped",
+          answer: null,
+          matched: [],
+          missed: [...(input.expect_contains ?? [])],
+          delegated_agents: [],
+          execution_time_ms: null,
+          error: null,
+          skipped_reason: shortCircuitReason,
+        });
+        continue;
+      }
       const sessionId = `agent-builder-trial-${stagingTeam}-${index}-${randomUUID().slice(0, 8)}`;
       // 单输入容错：一条输入的基础设施异常只作废该条（记 failed 行），
       // 不丢弃整份报告——前面输入的观察是真实模型调用的成果。
+      let row: DraftTrialCaseResult;
       try {
-        results.push(await runSingleTrialInput(runtime, userId, {
+        row = await runSingleTrialInput(runtime, userId, {
           sessionId,
           teamSnapshot,
-          entryAgent: blueprint.entry_agent,
+          entryAgent: materialized.entry_agent,
           input,
-        }));
+        });
       } catch (error) {
-        results.push({
+        row = {
           input: input.case,
           status: "failed",
           answer: null,
@@ -127,8 +159,15 @@ export async function runDraftTrial(
           delegated_agents: [],
           execution_time_ms: null,
           error: error instanceof Error ? error.message : String(error),
-        });
+          skipped_reason: null,
+        };
       }
+      results.push(row);
+      const rowError = row.status === "failed" ? row.error : null;
+      if (rowError && rowError === previousError) {
+        shortCircuitReason = `连续两条输入报相同错误：${rowError}`;
+      }
+      previousError = rowError;
     }
   } finally {
     // 清理与物化对称：先清 provider 能力绑定再删 Team；删除失败不掩盖运行期错误
@@ -149,12 +188,14 @@ export async function runDraftTrial(
     staging_team: stagingTeam,
     revision,
     results,
-    inputs_truncated: inputsTruncated,
+    inputs_truncated: truncatedInputs.length > 0,
+    truncated_inputs: truncatedInputs,
     summary: {
       total: results.length,
       completed: results.filter((item) => item.status === "completed").length,
       suspended: results.filter((item) => item.status === "suspended").length,
       failed: results.filter((item) => item.status === "failed").length,
+      skipped: results.filter((item) => item.status === "skipped").length,
       all_expectations_met: results.every(
         (item) => item.status === "completed" && item.missed.length === 0,
       ),
@@ -214,6 +255,7 @@ async function runSingleTrialInput(
     permissionMode: null,
   });
   try {
+    const startedAt = Date.now();
     const result = await runtime.agentExecution.executeSynchronously({
       task: options.input.case,
       session_id: options.sessionId,
@@ -234,9 +276,12 @@ async function runSingleTrialInput(
       delegated_agents: participants
         .filter((item) => item.scope !== "root" && item.participant_id !== "root")
         .map((item) => item.agent_name ?? item.participant_id),
-      // AgentExecuteResult.execution_time 的全仓口径是秒（message-render/formatElapsed 均按秒读），报告统一输出毫秒
-      execution_time_ms: result.execution_time != null ? Math.round(result.execution_time * 1000) : null,
+      // AgentExecuteResult.execution_time 的全仓口径是秒；无头同步执行常不带它，墙钟兜底
+      execution_time_ms: result.execution_time != null
+        ? Math.round(result.execution_time * 1000)
+        : Date.now() - startedAt,
       error: result.error ?? null,
+      skipped_reason: null,
     };
   } finally {
     // 试用会话用完即删：不留在用户会话列表，报告里已带全部观察
