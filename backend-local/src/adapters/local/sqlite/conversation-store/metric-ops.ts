@@ -119,53 +119,114 @@ export class MetricOps {
     return { deleted: Number(result.changes) };
   }
 
-  aggregateTokenTrend(opts: { since?: string | null; bucket: "day" | "hour" }): TokenTrendPoint[] {
-    const fmt = opts.bucket === "hour" ? "%Y-%m-%dT%H:00" : "%Y-%m-%d";
+  aggregateTokenTrend(opts: { since?: string | null; bucket: "day" | "hour"; timeZone?: string | null }): TokenTrendPoint[] {
     const since = opts.since ?? "1970-01-01T00:00:00.000Z";
-    return this.db
-      .prepare(
-        `SELECT strftime(?, started_at) AS ts,
-                COALESCE(SUM(token_in), 0) AS token_in,
-                COALESCE(SUM(token_out), 0) AS token_out,
-                COUNT(*) AS calls
-         FROM agent_call_metrics WHERE started_at >= ? GROUP BY ts ORDER BY ts ASC`,
-      )
-      .all(fmt, since) as unknown as TokenTrendPoint[];
+    const rows = this.db
+      .prepare("SELECT started_at, token_in, token_out FROM agent_call_metrics WHERE started_at >= ?")
+      .all(since) as Array<{ started_at: string; token_in: number; token_out: number }>;
+    const dayKey = createDayKeyFormatter(opts.timeZone);
+    const hourKey = createHourFormatter(opts.timeZone);
+    const buckets = new Map<string, { token_in: number; token_out: number; calls: number }>();
+    for (const row of rows) {
+      const date = parseMetricDate(row.started_at);
+      if (!date) continue;
+      const ts = opts.bucket === "hour" ? `${dayKey(date)}T${hourKey(date)}:00` : dayKey(date);
+      const acc = buckets.get(ts) ?? { token_in: 0, token_out: 0, calls: 0 };
+      acc.token_in += row.token_in;
+      acc.token_out += row.token_out;
+      acc.calls += 1;
+      buckets.set(ts, acc);
+    }
+    return [...buckets.entries()]
+      .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+      .map(([ts, acc]) => ({ ts, token_in: acc.token_in, token_out: acc.token_out, calls: acc.calls }));
   }
 
   aggregateModelUsage(opts: { since?: string | null }): ModelUsagePoint[] {
     const since = opts.since ?? "1970-01-01T00:00:00.000Z";
-    return this.db
+    const rows = this.db
       .prepare(
         `SELECT COALESCE(model, '未知') AS model,
-                COALESCE(SUM(token_in + token_out), 0) AS tokens,
-                COUNT(*) AS calls
-         FROM agent_call_metrics WHERE started_at >= ? GROUP BY model ORDER BY tokens DESC`,
+                COALESCE(token_in + token_out, 0) AS tokens
+         FROM agent_call_metrics WHERE started_at >= ?`,
       )
-      .all(since) as unknown as ModelUsagePoint[];
+      .all(since) as Array<{ model: string; tokens: number }>;
+    const buckets = new Map<string, { tokens: number; calls: number }>();
+    for (const row of rows) {
+      const acc = buckets.get(row.model) ?? { tokens: 0, calls: 0 };
+      acc.tokens += row.tokens;
+      acc.calls += 1;
+      buckets.set(row.model, acc);
+    }
+    return [...buckets.entries()]
+      .sort((left, right) => right[1].tokens - left[1].tokens || (left[0] < right[0] ? -1 : left[0] > right[0] ? 1 : 0))
+      .map(([model, acc]) => ({ model, tokens: acc.tokens, calls: acc.calls }));
   }
 
-  aggregateActivityHeatmap(opts: { since?: string | null }): HeatmapPoint[] {
+  aggregateActivityHeatmap(opts: { since?: string | null; timeZone?: string | null }): HeatmapPoint[] {
     const since = opts.since ?? "1970-01-01T00:00:00.000Z";
-    return this.db
-      .prepare(
-        `SELECT CAST(strftime('%w', started_at) AS INTEGER) AS weekday,
-                CAST(strftime('%H', started_at) AS INTEGER) AS hour,
-                COUNT(*) AS calls
-         FROM agent_call_metrics WHERE started_at >= ? GROUP BY weekday, hour`,
-      )
-      .all(since) as unknown as HeatmapPoint[];
+    const rows = this.db
+      .prepare("SELECT started_at FROM agent_call_metrics WHERE started_at >= ?")
+      .all(since) as Array<{ started_at: string }>;
+    const weekdayOf = createWeekdayFormatter(opts.timeZone);
+    const hourKey = createHourFormatter(opts.timeZone);
+    const buckets = new Map<string, { weekday: number; hour: number; calls: number }>();
+    for (const row of rows) {
+      const date = parseMetricDate(row.started_at);
+      if (!date) continue;
+      const weekday = weekdayOf(date);
+      const hour = Number(hourKey(date));
+      if (weekday === null || !Number.isInteger(hour) || hour < 0 || hour > 23) continue;
+      const key = `${weekday}-${hour}`;
+      const acc = buckets.get(key) ?? { weekday, hour, calls: 0 };
+      acc.calls += 1;
+      buckets.set(key, acc);
+    }
+    return [...buckets.values()].sort((left, right) => left.weekday - right.weekday || left.hour - right.hour);
   }
 
-  aggregateDailyActivity(opts: { since?: string | null }): DailyActivityPoint[] {
+  aggregateDailyActivity(opts: { since?: string | null; timeZone?: string | null }): DailyActivityPoint[] {
     const since = opts.since ?? "1970-01-01T00:00:00.000Z";
-    return this.db
-      .prepare(
-        `SELECT strftime('%Y-%m-%d', started_at) AS date, COUNT(*) AS calls
-         FROM agent_call_metrics WHERE started_at >= ? GROUP BY date ORDER BY date ASC`,
-      )
-      .all(since) as unknown as DailyActivityPoint[];
+    const rows = this.db
+      .prepare("SELECT started_at FROM agent_call_metrics WHERE started_at >= ?")
+      .all(since) as Array<{ started_at: string }>;
+    const dayKey = createDayKeyFormatter(opts.timeZone);
+    const buckets = new Map<string, number>();
+    for (const row of rows) {
+      const date = parseMetricDate(row.started_at);
+      if (!date) continue;
+      buckets.set(dayKey(date), (buckets.get(dayKey(date)) ?? 0) + 1);
+    }
+    return [...buckets.entries()]
+      .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+      .map(([date, calls]) => ({ date, calls }));
   }
+}
+
+/**
+ * 日/小时分桶在 TS 层按 IANA 时区墙钟切（SQLite strftime 只支持 UTC/localtime，
+ * 任意时区 + 夏令时只能靠 Intl）。指标表每次 run 一行、量级小，全表读后内存分桶性能够用。
+ */
+function createDayKeyFormatter(timeZone?: string | null): (date: Date) => string {
+  const fmt = new Intl.DateTimeFormat("en-CA", { timeZone: timeZone ?? undefined, year: "numeric", month: "2-digit", day: "2-digit" });
+  return (date) => fmt.format(date);
+}
+
+function createHourFormatter(timeZone?: string | null): (date: Date) => string {
+  const fmt = new Intl.DateTimeFormat("en-GB", { timeZone: timeZone ?? undefined, hour: "2-digit", hourCycle: "h23" });
+  return (date) => fmt.format(date);
+}
+
+const WEEKDAY_INDEX: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+
+function createWeekdayFormatter(timeZone?: string | null): (date: Date) => number | null {
+  const fmt = new Intl.DateTimeFormat("en-US", { timeZone: timeZone ?? undefined, weekday: "short" });
+  return (date) => WEEKDAY_INDEX[fmt.format(date)] ?? null;
+}
+
+function parseMetricDate(value: string): Date | null {
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? date : null;
 }
 
 interface Accumulator {

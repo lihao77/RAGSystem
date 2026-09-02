@@ -13,6 +13,7 @@ import { ensureRequestApplications } from "../../app/request-applications.js";
  */
 interface RangeQuery {
   days?: string;
+  tz?: string;
 }
 
 interface TokenTrendQuery extends RangeQuery {
@@ -40,6 +41,28 @@ function daysToSince(days: number): string {
   return new Date(Date.now() - days * 86_400_000).toISOString();
 }
 
+/**
+ * 分桶时区：前端传浏览器 IANA 时区名，各查看者各自的"天"各自正确；
+ * 未传时缺省服务器本地时区（本地部署即用户时区）。SQLite/Postgres 均按该时区墙钟切桶。
+ */
+function parseTimeZone(value: string | undefined): string {
+  const fallback = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  if (value === undefined || value === "") {
+    return fallback;
+  }
+  try {
+    // resolvedOptions 顺带把别名归一为规范 IANA 名；Intl 会接受 "+08:00" 这类偏移形式，
+    // 但 Postgres 按 POSIX 语义对偏移取反，两后端会分叉——只放行 IANA 名。
+    const resolved = new Intl.DateTimeFormat("en-US", { timeZone: value }).resolvedOptions().timeZone;
+    if (!resolved || /^[+-]/.test(resolved)) {
+      throw new RangeError(`offset-style timezone is not accepted: ${value}`);
+    }
+    return resolved;
+  } catch {
+    throw new HttpError(400, "invalid_request", `tz 不是合法的 IANA 时区名: ${value}`);
+  }
+}
+
 export const registerAnalyticsRoutes: FastifyPluginAsync<RouteOptions> = async (app, options) => {
   app.addHook("preHandler", async (request) => { requireTenantAdmin(request); });
 
@@ -50,7 +73,7 @@ export const registerAnalyticsRoutes: FastifyPluginAsync<RouteOptions> = async (
     if (bucket !== "day" && bucket !== "hour") {
       throw new HttpError(400, "invalid_request", "bucket 必须是 day 或 hour");
     }
-    const input: { since: string; bucket: "day" | "hour" } = { since: daysToSince(days), bucket };
+    const input: { since: string; bucket: "day" | "hour"; timeZone: string } = { since: daysToSince(days), bucket, timeZone: parseTimeZone(query.tz) };
     const analytics = (await ensureRequestApplications(request, options)).analytics;
     const rows = await analytics.aggregateTokenTrend(input);
     return ok(rows, "获取 token 趋势成功");
@@ -68,7 +91,7 @@ export const registerAnalyticsRoutes: FastifyPluginAsync<RouteOptions> = async (
   app.get("/analytics/activity-heatmap", async (request) => {
     const query = request.query as RangeQuery;
     const days = parseDays(query.days, DEFAULT_HEATMAP_DAYS);
-    const input = { since: daysToSince(days) };
+    const input = { since: daysToSince(days), timeZone: parseTimeZone(query.tz) };
     const analytics = (await ensureRequestApplications(request, options)).analytics;
     const rows = await analytics.aggregateActivityHeatmap(input);
     return ok(rows, "获取活跃热力图成功");
@@ -77,7 +100,7 @@ export const registerAnalyticsRoutes: FastifyPluginAsync<RouteOptions> = async (
   app.get("/analytics/daily-activity", async (request) => {
     const query = request.query as RangeQuery;
     const days = parseDays(query.days, DEFAULT_DAILY_DAYS);
-    const input = { since: daysToSince(days) };
+    const input = { since: daysToSince(days), timeZone: parseTimeZone(query.tz) };
     const analytics = (await ensureRequestApplications(request, options)).analytics;
     const rows = await analytics.aggregateDailyActivity(input);
     return ok(rows, "获取每日活跃度成功");

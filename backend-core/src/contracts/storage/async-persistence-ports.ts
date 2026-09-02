@@ -65,10 +65,10 @@ export interface AsyncRunStore {
 
 export interface AsyncAnalyticsRepository {
   insertMetric(tenantId: string, input: AnalyticsMetricInput): Promise<void>;
-  aggregateTokenTrend(tenantId: string, input: { since: string; bucket: "day" | "hour" }): Promise<TokenTrendPoint[]>;
+  aggregateTokenTrend(tenantId: string, input: { since: string; bucket: "day" | "hour"; timeZone?: string }): Promise<TokenTrendPoint[]>;
   aggregateModelUsage(tenantId: string, input: { since: string }): Promise<ModelUsagePoint[]>;
-  aggregateActivityHeatmap(tenantId: string, input: { since: string }): Promise<HeatmapPoint[]>;
-  aggregateDailyActivity(tenantId: string, input: { since: string }): Promise<DailyActivityPoint[]>;
+  aggregateActivityHeatmap(tenantId: string, input: { since: string; timeZone?: string }): Promise<HeatmapPoint[]>;
+  aggregateDailyActivity(tenantId: string, input: { since: string; timeZone?: string }): Promise<DailyActivityPoint[]>;
 }
 
 /** Runtime metrics surface; separate from chart-only analytics consumers. */

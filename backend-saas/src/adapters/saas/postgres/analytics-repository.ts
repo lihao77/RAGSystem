@@ -53,14 +53,14 @@ export class PostgresAnalyticsRepository implements AsyncAnalyticsRepository, As
     return { deleted: Number(result.rowCount ?? 0) };
   }
 
-  async aggregateTokenTrend(tenantId: string, input: { since: string; bucket: "day" | "hour" }): Promise<TokenTrendPoint[]> {
+  async aggregateTokenTrend(tenantId: string, input: { since: string; bucket: "day" | "hour"; timeZone?: string }): Promise<TokenTrendPoint[]> {
     const format = input.bucket === "hour" ? "YYYY-MM-DD\"T\"HH24:00" : "YYYY-MM-DD";
-    const result = await this.executor.query(`SELECT to_char(started_at AT TIME ZONE 'UTC', $3) AS ts,
+    const result = await this.executor.query(`SELECT to_char(started_at AT TIME ZONE COALESCE($4, CURRENT_SETTING('TimeZone')), $3) AS ts,
         COALESCE(SUM(token_in), 0)::text AS token_in, COALESCE(SUM(token_out), 0)::text AS token_out,
         COUNT(*)::text AS calls
       FROM saas_agent_call_metrics
       WHERE tenant_id=$1 AND started_at >= $2::timestamptz
-      GROUP BY 1 ORDER BY 1 ASC`, [tenantId, input.since, format]);
+      GROUP BY 1 ORDER BY 1 ASC`, [tenantId, input.since, format, input.timeZone ?? null]);
     return result.rows.map((row) => ({ ts: String(row.ts), token_in: number(row.token_in), token_out: number(row.token_out), calls: number(row.calls) }));
   }
 
@@ -73,21 +73,21 @@ export class PostgresAnalyticsRepository implements AsyncAnalyticsRepository, As
     return result.rows.map((row) => ({ model: String(row.model), tokens: number(row.tokens), calls: number(row.calls) }));
   }
 
-  async aggregateActivityHeatmap(tenantId: string, input: { since: string }): Promise<HeatmapPoint[]> {
-    const result = await this.executor.query(`SELECT EXTRACT(DOW FROM started_at AT TIME ZONE 'UTC')::integer AS weekday,
-        EXTRACT(HOUR FROM started_at AT TIME ZONE 'UTC')::integer AS hour, COUNT(*)::text AS calls
+  async aggregateActivityHeatmap(tenantId: string, input: { since: string; timeZone?: string }): Promise<HeatmapPoint[]> {
+    const result = await this.executor.query(`SELECT EXTRACT(DOW FROM started_at AT TIME ZONE COALESCE($3, CURRENT_SETTING('TimeZone')))::integer AS weekday,
+        EXTRACT(HOUR FROM started_at AT TIME ZONE COALESCE($3, CURRENT_SETTING('TimeZone')))::integer AS hour, COUNT(*)::text AS calls
       FROM saas_agent_call_metrics
       WHERE tenant_id=$1 AND started_at >= $2::timestamptz
-      GROUP BY 1, 2 ORDER BY 1, 2`, [tenantId, input.since]);
+      GROUP BY 1, 2 ORDER BY 1, 2`, [tenantId, input.since, input.timeZone ?? null]);
     return result.rows.map((row) => ({ weekday: number(row.weekday), hour: number(row.hour), calls: number(row.calls) }));
   }
 
-  async aggregateDailyActivity(tenantId: string, input: { since: string }): Promise<DailyActivityPoint[]> {
-    const result = await this.executor.query(`SELECT to_char(started_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS date,
+  async aggregateDailyActivity(tenantId: string, input: { since: string; timeZone?: string }): Promise<DailyActivityPoint[]> {
+    const result = await this.executor.query(`SELECT to_char(started_at AT TIME ZONE COALESCE($3, CURRENT_SETTING('TimeZone')), 'YYYY-MM-DD') AS date,
         COUNT(*)::text AS calls
       FROM saas_agent_call_metrics
       WHERE tenant_id=$1 AND started_at >= $2::timestamptz
-      GROUP BY 1 ORDER BY 1 ASC`, [tenantId, input.since]);
+      GROUP BY 1 ORDER BY 1 ASC`, [tenantId, input.since, input.timeZone ?? null]);
     return result.rows.map((row) => ({ date: String(row.date), calls: number(row.calls) }));
   }
 }

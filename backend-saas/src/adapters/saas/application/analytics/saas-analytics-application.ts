@@ -8,7 +8,7 @@ export class SaaSAnalyticsApplication implements AnalyticsApplication {
     private readonly repository: AnalyticsRepositoryPort,
   ) {}
 
-  aggregateTokenTrend(input: { since: string; bucket: "day" | "hour" }) {
+  aggregateTokenTrend(input: { since: string; bucket: "day" | "hour"; timeZone?: string }) {
     return this.repository.aggregateTokenTrend(this.tenantId, input);
   }
 
@@ -16,11 +16,11 @@ export class SaaSAnalyticsApplication implements AnalyticsApplication {
     return this.repository.aggregateModelUsage(this.tenantId, input);
   }
 
-  aggregateActivityHeatmap(input: { since: string }) {
+  aggregateActivityHeatmap(input: { since: string; timeZone?: string }) {
     return this.repository.aggregateActivityHeatmap(this.tenantId, input);
   }
 
-  aggregateDailyActivity(input: { since: string }) {
+  aggregateDailyActivity(input: { since: string; timeZone?: string }) {
     return this.repository.aggregateDailyActivity(this.tenantId, input);
   }
 }

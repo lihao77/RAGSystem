@@ -7,6 +7,14 @@ import { http } from './http.js';
 const API_BASE = '/api/agent';
 
 /**
+ * 分桶时区：管理中心图表的"天/小时/星期"按浏览器时区的墙钟切，
+ * 各查看者各自的"昨天"各自正确；后端缺省服务器本地时区。
+ */
+const BROWSER_TZ = encodeURIComponent(
+  (typeof Intl !== 'undefined' && Intl.DateTimeFormat().resolvedOptions().timeZone) || '',
+);
+
+/**
  * 获取 token 用量时间序列。
  * @param {Object} opts
  * @param {number} [opts.days=7] 时间范围天数
@@ -16,7 +24,7 @@ const API_BASE = '/api/agent';
 export async function getTokenTrend({ days = 7, bucket = 'day' } = {}) {
   try {
     const result = await http.get(
-      `${API_BASE}/analytics/token-trend?days=${days}&bucket=${bucket}`,
+      `${API_BASE}/analytics/token-trend?days=${days}&bucket=${bucket}${BROWSER_TZ ? `&tz=${BROWSER_TZ}` : ''}`,
     );
     return result.data || result;
   } catch (error) {
@@ -49,7 +57,7 @@ export async function getModelUsage({ days = 7 } = {}) {
  */
 export async function getActivityHeatmap({ days = 90 } = {}) {
   try {
-    const result = await http.get(`${API_BASE}/analytics/activity-heatmap?days=${days}`);
+    const result = await http.get(`${API_BASE}/analytics/activity-heatmap?days=${days}${BROWSER_TZ ? `&tz=${BROWSER_TZ}` : ''}`);
     return result.data || result;
   } catch (error) {
     console.error('Error fetching activity heatmap:', error);
@@ -65,7 +73,7 @@ export async function getActivityHeatmap({ days = 90 } = {}) {
  */
 export async function getDailyActivity({ days = 180 } = {}) {
   try {
-    const result = await http.get(`${API_BASE}/analytics/daily-activity?days=${days}`);
+    const result = await http.get(`${API_BASE}/analytics/daily-activity?days=${days}${BROWSER_TZ ? `&tz=${BROWSER_TZ}` : ''}`);
     return result.data || result;
   } catch (error) {
     console.error('Error fetching daily activity:', error);
