@@ -47,10 +47,10 @@ test("spatial skill scripts use data-first file outputs", () => {
 });
 
 test("legacy map-generation entry points are removed", () => {
-  const visualizationScripts = path.join(packageRoot, "skills", "visualization", "scripts");
+  const echartsScripts = path.join(packageRoot, "skills", "echarts-chart", "scripts");
   const emergencyScripts = path.join(packageRoot, "skills", "emergency-decision-support", "scripts");
-  assert.equal(fs.existsSync(path.join(visualizationScripts, ["create", "map.py"].join("_"))), false);
-  assert.equal(fs.existsSync(path.join(visualizationScripts, ["create", "bindmap.py"].join("_"))), false);
+  assert.equal(fs.existsSync(path.join(echartsScripts, ["create", "map.py"].join("_"))), false);
+  assert.equal(fs.existsSync(path.join(echartsScripts, ["create", "bindmap.py"].join("_"))), false);
   assert.equal(fs.existsSync(path.join(emergencyScripts, ["create", "risk_map.py"].join("_"))), false);
 });
 

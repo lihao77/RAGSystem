@@ -1,5 +1,5 @@
 ---
-name: visualization
+name: echarts-chart
 description: 创建和修改 ECharts 折线图、柱状图、饼图和散点图。用户要求把结构化数据制作成统计图表或调整已有图表文件时使用。
 ---
 
@@ -27,7 +27,7 @@ description: 创建和修改 ECharts 折线图、柱状图、饼图和散点图�
 {
   "tool": "execute_skill_script",
   "arguments": {
-    "skill_name": "visualization",
+    "skill_name": "echarts-chart",
     "script_name": "create_chart.py",
     "arguments": ["--data", "[{\"年份\":2020,\"人口\":100},{\"年份\":2021,\"人口\":120}]", "--chart-type", "line", "--x-field", "年份", "--y-field", "人口", "--title", "人口趋势"]
   }
@@ -47,7 +47,7 @@ description: 创建和修改 ECharts 折线图、柱状图、饼图和散点图�
 {
   "tool": "execute_skill_script",
   "arguments": {
-    "skill_name": "visualization",
+    "skill_name": "echarts-chart",
     "script_name": "revise.py",
     "arguments": ["--file", "chart-bar.json", "--config-patch", "{\"title\":{\"text\":\"新标题\"}}"]
   }
