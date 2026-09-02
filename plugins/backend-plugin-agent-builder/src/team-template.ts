@@ -192,11 +192,21 @@ function migrateAgentBuilderTeam(configs: Record<string, AgentConfig>): Record<s
     "RAGSYSTEM_ARTIFACT_OUTPUT_DIR",
     "[artifact:artifact_id]",
   ].some((marker) => prompt.includes(marker));
-  if (version === null || (version >= AGENT_BUILDER_TEAM_TEMPLATE_VERSION && !hasLegacyArtifactPrompt)) return null;
-
+  // 早退必须形态驱动：版本号只记录历史，不作为「形态已齐」的证据——开发期热重载可能
+  // 在版本号已 bump、marker/工具尚未写入的中间态执行过半成品迁移并落下版本戳，
+  // 只看版本号会让缺失的形态永远补不上。所有协议 marker 与必备工具齐备才允许跳过。
   const existingTools = Array.isArray(orchestrator.tools?.enabled_tools)
     ? orchestrator.tools.enabled_tools
     : [];
+  const wiringComplete = [
+    TEAM_DESIGN_NORMS_MARKER,
+    DOMAIN_EXPLORATION_MARKER,
+    EXPERIENCE_LAYERING_MARKER,
+    TRIAL_PROTOCOL_MARKER,
+  ].every((marker) => prompt.includes(marker))
+    && existingTools.includes("try_agent_draft")
+    && existingTools.includes(CAPABILITY_INVENTORY_TOOL);
+  if (version === null || (version >= AGENT_BUILDER_TEAM_TEMPLATE_VERSION && wiringComplete && !hasLegacyArtifactPrompt)) return null;
   const deprecatedSkillTools = new Set([
     "update_skill_draft",
     "update_agent_draft",

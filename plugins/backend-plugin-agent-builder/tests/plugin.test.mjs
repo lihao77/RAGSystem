@@ -1558,3 +1558,25 @@ test("a failing input is isolated instead of discarding the whole trial report",
     fixture.cleanup();
   }
 });
+
+test("migration converges a torn mid-upgrade state even when the version stamp is already current", async () => {
+  const fixture = await createFixture();
+  try {
+    // 复刻事故现场：热重载窗口中版本号已写 14，但 v14 的工具与协议未写入
+    const torn = buildAgentBuilderTeam();
+    torn.builder_orchestrator.custom_params.behavior.system_prompt = torn.builder_orchestrator.custom_params.behavior.system_prompt
+      .split("Trial protocol:")[0].trim();
+    torn.builder_orchestrator.tools.enabled_tools = torn.builder_orchestrator.tools.enabled_tools
+      .filter((tool) => tool !== "try_agent_draft");
+    torn.builder_orchestrator.custom_params.behavior.builder_template_version = 14;
+    await fixture.agentConfig.applyTeamPayload(AGENT_BUILDER_TEAM_NAME, torn);
+
+    assert.equal(await ensureAgentBuilderTeam(fixture.agentConfig), true);
+    const orchestrator = fixture.agentConfig.getConfig("builder_orchestrator", { teamName: AGENT_BUILDER_TEAM_NAME });
+    assert.match(orchestrator.custom_params.behavior.system_prompt, /Trial protocol:/);
+    assert.ok(orchestrator.tools.enabled_tools.includes("try_agent_draft"));
+    assert.equal(await ensureAgentBuilderTeam(fixture.agentConfig), false);
+  } finally {
+    fixture.cleanup();
+  }
+});
