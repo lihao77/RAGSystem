@@ -327,12 +327,16 @@ export function renderTeamFailureMarkdown(report: TeamFailureReport): string {
     lines.push("该团队暂无被踩样本。没有失败证据时不要臆造教训，按域探索结论设计即可。");
     return `${lines.join("\n")}\n`;
   }
+  // 未映射要区分两种成因：从未登记过哈希（归因字段启用前的发布）vs 登记过但快照对不上（团队被直接改过）
+  const unmappedNote = report.revision_links.length === 0
+    ? "该团队的发布均早于哈希登记（未记录内容哈希，无法归因；下一次发布会开始记录）"
+    : "未映射到任何 Builder 发布版本（团队可能被直接修改过）";
   report.samples.forEach((sample, index) => {
     lines.push(`## 样本 ${index + 1}（${sample.rated_at}，session ${sample.session_id}）`);
     lines.push(`- 用户输入：${sample.user_excerpt != null ? `\n${quoted(sample.user_excerpt)}` : `（未在最近 ${MESSAGES_PER_SESSION} 条转写中找到——消息可能更早或已被编辑/删除）`}`);
     lines.push(`- 被踩回答（by ${sample.answered_by ?? "unknown"}）：${sample.answer_excerpt != null ? `\n${quoted(sample.answer_excerpt)}` : "（消息未在转写窗口内或已删除）"}`);
     lines.push(`- 运行状态：${sample.run.status ?? "unknown（run 可能超出扫描窗口或已删除）"}${sample.run.terminal_reason ? ` / ${sample.run.terminal_reason}` : ""}${sample.run.task_summary ? ` — ${sample.run.task_summary}` : ""}`);
-    lines.push(`- 团队版本：${sample.published_revision != null ? `发布 revision ${sample.published_revision}` : "未映射到任何 Builder 发布版本（团队可能被直接修改过）"}（快照 ${sample.team_revision ? shortHash(sample.team_revision) : "unknown"}）`);
+    lines.push(`- 团队版本：${sample.published_revision != null ? `发布 revision ${sample.published_revision}` : unmappedNote}（快照 ${sample.team_revision ? shortHash(sample.team_revision) : "unknown"}）`);
     if (sample.run_linked) {
       lines.push(`- 委派形态（按 run 树）：本轮子 run ${sample.delegate_calls} 个，入口自产文本 ${sample.entry_own_text_chars} 字符${sample.child_agents.length > 0 ? `，子 Agent：${sample.child_agents.join("、")}` : ""}`);
     } else {

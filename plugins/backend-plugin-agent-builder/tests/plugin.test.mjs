@@ -1907,7 +1907,8 @@ test("collect_team_failures flags a router-only entry from the interaction windo
   assert.equal(sample.published_revision, null);
   assert.equal(sample.entry_router_only, true);
   assert.match(renderTeamFailureMarkdown(report), /入口疑似纯路由/);
-  assert.match(renderTeamFailureMarkdown(report), /未映射到任何 Builder 发布版本/);
+  // 该夹具无任何已登记哈希的发布：未映射文案指向「早于哈希登记」而非「被直接改过」
+  assert.match(renderTeamFailureMarkdown(report), /发布均早于哈希登记/);
 });
 
 test("collect_team_failures reports zero samples without inventing lessons", async () => {
