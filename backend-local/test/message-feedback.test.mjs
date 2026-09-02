@@ -6,6 +6,7 @@ import { createConversationStore } from "../dist/adapters/local/sqlite/conversat
 import { runMigrations, LATEST_SCHEMA_VERSION } from "../dist/adapters/local/sqlite/conversation-store/migrations.js";
 import { BASELINE_SCHEMA_SQL } from "../dist/adapters/local/sqlite/conversation-store/schema.js";
 import { computeSessionTeamRevision } from "@ragsystem/backend-core/contracts/session/session.js";
+import { LocalSessionApplication } from "../dist/adapters/local/application/session/local-session-application.js";
 
 const agents = { orchestrator_agent: { agent_name: "orchestrator_agent" } };
 const teamSnapshot = { team_name: "test", team_revision: computeSessionTeamRevision(agents), entry_agent_name: "orchestrator_agent", agents };
@@ -152,6 +153,38 @@ test("rolling back messages removes their feedback rows", () => {
       [assistant.id],
     );
     assert.equal(store.getMessageById("session-feedback", assistant.id)?.id, assistant.id);
+  } finally {
+    store.close();
+  }
+});
+
+
+test('session application normalizes since to UTC ISO before the TEXT-compare scan', async () => {
+  const store = createStore();
+  try {
+    store.setMessageFeedback({ sessionId: 'session-feedback', messageId: 'm-boundary', tenantId: 'tnt_test', value: 'down' });
+    // 只用到 conversations + tenantId，其余依赖传空对象即可
+    const app = new LocalSessionApplication('tnt_test', {}, store, {}, {});
+    const row = (await app.listNegativeMessageFeedback({ limit: 1 }))[0];
+    assert.ok(row);
+
+    // since 不带毫秒（秒精度）：同秒内更晚的行不能被字符串比较漏掉
+    const secondPrecision = `${row.updated_at.slice(0, 19)}Z`;
+    assert.ok(
+      (await app.listNegativeMessageFeedback({ since: secondPrecision })).some(item => item.message_id === row.message_id),
+    );
+    // >= 闭区间：since 等于行自身时刻时该行仍包含
+    assert.ok(
+      (await app.listNegativeMessageFeedback({ since: row.updated_at })).some(item => item.message_id === row.message_id),
+    );
+    // 带时区偏移（+08:00）的 since 与 UTC 语义等价
+    const shifted = new Date(Date.parse(row.updated_at) + 8 * 3600_000);
+    const offsetForm = `${shifted.toISOString().slice(0, 19)}+08:00`;
+    assert.ok(
+      (await app.listNegativeMessageFeedback({ since: offsetForm })).some(item => item.message_id === row.message_id),
+    );
+    // 不可解析输入显式报错，而非静默返回空
+    await assert.rejects(() => app.listNegativeMessageFeedback({ since: 'not-a-timestamp' }));
   } finally {
     store.close();
   }

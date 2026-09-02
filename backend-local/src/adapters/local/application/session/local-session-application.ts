@@ -119,11 +119,22 @@ export class LocalSessionApplication implements SessionApplication {
     return this.conversations.listMessageFeedback(sessionId);
   }
   async listNegativeMessageFeedback(input?: { since?: string; limit?: number }) {
-    return this.conversations.listNegativeMessageFeedback(this.tenantId, input);
+    // since 归一为 UTC ISO：本地存储按 TEXT 字符串比较，未带毫秒/带时区偏移的输入
+    // 会与 toISOString() 行值错序；PG 侧为真时间比较，两侧归一后口径一致（>= 闭区间）
+    return this.conversations.listNegativeMessageFeedback(this.tenantId, {
+      ...input,
+      ...(input?.since ? { since: normalizeSinceTimestamp(input.since) } : {}),
+    });
   }
   async listRuns(sessionId: string, limit?: number) {
     return this.conversations.listRuns(sessionId, limit ?? 50).items;
   }
   async rollbackMessages(input: Parameters<SessionApplication["rollbackMessages"]>[0]) { return this.sessions.rollbackMessages(input); }
   async exportSession(sessionId: string) { return this.sessions.exportSession(sessionId); }
+}
+
+function normalizeSinceTimestamp(since: string): string {
+  const parsed = new Date(since);
+  if (Number.isNaN(parsed.getTime())) throw new Error("since 必须是可解析的时间戳（ISO 8601）");
+  return parsed.toISOString();
 }

@@ -1,5 +1,4 @@
 import type { RuntimeContainerRegistry } from "@ragsystem/backend-core/services/runtime/runtime-container-registry.js";
-import { AGENT_TOOL_NAME } from "@ragsystem/backend-core/services/runtime/runtime-tool-bridge/registry.js";
 import type { MessageFeedback, RunInfo } from "@ragsystem/backend-core/contracts/conversation-store/index.js";
 
 /** 租户级被踩清单的单次扫描上限：回流消费的是「用户明确不满意的样本」，不是全量审计。 */
@@ -29,6 +28,8 @@ export interface TeamFailureSample {
     terminal_reason: string | null;
     task_summary: string | null;
   };
+  /** 根 run 是否匹配到：false 时委派形态不可用（消息/run 超出扫描窗口或已删除）。 */
+  run_linked: boolean;
   /** 会话团队快照的 team_revision：失败归因到发布版本（创建会话时的快照口径）。 */
   team_revision: string | null;
   /** 快照哈希解析回的发布草稿 revision；null = 不对应任何 Builder 发布（可能被直接改过团队）。 */
@@ -50,6 +51,8 @@ export interface TeamFailureReport {
   /** 行数达到扫描上限：历史里可能还有更早点踩，调大 feedback_limit 或用 since 分段。 */
   has_more: boolean;
   sessions_matched: number;
+  /** 命中会话数达到上限（MAX_SESSIONS_PER_TEAM）：更早会话的样本未包含。 */
+  sessions_truncated: boolean;
   /** 该团队的发布版本对照（revision ↔ 物化时团队哈希），样本归因与头部对照表的数据源。 */
   revision_links: Array<{
     revision: number;
@@ -105,6 +108,7 @@ export async function collectTeamFailures(
       tenant_rows_scanned: 0,
       has_more: false,
       sessions_matched: 0,
+      sessions_truncated: false,
       revision_links: [],
       samples: [],
     };
@@ -118,7 +122,8 @@ export async function collectTeamFailures(
     revisionByHash.set(link.team_revision_hash, link.revision);
   }
 
-  const scanLimit = options?.feedbackLimit ?? FEEDBACK_SCAN_LIMIT;
+  // 存储层把 limit 静默钳到 [1,500]：按钳后口径计算 has_more，否则 limit>500 会假阴性
+  const scanLimit = Math.min(options?.feedbackLimit ?? FEEDBACK_SCAN_LIMIT, 500);
   const lease = await deps.registry.acquire(deps.tenantId);
   try {
     const runtime = lease.runtime;
@@ -128,20 +133,21 @@ export async function collectTeamFailures(
     });
     const hasMore = feedback.length >= scanLimit;
 
-    // 会话归属去重：同一会话的多条 👎 只展开一次转写，逐条生成样本；
-    // 快照 revision 一并留下，样本可归因到发布版本
+    // 会话归属去重：同一 session_id 只反查一次（含外团队会话——不匹配也要去重，
+    // 否则同一外团队会话的多条 👎 会逐行重复 getSession）
     const sessionIds: string[] = [];
     const sessionRevisions = new Map<string, string | null>();
     const seenSessions = new Set<string>();
     for (const row of feedback) {
       if (seenSessions.has(row.session_id)) continue;
+      seenSessions.add(row.session_id);
       const session = await runtime.sessionApplication.getSession(row.session_id);
       if (!session || session.team_snapshot.team_name !== teamName) continue;
-      seenSessions.add(row.session_id);
       sessionIds.push(row.session_id);
       sessionRevisions.set(row.session_id, session.team_snapshot.team_revision ?? null);
       if (sessionIds.length >= MAX_SESSIONS_PER_TEAM) break;
     }
+    const sessionsTruncated = sessionIds.length >= MAX_SESSIONS_PER_TEAM;
 
     const samples: TeamFailureSample[] = [];
     for (const sessionId of sessionIds) {
@@ -172,6 +178,7 @@ export async function collectTeamFailures(
       tenant_rows_scanned: feedback.length,
       has_more: hasMore,
       sessions_matched: sessionIds.length,
+      sessions_truncated: sessionsTruncated,
       revision_links: teamLinks.map((link) => ({
         revision: link.revision,
         team_revision_hash: link.team_revision_hash,
@@ -190,7 +197,6 @@ interface TrialMessageLike {
   role: string;
   content_parts: readonly unknown[];
   child_agent_id: string | null;
-  tool_calls?: ReadonlyArray<{ function?: { name?: string } }> | undefined;
 }
 
 function buildSample(
@@ -205,7 +211,6 @@ function buildSample(
   const rated = ratedIndex >= 0 ? messages[ratedIndex] : null;
 
   let userExcerpt: string | null = null;
-  let delegateCalls = 0;
   let entryOwnTextChars = 0;
   if (rated) {
     for (let index = ratedIndex - 1; index >= 0; index -= 1) {
@@ -214,7 +219,8 @@ function buildSample(
       userExcerpt = excerpt(plainTextOf(message.content_parts), USER_EXCERPT_CHARS);
       break;
     }
-    // 交互窗口 = 用户消息（含）到被踩回答（含）：观察入口在此窗口内干了什么
+    // 交互窗口 = 用户消息（含）到被踩回答（含）。可见消息不含委派中间轮
+    // （react_intermediate 被持久层排除），入口自产文本只统计可见的根 assistant 消息
     let windowStart = ratedIndex;
     for (let index = ratedIndex - 1; index >= 0; index -= 1) {
       const candidate = messages[index];
@@ -225,25 +231,22 @@ function buildSample(
     }
     for (let index = windowStart; index <= ratedIndex; index += 1) {
       const message = messages[index];
-      if (!message || message.role !== "assistant") continue;
-      const calls = message.tool_calls ?? [];
-      delegateCalls += calls.filter((call) => call.function?.name === AGENT_TOOL_NAME).length;
-      if (message.child_agent_id == null) {
-        entryOwnTextChars += plainTextOf(message.content_parts).length;
-      }
+      if (!message || message.role !== "assistant" || message.child_agent_id != null) continue;
+      entryOwnTextChars += plainTextOf(message.content_parts).length;
     }
   }
 
+  // 委派形态从 run 树推导：被踩消息的根 run 的直接子 run 就是本轮委派。
+  // 转写里看不到委派调用（中间轮不可见），不能按 tool_calls 统计。
   const ratedRun = rated
     ? runs.find((run) => run.final_message_id === row.message_id) ?? null
     : null;
-  const answeredBy = rated?.child_agent_id
-    ? runs.find((run) => run.child_agent_id === rated.child_agent_id)?.agent_name ?? null
-    : ratedRun?.agent_name ?? null;
+  const childRuns = ratedRun
+    ? runs.filter((run) => run.parent_run_id === ratedRun.run_id && run.child_agent_id != null)
+    : [];
+  const delegateCalls = childRuns.length;
   const childAgents = [...new Set(
-    runs
-      .filter((run) => run.child_agent_id != null && run.agent_name != null)
-      .map((run) => run.agent_name as string),
+    childRuns.map((run) => run.agent_name).filter((name): name is string => name != null),
   )].slice(0, 10);
 
   return {
@@ -253,18 +256,20 @@ function buildSample(
     comment: row.comment ?? null,
     user_excerpt: userExcerpt,
     answer_excerpt: rated ? excerpt(plainTextOf(rated.content_parts), ANSWER_EXCERPT_CHARS) : null,
-    answered_by: answeredBy,
+    answered_by: ratedRun?.agent_name ?? null,
     run: {
       status: ratedRun?.status ?? null,
       terminal_reason: ratedRun?.terminal_reason ?? null,
       task_summary: ratedRun?.task_summary ?? null,
     },
+    /** 根 run 是否匹配到：false 时委派形态不可用（消息/ run 超出扫描窗口或已删除）。 */
+    run_linked: ratedRun != null,
     team_revision: teamRevision,
     published_revision: publishedRevision,
     delegate_calls: delegateCalls,
     entry_own_text_chars: entryOwnTextChars,
     child_agents: childAgents,
-    entry_router_only: delegateCalls > 0 && entryOwnTextChars < ROOT_ROUTER_TEXT_THRESHOLD,
+    entry_router_only: ratedRun != null && delegateCalls > 0 && entryOwnTextChars < ROOT_ROUTER_TEXT_THRESHOLD,
   };
 }
 
@@ -285,7 +290,14 @@ function plainTextOf(parts: readonly unknown[] | undefined): string {
 
 function excerpt(text: string, maxChars: number): string {
   const trimmed = text.trim();
-  return trimmed.length <= maxChars ? trimmed : `${trimmed.slice(0, maxChars)}…`;
+  if (trimmed.length <= maxChars) return trimmed;
+  // 按码点截断，避免切断代理对产出 U+FFFD
+  return `${[...trimmed].slice(0, maxChars).join("")}…`;
+}
+
+/** 用户可控内容（输入/回答/备注）统一引用块输出：防止内容伪造 Markdown 协议文本。 */
+function quoted(text: string): string {
+  return text.split("\n").map((line) => `> ${line}`).join("\n");
 }
 
 /** 证据文件正文：Builder 用 read_file 消费，人也能直接读。 */
@@ -301,7 +313,7 @@ export function renderTeamFailureMarkdown(report: TeamFailureReport): string {
   const lines: string[] = [
     `# 团队失败证据：${report.team_name}`,
     "",
-    `采集时间：${report.collected_at}；扫描租户级 👎 ${report.tenant_rows_scanned} 条（含其他团队，按更新时间倒序），命中会话 ${report.sessions_matched} 个，样本 ${report.samples.length} 条。${report.has_more ? "注意：行数已达扫描上限，更早的点踩未包含——需要时调大 feedback_limit 或用 since 分段回溯。" : ""}`,
+    `采集时间：${report.collected_at}；扫描租户级 👎 ${report.tenant_rows_scanned} 条（含其他团队，按更新时间倒序），命中会话 ${report.sessions_matched} 个，样本 ${report.samples.length} 条。${report.has_more ? "注意：行数已达扫描上限，可能还有更早点踩未包含——需要时调大 feedback_limit 或用 since 分段回溯。" : ""}${report.sessions_truncated ? ` 命中会话数达上限 ${MAX_SESSIONS_PER_TEAM}，更早会话的样本未包含。` : ""}`,
     "",
   ];
   if (report.revision_links.length > 0) {
@@ -317,15 +329,19 @@ export function renderTeamFailureMarkdown(report: TeamFailureReport): string {
   }
   report.samples.forEach((sample, index) => {
     lines.push(`## 样本 ${index + 1}（${sample.rated_at}，session ${sample.session_id}）`);
-    lines.push(`- 用户输入：${sample.user_excerpt ?? "（转写中未找到，可能已被编辑或删除）"}`);
-    lines.push(`- 被踩回答（by ${sample.answered_by ?? "unknown"}）：${sample.answer_excerpt ?? "（消息已删除）"}`);
-    lines.push(`- 运行状态：${sample.run.status ?? "unknown"}${sample.run.terminal_reason ? ` / ${sample.run.terminal_reason}` : ""}${sample.run.task_summary ? ` — ${sample.run.task_summary}` : ""}`);
+    lines.push(`- 用户输入：${sample.user_excerpt != null ? `\n${quoted(sample.user_excerpt)}` : `（未在最近 ${MESSAGES_PER_SESSION} 条转写中找到——消息可能更早或已被编辑/删除）`}`);
+    lines.push(`- 被踩回答（by ${sample.answered_by ?? "unknown"}）：${sample.answer_excerpt != null ? `\n${quoted(sample.answer_excerpt)}` : "（消息未在转写窗口内或已删除）"}`);
+    lines.push(`- 运行状态：${sample.run.status ?? "unknown（run 可能超出扫描窗口或已删除）"}${sample.run.terminal_reason ? ` / ${sample.run.terminal_reason}` : ""}${sample.run.task_summary ? ` — ${sample.run.task_summary}` : ""}`);
     lines.push(`- 团队版本：${sample.published_revision != null ? `发布 revision ${sample.published_revision}` : "未映射到任何 Builder 发布版本（团队可能被直接修改过）"}（快照 ${sample.team_revision ? shortHash(sample.team_revision) : "unknown"}）`);
-    lines.push(`- 委派形态：入口自产文本 ${sample.entry_own_text_chars} 字符，delegate 调用 ${sample.delegate_calls} 次${sample.child_agents.length > 0 ? `，子 Agent：${sample.child_agents.join("、")}` : ""}`);
+    if (sample.run_linked) {
+      lines.push(`- 委派形态（按 run 树）：本轮子 run ${sample.delegate_calls} 个，入口自产文本 ${sample.entry_own_text_chars} 字符${sample.child_agents.length > 0 ? `，子 Agent：${sample.child_agents.join("、")}` : ""}`);
+    } else {
+      lines.push("- 委派形态：本轮 run 未匹配，委派观察不可用。");
+    }
     if (sample.entry_router_only) {
       lines.push("- ⚠️ 入口疑似纯路由：发生了委派但入口几乎不产出内容，按团队设计规范重新划分入口职责。");
     }
-    if (sample.comment) lines.push(`- 用户备注：${sample.comment}`);
+    if (sample.comment) lines.push(`- 用户备注：\n${quoted(sample.comment)}`);
     lines.push("");
   });
   lines.push("消费方式：失败样本与域探索同级作为先验。把可复现的失败输入登记为 acceptance 用例（source: regression，注明发现的发布 revision）；把形态性教训（路由化、答非所问、委派过深）写进对应 Agent 的 instructions；不要把单条偶发故障当成架构结论。");

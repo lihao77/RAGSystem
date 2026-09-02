@@ -103,7 +103,7 @@ export class RunOps {
                  child_agent_id, final_message_id, created_at, updated_at
           FROM runs
           WHERE session_id=?
-          ORDER BY created_at DESC
+          ORDER BY created_at DESC, run_id DESC
           LIMIT ? OFFSET ?
         `,
       )

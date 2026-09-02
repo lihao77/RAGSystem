@@ -1816,10 +1816,10 @@ function failureSession(teamName) {
 
 test("collect_team_failures joins thumbs-down feedback with transcripts, runs, and delegation shape", async () => {
   const sessionId = "sess-support";
+  // 真实可见转写形态：委派中间轮（react_intermediate）不进可见清单，
+  // 只剩用户消息与根 assistant 终答——委派形态必须经 run 树还原
   const messages = [
     { id: "m1", seq: 1, role: "user", content_parts: [{ type: "text", text: "Why was my refund rejected?" }], child_agent_id: null },
-    { id: "m2", seq: 2, role: "assistant", content_parts: [], child_agent_id: null, tool_calls: [{ id: "c1", function: { name: "agent", arguments: "{}" } }] },
-    { id: "m3", seq: 3, role: "assistant", content_parts: [{ type: "text", text: "Refund policy says 30 days." }], child_agent_id: "child-1" },
     { id: "m4", seq: 4, role: "assistant", content_parts: [{ type: "text", text: "It was rejected because the 30-day refund window had already closed when you asked, and per policy the order can no longer be refunded automatically; here is what you can still do next." }], child_agent_id: null },
   ];
   const fake = fakeFailureRuntime({
@@ -1838,8 +1838,10 @@ test("collect_team_failures joins thumbs-down feedback with transcripts, runs, a
     ]),
     transcripts: new Map([[sessionId, messages]]),
     runs: new Map([[sessionId, [
-      { run_id: "r1", session_id: sessionId, final_message_id: "m4", agent_name: "lead", child_agent_id: null, status: "completed", terminal_reason: null, task_summary: "refund rejection question" },
-      { run_id: "r2", session_id: sessionId, final_message_id: null, agent_name: "policy_worker", child_agent_id: "child-1", status: "completed", terminal_reason: null, task_summary: null },
+      { run_id: "r1", session_id: sessionId, parent_run_id: null, child_agent_id: null, final_message_id: "m4", agent_name: "lead", status: "completed", terminal_reason: null, task_summary: "refund rejection question" },
+      { run_id: "r2", session_id: sessionId, parent_run_id: "r1", child_agent_id: "child-1", final_message_id: null, agent_name: "policy_worker", status: "completed", terminal_reason: null, task_summary: null },
+      // 其他根 run 的子 run：不属于被踩轮次，不计入
+      { run_id: "r9", session_id: sessionId, parent_run_id: "r8", child_agent_id: "child-9", final_message_id: null, agent_name: "outsider", status: "completed", terminal_reason: null, task_summary: null },
     ]]]),
   });
 
@@ -1861,6 +1863,7 @@ test("collect_team_failures joins thumbs-down feedback with transcripts, runs, a
   assert.equal(sample.run.task_summary, "refund rejection question");
   assert.equal(sample.team_revision, "rev");
   assert.equal(sample.published_revision, 3);
+  assert.equal(sample.run_linked, true);
   assert.equal(sample.delegate_calls, 1);
   assert.deepEqual(sample.child_agents, ["policy_worker"]);
   assert.equal(sample.entry_router_only, false);
@@ -1870,15 +1873,15 @@ test("collect_team_failures joins thumbs-down feedback with transcripts, runs, a
   assert.match(markdown, /revision 3 → rev/);
   assert.match(markdown, /发布 revision 3/);
   assert.match(markdown, /source: regression/);
-  assert.match(markdown, /用户备注：没给出补救方案/);
+  assert.match(markdown, /用户备注：\n> 没给出补救方案/);
 });
 
 test("collect_team_failures flags a router-only entry from the interaction window", async () => {
   const sessionId = "sess-router";
+  // 可见转写：根 assistant 终答只是转述子 Agent 的产出（文本很短）
   const messages = [
     { id: "m1", seq: 1, role: "user", content_parts: [{ type: "text", text: "Summarize this report." }], child_agent_id: null },
-    { id: "m2", seq: 2, role: "assistant", content_parts: [], child_agent_id: null, tool_calls: [{ id: "c1", function: { name: "agent", arguments: "{}" } }] },
-    { id: "m3", seq: 3, role: "assistant", content_parts: [{ type: "text", text: "Here is the summary you asked for, produced entirely by the child." }], child_agent_id: "child-1" },
+    { id: "m3", seq: 3, role: "assistant", content_parts: [{ type: "text", text: "Here is the summary you asked for, produced entirely by the child." }], child_agent_id: null },
   ];
   const fake = fakeFailureRuntime({
     teams: ["router-team"],
@@ -1888,16 +1891,18 @@ test("collect_team_failures flags a router-only entry from the interaction windo
     sessions: new Map([[sessionId, failureSession("router-team")]]),
     transcripts: new Map([[sessionId, messages]]),
     runs: new Map([[sessionId, [
-      { run_id: "r2", session_id: sessionId, final_message_id: null, agent_name: "summarizer", child_agent_id: "child-1", status: "completed", terminal_reason: null, task_summary: null },
+      { run_id: "r-root", session_id: sessionId, parent_run_id: null, child_agent_id: null, final_message_id: "m3", agent_name: "lead", status: "completed", terminal_reason: null, task_summary: null },
+      { run_id: "r-child", session_id: sessionId, parent_run_id: "r-root", child_agent_id: "child-1", final_message_id: null, agent_name: "summarizer", status: "completed", terminal_reason: null, task_summary: null },
     ]]]),
   });
 
   const report = await collectTeamFailures({ service: fake.service, registry: fake.registry, tenantId: "tenant-test" }, "router-team");
 
   const sample = report.samples[0];
+  assert.equal(sample.run_linked, true);
   assert.equal(sample.delegate_calls, 1);
-  assert.equal(sample.entry_own_text_chars, 0);
-  assert.equal(sample.answered_by, "summarizer");
+  assert.equal(sample.entry_own_text_chars, 66);
+  assert.equal(sample.answered_by, "lead");
   assert.equal(sample.team_revision, "rev");
   assert.equal(sample.published_revision, null);
   assert.equal(sample.entry_router_only, true);
@@ -1987,9 +1992,11 @@ test("collect_team_failures tool writes the evidence file into the session works
     assert.equal(result.success, true);
     assert.equal(result.content.team_exists, true);
     assert.equal(result.content.samples.length, 1);
+    assert.equal(result.content.samples[0].run_linked, false);
     const evidencePath = path.join(workspace, result.content.evidence_file);
     assert.equal(fs.existsSync(evidencePath), true);
     assert.match(fs.readFileSync(evidencePath, "utf8"), /bad answer/);
+    assert.match(fs.readFileSync(evidencePath, "utf8"), /委派观察不可用/);
 
     // 拼错团队名：不扫描、不落盘、明确报告 team_exists=false
     const miss = await tool.call({ team_name: "no-such-team-probe" }, { executionPaths: { workspace } });
@@ -2056,6 +2063,62 @@ test('publishing records the team hash on the revision and republish overwrites 
     assert.deepEqual(links.map((link) => link.revision), [first.revision, second.revision]);
     assert.ok(links.every((link) => link.team_revision_hash));
     assert.notEqual(links[0].team_revision_hash, links[1].team_revision_hash);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+
+test('editing, rolling back, and team deletion clear team_revision_hash on draft-status revisions', async () => {
+  const fixture = await createFixture();
+  try {
+    const draft = await fixture.service.createDraft(blueprint());
+    await fixture.service.publishDraft(draft.id, draft.revision, memoryBindings());
+    const published = await fixture.service.getDraft(draft.id);
+    assert.ok(published.team_revision_hash);
+
+    const edited = structuredClone(published.blueprint);
+    edited.agents[0].instructions = 'Edited instructions.';
+    await fixture.service.updateDraft(draft.id, published.revision, edited, validateBlueprint(edited, memoryBindings().inventory));
+    assert.equal((await fixture.service.getDraft(draft.id)).team_revision_hash, null);
+
+    await fixture.service.publishDraft(draft.id, (await fixture.service.getDraft(draft.id)).revision, memoryBindings());
+    const republished = await fixture.service.getDraft(draft.id);
+    assert.ok(republished.team_revision_hash);
+
+    await fixture.service.rollbackDraft(draft.id, republished.revision, published.revision);
+    assert.equal((await fixture.service.getDraft(draft.id)).team_revision_hash, null);
+
+    // 团队被删（restore 路径）后哈希同样清空
+    await fixture.service.publishDraft(draft.id, (await fixture.service.getDraft(draft.id)).revision, memoryBindings());
+    await fixture.agentConfig.deleteTeam('support-team');
+    const restored = await fixture.service.restoreDraftAfterTeamDelete('support-team');
+    assert.ok(restored);
+    assert.equal((await fixture.service.getDraft(draft.id)).team_revision_hash, null);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test('synchronizeTeamDraft re-reads the current team hash on the published sync branch', async () => {
+  const fixture = await createFixture();
+  try {
+    const draft = await fixture.service.createDraft(blueprint());
+    await fixture.service.publishDraft(draft.id, draft.revision, memoryBindings());
+    const published = await fixture.service.getDraft(draft.id);
+    assert.ok(published.team_revision_hash);
+
+    // 团队被直接修改（绕过 Builder）后触发同步：同步 revision 必须带新哈希而非旧发布哈希
+    await fixture.agentConfig.patchConfig('lead', { description: 'Edited outside the Builder' }, { teamName: 'support-team' });
+    const synced = await fixture.service.synchronizeTeamDraft('support-team', memoryBindings());
+    const currentHash = (await fixture.agentConfig.listTeams())
+      .teams.find((team) => team.team_name === 'support-team')?.team_revision;
+    assert.ok(currentHash);
+    assert.notEqual(currentHash, published.team_revision_hash);
+    assert.equal(synced.team_revision_hash, currentHash);
+    // 同步后的哈希能被归因查询消费
+    const links = await fixture.service.listPublishedTeamRevisions();
+    assert.ok(links.some((link) => link.team_revision_hash === currentHash));
   } finally {
     fixture.cleanup();
   }

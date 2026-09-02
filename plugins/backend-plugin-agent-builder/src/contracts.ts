@@ -85,8 +85,9 @@ export const AgentDraftSchema = z.object({
   blueprint: AgentBlueprintSchema,
   validation: AgentBuilderValidationReportSchema.nullable(),
   published_at: z.string().datetime().nullable(),
-  /** 该 revision 发布时物化出的团队内容哈希（computeSessionTeamRevision 口径）。
-   * 仅发布过的 revision 携带；会话团队快照哈希由此映射回发布版本。旧记录缺省即未发布。 */
+  /** 该 revision 对应的团队内容哈希（computeSessionTeamRevision 口径）：发布与团队同步时记录，
+   * 编辑/回滚态 revision 恒为 null。字段引入前的历史发布记录缺省（发布时未记录），
+   * 归因时按「未映射」处理。会话团队快照哈希由此映射回发布 revision。 */
   team_revision_hash: z.string().min(1).nullable().optional(),
   created_at: z.string().datetime(),
   updated_at: z.string().datetime(),

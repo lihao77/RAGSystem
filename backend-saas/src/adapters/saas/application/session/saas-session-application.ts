@@ -316,7 +316,11 @@ export class SaaSSessionApplication implements SessionApplication, ExecutionSess
   }
   async listNegativeMessageFeedback(input?: { since?: string; limit?: number }) {
     if (!this.messageFeedback) return [];
-    return this.messageFeedback.listNegativeMessageFeedback(this.tenantId, input);
+    // 与本地实现同口径：since 归一为 UTC ISO（>= 闭区间），两侧行为一致
+    return this.messageFeedback.listNegativeMessageFeedback(this.tenantId, {
+      ...input,
+      ...(input?.since ? { since: normalizeSinceTimestamp(input.since) } : {}),
+    });
   }
   async listRuns(sessionId: string, limit?: number) {
     if (!this.runs) return [];
@@ -406,4 +410,10 @@ function mergeExecutionEnvelopes(
 function executionEnvelopeFallbackKey(event: Envelope): string {
   const { message_id: _messageId, seq: _seq, ...rest } = event as Envelope & { message_id?: unknown; seq?: unknown };
   return JSON.stringify([rest.type, rest.run_id ?? null, rest.call_id ?? null, rest.agent_id ?? null, rest.payload ?? null]);
+}
+
+function normalizeSinceTimestamp(since: string): string {
+  const parsed = new Date(since);
+  if (Number.isNaN(parsed.getTime())) throw new Error("since 必须是可解析的时间戳（ISO 8601）");
+  return parsed.toISOString();
 }

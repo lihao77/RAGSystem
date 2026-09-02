@@ -216,6 +216,10 @@ export class AgentBuilderService {
           validation: null,
           published_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
+          // 同步自团队当前内容：哈希重读当前值。蓝图就是从这份团队内容派生的，
+          // 哈希与蓝图同源，归因映射（哈希→revision）才不会指到旧发布的内容上。
+          team_revision_hash: (await this.agentConfig.listTeams())
+            .teams.find((team) => team.team_name === normalizedTeamName)?.team_revision ?? null,
         });
         await this.store.putDraft(updated);
         return updated;
@@ -243,6 +247,7 @@ export class AgentBuilderService {
         source_team_name: null,
         validation: null,
         published_at: null,
+        team_revision_hash: null,
         updated_at: new Date().toISOString(),
       });
       await this.store.putDraft(restored);
@@ -398,6 +403,8 @@ export class AgentBuilderService {
         status: "draft",
         blueprint,
         validation,
+        // 编辑态 revision 不对应任何已发布团队内容：清掉旧哈希，防止归因指向过时版本
+        team_revision_hash: null,
         updated_at: new Date().toISOString(),
       });
       await this.store.putDraft(updated);
@@ -441,6 +448,7 @@ export class AgentBuilderService {
         blueprint: snapshot.blueprint,
         validation: null,
         published_at: null,
+        team_revision_hash: null,
         updated_at: new Date().toISOString(),
       });
       await this.store.putDraft(restored);

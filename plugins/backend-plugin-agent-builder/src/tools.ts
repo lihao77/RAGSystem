@@ -39,6 +39,8 @@ const CollectFailuresToolInputSchema = z.object({
   since: z.string().trim().min(1).max(40).optional(),
   feedback_limit: z.number().int().min(1).max(200).optional(),
 }).strict();
+/** 内联返回的样本上限：全量样本在证据文件里，避免大报告撑爆上下文。 */
+const INLINE_SAMPLE_CAP = 10;
 export interface AgentBuilderToolOptions {
   autoApproveDraft?: (draft: AgentDraft) => Promise<AgentDraft>;
   bindingsProvider?: () => Promise<import("./service.js").AgentBuilderBindings>;
@@ -309,7 +311,7 @@ export function createAgentBuilderTools(
     }),
     buildTool({
       name: "collect_team_failures",
-      description: `Collect user-marked failure evidence for a published Team: tenant-wide thumbs-down feedback anchored to that Team's sessions, joined with the transcript around each rated answer (the user's input, the disliked answer, which agent produced it), the run status (status/terminal_reason), the team revision the session ran on, and a delegation observation (whether the entry agent only routed work to children instead of answering). Results are written to an evidence file under .ragsystem/agent-builder/evidence/ in the current Session workspace and also returned inline. A team name not present in the tenant registry returns team_exists=false without scanning or writing any file—use the published team name, not the draft name. has_more=true means the scan limit was reached and older feedback exists. Use it before redesigning or rebuilding a Team whose domain already has a live Team, and after users report dissatisfaction; treat samples as design input alongside domain exploration — regression inputs become acceptance cases (source: regression), pattern-level lessons go into instructions.`,
+      description: `Collect user-marked failure evidence for a published Team: tenant-wide thumbs-down feedback anchored to that Team's sessions, joined with the transcript around each rated answer (the user's input, the disliked answer, which agent produced it), the run status (status/terminal_reason), the team revision the session ran on, and a delegation observation derived from the run tree (children of the rated run; whether the entry agent only routed work instead of answering). The full sample set is written to an evidence file under .ragsystem/agent-builder/evidence/ in the current Session workspace; inline output carries at most 10 samples (samples_omitted points to the file). A team name not present in the tenant registry returns team_exists=false without scanning or writing any file—use the published team name, not the draft name. has_more=true means the scan limit was reached and older feedback may exist. Use it before redesigning or rebuilding a Team whose domain already has a live Team, and after users report dissatisfaction; treat samples as design input alongside domain exploration — regression inputs become acceptance cases (source: regression), pattern-level lessons go into instructions. Note: samples may contain other tenant users' feedback comments and answers (tenant-scoped by design).`,
       inputSchema: CollectFailuresToolInputSchema,
       parameters: {
         type: "object",
@@ -351,12 +353,17 @@ export function createAgentBuilderTools(
           const evidencePath = path.join(workspaceRoot(context), evidenceRelative);
           await mkdir(path.dirname(evidencePath), { recursive: true });
           await writeFile(evidencePath, renderTeamFailureMarkdown(report), "utf8");
+          // 全量样本可能很大（每条带摘录/备注），内联只带前 10 条，其余在证据文件里
+          const inlineSamples = report.samples.slice(0, INLINE_SAMPLE_CAP);
+          const omitted = report.samples.length - inlineSamples.length;
           return toolSuccess({
             ...report,
+            samples: inlineSamples,
+            ...(omitted > 0 ? { samples_omitted: omitted } : {}),
             evidence_file: evidenceRelative,
           }, {
             toolName: "collect_team_failures",
-            summary: `Team '${input.team_name}': ${report.samples.length} failure sample(s) across ${report.sessions_matched} session(s) from ${report.tenant_rows_scanned} tenant thumbs-down row(s)${report.has_more ? " (scan limit reached, older feedback not included)" : ""}; evidence written to ${evidenceRelative}`,
+            summary: `Team '${input.team_name}': ${report.samples.length} failure sample(s) across ${report.sessions_matched} session(s) from ${report.tenant_rows_scanned} tenant thumbs-down row(s)${report.has_more ? " (scan limit reached, older feedback may exist)" : ""}${report.sessions_truncated ? ` (session cap ${report.sessions_matched} reached)` : ""}${omitted > 0 ? `; ${omitted} older sample(s) only in ${evidenceRelative}` : ""}; evidence written to ${evidenceRelative}`,
             outputType: "json",
           });
         } catch (error) {
