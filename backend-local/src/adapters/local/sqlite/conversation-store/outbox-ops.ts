@@ -12,7 +12,7 @@ import {
   numericCount,
   uniquePositiveIntegers,
 } from "./shared/primitives.js";
-import { parseJsonObject, stringifyJson } from "./helpers.js";
+import { parseJsonObject, sqliteTimestampToIso, stringifyJson } from "./helpers.js";
 import type {
   AppendOutboxInput,
   ClaimOutboxInput,
@@ -67,9 +67,9 @@ export class OutboxOps {
       .prepare(`
         INSERT INTO event_outbox (
           event_id, session_id, tenant_id, run_id, session_seq, event_type, aggregate_type,
-          aggregate_id, payload, available_at
+          aggregate_id, payload, available_at, created_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       .run(
         eventId,
@@ -82,6 +82,7 @@ export class OutboxOps {
         input.aggregateId,
         stringifyJson(input.payload),
         input.availableAt ?? nowIso(),
+        nowIso(),
       );
     const row = this.loadOutboxRow(Number(result.lastInsertRowid));
     if (!row) {
@@ -91,7 +92,7 @@ export class OutboxOps {
   }
 
   fetchPendingOutbox(limit = 100): OutboxRow[] {
-    return this.db
+    return (this.db
       .prepare(`
         SELECT ${OUTBOX_SELECT_COLUMNS}
         FROM event_outbox
@@ -99,7 +100,7 @@ export class OutboxOps {
         ORDER BY id ASC
         LIMIT ?
       `)
-      .all(nowIso(), limit) as unknown as OutboxRow[];
+      .all(nowIso(), limit) as unknown as OutboxRow[]).map(normalizeOutboxRow);
   }
 
   claimPendingOutbox(input: ClaimOutboxInput = {}): OutboxRow[] {
@@ -134,7 +135,7 @@ export class OutboxOps {
             AND (locked_at IS NULL OR locked_at <= ?)
         `)
         .run(lockedAt, ...idValues, lockedAt, staleBefore);
-      return this.db
+      return (this.db
         .prepare(`
           SELECT ${OUTBOX_SELECT_COLUMNS}
           FROM event_outbox
@@ -142,11 +143,15 @@ export class OutboxOps {
             AND locked_at=?
           ORDER BY id ASC
         `)
-        .all(...idValues, lockedAt) as unknown as OutboxRow[];
+        .all(...idValues, lockedAt) as unknown as OutboxRow[]).map(normalizeOutboxRow);
     });
   }
 
   listOutboxForReplay(input: { sessionId: string; runId?: string | null; runIds?: readonly string[] | null; afterSeq?: number; limit?: number; latest?: boolean; eventTypes?: readonly string[] | null }): OutboxRow[] {
+    return this.listOutboxForReplayRaw(input).map(normalizeOutboxRow);
+  }
+
+  private listOutboxForReplayRaw(input: { sessionId: string; runId?: string | null; runIds?: readonly string[] | null; afterSeq?: number; limit?: number; latest?: boolean; eventTypes?: readonly string[] | null }): OutboxRow[] {
     const limit = input.limit ?? 100;
     const afterSeq = input.afterSeq ?? 0;
     const runIds = input.runIds && input.runIds.length > 0
@@ -247,7 +252,7 @@ export class OutboxOps {
       .all(...filters.values, limit, offset) as unknown as OutboxRow[];
     const totalCount = numericCount(total?.total);
     return {
-      items,
+      items: items.map(normalizeOutboxRow),
       total: totalCount,
       limit,
       offset,
@@ -406,7 +411,7 @@ export class OutboxOps {
         oldest_pending_or_retrying_created_at: string | null;
         oldest_failed_created_at: string | null;
       };
-    const recentFailedErrors = this.db
+    const recentFailedErrors = (this.db
       .prepare(`
         SELECT id, event_id, session_id, run_id, event_type, attempts, last_error, created_at
         FROM event_outbox
@@ -414,7 +419,8 @@ export class OutboxOps {
         ORDER BY id DESC
         LIMIT 5
       `)
-      .all() as unknown as EventOutboxErrorSummary[];
+      .all() as unknown as EventOutboxErrorSummary[]).map(normalizeOutboxErrorSummary);
+    const normalizeNullableIso = (value: string | null): string | null => (value === null ? null : sqliteTimestampToIso(value));
     return {
       total: numericCount(row.total),
       pending: numericCount(row.pending),
@@ -423,13 +429,13 @@ export class OutboxOps {
       failed: numericCount(row.failed),
       locked: numericCount(row.locked),
       ready: numericCount(row.ready),
-      oldest_pending_created_at: row.oldest_pending_created_at,
+      oldest_pending_created_at: normalizeNullableIso(row.oldest_pending_created_at),
       oldest_pending_age_seconds: ageSeconds(row.oldest_pending_created_at),
-      oldest_retrying_created_at: row.oldest_retrying_created_at,
+      oldest_retrying_created_at: normalizeNullableIso(row.oldest_retrying_created_at),
       oldest_retrying_age_seconds: ageSeconds(row.oldest_retrying_created_at),
-      oldest_pending_or_retrying_created_at: row.oldest_pending_or_retrying_created_at,
+      oldest_pending_or_retrying_created_at: normalizeNullableIso(row.oldest_pending_or_retrying_created_at),
       oldest_pending_or_retrying_age_seconds: ageSeconds(row.oldest_pending_or_retrying_created_at),
-      oldest_failed_created_at: row.oldest_failed_created_at,
+      oldest_failed_created_at: normalizeNullableIso(row.oldest_failed_created_at),
       oldest_failed_age_seconds: ageSeconds(row.oldest_failed_created_at),
       recent_failed_errors: recentFailedErrors,
     };
@@ -458,7 +464,7 @@ export class OutboxOps {
     const row = this.db
       .prepare(`SELECT ${OUTBOX_SELECT_COLUMNS} FROM event_outbox WHERE id=?`)
       .get(id) as OutboxRow | undefined;
-    return row ?? null;
+    return row ? normalizeOutboxRow(row) : null;
   }
 
   /** attach 幂等检查用（事件是否已入 outbox）。 */
@@ -466,8 +472,21 @@ export class OutboxOps {
     const row = this.db
       .prepare(`SELECT ${OUTBOX_SELECT_COLUMNS} FROM event_outbox WHERE event_id=?`)
       .get(eventId) as OutboxRow | undefined;
-    return row ?? null;
+    return row ? normalizeOutboxRow(row) : null;
   }
+}
+
+/**
+ * 读出口兜底：仅归一 created_at（v24 迁移已把存量行统一 ISO-Z，此处对半迁移/手工编辑
+ * 状态再收敛，幂等）。available_at 等列迁移后必然同构且参与幂等等值比较，不做出口改写。
+ * OutboxRow.created_at 流向 WS runtime 快照的 event 时间戳与监控面板，缺 Z 会被本地时区解析。
+ */
+function normalizeOutboxRow(row: OutboxRow): OutboxRow {
+  return { ...row, created_at: sqliteTimestampToIso(row.created_at) };
+}
+
+function normalizeOutboxErrorSummary(row: EventOutboxErrorSummary): EventOutboxErrorSummary {
+  return { ...row, created_at: sqliteTimestampToIso(row.created_at) };
 }
 
 function assertIdempotentOutbox(

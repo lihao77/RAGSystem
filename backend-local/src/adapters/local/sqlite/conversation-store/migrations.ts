@@ -7,7 +7,7 @@ export interface MigrationDatabase {
   prepare: import("node:sqlite").DatabaseSync["prepare"];
 }
 
-export const LATEST_SCHEMA_VERSION = 23;
+export const LATEST_SCHEMA_VERSION = 24;
 
 export function assertVersionsContiguous(migrations: readonly { version: number; name: string }[]): void {
   migrations.forEach((migration, index) => {
@@ -33,7 +33,7 @@ export function runMigrations(db: MigrationDatabase): void {
     assertCurrentSchema(db);
     return;
   }
-  if (current >= 1 && current <= 22) {
+  if (current >= 1 && current <= 23) {
     assertVersionOneSchema(db);
     runInTransaction(db, () => {
       if (current === 1) db.exec("ALTER TABLE runs ADD COLUMN terminal_reason TEXT");
@@ -92,6 +92,24 @@ export function runMigrations(db: MigrationDatabase): void {
       if (current <= 22) {
         // v23: 消息级赞/踩反馈表（每条消息至多一条，后写覆盖；只存评价引用）。
         db.exec(MESSAGE_FEEDBACK_SCHEMA_SQL);
+      }
+      if (current <= 23) {
+        // v24: event_outbox 时间列统一 ISO-Z。created_at/available_at 的旧 DDL 默认值
+        // CURRENT_TIMESTAMP 产生无 Z 的 UTC 文本，与显式写入的 ISO-Z 列（delivered_at 等）
+        // 混排会破坏 GC 的 COALESCE 字符串比较与 stats 的 MIN。形状驱动（已带 Z 跳过）、幂等。
+        // 注意：本步骤只回填数据不重建表——迁移库的列 DDL 默认值仍是旧形状，
+        // INSERT 必须继续显式写这两列（outbox-ops 已保证），否则会再产生无 Z 文本。
+        // strftime 对不可解析文本返回 NULL；加 IS NOT NULL 守卫让坏形状保持原样可见，而非静默置 NULL。
+        db.exec(`
+          UPDATE event_outbox
+          SET created_at = strftime('%Y-%m-%dT%H:%M:%fZ', created_at)
+          WHERE created_at IS NOT NULL AND created_at NOT LIKE '%Z'
+            AND strftime('%Y-%m-%dT%H:%M:%fZ', created_at) IS NOT NULL;
+          UPDATE event_outbox
+          SET available_at = strftime('%Y-%m-%dT%H:%M:%fZ', available_at)
+          WHERE available_at IS NOT NULL AND available_at NOT LIKE '%Z'
+            AND strftime('%Y-%m-%dT%H:%M:%fZ', available_at) IS NOT NULL;
+        `);
       }
       if (current <= 19) {
         // v20: run_steps/run_message_boundaries/step_resources 归档退役（执行视图由消息行合成）。

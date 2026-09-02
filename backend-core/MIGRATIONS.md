@@ -46,6 +46,10 @@ create/update 路径复用其中的 `canonicalizeProviderConfig` / `normalizePro
 
 - **sqlite DDL**：各插件 `src/storage/*/sqlite-migrations.ts`，编号 + 版本表
   （`ragsystem_plugin_schema_migrations`）。
+- **backend-local 会话库**：`backend-local/src/adapters/local/sqlite/conversation-store/migrations.ts`，
+  `PRAGMA user_version` 编号迁移（无步骤 id 注册）。v24 将 event_outbox 的时间列
+  （created_at/available_at）由 CURRENT_TIMESTAMP 无 Z 文本回填为 ISO-Z，消除与
+  delivered_at 等显式 ISO-Z 列的混排（GC 字符串比较与 MIN 统计依赖同构格式）。
 - **启动补齐**：桌面产品侧（Oceanx electron）按 ensure 语义补齐 Team 模板与
   planning Provider，属产品组合层，不在共享树内。
 

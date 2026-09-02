@@ -225,11 +225,11 @@ export const BASELINE_SCHEMA_SQL = `
       payload TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'pending',
       attempts INTEGER NOT NULL DEFAULT 0,
-      available_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      available_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
       locked_at TIMESTAMP,
       delivered_at TIMESTAMP,
       last_error TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
       FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
     );
 
