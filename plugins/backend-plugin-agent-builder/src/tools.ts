@@ -188,7 +188,7 @@ export function createAgentBuilderTools(
     }),
     buildTool({
       name: "validate_agent_draft",
-      description: "Read the local Agent draft workspace and return the same validation report publish would enforce, without publishing. Errors block publish; warnings (missing llm_tiers, unknown llm provider) do not. Use it freely while editing blueprint.json.",
+      description: "Read the local Agent draft workspace and return the same validation report publish would enforce, without publishing. Errors block publish; warnings (missing llm_tiers, unknown llm provider, router-only entry agent, missing acceptance cases) do not. Use it freely while editing blueprint.json.",
       inputSchema: DraftIdToolInputSchema,
       parameters: {
         type: "object",

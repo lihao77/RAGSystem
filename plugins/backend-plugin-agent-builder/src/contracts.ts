@@ -9,6 +9,18 @@ const IdentifierSchema = z.string()
   .max(64)
   .regex(/^[a-z0-9][a-z0-9_-]*$/, "must use lower-case letters, digits, underscores, or hyphens");
 
+/**
+ * 验收用例：构建前探索的真实样本或线上回流的失败修复沉淀而来，是蓝图的回归防线。
+ * source 区分两类来源：sample = 探索阶段真实样本；regression = 线上失败修复后补录。
+ */
+export const AgentBlueprintAcceptanceCaseSchema = z.object({
+  case: z.string().trim().min(1).max(2_000),
+  expect_contains: z.array(z.string().trim().min(1).max(500)).max(20).optional().default([]),
+  source: z.enum(["sample", "regression"]).optional().default("sample"),
+}).strict();
+
+export type AgentBlueprintAcceptanceCase = z.infer<typeof AgentBlueprintAcceptanceCaseSchema>;
+
 export const AgentBlueprintAgentSchema = z.object({
   name: IdentifierSchema,
   display_name: z.string().trim().min(1).max(120).nullable().optional(),
@@ -31,6 +43,8 @@ export const AgentBlueprintSchema = z.object({
   description: z.string().trim().min(1).max(1_000),
   entry_agent: IdentifierSchema,
   agents: z.array(AgentBlueprintAgentSchema).min(1).max(20),
+  // 可选字段：存量草稿缺失时在解析口归一为空数组（形态驱动、幂等），不会被判为非法。
+  acceptance: z.array(AgentBlueprintAcceptanceCaseSchema).max(50).optional().default([]),
 }).strict().superRefine((blueprint, context) => {
   const seen = new Set<string>();
   for (const [index, agent] of blueprint.agents.entries()) {

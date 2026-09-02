@@ -4,7 +4,7 @@ import { isRecord } from "@ragsystem/backend-core/utils/guards.js";
 
 /** Reserved tenant Team installed by the Agent Builder plugin. */
 export const AGENT_BUILDER_TEAM_NAME = "agent-builder";
-export const AGENT_BUILDER_TEAM_TEMPLATE_VERSION = 11;
+export const AGENT_BUILDER_TEAM_TEMPLATE_VERSION = 13;
 
 const CAPABILITY_INVENTORY_TOOL = "list_agent_builder_capabilities";
 
@@ -22,6 +22,30 @@ const DRAFT_WORKFLOW_PROMPT = "Use list_agent_drafts, with a query when needed, 
 const LEGACY_DRAFT_WORKFLOW_SENTENCE = "Use list_agent_drafts, with a query when needed, to find a Draft; use get to copy it into the current Session workspace, or create to start a new workspace Draft. Edit blueprint.json with file tools, then call publish; publish performs validation and synchronization automatically.";
 
 const DELEGATION_ARTIFACTS_PROMPT = "When delegating research or review, pass input file paths through the agent tool's artifacts parameter instead of pasting file contents into the message; the receiving Agent reads them with file tools.";
+
+const TEAM_DESIGN_NORMS_MARKER = "Team design norms:";
+const TEAM_DESIGN_NORMS_PROMPT = [
+  TEAM_DESIGN_NORMS_MARKER,
+  "the entry Agent talks to the user directly, so it must be the most capable generalist in the Team it designs: bind it enough tools and capabilities to resolve routine requests end-to-end on its own (typically a superset of its sub-agents' tools) and write in its instructions that it solves tasks directly first.",
+  "Delegate only what genuinely benefits from a sub-agent: parallelizable independent subtasks, context-heavy exploration that would flood the main conversation, deep specialized sub-processes, and isolated verification.",
+  "The entry Agent handles everything else itself: quick answers, anything within a few tool calls, and synthesis that needs the full conversation context.",
+  "Never design a router-only entry Agent that forwards every request to sub-agents; it adds a delegation hop to each turn and leaves the Team unable to serve the user when the sub-agent fails.",
+].join(" ");
+
+const DOMAIN_EXPLORATION_MARKER = "Domain exploration protocol:";
+const DOMAIN_EXPLORATION_PROMPT = [
+  DOMAIN_EXPLORATION_MARKER,
+  "a built Team is worth publishing only if it knows things a general Team does not. Before designing, ask the user for real sample requests, domain documents, knowledge-base material, or access to the systems involved.",
+  "Run representative samples end-to-end with the capabilities this runtime already has, and record where you get stuck, what information is missing, and which manual steps repeat; those findings are the Team's domain priors.",
+  "If no samples or materials can be obtained, say so explicitly and design conservatively; never invent domain facts to fill the gap.",
+].join(" ");
+
+const EXPERIENCE_LAYERING_MARKER = "Experience layering:";
+const EXPERIENCE_LAYERING_PROMPT = [
+  EXPERIENCE_LAYERING_MARKER,
+  "put volatile behavior and role direction into agent instructions and rewrite them as a whole instead of appending; put stable domain knowledge (glossaries, process rules, data formats, system procedures) into Skill drafts so other Teams can reuse it; put every failure you fixed into a blueprint acceptance case so it becomes a regression guard.",
+  "Acceptance cases must come from the real samples explored or from failures you actually observed, never be invented, and are written to blueprint.json's acceptance field (source: sample or regression).",
+].join(" ");
 const LEGACY_SKILL_AUTHORING_PROMPT = `Use list_skill_drafts, with a query when needed, to find reusable Skill drafts. Use get_skill_draft to copy a draft into the current Session workspace, or create_skill_draft to create one from scratch. Edit SKILL.md and its resources with file tools, then call publish_skill_draft. Publishing validates the local bundle; on failure, fix the files and retry. Do not call separate validate or approve tools. A Skill is not available to Agents until publication succeeds.`;
 const SKILL_AUTHORING_PROMPT_MARKER = "Skill authoring runtime contract:";
 const SKILL_AUTHORING_PROMPT = [
@@ -91,6 +115,9 @@ export function buildAgentBuilderTeam(): Record<string, AgentConfig> {
         "Turn the user's business request into a reviewable Agent Team, not an immediate production change.",
         "First clarify the outcome, users, inputs, outputs, constraints, and acceptance criteria.",
         "Delegate research, architecture, evaluation, and optimization to the specialized Agents in this Team.",
+        TEAM_DESIGN_NORMS_PROMPT,
+        DOMAIN_EXPLORATION_PROMPT,
+        EXPERIENCE_LAYERING_PROMPT,
         CAPABILITY_DISCOVERY_PROMPT,
         DRAFT_WORKFLOW_PROMPT,
         DELEGATION_ARTIFACTS_PROMPT,
@@ -104,7 +131,7 @@ export function buildAgentBuilderTeam(): Record<string, AgentConfig> {
       displayName: "Requirements Researcher",
       description: "Clarifies the target workflow, actors, inputs, outputs, constraints, and acceptance criteria.",
       tools: ["read_file", "preview_data_structure", "glob", "grep", "web_fetch"],
-      prompt: "Investigate the user's requested workflow. Return a concise requirements brief with actors, triggers, inputs, outputs, constraints, failure cases, and measurable acceptance criteria. Do not create or publish configuration.",
+      prompt: "Investigate the user's requested workflow. Collect real sample requests and domain materials (documents, knowledge-base entries, MCP system access) as mandatory build input—a Team designed from hypotheticals alone has no advantage over the general Team. Return a concise requirements brief with actors, triggers, inputs, outputs, constraints, failure cases, measurable acceptance criteria, and the collected samples. Do not create or publish configuration.",
     }),
     capability_researcher: builderAgent({
       name: "capability_researcher",
@@ -118,14 +145,14 @@ export function buildAgentBuilderTeam(): Record<string, AgentConfig> {
       displayName: "Agent Architect",
       description: "Designs the Agent roster, entry point, delegation graph, prompts, and capability bindings.",
       tools: ["read_file", "preview_data_structure", "glob", "grep"],
-      prompt: "Design a complete Agent Blueprint from the research briefs. Keep the delegation graph acyclic, assign one clear entry Agent, and bind only known capabilities. Return structured recommendations to the Orchestrator.",
+      prompt: "Design a complete Agent Blueprint from the research briefs and the domain-exploration findings. Keep the delegation graph acyclic, assign one clear entry Agent, and bind only known capabilities. The entry Agent talks to the user directly, so make it the most capable generalist in the Team: bind it enough tools to resolve routine requests itself (typically a superset of its sub-agents' tools) and delegate only parallelizable, context-heavy, or deeply specialized work. Never propose a router-only entry Agent that forwards every request without doing any work itself. Layer the exploration findings: volatile behavior into instructions, stable domain knowledge into Skill drafts, real samples into blueprint acceptance cases. Return structured recommendations to the Orchestrator.",
     }),
     agent_evaluator: builderAgent({
       name: "agent_evaluator",
       displayName: "Agent Evaluator",
       description: "Reviews a candidate Blueprint against acceptance criteria, safety constraints, and runtime feasibility.",
       tools: ["read_file", "preview_data_structure", "glob", "grep"],
-      prompt: "Evaluate the current candidate Blueprint against its acceptance criteria and runtime constraints. Identify concrete failures, missing coverage, unsafe permissions, and unnecessary complexity. Return actionable changes; do not publish.",
+      prompt: "Evaluate the current candidate Blueprint against its acceptance criteria and runtime constraints. Identify concrete failures, missing coverage, unsafe permissions, and unnecessary complexity. Flag a router-only entry Agent that delegates everything but holds no tools or capabilities of its own, and delegation topologies that add a hop to every routine turn; the entry Agent must be able to serve the user directly. Check that blueprint acceptance cases trace to real explored samples or observed failures rather than inventions, that instructions are distilled instead of bloated, and that stable knowledge is proposed as a Skill rather than inlined into prompts. Return actionable changes; do not publish.",
     }),
     agent_optimizer: builderAgent({
       name: "agent_optimizer",
@@ -191,6 +218,17 @@ function migrateAgentBuilderTeam(configs: Record<string, AgentConfig>): Record<s
   }
   if (!workflowPrompt.includes("artifacts parameter")) {
     workflowPrompt = `${workflowPrompt} ${DELEGATION_ARTIFACTS_PROMPT}`.trim();
+  }
+  // v12：团队设计规范——入口 Agent 必须自身能干活，委派只用于真正受益的子任务。
+  if (!workflowPrompt.includes(TEAM_DESIGN_NORMS_MARKER)) {
+    workflowPrompt = `${workflowPrompt} ${TEAM_DESIGN_NORMS_PROMPT}`.trim();
+  }
+  // v13：域探索协议 + 经验分层——先验来自实证探索，经验按 instructions / Skill / 验收用例三层沉淀。
+  if (!workflowPrompt.includes(DOMAIN_EXPLORATION_MARKER)) {
+    workflowPrompt = `${workflowPrompt} ${DOMAIN_EXPLORATION_PROMPT}`.trim();
+  }
+  if (!workflowPrompt.includes(EXPERIENCE_LAYERING_MARKER)) {
+    workflowPrompt = `${workflowPrompt} ${EXPERIENCE_LAYERING_PROMPT}`.trim();
   }
   const nextPrompt = hasLegacyArtifactPrompt
     ? `${workflowPrompt} ${SKILL_AUTHORING_PROMPT}`.trim()

@@ -227,6 +227,7 @@ export class AgentBuilderService {
       name,
       description,
       entry_agent: "main",
+      acceptance: [],
       agents: [{
         name: "main",
         description: "Primary entry agent",
@@ -700,6 +701,25 @@ export function validateBlueprint(
   if (cycle) {
     issues.push(issue("error", "delegation_cycle", "agents", `Delegation cycle detected: ${cycle.join(" -> ")}`));
   }
+  const entryIndex = blueprint.agents.findIndex((agent) => agent.name === blueprint.entry_agent);
+  const entryAgent = entryIndex >= 0 ? blueprint.agents[entryIndex]! : null;
+  if (entryAgent && blueprint.agents.length > 1 && entryAgent.delegates.length > 0 && !hasOwnCapability(entryAgent)) {
+    issues.push(issue(
+      "warning",
+      "router_only_entry_agent",
+      `agents.${entryIndex}.tools`,
+      `Entry agent '${entryAgent.name}' delegates to sub-agents but has no tools or capabilities of its own; `
+        + "the entry agent talks to the user directly, so bind it the tools to resolve routine requests itself instead of routing every turn",
+    ));
+  }
+  if (blueprint.acceptance.length === 0) {
+    issues.push(issue(
+      "warning",
+      "missing_acceptance_cases",
+      "acceptance",
+      "Blueprint has no acceptance cases; derive them from the real sample requests explored before designing instead of inventing them",
+    ));
+  }
   return {
     valid: !issues.some((item) => item.level === "error"),
     checked_at: new Date().toISOString(),
@@ -742,6 +762,8 @@ async function teamConfigToBlueprint(
     description: basis?.description ?? `Configuration synchronized from Team '${teamName}'.`,
     entry_agent: entryAgent,
     agents,
+    // 线上运行时配置不携带验收用例；同步时沿用草稿既有用例，避免重建蓝图时丢掉回归防线。
+    acceptance: basis?.acceptance ?? [],
   });
 }
 
@@ -830,6 +852,12 @@ function checkBindings(
   for (const name of requested) {
     if (!available.has(name)) issues.push(issue("error", code, path, `${label} '${name}' is not available`));
   }
+}
+
+/** 入口 Agent 是否具备自身可用能力：工具或任一 capability provider 的绑定（Skill 运行时会注入执行工具，也算）。 */
+function hasOwnCapability(agent: AgentBlueprintAgent): boolean {
+  if (agent.tools.length > 0) return true;
+  return Object.values(agent.capabilities).some((names) => names.length > 0);
 }
 
 function findDelegationCycle(agents: readonly AgentBlueprintAgent[]): string[] | null {

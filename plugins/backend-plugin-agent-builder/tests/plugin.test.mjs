@@ -114,6 +114,49 @@ test("validation rejects missing capabilities and delegation cycles", () => {
   assert.ok(report.issues.some((issue) => issue.code === "delegation_cycle"));
 });
 
+test("a router-only entry agent warns while capable entries pass", () => {
+  const inventory = {
+    tools: new Set(["read_file", "write_file"]),
+    providers: new Map([
+      ["skills", new Set(["review-code"])],
+      ["mcp", new Set()],
+    ]),
+  };
+
+  const routerOnly = validateBlueprint(blueprint({
+    agents: [
+      agent("lead", { delegates: ["worker"] }),
+      agent("worker", { tools: ["write_file"] }),
+    ],
+  }), inventory);
+  assert.equal(routerOnly.valid, true);
+  const warning = routerOnly.issues.find((issue) => issue.code === "router_only_entry_agent");
+  assert.ok(warning);
+  assert.equal(warning.level, "warning");
+  assert.equal(warning.path, "agents.0.tools");
+
+  const withTools = validateBlueprint(blueprint({
+    agents: [
+      agent("lead", { tools: ["read_file"], delegates: ["worker"] }),
+      agent("worker", { tools: ["write_file"] }),
+    ],
+  }), inventory);
+  assert.equal(withTools.issues.some((issue) => issue.code === "router_only_entry_agent"), false);
+
+  const withSkills = validateBlueprint(blueprint({
+    agents: [
+      agent("lead", { skills: ["review-code"], delegates: ["worker"] }),
+      agent("worker", { tools: ["write_file"] }),
+    ],
+  }), inventory);
+  assert.equal(withSkills.issues.some((issue) => issue.code === "router_only_entry_agent"), false);
+
+  const singleAgent = validateBlueprint(blueprint({
+    agents: [agent("lead")],
+  }), inventory);
+  assert.equal(singleAgent.issues.some((issue) => issue.code === "router_only_entry_agent"), false);
+});
+
 test("publishing materializes the Draft as a same-name Team", async () => {
   const fixture = await createFixture();
   try {
@@ -700,7 +743,7 @@ test("Builder template migration adds Skill authoring tools without replacing us
     assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /current Skill runtime executes Python only/);
     assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /validate_agent_draft/);
     assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /artifacts parameter/);
-    assert.equal(configs.builder_orchestrator.custom_params.behavior.builder_template_version, 11);
+    assert.equal(configs.builder_orchestrator.custom_params.behavior.builder_template_version, 13);
     assert.equal(await ensureAgentBuilderTeam(fixture.agentConfig), false);
   } finally {
     fixture.cleanup();
@@ -721,7 +764,7 @@ test("Builder template migration adds the workspace draft workflow", async () =>
     assert.match(orchestrator.custom_params.behavior.system_prompt, /publish_skill_draft/);
     assert.match(orchestrator.custom_params.behavior.system_prompt, /current Session workspace/);
     assert.match(orchestrator.custom_params.behavior.system_prompt, /execute_skill_script can run only a published, visible Skill/);
-    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 11);
+    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 13);
   } finally {
     fixture.cleanup();
   }
@@ -741,7 +784,7 @@ test("Builder template migration upgrades a version 7 Skill authoring prompt", a
     assert.match(orchestrator.custom_params.behavior.system_prompt, /^Keep this version 7 instruction\./);
     assert.match(orchestrator.custom_params.behavior.system_prompt, /Skill authoring runtime contract:/);
     assert.match(orchestrator.custom_params.behavior.system_prompt, /current Skill runtime executes Python only/);
-    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 11);
+    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 13);
   } finally {
     fixture.cleanup();
   }
@@ -769,7 +812,7 @@ test("Builder template migration removes stale Artifact authoring instructions a
     assert.doesNotMatch(prompt, /kind=skill Artifact|\[artifact:|RAGSYSTEM_ARTIFACT_OUTPUT_DIR|submit_skill_artifact|create_skill_artifact|search_skill_drafts/i);
     assert.equal(orchestrator.tools.enabled_tools.includes("submit_skill_artifact"), false);
     assert.equal(orchestrator.tools.enabled_tools.includes("create_skill_artifact"), false);
-    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 11);
+    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 13);
   } finally {
     fixture.cleanup();
   }
@@ -942,6 +985,7 @@ test("legacy v1 drafts on disk normalize to v2 capabilities at the read boundary
       skills: ["review-code"],
       mcp: ["github"],
     });
+    assert.deepEqual(drafts[0].blueprint.acceptance, []);
   } finally {
     fixture.cleanup();
   }
@@ -1125,7 +1169,7 @@ test("Builder template migration replaces the v10 draft workflow sentence in pla
     assert.match(prompt, /blueprint\.schema\.md/);
     assert.match(prompt, /artifacts parameter/);
     assert.doesNotMatch(prompt, /then call publish; publish performs validation and synchronization automatically/);
-    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 11);
+    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 13);
     assert.equal(await ensureAgentBuilderTeam(fixture.agentConfig), false);
   } finally {
     fixture.cleanup();
@@ -1161,6 +1205,95 @@ test("draft revisions are archived and rollback restores an older blueprint", as
       () => fixture.service.rollbackDraft(edited.id, rolledBack.revision, 0),
       AgentBuilderNotFoundError,
     );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("Builder template migration appends the Team design norms from version 11", async () => {
+  const fixture = await createFixture();
+  try {
+    const legacy = buildAgentBuilderTeam();
+    legacy.builder_orchestrator.display_name = "Customized Builder";
+    legacy.builder_orchestrator.custom_params.behavior.system_prompt = "Keep this custom instruction.";
+    legacy.builder_orchestrator.custom_params.behavior.builder_template_version = 11;
+    await fixture.agentConfig.applyTeamPayload(AGENT_BUILDER_TEAM_NAME, legacy);
+
+    assert.equal(await ensureAgentBuilderTeam(fixture.agentConfig), true);
+    const orchestrator = fixture.agentConfig.getConfig("builder_orchestrator", { teamName: AGENT_BUILDER_TEAM_NAME });
+    const prompt = orchestrator.custom_params.behavior.system_prompt;
+    assert.equal(orchestrator.display_name, "Customized Builder");
+    assert.match(prompt, /^Keep this custom instruction\./);
+    assert.match(prompt, /Team design norms:/);
+    assert.match(prompt, /most capable generalist/);
+    assert.match(prompt, /Never design a router-only entry Agent/);
+    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 13);
+    assert.equal(await ensureAgentBuilderTeam(fixture.agentConfig), false);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("a fresh Builder Team carries the capable-entry norms across its prompts", () => {
+  const team = buildAgentBuilderTeam();
+  const orchestratorPrompt = team.builder_orchestrator.custom_params.behavior.system_prompt;
+  assert.match(orchestratorPrompt, /Team design norms:/);
+  assert.match(orchestratorPrompt, /most capable generalist/);
+  assert.match(orchestratorPrompt, /Never design a router-only entry Agent/);
+  assert.match(orchestratorPrompt, /Domain exploration protocol:/);
+  assert.match(orchestratorPrompt, /never invent domain facts/);
+  assert.match(orchestratorPrompt, /Experience layering:/);
+  assert.match(orchestratorPrompt, /blueprint\.json's acceptance field/);
+  assert.match(team.requirements_researcher.custom_params.behavior.system_prompt, /mandatory build input/);
+  assert.match(team.agent_architect.custom_params.behavior.system_prompt, /most capable generalist/);
+  assert.match(team.agent_architect.custom_params.behavior.system_prompt, /Never propose a router-only entry Agent/);
+  assert.match(team.agent_architect.custom_params.behavior.system_prompt, /Layer the exploration findings/);
+  assert.match(team.agent_evaluator.custom_params.behavior.system_prompt, /router-only entry Agent/);
+  assert.match(team.agent_evaluator.custom_params.behavior.system_prompt, /acceptance cases trace to real explored samples/);
+});
+
+test("Builder template migration appends the domain exploration and layering prompts from version 12", async () => {
+  const fixture = await createFixture();
+  try {
+    const legacy = buildAgentBuilderTeam();
+    legacy.builder_orchestrator.custom_params.behavior.system_prompt = "Keep this custom instruction.";
+    legacy.builder_orchestrator.custom_params.behavior.builder_template_version = 12;
+    await fixture.agentConfig.applyTeamPayload(AGENT_BUILDER_TEAM_NAME, legacy);
+
+    assert.equal(await ensureAgentBuilderTeam(fixture.agentConfig), true);
+    const orchestrator = fixture.agentConfig.getConfig("builder_orchestrator", { teamName: AGENT_BUILDER_TEAM_NAME });
+    const prompt = orchestrator.custom_params.behavior.system_prompt;
+    assert.match(prompt, /^Keep this custom instruction\./);
+    assert.match(prompt, /Domain exploration protocol:/);
+    assert.match(prompt, /never invent domain facts/);
+    assert.match(prompt, /Experience layering:/);
+    assert.match(prompt, /blueprint\.json's acceptance field/);
+    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 13);
+    assert.equal(await ensureAgentBuilderTeam(fixture.agentConfig), false);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("acceptance cases warn when missing and survive Team synchronization", async () => {
+  const fixture = await createFixture();
+  try {
+    const inventory = memoryBindings().inventory;
+    const missing = validateBlueprint(blueprint(), inventory);
+    assert.equal(missing.valid, true);
+    assert.ok(missing.issues.some((issue) => issue.code === "missing_acceptance_cases"));
+
+    const acceptance = [{ case: "Refund order #1024 within 30 days", expect_contains: ["refund"], source: "sample" }];
+    const withCases = validateBlueprint(blueprint({ acceptance }), inventory);
+    assert.equal(withCases.issues.some((issue) => issue.code === "missing_acceptance_cases"), false);
+
+    const bindings = memoryBindings();
+    const draft = await fixture.service.createDraft(blueprint({ acceptance }));
+    await fixture.service.publishDraft(draft.id, draft.revision, bindings);
+    await fixture.agentConfig.activateTeam("support-team");
+    await fixture.agentConfig.patchConfig("lead", { description: "Edited while live" });
+    const synced = await fixture.service.synchronizeTeamDraft("support-team", bindings);
+    assert.deepEqual(synced.blueprint.acceptance, acceptance);
   } finally {
     fixture.cleanup();
   }

@@ -36,20 +36,25 @@ Builder Team 的工具包括能力盘点、`list_agent_drafts`、`get_agent_draf
 用户可以直接描述目标、参与角色、允许使用的工具或外部系统以及验收条件。例如：
 
 ```text
-请为客户支持场景构建一个 Agent Team：入口 Agent 负责分流，
-订单 Agent 查询订单，知识 Agent 检索售后政策。先创建可审查草稿，不要直接上线。
+请为客户支持场景构建一个 Agent Team：入口 Agent 直接处理常见咨询和简单查询，
+订单 Agent 承接深度订单核算，知识 Agent 负责售后政策的大范围检索。
+先创建可审查草稿，不要直接上线。
 ```
+
+Builder 团队产出蓝图时遵循统一的团队设计规范：入口 Agent 直接面对用户，必须是全团队能力最强的通才，绑定足以独立完成常规请求的工具（通常是子 Agent 工具的超集），并在提示词中写明优先自己直接解决；委派只用于真正受益的子任务——可并行的独立子任务、会淹没主上下文的大范围探索、深度专业化子流程、需要隔离视角的复核，其余（简单问答、几步工具调用内能完成的事、需要完整对话上下文的综合判断）一律入口 Agent 自己干。纯路由式入口 Agent 是反模式：每轮多一跳委派开销，子 Agent 失败时整队无法服务用户。`blueprint.schema.md` 中的「团队设计规范」章节随每次草稿工作区刷新下发；校验对仅有委派而自身无工具/能力的入口 Agent 给出 `router_only_entry_agent` 警告。
+
+构建的先天优势来自**域探索协议**：构建出来的团队必须知道通用团队不知道的东西。构建输入必须包含真实样本请求、领域文档、知识库材料或相关系统访问；设计前先用运行时既有能力实际跑通代表性样本，记录卡点、缺失信息和重复出现的人工步骤——这些实证发现才是团队的领域先验。拿不到样本时 Builder 会明确说明并保守设计，不编造领域事实。先验按**经验分层**沉淀到三个载体：会变的行为与角色方向进各 Agent 的 `instructions`（整体重写蒸馏，不追加堆砌）；不变的领域知识（术语表、流程规范、数据格式、系统操作步骤）沉淀为 Skill 草稿供跨团队复用；真实样本与失败修复固化为 `acceptance` 验收用例，构成回归防线。
 
 Builder 入口 Agent 会在调研和设计完成后调用 `create_agent_draft`，然后直接编辑工作区中的 `blueprint.json`。`publish_agent_draft` 读取本地文件并重新校验；校验失败时不修改系统 Draft，成功后先同步 Draft，开启自动发布时再创建或更新对应 Team。工具不会生成后端插件代码，也不会自动激活 Team。
 
 如果调研发现某段领域流程值得复用，编排 Agent 调用 `create_skill_draft`，编辑工作区中的 `SKILL.md`、脚本和资源后调用 `publish_skill_draft`。Skills 插件会校验完整 bundle；失败时不更新系统 Draft，成功后按自动发布配置发布到 Skill 库。发布不会自动修改任何 Agent 的 `enabled_skills`。
 
-Blueprint v1 包含：
+Blueprint（schema v2）包含：
 
 - 包名、描述和入口 Agent
 - 每个 Agent 的指令、模型配置、工具、Skill、MCP Server 和委派关系
 - Goal 与后台任务开关
-- 验收用例及期望包含的结果
+- `acceptance` 验收用例：每条含真实样本请求或失败修复场景（`case`）、期望输出包含的片段（`expect_contains`）与来源标记（`source`：`sample` 探索样本 / `regression` 线上失败补录）；用例必须源自实证，缺失时校验给出 `missing_acceptance_cases` 警告
 
 租户成员可以创建 Draft；发布权限不随模型工具下放。
 
@@ -71,7 +76,8 @@ Blueprint v1 包含：
 - Blueprint 结构和入口 Agent
 - Agent、工具、Skill、MCP Server 引用
 - 未定义的委派目标、自委派和委派环
-- 是否提供验收用例；当前缺失验收用例是警告，不阻止发布
+- 是否提供验收用例；缺失验收用例（`missing_acceptance_cases`）是警告，不阻止发布
+- 入口 Agent 仅有委派而自身无任何工具/能力（`router_only_entry_agent`，警告级，不阻止发布）
 
 草稿修改使用 `revision` 做乐观并发控制。已发布 Draft 可以获取到 Session 工作区继续编辑；编辑后仍使用同一个 Draft，并可重新发布到原 Team。
 
@@ -87,7 +93,7 @@ Skill 发布由 Skills 插件单独负责，入口为 Builder 的 `publish_skill
 
 管理员直接修改 Team 配置时，插件会把线上配置同步回同一个 `published` Draft（蓝图中 `instructions` 是提示词唯一来源，`custom_params.behavior.system_prompt` 不再双写）。删除 Team 后，如果关联 Draft 仍存在，它会清空 `source_team_name` 并恢复为可编辑的 `draft`；草稿也可以单独删除，不影响线上 Team。线上 Team 后续再次被修改时，系统会重新创建一份 `published` Draft。
 
-通过 HTTP API 新建或重命名 Team 时，名称须匹配 `^[a-z0-9][a-z0-9_-]*$` 且不超过 64 字符（与蓝图命名一致）；存量不规范名称仍可正常读取。`PUT /drafts/:id` 保存草稿时会即时执行蓝图校验并把报告随草稿持久化，不必等到发布时刻。校验还包含两个警告级检查：Agent 未配置 `llm_tiers`/`llm`（将运行在租户默认模型上），以及 `llm_tiers` 引用了模型目录之外的 provider（合法 provider 与模型枚举经能力清单 `llm_providers` 字段暴露）。
+通过 HTTP API 新建或重命名 Team 时，名称须匹配 `^[a-z0-9][a-z0-9_-]*$` 且不超过 64 字符（与蓝图命名一致）；存量不规范名称仍可正常读取。`PUT /drafts/:id` 保存草稿时会即时执行蓝图校验并把报告随草稿持久化，不必等到发布时刻。校验还包含四个警告级检查：Agent 未配置 `llm_tiers`/`llm`（将运行在租户默认模型上）、`llm_tiers` 引用了模型目录之外的 provider（合法 provider 与模型枚举经能力清单 `llm_providers` 字段暴露）、入口 Agent 仅有委派而自身无工具/能力（`router_only_entry_agent`），以及缺少验收用例（`missing_acceptance_cases`）。
 
 **版本历史与回滚**：每次 Draft 修改覆盖前，上一 revision 会归档到 `<data-root>/agent-builder/drafts/.revisions/<draft_id>/`。`POST /drafts/:id/rollback` 按 `expected_revision` + `to_revision` 把历史蓝图恢复为新的当前 revision（编辑态，revision 继续递增，历史档保留）；回滚后如需上线，走正常发布流程。
 
@@ -118,7 +124,7 @@ Local 与 SaaS 都使用该文件系统 Store。SaaS 的 `dataRoot` 按租户隔
 ## 当前范围
 
 - 已实现结构、引用和委派拓扑校验。
-- 验收用例会随 Blueprint 保存，但尚未自动执行完整 Eval。
+- 验收用例随 Blueprint 的 `acceptance` 字段保存（`source` 区分探索样本与线上失败补录），但尚未自动执行完整 Eval；无头执行验收是下一步计划。
 - 不允许模型生成、安装或热加载后端插件代码。
 - 新 Tool 仍需由受信任的开发和部署流程实现；外部能力优先通过 MCP 接入，领域流程优先通过 Skill 复用。
 
