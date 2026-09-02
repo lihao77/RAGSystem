@@ -1795,10 +1795,14 @@ function fakeFailureRuntime(overrides = {}) {
     },
   };
   const knownTeams = (overrides.teams ?? []).map((name) => ({ team_name: name }));
+  const publishedRevisions = overrides.publishedRevisions ?? [];
   return {
     calls,
     registry: { async acquire() { return { runtime, release: () => {} }; } },
-    service: { getAgentConfigPort: () => ({ listTeams: async () => ({ teams: knownTeams }) }) },
+    service: {
+      getAgentConfigPort: () => ({ listTeams: async () => ({ teams: knownTeams }) }),
+      listPublishedTeamRevisions: async () => publishedRevisions,
+    },
   };
 }
 
@@ -1820,6 +1824,10 @@ test("collect_team_failures joins thumbs-down feedback with transcripts, runs, a
   ];
   const fake = fakeFailureRuntime({
     teams: ["support-team", "other-team"],
+    publishedRevisions: [
+      { team_name: "support-team", draft_id: "draft-1", revision: 3, team_revision_hash: "rev", published_at: "2026-08-01T00:00:00Z" },
+      { team_name: "support-team", draft_id: "draft-1", revision: 4, team_revision_hash: "rev4-hash", published_at: "2026-08-20T00:00:00Z" },
+    ],
     feedback: [
       { message_id: "m4", session_id: sessionId, tenant_id: "tenant-test", value: "down", comment: "没给出补救方案", user_id: "u1", created_at: "2026-09-01T00:00:00Z", updated_at: "2026-09-01T00:00:00Z" },
       { message_id: "x9", session_id: "sess-other", tenant_id: "tenant-test", value: "down", comment: null, user_id: "u1", created_at: "2026-09-01T00:00:00Z", updated_at: "2026-09-01T00:00:00Z" },
@@ -1841,6 +1849,7 @@ test("collect_team_failures joins thumbs-down feedback with transcripts, runs, a
   assert.equal(report.tenant_rows_scanned, 2);
   assert.equal(report.has_more, false);
   assert.equal(report.sessions_matched, 1);
+  assert.deepEqual(report.revision_links.map((link) => link.revision), [3, 4]);
   assert.equal(report.samples.length, 1);
   const sample = report.samples[0];
   assert.equal(sample.message_id, "m4");
@@ -1851,12 +1860,15 @@ test("collect_team_failures joins thumbs-down feedback with transcripts, runs, a
   assert.equal(sample.run.status, "completed");
   assert.equal(sample.run.task_summary, "refund rejection question");
   assert.equal(sample.team_revision, "rev");
+  assert.equal(sample.published_revision, 3);
   assert.equal(sample.delegate_calls, 1);
   assert.deepEqual(sample.child_agents, ["policy_worker"]);
   assert.equal(sample.entry_router_only, false);
 
   const markdown = renderTeamFailureMarkdown(report);
   assert.match(markdown, /团队失败证据：support-team/);
+  assert.match(markdown, /revision 3 → rev/);
+  assert.match(markdown, /发布 revision 3/);
   assert.match(markdown, /source: regression/);
   assert.match(markdown, /用户备注：没给出补救方案/);
 });
@@ -1886,8 +1898,11 @@ test("collect_team_failures flags a router-only entry from the interaction windo
   assert.equal(sample.delegate_calls, 1);
   assert.equal(sample.entry_own_text_chars, 0);
   assert.equal(sample.answered_by, "summarizer");
+  assert.equal(sample.team_revision, "rev");
+  assert.equal(sample.published_revision, null);
   assert.equal(sample.entry_router_only, true);
   assert.match(renderTeamFailureMarkdown(report), /入口疑似纯路由/);
+  assert.match(renderTeamFailureMarkdown(report), /未映射到任何 Builder 发布版本/);
 });
 
 test("collect_team_failures reports zero samples without inventing lessons", async () => {
@@ -2004,6 +2019,43 @@ test("Builder template v15 migrates the failure feedback protocol and tool from 
     assert.ok(orchestrator.tools.enabled_tools.includes("collect_team_failures"));
     assert.equal(orchestrator.custom_params.behavior.builder_template_version, 15);
     assert.equal(await ensureAgentBuilderTeam(fixture.agentConfig), false);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test('publishing records the team hash on the revision and republish overwrites it', async () => {
+  const fixture = await createFixture();
+  try {
+    const draft = await fixture.service.createDraft(blueprint());
+    await fixture.service.publishDraft(draft.id, draft.revision, memoryBindings());
+
+    const first = await fixture.service.getDraft(draft.id);
+    const currentHash = (await fixture.agentConfig.listTeams())
+      .teams.find((team) => team.team_name === 'support-team')?.team_revision;
+    assert.ok(currentHash);
+    assert.equal(first.team_revision_hash, currentHash);
+    assert.deepEqual(
+      (await fixture.service.listPublishedTeamRevisions()).map((link) => link.revision),
+      [first.revision],
+    );
+
+    // 改蓝图再发布：新 revision 记新哈希，不残留旧值
+    const edited = structuredClone(first.blueprint);
+    edited.agents[0].instructions = 'Lead handles refunds end to end itself.';
+    await fixture.service.updateDraft(draft.id, first.revision, edited, validateBlueprint(edited, memoryBindings().inventory));
+    const updated = await fixture.service.getDraft(draft.id);
+    await fixture.service.publishDraft(draft.id, updated.revision, memoryBindings());
+
+    const second = await fixture.service.getDraft(draft.id);
+    const newHash = (await fixture.agentConfig.listTeams())
+      .teams.find((team) => team.team_name === 'support-team')?.team_revision;
+    assert.notEqual(newHash, currentHash);
+    assert.equal(second.team_revision_hash, newHash);
+    const links = await fixture.service.listPublishedTeamRevisions();
+    assert.deepEqual(links.map((link) => link.revision), [first.revision, second.revision]);
+    assert.ok(links.every((link) => link.team_revision_hash));
+    assert.notEqual(links[0].team_revision_hash, links[1].team_revision_hash);
   } finally {
     fixture.cleanup();
   }

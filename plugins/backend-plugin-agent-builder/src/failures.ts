@@ -31,6 +31,8 @@ export interface TeamFailureSample {
   };
   /** 会话团队快照的 team_revision：失败归因到发布版本（创建会话时的快照口径）。 */
   team_revision: string | null;
+  /** 快照哈希解析回的发布草稿 revision；null = 不对应任何 Builder 发布（可能被直接改过团队）。 */
+  published_revision: number | null;
   /** D6 委派形态观察：该样本的交互窗口内入口 Agent 的委派与自产文本。 */
   delegate_calls: number;
   entry_own_text_chars: number;
@@ -48,6 +50,12 @@ export interface TeamFailureReport {
   /** 行数达到扫描上限：历史里可能还有更早点踩，调大 feedback_limit 或用 since 分段。 */
   has_more: boolean;
   sessions_matched: number;
+  /** 该团队的发布版本对照（revision ↔ 物化时团队哈希），样本归因与头部对照表的数据源。 */
+  revision_links: Array<{
+    revision: number;
+    team_revision_hash: string;
+    published_at: string | null;
+  }>;
   samples: TeamFailureSample[];
 }
 
@@ -57,11 +65,18 @@ export interface TeamFailureDependencies {
   readonly tenantId: string;
 }
 
-/** Team 注册表访问的结构性子集：tool 层注入 AgentBuilderService，测试可伪造。 */
+/** Team 注册表与发布版本对照的结构性子集：tool 层注入 AgentBuilderService，测试可伪造。 */
 export interface TeamFailureServiceAccess {
   getAgentConfigPort(): {
     listTeams(): Promise<{ teams: Array<{ team_name: string }> }>;
   };
+  listPublishedTeamRevisions(): Promise<readonly {
+    team_name: string;
+    draft_id: string;
+    revision: number;
+    team_revision_hash: string;
+    published_at: string | null;
+  }[]>;
 }
 
 export interface TeamFailureOptions {
@@ -90,8 +105,17 @@ export async function collectTeamFailures(
       tenant_rows_scanned: 0,
       has_more: false,
       sessions_matched: 0,
+      revision_links: [],
       samples: [],
     };
+  }
+
+  // 快照哈希 → 发布 revision：同一哈希被多版发布过时取最新（service 已按 revision 升序）
+  const teamLinks = (await deps.service.listPublishedTeamRevisions())
+    .filter((link) => link.team_name === teamName);
+  const revisionByHash = new Map<string, number>();
+  for (const link of teamLinks) {
+    revisionByHash.set(link.team_revision_hash, link.revision);
   }
 
   const scanLimit = options?.feedbackLimit ?? FEEDBACK_SCAN_LIMIT;
@@ -127,8 +151,16 @@ export async function collectTeamFailures(
       ]);
       const messages = [...(snapshot?.items ?? [])].sort((left, right) => left.seq - right.seq);
       const sessionFeedback = feedback.filter((row) => row.session_id === sessionId);
+      const snapshotRevision = sessionRevisions.get(sessionId) ?? null;
       for (const row of sessionFeedback) {
-        samples.push(buildSample(row, sessionId, sessionRevisions.get(sessionId) ?? null, messages, runs));
+        samples.push(buildSample(
+          row,
+          sessionId,
+          snapshotRevision,
+          snapshotRevision == null ? null : revisionByHash.get(snapshotRevision) ?? null,
+          messages,
+          runs,
+        ));
       }
     }
     samples.sort((left, right) => right.rated_at.localeCompare(left.rated_at));
@@ -140,6 +172,11 @@ export async function collectTeamFailures(
       tenant_rows_scanned: feedback.length,
       has_more: hasMore,
       sessions_matched: sessionIds.length,
+      revision_links: teamLinks.map((link) => ({
+        revision: link.revision,
+        team_revision_hash: link.team_revision_hash,
+        published_at: link.published_at,
+      })),
       samples,
     };
   } finally {
@@ -160,6 +197,7 @@ function buildSample(
   row: MessageFeedback,
   sessionId: string,
   teamRevision: string | null,
+  publishedRevision: number | null,
   messages: readonly TrialMessageLike[],
   runs: readonly RunInfo[],
 ): TeamFailureSample {
@@ -222,6 +260,7 @@ function buildSample(
       task_summary: ratedRun?.task_summary ?? null,
     },
     team_revision: teamRevision,
+    published_revision: publishedRevision,
     delegate_calls: delegateCalls,
     entry_own_text_chars: entryOwnTextChars,
     child_agents: childAgents,
@@ -265,6 +304,13 @@ export function renderTeamFailureMarkdown(report: TeamFailureReport): string {
     `采集时间：${report.collected_at}；扫描租户级 👎 ${report.tenant_rows_scanned} 条（含其他团队，按更新时间倒序），命中会话 ${report.sessions_matched} 个，样本 ${report.samples.length} 条。${report.has_more ? "注意：行数已达扫描上限，更早的点踩未包含——需要时调大 feedback_limit 或用 since 分段回溯。" : ""}`,
     "",
   ];
+  if (report.revision_links.length > 0) {
+    lines.push("发布版本对照（会话快照哈希 → 发布 revision）：");
+    for (const link of report.revision_links) {
+      lines.push(`- revision ${link.revision} → ${shortHash(link.team_revision_hash)}${link.published_at ? `（发布于 ${link.published_at}）` : ""}`);
+    }
+    lines.push("");
+  }
   if (report.samples.length === 0) {
     lines.push("该团队暂无被踩样本。没有失败证据时不要臆造教训，按域探索结论设计即可。");
     return `${lines.join("\n")}\n`;
@@ -274,7 +320,7 @@ export function renderTeamFailureMarkdown(report: TeamFailureReport): string {
     lines.push(`- 用户输入：${sample.user_excerpt ?? "（转写中未找到，可能已被编辑或删除）"}`);
     lines.push(`- 被踩回答（by ${sample.answered_by ?? "unknown"}）：${sample.answer_excerpt ?? "（消息已删除）"}`);
     lines.push(`- 运行状态：${sample.run.status ?? "unknown"}${sample.run.terminal_reason ? ` / ${sample.run.terminal_reason}` : ""}${sample.run.task_summary ? ` — ${sample.run.task_summary}` : ""}`);
-    lines.push(`- 团队版本：${sample.team_revision ?? "unknown"}（会话创建时的团队快照；归因失败到发布版本用）`);
+    lines.push(`- 团队版本：${sample.published_revision != null ? `发布 revision ${sample.published_revision}` : "未映射到任何 Builder 发布版本（团队可能被直接修改过）"}（快照 ${sample.team_revision ? shortHash(sample.team_revision) : "unknown"}）`);
     lines.push(`- 委派形态：入口自产文本 ${sample.entry_own_text_chars} 字符，delegate 调用 ${sample.delegate_calls} 次${sample.child_agents.length > 0 ? `，子 Agent：${sample.child_agents.join("、")}` : ""}`);
     if (sample.entry_router_only) {
       lines.push("- ⚠️ 入口疑似纯路由：发生了委派但入口几乎不产出内容，按团队设计规范重新划分入口职责。");
@@ -282,6 +328,10 @@ export function renderTeamFailureMarkdown(report: TeamFailureReport): string {
     if (sample.comment) lines.push(`- 用户备注：${sample.comment}`);
     lines.push("");
   });
-  lines.push("消费方式：失败样本与域探索同级作为先验。把可复现的失败输入登记为 acceptance 用例（source: regression）；把形态性教训（路由化、答非所问、委派过深）写进对应 Agent 的 instructions；不要把单条偶发故障当成架构结论。");
+  lines.push("消费方式：失败样本与域探索同级作为先验。把可复现的失败输入登记为 acceptance 用例（source: regression，注明发现的发布 revision）；把形态性教训（路由化、答非所问、委派过深）写进对应 Agent 的 instructions；不要把单条偶发故障当成架构结论。");
   return `${lines.join("\n")}\n`;
+}
+
+function shortHash(hash: string): string {
+  return hash.length > 12 ? `${hash.slice(0, 12)}…` : hash;
 }

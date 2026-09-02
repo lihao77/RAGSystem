@@ -31,6 +31,15 @@ export interface AgentBuilderBindings {
   readonly providers: readonly AgentCapabilityProvider[];
 }
 
+/** 发布 revision 与其物化团队哈希的对照（失败回流按快照哈希归因发布版本）。 */
+export interface AgentPublishedTeamRevision {
+  readonly team_name: string;
+  readonly draft_id: string;
+  readonly revision: number;
+  readonly team_revision_hash: string;
+  readonly published_at: string | null;
+}
+
 export class AgentBuilderConflictError extends Error {}
 export class AgentBuilderNotFoundError extends Error {}
 export class AgentBuilderValidationError extends Error {
@@ -56,6 +65,30 @@ export class AgentBuilderService {
 
   getModelAdapterPort(): ModelProviderCatalogPort | null {
     return this.modelAdapter;
+  }
+
+  /** 已发布 revision 的团队哈希清单（含历史 revision）：快照哈希 → 发布版本归因的数据源。 */
+  async listPublishedTeamRevisions(): Promise<readonly AgentPublishedTeamRevision[]> {
+    const links: AgentPublishedTeamRevision[] = [];
+    for (const draft of await this.store.listDrafts()) {
+      if (!draft.source_team_name) continue;
+      const records: AgentDraft[] = [draft];
+      for (const revision of await this.store.listRevisions(draft.id)) {
+        const record = await this.store.getRevision(draft.id, revision);
+        if (record) records.push(record);
+      }
+      for (const record of records) {
+        if (record.status !== "published" || !record.source_team_name || !record.team_revision_hash) continue;
+        links.push({
+          team_name: record.source_team_name,
+          draft_id: record.id,
+          revision: record.revision,
+          team_revision_hash: record.team_revision_hash,
+          published_at: record.published_at,
+        });
+      }
+    }
+    return links.sort((left, right) => left.revision - right.revision);
   }
 
   listAvailableTools(): BackendToolDescriptor[] {
@@ -482,6 +515,10 @@ export class AgentBuilderService {
       const rollback = await this.captureMaterialization(runtimeTeamName, bindings);
       try {
         await this.materialize(runtimeTeamName, blueprint, bindings, rollback);
+        // 记录发布时刻的团队内容哈希：会话团队快照哈希由此映射回发布 revision（失败回流归因用）。
+        // 显式置空覆盖 current 里的旧哈希，防止陈旧哈希错挂到新 revision。
+        const teamRevisionHash = (await this.agentConfig.listTeams())
+          .teams.find((team) => team.team_name === runtimeTeamName)?.team_revision ?? null;
         const published = AgentDraftSchema.parse({
           ...current,
           revision: current.revision + 1,
@@ -491,6 +528,7 @@ export class AgentBuilderService {
           validation,
           published_at: publishedAt,
           updated_at: publishedAt,
+          team_revision_hash: teamRevisionHash,
         });
         await this.store.putDraft(published);
         return published;
