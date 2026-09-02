@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
 
 import { buildTool, type Tool, type ToolExecContext } from "@ragsystem/agent-sdk";
 import { toolError, toolSuccess } from "@ragsystem/backend-core/services/agent/sdk/tool-results.js";
@@ -9,6 +11,7 @@ import type { AgentDraft } from "./contracts.js";
 import type { AgentBuilderService } from "./service.js";
 import type { RuntimeContainerRegistry } from "@ragsystem/backend-core/services/runtime/runtime-container-registry.js";
 import { runDraftTrial, MAX_TRIAL_INPUTS_PER_CALL, type DraftTrialInput } from "./trial.js";
+import { collectTeamFailures, renderTeamFailureMarkdown } from "./failures.js";
 
 const EmptyToolInputSchema = z.object({}).strict();
 const SearchDraftToolInputSchema = z.object({
@@ -30,6 +33,11 @@ const TryDraftToolInputSchema = z.object({
   }).strict()).min(1).max(MAX_TRIAL_INPUTS_PER_CALL, {
     message: `inputs 一次最多 ${MAX_TRIAL_INPUTS_PER_CALL} 条（每条都是真实模型调用）；更多样本请分批调用`,
   }).optional(),
+}).strict();
+const CollectFailuresToolInputSchema = z.object({
+  team_name: z.string().trim().min(1).max(64),
+  since: z.string().trim().min(1).max(40).optional(),
+  feedback_limit: z.number().int().min(1).max(200).optional(),
 }).strict();
 export interface AgentBuilderToolOptions {
   autoApproveDraft?: (draft: AgentDraft) => Promise<AgentDraft>;
@@ -296,6 +304,55 @@ export function createAgentBuilderTools(
           });
         } catch (error) {
           return toolError("try_agent_draft", errorMessage(error));
+        }
+      },
+    }),
+    buildTool({
+      name: "collect_team_failures",
+      description: `Collect user-marked failure evidence for a published Team: tenant-wide thumbs-down feedback anchored to that Team's sessions, joined with the transcript around each rated answer (the user's input, the disliked answer, which agent produced it), the run status (status/terminal_reason), and a delegation observation (whether the entry agent only routed work to children instead of answering). Results are written to an evidence file under .ragsystem/agent-builder/evidence/ in the current Session workspace and also returned inline. Use it before redesigning or rebuilding a Team whose domain already has a live Team, and after users report dissatisfaction; treat samples as design input alongside domain exploration — regression inputs become acceptance cases (source: regression), pattern-level lessons go into instructions.`,
+      inputSchema: CollectFailuresToolInputSchema,
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        required: ["team_name"],
+        properties: {
+          team_name: { type: "string", minLength: 1, maxLength: 64 },
+          since: { type: "string", description: "ISO timestamp; only feedback updated at or after it is scanned" },
+          feedback_limit: { type: "integer", minimum: 1, maximum: 200 },
+        },
+      },
+      riskLevel: "low",
+      source: "agent_tool",
+      category: "agent_builder",
+      isReadOnly: () => false,
+      isConcurrencySafe: () => false,
+      async call(input, context: ToolExecContext) {
+        try {
+          if (!options.registry || !options.tenantId) throw new Error("Failure collection is unavailable: runtime registry is not wired");
+          const report = await collectTeamFailures(
+            { registry: options.registry, tenantId: options.tenantId },
+            input.team_name,
+            {
+              ...(input.since ? { since: input.since } : {}),
+              ...(input.feedback_limit ? { feedbackLimit: input.feedback_limit } : {}),
+            },
+          );
+          // 证据落在工作区的 agent-builder 目录下，与草稿同根：Builder 用 read_file 即可回看
+          const safeTeam = input.team_name.toLowerCase().replace(/[^a-z0-9_-]+/g, "-").slice(0, 64) || "team";
+          const evidenceRelative = path.join(".ragsystem", "agent-builder", "evidence", `failures-${safeTeam}.md`);
+          const evidencePath = path.join(workspaceRoot(context), evidenceRelative);
+          await mkdir(path.dirname(evidencePath), { recursive: true });
+          await writeFile(evidencePath, renderTeamFailureMarkdown(report), "utf8");
+          return toolSuccess({
+            ...report,
+            evidence_file: evidenceRelative,
+          }, {
+            toolName: "collect_team_failures",
+            summary: `Team '${input.team_name}': ${report.samples.length} failure sample(s) across ${report.sessions_matched} session(s) from ${report.feedback_rows_scanned} thumbs-down row(s); evidence written to ${evidenceRelative}`,
+            outputType: "json",
+          });
+        } catch (error) {
+          return toolError("collect_team_failures", errorMessage(error));
         }
       },
     }),

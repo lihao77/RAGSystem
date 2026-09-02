@@ -4,7 +4,7 @@ import { isRecord } from "@ragsystem/backend-core/utils/guards.js";
 
 /** Reserved tenant Team installed by the Agent Builder plugin. */
 export const AGENT_BUILDER_TEAM_NAME = "agent-builder";
-export const AGENT_BUILDER_TEAM_TEMPLATE_VERSION = 14;
+export const AGENT_BUILDER_TEAM_TEMPLATE_VERSION = 15;
 
 const CAPABILITY_INVENTORY_TOOL = "list_agent_builder_capabilities";
 
@@ -54,6 +54,15 @@ const TRIAL_PROTOCOL_PROMPT = [
   "Read the report as a designer, not an inspector: a wrong or missing answer is design input for improving instructions, tools, or delegation; a suspended run means the Team asks the user for clarification, which may itself be correct behavior.",
   "The trial is evidence, not a gate—you may still publish with an imperfect report after explaining the remaining risk to the user.",
   "Each input is a real model call: batch at most five inputs per try, and reuse earlier observations instead of re-running unchanged samples after small edits.",
+].join(" ");
+
+const FAILURE_FEEDBACK_MARKER = "Failure feedback protocol:";
+const FAILURE_FEEDBACK_PROMPT = [
+  FAILURE_FEEDBACK_MARKER,
+  "when the user asks to improve or rebuild a Team whose domain already has a live published Team, call collect_team_failures for that Team first: it aggregates thumbs-down feedback into an evidence file (user input, disliked answer, run status, delegation shape) under .ragsystem/agent-builder/evidence/.",
+  "Treat failure samples as prior knowledge at the same level as domain exploration: reproduce the failing inputs as acceptance cases (source: regression), and fold pattern-level lessons (router-only entry, answers missing key facts, over-delegation) into the corresponding agent instructions.",
+  "A sample flagged entry_router_only means the entry agent delegated while producing almost no content of its own—redesign its responsibilities per the team design norms.",
+  "No samples is a valid result: do not invent lessons, design from domain exploration alone.",
 ].join(" ");
 const LEGACY_SKILL_AUTHORING_PROMPT = `Use list_skill_drafts, with a query when needed, to find reusable Skill drafts. Use get_skill_draft to copy a draft into the current Session workspace, or create_skill_draft to create one from scratch. Edit SKILL.md and its resources with file tools, then call publish_skill_draft. Publishing validates the local bundle; on failure, fix the files and retry. Do not call separate validate or approve tools. A Skill is not available to Agents until publication succeeds.`;
 const SKILL_AUTHORING_PROMPT_MARKER = "Skill authoring runtime contract:";
@@ -108,6 +117,7 @@ export function buildAgentBuilderTeam(): Record<string, AgentConfig> {
         "create_agent_draft",
         "validate_agent_draft",
         "try_agent_draft",
+        "collect_team_failures",
         "publish_agent_draft",
         ...SKILL_AUTHORING_TOOLS,
       ],
@@ -129,6 +139,7 @@ export function buildAgentBuilderTeam(): Record<string, AgentConfig> {
         DOMAIN_EXPLORATION_PROMPT,
         EXPERIENCE_LAYERING_PROMPT,
         TRIAL_PROTOCOL_PROMPT,
+        FAILURE_FEEDBACK_PROMPT,
         CAPABILITY_DISCOVERY_PROMPT,
         DRAFT_WORKFLOW_PROMPT,
         DELEGATION_ARTIFACTS_PROMPT,
@@ -203,8 +214,10 @@ function migrateAgentBuilderTeam(configs: Record<string, AgentConfig>): Record<s
     DOMAIN_EXPLORATION_MARKER,
     EXPERIENCE_LAYERING_MARKER,
     TRIAL_PROTOCOL_MARKER,
+    FAILURE_FEEDBACK_MARKER,
   ].every((marker) => prompt.includes(marker))
     && existingTools.includes("try_agent_draft")
+    && existingTools.includes("collect_team_failures")
     && existingTools.includes(CAPABILITY_INVENTORY_TOOL);
   if (version === null || (version >= AGENT_BUILDER_TEAM_TEMPLATE_VERSION && wiringComplete && !hasLegacyArtifactPrompt)) return null;
   const deprecatedSkillTools = new Set([
@@ -228,6 +241,8 @@ function migrateAgentBuilderTeam(configs: Record<string, AgentConfig>): Record<s
   }
   // v14：试运行工具（无头跑通验收样本，观察报告供自检自改）。
   if (!enabledTools.includes("try_agent_draft")) enabledTools.push("try_agent_draft");
+  // v15：失败回流工具（聚合 👎 反馈为设计证据）。
+  if (!enabledTools.includes("collect_team_failures")) enabledTools.push("collect_team_failures");
   const promptBase = hasLegacyArtifactPrompt ? stripLegacySkillAuthoringPrompt(prompt) : prompt;
   const withCapabilityDiscovery = promptBase.includes("list_agent_builder_capabilities")
     ? promptBase
@@ -256,6 +271,10 @@ function migrateAgentBuilderTeam(configs: Record<string, AgentConfig>): Record<s
   // v14：发布前试用协议——报告是设计证据而非门禁。
   if (!workflowPrompt.includes(TRIAL_PROTOCOL_MARKER)) {
     workflowPrompt = `${workflowPrompt} ${TRIAL_PROTOCOL_PROMPT}`.trim();
+  }
+  // v15：失败回流协议——👎 证据与域探索同级作为先验。
+  if (!workflowPrompt.includes(FAILURE_FEEDBACK_MARKER)) {
+    workflowPrompt = `${workflowPrompt} ${FAILURE_FEEDBACK_PROMPT}`.trim();
   }
   const nextPrompt = hasLegacyArtifactPrompt
     ? `${workflowPrompt} ${SKILL_AUTHORING_PROMPT}`.trim()

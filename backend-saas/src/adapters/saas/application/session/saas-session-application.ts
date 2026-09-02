@@ -314,6 +314,15 @@ export class SaaSSessionApplication implements SessionApplication, ExecutionSess
     if (!this.messageFeedback) return [];
     return this.messageFeedback.listMessageFeedback(sessionId);
   }
+  async listNegativeMessageFeedback(input?: { since?: string; limit?: number }) {
+    if (!this.messageFeedback) return [];
+    return this.messageFeedback.listNegativeMessageFeedback(this.tenantId, input);
+  }
+  async listRuns(sessionId: string, limit?: number) {
+    if (!this.runs) return [];
+    const page = await this.runs.listRuns(this.tenantId, sessionId, limit ?? 50);
+    return page.items;
+  }
   async rollbackMessages(input: { sessionId: string; afterSeq?: number | null; afterMessageId?: string | null }): Promise<number> {
     if (!(await this.getSession(input.sessionId))) return 0;
     const fileHistory = this.fileHistory;

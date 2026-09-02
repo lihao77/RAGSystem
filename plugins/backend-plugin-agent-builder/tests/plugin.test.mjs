@@ -23,6 +23,8 @@ import {
   ensureAgentBuilderTeam,
   validateBlueprint,
   runDraftTrial,
+  collectTeamFailures,
+  renderTeamFailureMarkdown,
 } from "../dist/index.js";
 
 class MemoryTeamStore {
@@ -737,6 +739,7 @@ test("Builder template migration adds Skill authoring tools without replacing us
         "validate_agent_draft",
         "publish_agent_draft",
         "try_agent_draft",
+        "collect_team_failures",
       ],
     );
     assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /^Keep this custom instruction\./);
@@ -745,7 +748,7 @@ test("Builder template migration adds Skill authoring tools without replacing us
     assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /current Skill runtime executes Python only/);
     assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /validate_agent_draft/);
     assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /artifacts parameter/);
-    assert.equal(configs.builder_orchestrator.custom_params.behavior.builder_template_version, 14);
+    assert.equal(configs.builder_orchestrator.custom_params.behavior.builder_template_version, 15);
     assert.equal(await ensureAgentBuilderTeam(fixture.agentConfig), false);
   } finally {
     fixture.cleanup();
@@ -766,7 +769,7 @@ test("Builder template migration adds the workspace draft workflow", async () =>
     assert.match(orchestrator.custom_params.behavior.system_prompt, /publish_skill_draft/);
     assert.match(orchestrator.custom_params.behavior.system_prompt, /current Session workspace/);
     assert.match(orchestrator.custom_params.behavior.system_prompt, /execute_skill_script can run only a published, visible Skill/);
-    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 14);
+    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 15);
   } finally {
     fixture.cleanup();
   }
@@ -786,7 +789,7 @@ test("Builder template migration upgrades a version 7 Skill authoring prompt", a
     assert.match(orchestrator.custom_params.behavior.system_prompt, /^Keep this version 7 instruction\./);
     assert.match(orchestrator.custom_params.behavior.system_prompt, /Skill authoring runtime contract:/);
     assert.match(orchestrator.custom_params.behavior.system_prompt, /current Skill runtime executes Python only/);
-    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 14);
+    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 15);
   } finally {
     fixture.cleanup();
   }
@@ -814,7 +817,7 @@ test("Builder template migration removes stale Artifact authoring instructions a
     assert.doesNotMatch(prompt, /kind=skill Artifact|\[artifact:|RAGSYSTEM_ARTIFACT_OUTPUT_DIR|submit_skill_artifact|create_skill_artifact|search_skill_drafts/i);
     assert.equal(orchestrator.tools.enabled_tools.includes("submit_skill_artifact"), false);
     assert.equal(orchestrator.tools.enabled_tools.includes("create_skill_artifact"), false);
-    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 14);
+    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 15);
   } finally {
     fixture.cleanup();
   }
@@ -851,6 +854,7 @@ test("Builder-only draft tools are visible only to the Builder entry Agent", asy
         agent: ordinaryAgent,
       });
       assert.deepEqual(builderTools.map((tool) => tool.name).sort(), [
+        "collect_team_failures",
         "create_agent_draft",
         "get_agent_draft",
         "list_agent_builder_capabilities",
@@ -1172,7 +1176,7 @@ test("Builder template migration replaces the v10 draft workflow sentence in pla
     assert.match(prompt, /blueprint\.schema\.md/);
     assert.match(prompt, /artifacts parameter/);
     assert.doesNotMatch(prompt, /then call publish; publish performs validation and synchronization automatically/);
-    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 14);
+    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 15);
     assert.equal(await ensureAgentBuilderTeam(fixture.agentConfig), false);
   } finally {
     fixture.cleanup();
@@ -1230,7 +1234,7 @@ test("Builder template migration appends the Team design norms from version 11",
     assert.match(prompt, /Team design norms:/);
     assert.match(prompt, /most capable generalist/);
     assert.match(prompt, /Never design a router-only entry Agent/);
-    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 14);
+    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 15);
     assert.equal(await ensureAgentBuilderTeam(fixture.agentConfig), false);
   } finally {
     fixture.cleanup();
@@ -1273,7 +1277,7 @@ test("Builder template migration appends the domain exploration and layering pro
     assert.match(prompt, /never invent domain facts/);
     assert.match(prompt, /Experience layering:/);
     assert.match(prompt, /blueprint\.json's acceptance field/);
-    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 14);
+    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 15);
     assert.equal(await ensureAgentBuilderTeam(fixture.agentConfig), false);
   } finally {
     fixture.cleanup();
@@ -1554,7 +1558,7 @@ test("Builder template v14 migrates the trial protocol and tool from version 13"
     assert.match(prompt, /Trial protocol:/);
     assert.match(prompt, /evidence, not a gate/);
     assert.ok(orchestrator.tools.enabled_tools.includes("try_agent_draft"));
-    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 14);
+    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 15);
     assert.equal(await ensureAgentBuilderTeam(fixture.agentConfig), false);
   } finally {
     fixture.cleanup();
@@ -1768,6 +1772,173 @@ test("missing execution_time falls back to wall-clock timing", async () => {
       assert.equal(typeof row.execution_time_ms, "number");
       assert.ok(row.execution_time_ms >= 0);
     }
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+function fakeFailureRuntime(overrides = {}) {
+  const sessions = new Map(overrides.sessions ?? []);
+  const transcripts = new Map(overrides.transcripts ?? []);
+  const runs = new Map(overrides.runs ?? []);
+  const feedback = overrides.feedback ?? [];
+  const calls = { negative: [] };
+  const runtime = {
+    sessionApplication: {
+      listNegativeMessageFeedback: async (input) => {
+        calls.negative.push(input ?? {});
+        return feedback;
+      },
+      getSession: async (sessionId) => sessions.get(sessionId) ?? null,
+      listMessages: async (input) => ({ items: transcripts.get(input.sessionId) ?? [], total: (transcripts.get(input.sessionId) ?? []).length }),
+      listRuns: async (sessionId) => runs.get(sessionId) ?? [],
+    },
+  };
+  return {
+    calls,
+    registry: { async acquire() { return { runtime, release: () => {} }; } },
+  };
+}
+
+function failureSession(teamName) {
+  return {
+    session_id: `sess-${teamName}`,
+    team_snapshot: { team_name: teamName, team_revision: "rev", entry_agent_name: "lead", agents: {} },
+    tenant_id: "tenant-test",
+  };
+}
+
+test("collect_team_failures joins thumbs-down feedback with transcripts, runs, and delegation shape", async () => {
+  const sessionId = "sess-support";
+  const messages = [
+    { id: "m1", seq: 1, role: "user", content_parts: [{ type: "text", text: "Why was my refund rejected?" }], child_agent_id: null },
+    { id: "m2", seq: 2, role: "assistant", content_parts: [], child_agent_id: null, tool_calls: [{ id: "c1", function: { name: "agent", arguments: "{}" } }] },
+    { id: "m3", seq: 3, role: "assistant", content_parts: [{ type: "text", text: "Refund policy says 30 days." }], child_agent_id: "child-1" },
+    { id: "m4", seq: 4, role: "assistant", content_parts: [{ type: "text", text: "It was rejected because the 30-day refund window had already closed when you asked, and per policy the order can no longer be refunded automatically; here is what you can still do next." }], child_agent_id: null },
+  ];
+  const fake = fakeFailureRuntime({
+    feedback: [
+      { message_id: "m4", session_id: sessionId, tenant_id: "tenant-test", value: "down", comment: "没给出补救方案", user_id: "u1", created_at: "2026-09-01T00:00:00Z", updated_at: "2026-09-01T00:00:00Z" },
+      { message_id: "x9", session_id: "sess-other", tenant_id: "tenant-test", value: "down", comment: null, user_id: "u1", created_at: "2026-09-01T00:00:00Z", updated_at: "2026-09-01T00:00:00Z" },
+    ],
+    sessions: new Map([
+      [sessionId, failureSession("support-team")],
+      ["sess-other", failureSession("other-team")],
+    ]),
+    transcripts: new Map([[sessionId, messages]]),
+    runs: new Map([[sessionId, [
+      { run_id: "r1", session_id: sessionId, final_message_id: "m4", agent_name: "lead", child_agent_id: null, status: "completed", terminal_reason: null, task_summary: "refund rejection question" },
+      { run_id: "r2", session_id: sessionId, final_message_id: null, agent_name: "policy_worker", child_agent_id: "child-1", status: "completed", terminal_reason: null, task_summary: null },
+    ]]]),
+  });
+
+  const report = await collectTeamFailures({ registry: fake.registry, tenantId: "tenant-test" }, "support-team");
+
+  assert.equal(report.feedback_rows_scanned, 2);
+  assert.equal(report.sessions_matched, 1);
+  assert.equal(report.samples.length, 1);
+  const sample = report.samples[0];
+  assert.equal(sample.message_id, "m4");
+  assert.equal(sample.comment, "没给出补救方案");
+  assert.equal(sample.user_excerpt, "Why was my refund rejected?");
+  assert.match(sample.answer_excerpt, /rejected because the 30-day refund window/);
+  assert.equal(sample.answered_by, "lead");
+  assert.equal(sample.run.status, "completed");
+  assert.equal(sample.run.task_summary, "refund rejection question");
+  assert.equal(sample.delegate_calls, 1);
+  assert.deepEqual(sample.child_agents, ["policy_worker"]);
+  assert.equal(sample.entry_router_only, false);
+
+  const markdown = renderTeamFailureMarkdown(report);
+  assert.match(markdown, /团队失败证据：support-team/);
+  assert.match(markdown, /source: regression/);
+  assert.match(markdown, /用户备注：没给出补救方案/);
+});
+
+test("collect_team_failures flags a router-only entry from the interaction window", async () => {
+  const sessionId = "sess-router";
+  const messages = [
+    { id: "m1", seq: 1, role: "user", content_parts: [{ type: "text", text: "Summarize this report." }], child_agent_id: null },
+    { id: "m2", seq: 2, role: "assistant", content_parts: [], child_agent_id: null, tool_calls: [{ id: "c1", function: { name: "agent", arguments: "{}" } }] },
+    { id: "m3", seq: 3, role: "assistant", content_parts: [{ type: "text", text: "Here is the summary you asked for, produced entirely by the child." }], child_agent_id: "child-1" },
+  ];
+  const fake = fakeFailureRuntime({
+    feedback: [
+      { message_id: "m3", session_id: sessionId, tenant_id: "tenant-test", value: "down", comment: null, user_id: "u1", created_at: "2026-09-01T00:00:00Z", updated_at: "2026-09-01T00:00:00Z" },
+    ],
+    sessions: new Map([[sessionId, failureSession("router-team")]]),
+    transcripts: new Map([[sessionId, messages]]),
+    runs: new Map([[sessionId, [
+      { run_id: "r2", session_id: sessionId, final_message_id: null, agent_name: "summarizer", child_agent_id: "child-1", status: "completed", terminal_reason: null, task_summary: null },
+    ]]]),
+  });
+
+  const report = await collectTeamFailures({ registry: fake.registry, tenantId: "tenant-test" }, "router-team");
+
+  const sample = report.samples[0];
+  assert.equal(sample.delegate_calls, 1);
+  assert.equal(sample.entry_own_text_chars, 0);
+  assert.equal(sample.answered_by, "summarizer");
+  assert.equal(sample.entry_router_only, true);
+  assert.match(renderTeamFailureMarkdown(report), /入口疑似纯路由/);
+});
+
+test("collect_team_failures reports zero samples without inventing lessons", async () => {
+  const fake = fakeFailureRuntime({ feedback: [] });
+  const report = await collectTeamFailures({ registry: fake.registry, tenantId: "tenant-test" }, "quiet-team");
+  assert.equal(report.samples.length, 0);
+  assert.match(renderTeamFailureMarkdown(report), /暂无被踩样本/);
+});
+
+test("collect_team_failures tool writes the evidence file into the session workspace", async () => {
+  const fixture = await createFixture();
+  try {
+    const fake = fakeFailureRuntime({
+      feedback: [
+        { message_id: "m2", session_id: "sess-support", tenant_id: "tenant-test", value: "down", comment: null, user_id: "u1", created_at: "2026-09-01T00:00:00Z", updated_at: "2026-09-01T00:00:00Z" },
+      ],
+      sessions: new Map([["sess-support", failureSession("support-team")]]),
+      transcripts: new Map([["sess-support", [
+        { id: "m1", seq: 1, role: "user", content_parts: [{ type: "text", text: "hello" }], child_agent_id: null },
+        { id: "m2", seq: 2, role: "assistant", content_parts: [{ type: "text", text: "bad answer" }], child_agent_id: null },
+      ]]]),
+      runs: new Map([["sess-support", []]]),
+    });
+    const tool = createAgentBuilderTools(fixture.service, undefined, {
+      registry: fake.registry,
+      tenantId: "tenant-test",
+    }).find((item) => item.name === "collect_team_failures");
+    assert.ok(tool);
+
+    const workspace = path.join(fixture.root, "failure-workspace");
+    const result = await tool.call({ team_name: "support-team" }, { executionPaths: { workspace } });
+
+    assert.equal(result.success, true);
+    assert.equal(result.content.samples.length, 1);
+    const evidencePath = path.join(workspace, result.content.evidence_file);
+    assert.equal(fs.existsSync(evidencePath), true);
+    assert.match(fs.readFileSync(evidencePath, "utf8"), /bad answer/);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+
+test("Builder template v15 migrates the failure feedback protocol and tool from version 14", async () => {
+  const fixture = await createFixture();
+  try {
+    const legacy = buildAgentBuilderTeam();
+    legacy.builder_orchestrator.custom_params.behavior.system_prompt = "Keep this custom instruction.";
+    legacy.builder_orchestrator.custom_params.behavior.builder_template_version = 14;
+    await fixture.agentConfig.applyTeamPayload(AGENT_BUILDER_TEAM_NAME, legacy);
+
+    assert.equal(await ensureAgentBuilderTeam(fixture.agentConfig), true);
+    const orchestrator = fixture.agentConfig.getConfig("builder_orchestrator", { teamName: AGENT_BUILDER_TEAM_NAME });
+    assert.match(orchestrator.custom_params.behavior.system_prompt, /^Keep this custom instruction./);
+    assert.match(orchestrator.custom_params.behavior.system_prompt, /Failure feedback protocol:/);
+    assert.ok(orchestrator.tools.enabled_tools.includes("collect_team_failures"));
+    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 15);
+    assert.equal(await ensureAgentBuilderTeam(fixture.agentConfig), false);
   } finally {
     fixture.cleanup();
   }

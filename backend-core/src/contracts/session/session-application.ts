@@ -1,7 +1,7 @@
 import type { Envelope, MessageContentPart } from "@ragsystem/agent-protocol";
 
 import type { PermissionMode } from "../runtime/permissions.js";
-import type { MessageFeedback, MessageFeedbackValue } from "../conversation-store/index.js";
+import type { MessageFeedback, MessageFeedbackValue, RunInfo } from "../conversation-store/index.js";
 import type {
   CreateSessionRecordInput,
   MessageInfo,
@@ -116,6 +116,10 @@ export interface SessionApplication {
   setMessageFeedback(input: { sessionId: string; messageId: string; value: MessageFeedbackValue; comment?: string | null; userId?: string | null }): Promise<MessageFeedback | null>;
   clearMessageFeedback(input: { sessionId: string; messageId: string }): Promise<boolean>;
   listMessageFeedback(sessionId: string): Promise<MessageFeedback[]>;
+  /** 租户级被踩清单（按更新时间倒序）：智能体构建失败回流按团队过滤消费。 */
+  listNegativeMessageFeedback(input?: { since?: string; limit?: number }): Promise<MessageFeedback[]>;
+  /** 会话 run 清单（含子 run）：失败回流按 final_message_id 关联被踩消息的运行状态。 */
+  listRuns(sessionId: string, limit?: number): Promise<RunInfo[]>;
   rollbackMessages(input: { sessionId: string; afterSeq?: number | null; afterMessageId?: string | null }): Promise<number>;
   exportSession(sessionId: string): Promise<SessionExport>;
 }

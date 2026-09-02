@@ -118,6 +118,12 @@ export class LocalSessionApplication implements SessionApplication {
   async listMessageFeedback(sessionId: string) {
     return this.conversations.listMessageFeedback(sessionId);
   }
+  async listNegativeMessageFeedback(input?: { since?: string; limit?: number }) {
+    return this.conversations.listNegativeMessageFeedback(this.tenantId, input);
+  }
+  async listRuns(sessionId: string, limit?: number) {
+    return this.conversations.listRuns(sessionId, limit ?? 50).items;
+  }
   async rollbackMessages(input: Parameters<SessionApplication["rollbackMessages"]>[0]) { return this.sessions.rollbackMessages(input); }
   async exportSession(sessionId: string) { return this.sessions.exportSession(sessionId); }
 }

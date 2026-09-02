@@ -10,3 +10,4 @@ export * from "./store.js";
 export * from "./team-template.js";
 export * from "./tools.js";
 export * from "./trial.js";
+export * from "./failures.js";
