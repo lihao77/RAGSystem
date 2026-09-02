@@ -22,6 +22,7 @@ import {
   createAgentBuilderTools,
   ensureAgentBuilderTeam,
   validateBlueprint,
+  runDraftTrial,
 } from "../dist/index.js";
 
 class MemoryTeamStore {
@@ -735,6 +736,7 @@ test("Builder template migration adds Skill authoring tools without replacing us
         "create_agent_draft",
         "validate_agent_draft",
         "publish_agent_draft",
+        "try_agent_draft",
       ],
     );
     assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /^Keep this custom instruction\./);
@@ -743,7 +745,7 @@ test("Builder template migration adds Skill authoring tools without replacing us
     assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /current Skill runtime executes Python only/);
     assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /validate_agent_draft/);
     assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /artifacts parameter/);
-    assert.equal(configs.builder_orchestrator.custom_params.behavior.builder_template_version, 13);
+    assert.equal(configs.builder_orchestrator.custom_params.behavior.builder_template_version, 14);
     assert.equal(await ensureAgentBuilderTeam(fixture.agentConfig), false);
   } finally {
     fixture.cleanup();
@@ -764,7 +766,7 @@ test("Builder template migration adds the workspace draft workflow", async () =>
     assert.match(orchestrator.custom_params.behavior.system_prompt, /publish_skill_draft/);
     assert.match(orchestrator.custom_params.behavior.system_prompt, /current Session workspace/);
     assert.match(orchestrator.custom_params.behavior.system_prompt, /execute_skill_script can run only a published, visible Skill/);
-    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 13);
+    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 14);
   } finally {
     fixture.cleanup();
   }
@@ -784,7 +786,7 @@ test("Builder template migration upgrades a version 7 Skill authoring prompt", a
     assert.match(orchestrator.custom_params.behavior.system_prompt, /^Keep this version 7 instruction\./);
     assert.match(orchestrator.custom_params.behavior.system_prompt, /Skill authoring runtime contract:/);
     assert.match(orchestrator.custom_params.behavior.system_prompt, /current Skill runtime executes Python only/);
-    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 13);
+    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 14);
   } finally {
     fixture.cleanup();
   }
@@ -812,7 +814,7 @@ test("Builder template migration removes stale Artifact authoring instructions a
     assert.doesNotMatch(prompt, /kind=skill Artifact|\[artifact:|RAGSYSTEM_ARTIFACT_OUTPUT_DIR|submit_skill_artifact|create_skill_artifact|search_skill_drafts/i);
     assert.equal(orchestrator.tools.enabled_tools.includes("submit_skill_artifact"), false);
     assert.equal(orchestrator.tools.enabled_tools.includes("create_skill_artifact"), false);
-    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 13);
+    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 14);
   } finally {
     fixture.cleanup();
   }
@@ -854,6 +856,7 @@ test("Builder-only draft tools are visible only to the Builder entry Agent", asy
         "list_agent_builder_capabilities",
         "list_agent_drafts",
         "publish_agent_draft",
+        "try_agent_draft",
         "validate_agent_draft",
       ]);
       assert.deepEqual(ordinaryTools, []);
@@ -1169,7 +1172,7 @@ test("Builder template migration replaces the v10 draft workflow sentence in pla
     assert.match(prompt, /blueprint\.schema\.md/);
     assert.match(prompt, /artifacts parameter/);
     assert.doesNotMatch(prompt, /then call publish; publish performs validation and synchronization automatically/);
-    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 13);
+    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 14);
     assert.equal(await ensureAgentBuilderTeam(fixture.agentConfig), false);
   } finally {
     fixture.cleanup();
@@ -1227,7 +1230,7 @@ test("Builder template migration appends the Team design norms from version 11",
     assert.match(prompt, /Team design norms:/);
     assert.match(prompt, /most capable generalist/);
     assert.match(prompt, /Never design a router-only entry Agent/);
-    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 13);
+    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 14);
     assert.equal(await ensureAgentBuilderTeam(fixture.agentConfig), false);
   } finally {
     fixture.cleanup();
@@ -1243,6 +1246,8 @@ test("a fresh Builder Team carries the capable-entry norms across its prompts", 
   assert.match(orchestratorPrompt, /Domain exploration protocol:/);
   assert.match(orchestratorPrompt, /never invent domain facts/);
   assert.match(orchestratorPrompt, /Experience layering:/);
+  assert.match(orchestratorPrompt, /Trial protocol:/);
+  assert.ok(team.builder_orchestrator.tools.enabled_tools.includes("try_agent_draft"));
   assert.match(orchestratorPrompt, /blueprint\.json's acceptance field/);
   assert.match(team.requirements_researcher.custom_params.behavior.system_prompt, /mandatory build input/);
   assert.match(team.agent_architect.custom_params.behavior.system_prompt, /most capable generalist/);
@@ -1268,7 +1273,7 @@ test("Builder template migration appends the domain exploration and layering pro
     assert.match(prompt, /never invent domain facts/);
     assert.match(prompt, /Experience layering:/);
     assert.match(prompt, /blueprint\.json's acceptance field/);
-    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 13);
+    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 14);
     assert.equal(await ensureAgentBuilderTeam(fixture.agentConfig), false);
   } finally {
     fixture.cleanup();
@@ -1294,6 +1299,219 @@ test("acceptance cases warn when missing and survive Team synchronization", asyn
     await fixture.agentConfig.patchConfig("lead", { description: "Edited while live" });
     const synced = await fixture.service.synchronizeTeamDraft("support-team", bindings);
     assert.deepEqual(synced.blueprint.acceptance, acceptance);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+function fakeTrialRegistry(overrides = {}) {
+  const calls = { sessions: [], executed: [], deletedSessions: [], snapshots: [] };
+  const runtime = {
+    agentConfig: {
+      createTeamSnapshot: (input) => {
+        calls.snapshots.push(input);
+        return { team_name: input.teamName, team_revision: "rev", entry_agent_name: input.entryAgentName, agents: {} };
+      },
+    },
+    sessionApplication: {
+      ensureSession: async (input) => { calls.sessions.push(input); },
+      deleteSession: async (sessionId) => { calls.deletedSessions.push(sessionId); return true; },
+    },
+    agentExecution: {
+      executeSynchronously: async (request) => {
+        calls.executed.push(request);
+        return overrides.resultFor
+          ? overrides.resultFor(request)
+          : { success: true, suspended: false, answer: `echo:${request.task}`, execution_time: 12 };
+      },
+    },
+    agentDelegation: {
+      listSessionParticipants: async () => ({
+        items: [
+          { participant_id: "root", scope: "root", agent_name: null },
+          { participant_id: "child-1", scope: "child", agent_name: "worker" },
+        ],
+        total: 2,
+      }),
+    },
+  };
+  let released = 0;
+  return {
+    calls,
+    get released() { return released; },
+    registry: {
+      async acquire() { return { runtime, release: () => { released += 1; } }; },
+    },
+  };
+}
+
+async function createTrialWorkspace(fixture, overrides = {}) {
+  const workspace = path.join(fixture.root, "session-workspace");
+  const created = await fixture.service.createWorkspaceDraft(
+    overrides.name ?? "trial-team",
+    "Trial draft",
+    workspace,
+  );
+  const blueprintPath = path.join(created.workspacePath, "blueprint.json");
+  const blueprint = JSON.parse(fs.readFileSync(blueprintPath, "utf8"));
+  blueprint.entry_agent = "lead";
+  blueprint.agents = [
+    {
+      name: "lead",
+      description: "lead agent",
+      instructions: "Lead resolves routine requests directly.",
+      tools: ["read_file"],
+      capabilities: { skills: ["review-code"], mcp: ["github"] },
+      delegates: ["worker"],
+    },
+    {
+      name: "worker",
+      description: "worker agent",
+      instructions: "Worker handles deep work.",
+      tools: ["write_file"],
+      capabilities: {},
+      delegates: [],
+    },
+  ];
+  blueprint.acceptance = [
+    { case: "How long does a refund take?", expect_contains: ["echo:"], source: "sample" },
+    { case: "Where is my order?", expect_contains: ["never-appears"], source: "sample" },
+  ];
+  fs.writeFileSync(blueprintPath, `${JSON.stringify(blueprint, null, 2)}\n`);
+  return { workspace, draftId: created.draft.id, stagingPrefix: `staging-${blueprint.name}-` };
+}
+
+test("trial run executes acceptance inputs and cleans up the staging team", async () => {
+  const fixture = await createFixture();
+  try {
+    const bindings = memoryBindings();
+    const fake = fakeTrialRegistry();
+    const { workspace, draftId, stagingPrefix } = await createTrialWorkspace(fixture);
+
+    const report = await runDraftTrial(
+      { service: fixture.service, registry: fake.registry, tenantId: "tenant-test", bindings },
+      draftId,
+      workspace,
+    );
+
+    assert.ok(report.staging_team.startsWith(stagingPrefix), report.staging_team);
+    assert.equal(report.results.length, 2);
+    assert.equal(report.inputs_truncated, false);
+    const [hit, miss] = report.results;
+    assert.equal(hit.status, "completed");
+    assert.deepEqual(hit.matched, ["echo:"]);
+    assert.deepEqual(hit.missed, []);
+    assert.deepEqual(hit.delegated_agents, ["worker"]);
+    assert.equal(miss.status, "completed");
+    assert.deepEqual(miss.missed, ["never-appears"]);
+    assert.equal(report.summary.all_expectations_met, false);
+    assert.equal(report.summary.completed, 2);
+
+    // 每条输入一次无头执行，入口为蓝图 entry agent，试用会话用完即删
+    assert.deepEqual(fake.calls.executed.map((request) => request.task), [
+      "How long does a refund take?",
+      "Where is my order?",
+    ]);
+    assert.ok(fake.calls.executed.every((request) => request.agent === "lead" && request.executionKind === "agent-builder.trial"));
+    assert.equal(fake.calls.deletedSessions.length, 2);
+    assert.equal(fake.released, 1);
+
+    // 暂存 Team 与能力绑定完全清理
+    const teams = await fixture.agentConfig.listTeams();
+    assert.equal(teams.teams.some((team) => team.team_name.startsWith("staging-")), false);
+    assert.deepEqual(bindings.skills.config.get(`${report.staging_team}/lead`), []);
+    assert.deepEqual(bindings.mcp.config.get(`${report.staging_team}/lead`), []);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("explicit trial inputs override acceptance and clamp to five per call", async () => {
+  const fixture = await createFixture();
+  try {
+    const fake = fakeTrialRegistry();
+    const { workspace, draftId } = await createTrialWorkspace(fixture);
+    const inputs = Array.from({ length: 7 }, (_, index) => ({ case: `input-${index}` }));
+
+    const report = await runDraftTrial(
+      { service: fixture.service, registry: fake.registry, tenantId: "tenant-test", bindings: memoryBindings() },
+      draftId,
+      workspace,
+      inputs,
+    );
+
+    assert.equal(report.results.length, 5);
+    assert.equal(report.inputs_truncated, true);
+    assert.deepEqual(report.results.map((item) => item.input), ["input-0", "input-1", "input-2", "input-3", "input-4"]);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("suspended trial runs are reported instead of failing the whole trial", async () => {
+  const fixture = await createFixture();
+  try {
+    const fake = fakeTrialRegistry({ resultFor: () => ({ success: false, suspended: true, answer: null }) });
+    const { workspace, draftId } = await createTrialWorkspace(fixture);
+
+    const report = await runDraftTrial(
+      { service: fixture.service, registry: fake.registry, tenantId: "tenant-test", bindings: memoryBindings() },
+      draftId,
+      workspace,
+    );
+
+    assert.ok(report.results.every((item) => item.status === "suspended"));
+    assert.equal(report.summary.suspended, 2);
+    assert.equal(report.summary.all_expectations_met, false);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("structurally invalid blueprints refuse to materialize a staging team", async () => {
+  const fixture = await createFixture();
+  try {
+    const fake = fakeTrialRegistry();
+    const { workspace, draftId } = await createTrialWorkspace(fixture);
+    const blueprintPath = path.join(fixture.root, "session-workspace", ".ragsystem", "agent-builder", "drafts", draftId, "blueprint.json");
+    const blueprint = JSON.parse(fs.readFileSync(blueprintPath, "utf8"));
+    blueprint.agents[0].delegates = ["ghost"];
+    fs.writeFileSync(blueprintPath, `${JSON.stringify(blueprint, null, 2)}\n`);
+
+    await assert.rejects(
+      runDraftTrial(
+        { service: fixture.service, registry: fake.registry, tenantId: "tenant-test", bindings: memoryBindings() },
+        draftId,
+        workspace,
+      ),
+      /ghost/,
+    );
+    const teams = await fixture.agentConfig.listTeams();
+    assert.equal(teams.teams.some((team) => team.team_name.startsWith("staging-")), false);
+    assert.equal(fake.calls.executed.length, 0);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+
+test("Builder template v14 migrates the trial protocol and tool from version 13", async () => {
+  const fixture = await createFixture();
+  try {
+    const legacy = buildAgentBuilderTeam();
+    legacy.builder_orchestrator.custom_params.behavior.system_prompt = "Keep this custom instruction.";
+    legacy.builder_orchestrator.custom_params.behavior.builder_template_version = 13;
+    await fixture.agentConfig.applyTeamPayload(AGENT_BUILDER_TEAM_NAME, legacy);
+
+    assert.equal(await ensureAgentBuilderTeam(fixture.agentConfig), true);
+    const orchestrator = fixture.agentConfig.getConfig("builder_orchestrator", { teamName: AGENT_BUILDER_TEAM_NAME });
+    const prompt = orchestrator.custom_params.behavior.system_prompt;
+    assert.match(prompt, /^Keep this custom instruction./);
+    assert.match(prompt, /Trial protocol:/);
+    assert.match(prompt, /evidence, not a gate/);
+    assert.ok(orchestrator.tools.enabled_tools.includes("try_agent_draft"));
+    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 14);
+    assert.equal(await ensureAgentBuilderTeam(fixture.agentConfig), false);
   } finally {
     fixture.cleanup();
   }

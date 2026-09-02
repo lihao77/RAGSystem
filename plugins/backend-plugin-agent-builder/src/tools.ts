@@ -7,6 +7,8 @@ import { listAgentCapabilityProviders } from "@ragsystem/backend-core/plugins/ag
 
 import type { AgentDraft } from "./contracts.js";
 import type { AgentBuilderService } from "./service.js";
+import type { RuntimeContainerRegistry } from "@ragsystem/backend-core/services/runtime/runtime-container-registry.js";
+import { runDraftTrial, MAX_TRIAL_INPUTS_PER_CALL, type DraftTrialInput } from "./trial.js";
 
 const EmptyToolInputSchema = z.object({}).strict();
 const SearchDraftToolInputSchema = z.object({
@@ -20,9 +22,19 @@ const CreateDraftToolInputSchema = z.object({
 const DraftIdToolInputSchema = z.object({
   draft_id: z.string().trim().min(1),
 }).strict();
+const TryDraftToolInputSchema = z.object({
+  draft_id: z.string().trim().min(1),
+  inputs: z.array(z.object({
+    case: z.string().trim().min(1).max(2_000),
+    expect_contains: z.array(z.string().trim().min(1).max(500)).max(20).optional(),
+  }).strict()).min(1).max(20).optional(),
+}).strict();
 export interface AgentBuilderToolOptions {
   autoApproveDraft?: (draft: AgentDraft) => Promise<AgentDraft>;
   bindingsProvider?: () => Promise<import("./service.js").AgentBuilderBindings>;
+  /** 无头试运行依赖租户运行时容器（与 scheduler 同通道）；缺省时 try_agent_draft 不可用。 */
+  registry?: RuntimeContainerRegistry | null;
+  tenantId?: string | null;
 }
 
 export function createAgentBuilderTools(
@@ -220,6 +232,65 @@ export function createAgentBuilderTools(
           });
         } catch (error) {
           return toolError("validate_agent_draft", errorMessage(error));
+        }
+      },
+    }),
+    buildTool({
+      name: "try_agent_draft",
+      description: `Trial-run the current workspace draft before publishing: materialize it to a throwaway staging Team, run each input end-to-end headlessly, and return observations (the entry agent's answer, which expect_contains fragments were missing, which sub-agents were delegated to). Inputs default to the blueprint's acceptance cases; each call runs at most ${MAX_TRIAL_INPUTS_PER_CALL} inputs because every input is a real model call. The staging Team and trial sessions are deleted afterwards. Treat the report as design evidence, not a gate: improve the blueprint from what you observe, and reuse earlier observations instead of re-running unchanged samples.`,
+      inputSchema: TryDraftToolInputSchema,
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        required: ["draft_id"],
+        properties: {
+          draft_id: { type: "string", minLength: 1 },
+          inputs: {
+            type: "array",
+            description: `Inputs to run; defaults to the blueprint acceptance cases. At most ${MAX_TRIAL_INPUTS_PER_CALL} run per call.`,
+            items: {
+              type: "object",
+              additionalProperties: false,
+              required: ["case"],
+              properties: {
+                case: { type: "string", minLength: 1, maxLength: 2000 },
+                expect_contains: { type: "array", items: { type: "string", minLength: 1, maxLength: 500 }, maxItems: 20 },
+              },
+            },
+          },
+        },
+      },
+      riskLevel: "high",
+      source: "agent_tool",
+      category: "agent_builder",
+      isReadOnly: () => false,
+      isConcurrencySafe: () => false,
+      async call(input, context: ToolExecContext) {
+        try {
+          if (!options.registry || !options.tenantId) throw new Error("Trial execution is unavailable: runtime registry is not wired");
+          const bindings = options.bindingsProvider ? await options.bindingsProvider() : undefined;
+          if (!bindings) throw new Error("Agent Builder bindings are unavailable");
+          const report = await runDraftTrial(
+            {
+              service,
+              registry: options.registry,
+              tenantId: options.tenantId,
+              bindings,
+            },
+            input.draft_id,
+            workspaceRoot(context),
+            input.inputs as DraftTrialInput[] | undefined,
+          );
+          return toolSuccess({
+            draft_id: input.draft_id,
+            ...report,
+          }, {
+            toolName: "try_agent_draft",
+            summary: `Trial of draft '${input.draft_id}' on staging Team '${report.staging_team}': ${report.summary.completed}/${report.summary.total} completed${report.summary.failed ? `, ${report.summary.failed} failed` : ""}${report.summary.suspended ? `, ${report.summary.suspended} suspended` : ""}${report.summary.all_expectations_met ? "; all expectations met" : "; expectations missing"}`,
+            outputType: "json",
+          });
+        } catch (error) {
+          return toolError("try_agent_draft", errorMessage(error));
         }
       },
     }),

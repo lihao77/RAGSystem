@@ -4,7 +4,7 @@ import { isRecord } from "@ragsystem/backend-core/utils/guards.js";
 
 /** Reserved tenant Team installed by the Agent Builder plugin. */
 export const AGENT_BUILDER_TEAM_NAME = "agent-builder";
-export const AGENT_BUILDER_TEAM_TEMPLATE_VERSION = 13;
+export const AGENT_BUILDER_TEAM_TEMPLATE_VERSION = 14;
 
 const CAPABILITY_INVENTORY_TOOL = "list_agent_builder_capabilities";
 
@@ -45,6 +45,15 @@ const EXPERIENCE_LAYERING_PROMPT = [
   EXPERIENCE_LAYERING_MARKER,
   "put volatile behavior and role direction into agent instructions and rewrite them as a whole instead of appending; put stable domain knowledge (glossaries, process rules, data formats, system procedures) into Skill drafts so other Teams can reuse it; put every failure you fixed into a blueprint acceptance case so it becomes a regression guard.",
   "Acceptance cases must come from the real samples explored or from failures you actually observed, never be invented, and are written to blueprint.json's acceptance field (source: sample or regression).",
+].join(" ");
+
+const TRIAL_PROTOCOL_MARKER = "Trial protocol:";
+const TRIAL_PROTOCOL_PROMPT = [
+  TRIAL_PROTOCOL_MARKER,
+  "before publishing, call try_agent_draft with the blueprint's acceptance samples (or user-provided inputs) to run the draft end-to-end on a throwaway staging Team.",
+  "Read the report as a designer, not an inspector: a wrong or missing answer is design input for improving instructions, tools, or delegation; a suspended run means the Team asks the user for clarification, which may itself be correct behavior.",
+  "The trial is evidence, not a gate—you may still publish with an imperfect report after explaining the remaining risk to the user.",
+  "Each input is a real model call: batch at most five inputs per try, and reuse earlier observations instead of re-running unchanged samples after small edits.",
 ].join(" ");
 const LEGACY_SKILL_AUTHORING_PROMPT = `Use list_skill_drafts, with a query when needed, to find reusable Skill drafts. Use get_skill_draft to copy a draft into the current Session workspace, or create_skill_draft to create one from scratch. Edit SKILL.md and its resources with file tools, then call publish_skill_draft. Publishing validates the local bundle; on failure, fix the files and retry. Do not call separate validate or approve tools. A Skill is not available to Agents until publication succeeds.`;
 const SKILL_AUTHORING_PROMPT_MARKER = "Skill authoring runtime contract:";
@@ -98,6 +107,7 @@ export function buildAgentBuilderTeam(): Record<string, AgentConfig> {
         "get_agent_draft",
         "create_agent_draft",
         "validate_agent_draft",
+        "try_agent_draft",
         "publish_agent_draft",
         ...SKILL_AUTHORING_TOOLS,
       ],
@@ -118,6 +128,7 @@ export function buildAgentBuilderTeam(): Record<string, AgentConfig> {
         TEAM_DESIGN_NORMS_PROMPT,
         DOMAIN_EXPLORATION_PROMPT,
         EXPERIENCE_LAYERING_PROMPT,
+        TRIAL_PROTOCOL_PROMPT,
         CAPABILITY_DISCOVERY_PROMPT,
         DRAFT_WORKFLOW_PROMPT,
         DELEGATION_ARTIFACTS_PROMPT,
@@ -152,7 +163,7 @@ export function buildAgentBuilderTeam(): Record<string, AgentConfig> {
       displayName: "Agent Evaluator",
       description: "Reviews a candidate Blueprint against acceptance criteria, safety constraints, and runtime feasibility.",
       tools: ["read_file", "preview_data_structure", "glob", "grep"],
-      prompt: "Evaluate the current candidate Blueprint against its acceptance criteria and runtime constraints. Identify concrete failures, missing coverage, unsafe permissions, and unnecessary complexity. Flag a router-only entry Agent that delegates everything but holds no tools or capabilities of its own, and delegation topologies that add a hop to every routine turn; the entry Agent must be able to serve the user directly. Check that blueprint acceptance cases trace to real explored samples or observed failures rather than inventions, that instructions are distilled instead of bloated, and that stable knowledge is proposed as a Skill rather than inlined into prompts. Return actionable changes; do not publish.",
+      prompt: "Evaluate the current candidate Blueprint against its acceptance criteria, runtime constraints, and any try_agent_draft observations. Identify concrete failures, missing coverage, unsafe permissions, and unnecessary complexity. Flag a router-only entry Agent that delegates everything but holds no tools or capabilities of its own, and delegation topologies that add a hop to every routine turn; the entry Agent must be able to serve the user directly. Check that blueprint acceptance cases trace to real explored samples or observed failures rather than inventions, that instructions are distilled instead of bloated, and that stable knowledge is proposed as a Skill rather than inlined into prompts. Return actionable changes; do not publish.",
     }),
     agent_optimizer: builderAgent({
       name: "agent_optimizer",
@@ -205,6 +216,8 @@ function migrateAgentBuilderTeam(configs: Record<string, AgentConfig>): Record<s
   for (const tool of ["list_agent_drafts", "get_agent_draft", "create_agent_draft", "validate_agent_draft", "publish_agent_draft"] as const) {
     if (!enabledTools.includes(tool)) enabledTools.push(tool);
   }
+  // v14：试运行工具（无头跑通验收样本，观察报告供自检自改）。
+  if (!enabledTools.includes("try_agent_draft")) enabledTools.push("try_agent_draft");
   const promptBase = hasLegacyArtifactPrompt ? stripLegacySkillAuthoringPrompt(prompt) : prompt;
   const withCapabilityDiscovery = promptBase.includes("list_agent_builder_capabilities")
     ? promptBase
@@ -229,6 +242,10 @@ function migrateAgentBuilderTeam(configs: Record<string, AgentConfig>): Record<s
   }
   if (!workflowPrompt.includes(EXPERIENCE_LAYERING_MARKER)) {
     workflowPrompt = `${workflowPrompt} ${EXPERIENCE_LAYERING_PROMPT}`.trim();
+  }
+  // v14：发布前试用协议——报告是设计证据而非门禁。
+  if (!workflowPrompt.includes(TRIAL_PROTOCOL_MARKER)) {
+    workflowPrompt = `${workflowPrompt} ${TRIAL_PROTOCOL_PROMPT}`.trim();
   }
   const nextPrompt = hasLegacyArtifactPrompt
     ? `${workflowPrompt} ${SKILL_AUTHORING_PROMPT}`.trim()

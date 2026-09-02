@@ -92,7 +92,7 @@ export function createAgentBuilderPlugin(): BackendPlugin {
       context.routes.register("tenant", "/api/agent-builder", async (app) => {
         await app.register(registerAgentBuilderRoutes);
       });
-      context.tools.register(({ agent, capabilities, teamName }) => {
+      context.tools.register(({ agent, capabilities, teamName, tenantId }) => {
         if (teamName !== AGENT_BUILDER_TEAM_NAME || !agent.default_entry) return [];
         if (!capabilities) throw new Error("Agent Builder plugin requires runtime capabilities");
         const enabledTools = new Set(agent.tools.enabled_tools);
@@ -104,6 +104,9 @@ export function createAgentBuilderPlugin(): BackendPlugin {
             pluginTools: builder.listAvailableTools(),
             modelAdapter: builder.getModelAdapterPort(),
           }),
+          // 试运行走与 scheduler 相同的租户运行时容器通道（plugin 闭包已捕获 registry）
+          registry,
+          tenantId: tenantId ?? null,
         })
           .filter((tool) => enabledTools.has(tool.name));
       });

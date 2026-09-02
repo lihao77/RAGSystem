@@ -271,15 +271,11 @@ export class AgentBuilderService {
     workspaceRoot: string,
     bindings: AgentBuilderBindings,
   ): Promise<AgentBuilderValidationReport> {
-    const current = await this.getDraft(draftId);
-    const workspacePath = agentDraftWorkspacePath(workspaceRoot, draftId);
-    const manifest = parseWorkspaceManifest(await readWorkspaceJson(workspacePath, "manifest.json"));
-    if (manifest.draft_id !== draftId) throw new AgentBuilderConflictError("Workspace manifest draft_id does not match the requested draft");
-    assertRevision(current, manifest.expected_revision);
     try {
-      const blueprint = parseBlueprint(await readWorkspaceJson(workspacePath, "blueprint.json"));
+      const blueprint = await this.readWorkspaceBlueprint(draftId, workspaceRoot);
       return validateBlueprint(blueprint, bindings.inventory);
     } catch (error) {
+      if (error instanceof AgentBuilderValidationError || error instanceof AgentBuilderConflictError) throw error;
       return {
         valid: false,
         checked_at: new Date().toISOString(),
@@ -290,6 +286,27 @@ export class AgentBuilderService {
           message: error instanceof Error ? error.message : String(error),
         }],
       };
+    }
+  }
+
+  /**
+   * 读取当前会话工作区正在编辑的蓝图（manifest draft_id 校验 + revision 乐观锁检查）。
+   * validate / publish / try 共用同一读取口径：试运行试的就是所见即所得的工作区版本。
+   */
+  async readWorkspaceBlueprint(draftId: string, workspaceRoot: string): Promise<AgentBlueprint> {
+    const current = await this.getDraft(draftId);
+    const workspacePath = agentDraftWorkspacePath(workspaceRoot, draftId);
+    const manifest = parseWorkspaceManifest(await readWorkspaceJson(workspacePath, "manifest.json"));
+    if (manifest.draft_id !== draftId) throw new AgentBuilderConflictError("Workspace manifest draft_id does not match the requested draft");
+    assertRevision(current, manifest.expected_revision);
+    try {
+      return parseBlueprint(await readWorkspaceJson(workspacePath, "blueprint.json"));
+    } catch (error) {
+      throw new AgentBuilderValidationError({
+        valid: false,
+        checked_at: new Date().toISOString(),
+        issues: [{ level: "error", code: "invalid_blueprint", path: "blueprint.json", message: error instanceof Error ? error.message : String(error) }],
+      });
     }
   }
 
@@ -830,6 +847,8 @@ function toRuntimeAgent(agent: AgentBlueprintAgent, isEntry: boolean): AgentConf
     },
   };
 }
+
+export { toRuntimeAgent };
 
 function assertRevision(draft: AgentDraft, expectedRevision: number): void {
   if (draft.revision !== expectedRevision) {

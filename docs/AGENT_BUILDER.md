@@ -29,7 +29,9 @@ Agent Builder 将自然语言中的 Agent 需求转换为可审查、可校验�
 
 用户从 Team 列表激活 `agent-builder`，然后返回聊天页与 Builder Team 对话。它包含一个编排入口 Agent，以及需求调研、能力调研、Agent 架构、评估和优化五个专职 Agent。入口 Agent 会按工作流委派这些子 Agent，汇总结果后创建或更新一个 Draft。管理员仍可直接进入 Agent 配置页修改当前 Team，不需要经过 Builder Draft 流程。
 
-Builder Team 的工具包括能力盘点、`list_agent_drafts`、`get_agent_draft`、`create_agent_draft`、`validate_agent_draft` 和 `publish_agent_draft`。`list_agent_drafts` 接受可选关键词，默认返回摘要字段（不含蓝图全文），需要全文时传 `include_blueprint=true` 或用 `get_agent_draft`；`get` 或 `create` 会把 `manifest.json`、`blueprint.json` 与只读的 `blueprint.schema.md`（字段必填性、枚举、manifest 乐观锁机制说明）放到当前 Session 工作区，模型使用文件工具编辑，`validate_agent_draft` 随时返回与 publish 同款的校验报告而不发布，`publish` 负责校验、同步和按配置自动发布（返回中直接回 `team_name` 与激活提示）。独立的 update、approve 工具不对 Agent 暴露。Skill 使用同样的 `list_skill_drafts`、`get_skill_draft`、`create_skill_draft`、`publish_skill_draft` 工作流；`publish_skill_draft` 的返回含 `available_for_binding`，发布成功即确认已进入能力清单，无需二次查询。
+Builder Team 的工具包括能力盘点、`list_agent_drafts`、`get_agent_draft`、`create_agent_draft`、`validate_agent_draft`、`try_agent_draft` 和 `publish_agent_draft`。`list_agent_drafts` 接受可选关键词，默认返回摘要字段（不含蓝图全文），需要全文时传 `include_blueprint=true` 或用 `get_agent_draft`；`get` 或 `create` 会把 `manifest.json`、`blueprint.json` 与只读的 `blueprint.schema.md`（字段必填性、枚举、manifest 乐观锁机制说明）放到当前 Session 工作区，模型使用文件工具编辑，`validate_agent_draft` 随时返回与 publish 同款的校验报告而不发布，`publish` 负责校验、同步和按配置自动发布（返回中直接回 `team_name` 与激活提示）。独立的 update、approve 工具不对 Agent 暴露。Skill 使用同样的 `list_skill_drafts`、`get_skill_draft`、`create_skill_draft`、`publish_skill_draft` 工作流；`publish_skill_draft` 的返回含 `available_for_binding`，发布成功即确认已进入能力清单，无需二次查询。
+
+`try_agent_draft` 是发布前的试用运行（练车场，非门禁）：把当前工作区蓝图物化到一次性暂存 Team（`staging-` 前缀，用完即删），对每条输入做一次无头端到端运行，返回观察报告——入口 Agent 的回答、`expect_contains` 期望片段的命中与缺失、实际委派了哪些子 Agent、挂起/失败状态。输入默认取蓝图 `acceptance` 用例，单次调用最多 5 条（每条都是真实模型调用）；试用会话同样即用即删。Builder 的试用协议要求把报告当设计证据而非门槛：从失败观察改进 instructions/工具/委派设计，小改动后复用先前观察而非重跑相同样本；报告不理想也可以在向用户说明剩余风险后继续发布。
 
 ### 2. 在 Builder Team 中创建草稿
 
