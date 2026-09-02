@@ -2,6 +2,7 @@ import type { PermissionMode } from "@ragsystem/backend-core/contracts/runtime/p
 import type { SessionApplication } from "@ragsystem/backend-core/contracts/session/session-application.js";
 import type { TenantId } from "@ragsystem/backend-core/identity/types.js";
 import type { AgentSessionApplication } from "@ragsystem/backend-core/services/sessions/index.js";
+import type { MessageFeedbackValue } from "@ragsystem/backend-core/contracts/conversation-store/index.js";
 import type { ConversationStore } from "../../sqlite/conversation-store/index.js";
 import { TenantSessionIdentityApplication } from "@ragsystem/backend-core/services/sessions/session-identity-application.js";
 import { canonicalLocalWorkspaceKey, normalizeLocalWorkspacePath } from "@ragsystem/backend-core/services/workspaces/workspace-application.js";
@@ -98,6 +99,25 @@ export class LocalSessionApplication implements SessionApplication {
   async listParticipantRuns(input: Parameters<SessionApplication["listParticipantRuns"]>[0]) { return this.sessions.listParticipantRuns(input); }
   async listParticipantRunExecutionSteps(input: Parameters<SessionApplication["listParticipantRunExecutionSteps"]>[0]) { return this.sessions.listParticipantRunExecutionSteps(input); }
   async updateUserMessage(input: Parameters<SessionApplication["updateUserMessage"]>[0]) { return this.sessions.updateUserMessage(input); }
+  async setMessageFeedback(input: { sessionId: string; messageId: string; value: MessageFeedbackValue; comment?: string | null }) {
+    // 仅助手消息可评价：先验消息存在与角色，不可评价统一返回 null（路由层映射 404）。
+    const message = this.conversations.getMessageById(input.sessionId, input.messageId);
+    if (!message || message.role !== "assistant") return null;
+    return this.conversations.setMessageFeedback({
+      sessionId: input.sessionId,
+      messageId: input.messageId,
+      tenantId: this.tenantId,
+      value: input.value,
+      comment: input.comment ?? null,
+      userId: null,
+    });
+  }
+  async clearMessageFeedback(input: { sessionId: string; messageId: string }) {
+    return this.conversations.clearMessageFeedback(input.sessionId, input.messageId);
+  }
+  async listMessageFeedback(sessionId: string) {
+    return this.conversations.listMessageFeedback(sessionId);
+  }
   async rollbackMessages(input: Parameters<SessionApplication["rollbackMessages"]>[0]) { return this.sessions.rollbackMessages(input); }
   async exportSession(sessionId: string) { return this.sessions.exportSession(sessionId); }
 }

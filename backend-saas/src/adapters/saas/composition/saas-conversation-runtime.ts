@@ -41,6 +41,7 @@ import {
   PostgresSystemConfigStore,
   PostgresAgentMailboxRepository,
   runPostgresAgentMailboxMigrations,
+  PostgresMessageFeedbackRepository,
 } from "../../../adapters/saas/postgres/index.js";
 import type { ObjectStorage } from "@ragsystem/backend-core/contracts/storage/object-storage.js";
 import { OutboxDispatcher } from "@ragsystem/backend-core/services/runtime/event-outbox/dispatcher.js";
@@ -73,6 +74,8 @@ export interface SaaSConversationRuntimeHandle {
     secrets?: SecretResolver;
   };
   conversation: PostgresConversationRepository;
+  /** 消息级赞/踩反馈（Postgres 唯一事实源，跨租户共享连接池）。 */
+  messageFeedback: PostgresMessageFeedbackRepository;
   workspaces: PostgresWorkspaceRepository;
   wsTickets: PostgresWsTicketService;
   createRealtimeEventBus(tenantId: string): PostgresRealtimeEventBus;
@@ -132,6 +135,7 @@ export async function createSaaSConversationRuntime(
       await runPostgresAgentMailboxMigrations(executor);
     }
     const conversation = new PostgresConversationRepository(executor);
+    const messageFeedback = new PostgresMessageFeedbackRepository(executor);
     const workspaces = new PostgresWorkspaceRepository(executor);
     const wsTickets = new PostgresWsTicketService(executor);
     const runs = new PostgresRunRepository(executor);
@@ -222,6 +226,7 @@ export async function createSaaSConversationRuntime(
         ...(options.secretResolver ? { secrets: options.secretResolver } : {}),
       },
       conversation,
+      messageFeedback,
       workspaces,
       wsTickets,
       createRealtimeEventBus: (tenantId) => realtimeRelay.createBus(tenantId),

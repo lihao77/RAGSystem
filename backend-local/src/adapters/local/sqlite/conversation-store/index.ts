@@ -9,6 +9,7 @@ import { MetricOps } from "./metric-ops.js";
 import { PendingInteractionOps } from "./pending-interaction-ops.js";
 import { WorkflowTaskOps } from "./workflow-task-ops.js";
 import { GoalOps } from "./goal-ops.js";
+import { MessageFeedbackOps } from "./feedback-ops.js";
 import { SessionListProjector } from "./session-list-projector.js";
 import { WorkspaceOps } from "./workspace-ops.js";
 import { AgentMailboxOps } from "./agent-mailbox-ops.js";
@@ -39,6 +40,7 @@ export function createConversationStore(options: ConversationStoreOptions) {
   const workflowTasks = new WorkflowTaskOps(db);
   const goals = new GoalOps(db);
   const agentMailbox = new AgentMailboxOps(db);
+  const messageFeedback = new MessageFeedbackOps(db);
 
   const createTransactionFacade = () => ({
     createSession: sessions.createSessionInTransaction.bind(sessions),
@@ -149,6 +151,12 @@ export function createConversationStore(options: ConversationStoreOptions) {
     releaseGoalContinuation: goals.releaseContinuation.bind(goals),
     setContinuationReason: goals.setContinuationReason.bind(goals),
     restartBlocked: goals.restartBlocked.bind(goals),
+
+    // message feedback（消息级赞/踩）
+    setMessageFeedback: messageFeedback.set.bind(messageFeedback),
+    clearMessageFeedback: messageFeedback.clear.bind(messageFeedback),
+    listMessageFeedback: messageFeedback.list.bind(messageFeedback),
+    listNegativeMessageFeedback: messageFeedback.listNegative.bind(messageFeedback),
 
     /** 跨域：按 child agent 的 thread_key 取最近消息。 */
     getRecentMessagesByChildAgent: (sessionId: string, childAgentId: string, limit = DEFAULT_MESSAGE_LIST_LIMIT) => {

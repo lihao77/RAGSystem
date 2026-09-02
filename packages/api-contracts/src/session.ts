@@ -226,6 +226,32 @@ export const SessionMessageExecutionDataSchema = z.object({
 }).strict();
 
 export const SessionMessageExecutionResponseSchema = successResponseSchema(SessionMessageExecutionDataSchema);
+
+export const MessageFeedbackValueSchema = z.enum(["up", "down"]);
+
+export const SetMessageFeedbackRequestSchema = z.object({
+  value: MessageFeedbackValueSchema,
+  comment: z.string().trim().max(2_000).nullable().optional(),
+}).strict();
+
+export const MessageFeedbackItemSchema = z.object({
+  message_id: z.string().min(1),
+  value: MessageFeedbackValueSchema,
+  comment: z.string().nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+}).strict();
+
+export const MessageFeedbackResponseSchema = successResponseSchema(MessageFeedbackItemSchema);
+export const MessageFeedbackListDataSchema = z.object({
+  items: z.array(MessageFeedbackItemSchema),
+}).strict();
+export const MessageFeedbackListResponseSchema = successResponseSchema(MessageFeedbackListDataSchema);
+export const ClearMessageFeedbackResponseSchema = successResponseSchema(z.object({
+  message_id: z.string().min(1),
+  cleared: z.boolean(),
+}).strict());
+
 export const SessionParticipantRunListResponseSchema = successResponseSchema(SessionParticipantRunListDataSchema);
 export const SessionParticipantRunStepsResponseSchema = successResponseSchema(SessionParticipantRunStepsDataSchema);
 export const SessionParticipantListResponseSchema = successResponseSchema(SessionParticipantListDataSchema);
@@ -260,6 +286,13 @@ export type SessionMessageToolCall = z.infer<typeof SessionMessageToolCallSchema
 export type SessionMessage = z.infer<typeof SessionMessageSchema>;
 export type SessionMessageListData = z.infer<typeof SessionMessageListDataSchema>;
 export type SessionMessageExecutionData = z.infer<typeof SessionMessageExecutionDataSchema>;
+export type MessageFeedbackValue = z.infer<typeof MessageFeedbackValueSchema>;
+export type SetMessageFeedbackRequest = z.infer<typeof SetMessageFeedbackRequestSchema>;
+export type MessageFeedbackItem = z.infer<typeof MessageFeedbackItemSchema>;
+export type MessageFeedbackResponse = z.infer<typeof MessageFeedbackResponseSchema>;
+export type MessageFeedbackListData = z.infer<typeof MessageFeedbackListDataSchema>;
+export type MessageFeedbackListResponse = z.infer<typeof MessageFeedbackListResponseSchema>;
+export type ClearMessageFeedbackResponse = z.infer<typeof ClearMessageFeedbackResponseSchema>;
 export type SessionParticipantRun = z.infer<typeof SessionParticipantRunSchema>;
 export type SessionParticipantRunListData = z.infer<typeof SessionParticipantRunListDataSchema>;
 export type SessionParticipantRunStepsData = z.infer<typeof SessionParticipantRunStepsDataSchema>;

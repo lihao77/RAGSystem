@@ -6,6 +6,8 @@ import type {
   CreateRunInput,
   DeleteDeliveredOutboxInput,
   ListOutboxInput,
+  MessageFeedback,
+  MessageFeedbackValue,
   OutboxRow,
   RetryOutboxBatchInput,
   RetryOutboxResult,
@@ -107,7 +109,27 @@ export type AnalyticsRepositoryPort = Pick<AsyncAnalyticsRepository,
 export interface MonitoringRepositoryPort {
   listOutbox(tenantId: string, input?: ListOutboxInput): Promise<PaginatedResult<OutboxRow>>;
   getOutboxRow(tenantId: string, id: number): Promise<OutboxRow | null>;
-  retryOutbox(tenantId: string, id: number): Promise<boolean>;
+  retryOutbox(tenantId: string, id: number, availableAt?: string): Promise<boolean>;
   retryOutboxBatch(tenantId: string, input?: RetryOutboxBatchInput): Promise<RetryOutboxResult>;
-  deleteDeliveredOutbox(tenantId: string, input: DeleteDeliveredOutboxInput): Promise<number>;
+  deleteDeliveredOutbox(tenantId: string, input?: DeleteDeliveredOutboxInput): Promise<number>;
+}
+
+/**
+ * 消息级赞/踩反馈存储端口。独立于 AsyncConversationRepository：
+ * 反馈是会话域自身的元数据（评价引用，不含消息内容），生命周期不随任何插件。
+ * set 语义为幂等 upsert（每条消息至多一条，后写覆盖）；clear 删除。
+ */
+export interface AsyncMessageFeedbackStore {
+  setMessageFeedback(input: {
+    sessionId: string;
+    messageId: string;
+    tenantId: TenantId;
+    value: MessageFeedbackValue;
+    comment?: string | null;
+    userId?: string | null;
+  }): Promise<MessageFeedback>;
+  clearMessageFeedback(input: { sessionId: string; messageId: string }): Promise<boolean>;
+  listMessageFeedback(sessionId: string): Promise<MessageFeedback[]>;
+  /** 租户级被踩清单（按更新时间倒序）：监控/智能体构建失败回流的查询入口。 */
+  listNegativeMessageFeedback(tenantId: TenantId, options?: { since?: string; limit?: number }): Promise<MessageFeedback[]>;
 }

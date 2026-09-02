@@ -79,6 +79,24 @@ export const AGENT_MAILBOX_SCHEMA_SQL = `
       ON agent_mailbox(session_id, correlation_id, seq);
 `;
 
+/** 消息级赞/踩反馈：每条消息至多一条（后写覆盖），只存评价引用不复制消息内容。 */
+export const MESSAGE_FEEDBACK_SCHEMA_SQL = `
+    CREATE TABLE IF NOT EXISTS message_feedback (
+      message_id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      tenant_id TEXT NOT NULL,
+      value TEXT NOT NULL CHECK (value IN ('up', 'down')),
+      comment TEXT,
+      user_id TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_message_feedback_session ON message_feedback(session_id);
+    CREATE INDEX IF NOT EXISTS idx_message_feedback_tenant_value_updated
+      ON message_feedback(tenant_id, value, updated_at);
+`;
+
 /** Current clean baseline. Explicit migrations upgrade supported historical schema versions. */
 export const BASELINE_SCHEMA_SQL = `
     CREATE TABLE workspaces (
@@ -274,4 +292,6 @@ export const BASELINE_SCHEMA_SQL = `
     );
     CREATE INDEX idx_workflow_goals_session_created ON workflow_goals(session_id, created_at DESC);
     CREATE UNIQUE INDEX workflow_goals_session_current_idx ON workflow_goals(session_id) WHERE status IN ('active', 'paused');
+
+    ${MESSAGE_FEEDBACK_SCHEMA_SQL}
   `;

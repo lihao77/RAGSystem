@@ -1,6 +1,7 @@
-import type { AsyncConversationRepository, AsyncRunStore, ExecutionReplayRepositoryPort } from "@ragsystem/backend-core/contracts/storage/async-persistence-ports.js";
+import type { AsyncConversationRepository, AsyncMessageFeedbackStore, AsyncRunStore, ExecutionReplayRepositoryPort } from "@ragsystem/backend-core/contracts/storage/async-persistence-ports.js";
 import type { TenantId } from "@ragsystem/backend-core/identity/types.js";
 import type { PermissionMode } from "@ragsystem/backend-core/contracts/runtime/permissions.js";
+import type { MessageFeedbackValue } from "@ragsystem/backend-core/contracts/conversation-store/index.js";
 import { isParticipantConversationMessageVisible } from "@ragsystem/backend-core/contracts/session/message-visibility.js";
 import { stripPrivateMessageFields } from "@ragsystem/backend-core/services/sessions/index.js";
 import { synthesizeExecutionEnvelopes } from "@ragsystem/backend-core/services/sessions/execution-synthesis.js";
@@ -28,6 +29,7 @@ export class SaaSSessionApplication implements SessionApplication, ExecutionSess
     _outbox: ExecutionReplayRepositoryPort | null = null,
     private readonly workspaces: WorkspaceRepositoryPort | null = null,
     private readonly lifecycle: EntityLifecycleBinding | null = null,
+    private readonly messageFeedback: AsyncMessageFeedbackStore | null = null,
   ) {
     this.sessionIdentities = new TenantSessionIdentityApplication(tenantId, {
       getSession: (sessionId) => repository.getSession(sessionId),
@@ -290,6 +292,28 @@ export class SaaSSessionApplication implements SessionApplication, ExecutionSess
   }
 
   async updateUserMessage(input: { sessionId: string; messageId: string; content: string }): Promise<boolean> { if (!(await this.getSession(input.sessionId))) return false; return this.repository.updateMessage({ sessionId: input.sessionId, messageId: input.messageId, contentParts: input.content ? [{ type: "text", text: input.content }] : [], roleFilter: "user" }); }
+  async setMessageFeedback(input: { sessionId: string; messageId: string; value: MessageFeedbackValue; comment?: string | null }) {
+    if (!this.messageFeedback) return null;
+    // 仅助手消息可评价：先验消息存在与角色，不可评价统一返回 null（路由层映射 404）。
+    const message = await this.repository.getMessageById(input.sessionId, input.messageId);
+    if (!message || message.role !== "assistant") return null;
+    return this.messageFeedback.setMessageFeedback({
+      sessionId: input.sessionId,
+      messageId: input.messageId,
+      tenantId: this.tenantId,
+      value: input.value,
+      comment: input.comment ?? null,
+      userId: null,
+    });
+  }
+  async clearMessageFeedback(input: { sessionId: string; messageId: string }): Promise<boolean> {
+    if (!this.messageFeedback) return false;
+    return this.messageFeedback.clearMessageFeedback(input);
+  }
+  async listMessageFeedback(sessionId: string) {
+    if (!this.messageFeedback) return [];
+    return this.messageFeedback.listMessageFeedback(sessionId);
+  }
   async rollbackMessages(input: { sessionId: string; afterSeq?: number | null; afterMessageId?: string | null }): Promise<number> {
     if (!(await this.getSession(input.sessionId))) return 0;
     const fileHistory = this.fileHistory;

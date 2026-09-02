@@ -1,8 +1,12 @@
 import type {
   AuthIdentity,
   AuthSession,
+  ClearMessageFeedbackResponse,
   CreateSessionRequest,
   CreateSessionResponse,
+  MessageFeedbackListResponse,
+  MessageFeedbackResponse,
+  MessageFeedbackValue,
   SessionDetailResponse,
   SessionListFacetsResponse,
   SessionListResponse,
@@ -294,6 +298,30 @@ export class RagChatClient {
   async listSessionParticipants(sessionId: string, options: { signal?: AbortSignal } = {}): Promise<SessionParticipantListResponse> {
     return this.request<SessionParticipantListResponse>("listSessionParticipants", {
       context: { sessionId },
+      ...(options.signal ? { signal: options.signal } : {}),
+    });
+  }
+
+  async listMessageFeedback(sessionId: string, options: { signal?: AbortSignal } = {}): Promise<MessageFeedbackListResponse> {
+    return this.request<MessageFeedbackListResponse>("listMessageFeedback", {
+      context: { sessionId },
+      ...(options.signal ? { signal: options.signal } : {}),
+    });
+  }
+
+  async setMessageFeedback(sessionId: string, messageId: string, value: MessageFeedbackValue, options: { comment?: string | null; signal?: AbortSignal } = {}): Promise<MessageFeedbackResponse> {
+    return this.request<MessageFeedbackResponse>("setMessageFeedback", {
+      method: "PUT",
+      body: { value, ...(options.comment ? { comment: options.comment } : {}) },
+      context: { sessionId, messageId },
+      ...(options.signal ? { signal: options.signal } : {}),
+    });
+  }
+
+  async clearMessageFeedback(sessionId: string, messageId: string, options: { signal?: AbortSignal } = {}): Promise<ClearMessageFeedbackResponse> {
+    return this.request<ClearMessageFeedbackResponse>("clearMessageFeedback", {
+      method: "DELETE",
+      context: { sessionId, messageId },
       ...(options.signal ? { signal: options.signal } : {}),
     });
   }
@@ -725,6 +753,9 @@ function defaultEndpoint(name: RagChatEndpointName, context: Record<string, unkn
     case "getParticipantRunSteps": return `/api/agent/sessions/${sessionId}/participants/${encodeURIComponent(String(context.participantId ?? ""))}/runs/${encodeURIComponent(String(context.runId ?? ""))}/steps`;
     case "listMessages": return `/api/agent/sessions/${sessionId}/messages`;
     case "getMessageExecution": return `/api/agent/sessions/${sessionId}/messages/${encodeURIComponent(String(context.messageId ?? ""))}/execution`;
+    case "listMessageFeedback": return `/api/agent/sessions/${sessionId}/messages/feedback`;
+    case "setMessageFeedback": return `/api/agent/sessions/${sessionId}/messages/${encodeURIComponent(String(context.messageId ?? ""))}/feedback`;
+    case "clearMessageFeedback": return `/api/agent/sessions/${sessionId}/messages/${encodeURIComponent(String(context.messageId ?? ""))}/feedback`;
     case "listFiles": return `/api/agent/sessions/${sessionId}/files`;
     case "uploadFiles": return `/api/agent/sessions/${sessionId}/files/upload`;
     case "validateFiles": return `/api/agent/sessions/${sessionId}/files/validate`;

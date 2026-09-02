@@ -233,6 +233,26 @@ export const OutboxRowSchema = z.object({
 });
 export type OutboxRow = z.infer<typeof OutboxRowSchema>;
 
+/** 消息级赞/踩反馈值：up = 满意，down = 不满意。 */
+export const MessageFeedbackValueSchema = z.enum(["up", "down"]);
+export type MessageFeedbackValue = z.infer<typeof MessageFeedbackValueSchema>;
+
+/**
+ * 助手消息的用户满意度反馈。每条消息至多一条（后写覆盖，幂等 set/clear）；
+ * 不复制消息内容，只存评价引用，供监控与智能体构建回流消费。
+ */
+export const MessageFeedbackSchema = z.object({
+  message_id: z.string(),
+  session_id: z.string(),
+  tenant_id: z.string(),
+  value: MessageFeedbackValueSchema,
+  comment: z.string().nullable(),
+  user_id: z.string().nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type MessageFeedback = z.infer<typeof MessageFeedbackSchema>;
+
 export const RunInfoSchema = z.object({
   run_id: z.string(),
   session_id: z.string(),

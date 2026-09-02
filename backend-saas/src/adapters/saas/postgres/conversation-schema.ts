@@ -550,4 +550,25 @@ export const POSTGRES_CONVERSATION_MIGRATIONS: PostgresConversationMigration[] =
     END;
     $$;
   `,
+}, {
+  version: 10,
+  name: "message_feedback",
+  // 消息级赞/踩反馈：每条消息至多一条（后写覆盖），只存评价引用不复制消息内容。
+  sql: `
+    CREATE TABLE conversation_message_feedback (
+      message_id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL REFERENCES conversation_sessions(session_id) ON DELETE CASCADE,
+      tenant_id TEXT NOT NULL,
+      value TEXT NOT NULL CHECK (value IN ('up', 'down')),
+      comment TEXT,
+      user_id TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE (session_id, message_id)
+    );
+    CREATE INDEX conversation_message_feedback_session_idx
+      ON conversation_message_feedback(session_id);
+    CREATE INDEX conversation_message_feedback_tenant_value_updated_idx
+      ON conversation_message_feedback(tenant_id, value, updated_at DESC);
+  `,
 }];

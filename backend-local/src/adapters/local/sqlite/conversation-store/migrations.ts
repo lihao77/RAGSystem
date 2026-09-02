@@ -1,5 +1,5 @@
 import { runInTransaction } from "./shared/transaction.js";
-import { AGENT_MAILBOX_SCHEMA_SQL, BASELINE_SCHEMA_SQL, RUNS_SCHEMA_SQL } from "./schema.js";
+import { AGENT_MAILBOX_SCHEMA_SQL, BASELINE_SCHEMA_SQL, MESSAGE_FEEDBACK_SCHEMA_SQL, RUNS_SCHEMA_SQL } from "./schema.js";
 import { MessageContentPartSchema, type MessageContentPart } from "@ragsystem/agent-protocol";
 
 export interface MigrationDatabase {
@@ -7,7 +7,7 @@ export interface MigrationDatabase {
   prepare: import("node:sqlite").DatabaseSync["prepare"];
 }
 
-export const LATEST_SCHEMA_VERSION = 22;
+export const LATEST_SCHEMA_VERSION = 23;
 
 export function assertVersionsContiguous(migrations: readonly { version: number; name: string }[]): void {
   migrations.forEach((migration, index) => {
@@ -33,7 +33,7 @@ export function runMigrations(db: MigrationDatabase): void {
     assertCurrentSchema(db);
     return;
   }
-  if (current >= 1 && current <= 21) {
+  if (current >= 1 && current <= 22) {
     assertVersionOneSchema(db);
     runInTransaction(db, () => {
       if (current === 1) db.exec("ALTER TABLE runs ADD COLUMN terminal_reason TEXT");
@@ -88,6 +88,10 @@ export function runMigrations(db: MigrationDatabase): void {
         if (messageColumns.some((column) => column.name === "content")) {
           db.exec("ALTER TABLE messages DROP COLUMN content");
         }
+      }
+      if (current <= 22) {
+        // v23: 消息级赞/踩反馈表（每条消息至多一条，后写覆盖；只存评价引用）。
+        db.exec(MESSAGE_FEEDBACK_SCHEMA_SQL);
       }
       if (current <= 19) {
         // v20: run_steps/run_message_boundaries/step_resources 归档退役（执行视图由消息行合成）。
@@ -321,6 +325,12 @@ function assertCurrentSchema(db: MigrationDatabase): void {
   const sessionColumns = db.prepare("PRAGMA table_info(sessions)").all() as unknown as Array<{ name: string }>;
   if (!sessionColumns.some((column) => column.name === "team_snapshot")) {
     throw new Error("Conversation database is missing immutable Session Team snapshot");
+  }
+  const feedbackTable = db.prepare(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name='message_feedback'",
+  ).get();
+  if (!feedbackTable) {
+    throw new Error("Conversation database is missing message_feedback table");
   }
 }
 

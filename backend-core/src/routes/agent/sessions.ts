@@ -3,6 +3,10 @@ import { randomUUID } from "node:crypto";
 import type { FastifyPluginAsync } from "fastify";
 import {
   CreateSessionResponseSchema,
+  ClearMessageFeedbackResponseSchema,
+  MessageFeedbackListResponseSchema,
+  MessageFeedbackResponseSchema,
+  SetMessageFeedbackRequestSchema,
   SessionDetailResponseSchema,
   SessionListFacetsResponseSchema,
   SessionListResponseSchema,
@@ -388,6 +392,79 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
       throw new HttpError(404, "not_found", "消息不存在或不可编辑");
     }
     return ok({ message_id: request.params.messageId }, "更新成功");
+  });
+
+  // 消息级赞/踩：满意度的原始采集入口。仅助手消息可评价；同值再点由前端调用 DELETE 取消。
+  app.put<{ Params: MessageParams }>(
+    "/sessions/:sessionId/messages/:messageId/feedback",
+    async (request) => {
+      const sessions = await resolveSessionApplication(options, request);
+      await loadMutableSession(request, request.params.sessionId, sessions);
+      let payload: z.infer<typeof SetMessageFeedbackRequestSchema>;
+      try {
+        payload = SetMessageFeedbackRequestSchema.parse(request.body);
+      } catch (error) {
+        if (error instanceof ZodError) {
+          throw new HttpError(
+            422,
+            "validation_error",
+            "请求参数验证失败",
+            error.issues.map((issue) => `body -> ${issue.path.join(" -> ") || "body"}: ${issue.message}`),
+          );
+        }
+        throw error;
+      }
+      const feedback = await sessions.setMessageFeedback({
+        sessionId: request.params.sessionId,
+        messageId: request.params.messageId,
+        value: payload.value,
+        comment: payload.comment ?? null,
+      });
+      if (!feedback) {
+        throw new HttpError(404, "not_found", "消息不存在或不可评价");
+      }
+      return validateResponse(MessageFeedbackResponseSchema, ok({
+        message_id: feedback.message_id,
+        value: feedback.value,
+        comment: feedback.comment,
+        created_at: feedback.created_at,
+        updated_at: feedback.updated_at,
+      }, "评价成功"));
+    },
+  );
+
+  app.delete<{ Params: MessageParams }>(
+    "/sessions/:sessionId/messages/:messageId/feedback",
+    async (request) => {
+      const sessions = await resolveSessionApplication(options, request);
+      await loadMutableSession(request, request.params.sessionId, sessions);
+      const cleared = await sessions.clearMessageFeedback({
+        sessionId: request.params.sessionId,
+        messageId: request.params.messageId,
+      });
+      return validateResponse(ClearMessageFeedbackResponseSchema, ok({
+        message_id: request.params.messageId,
+        cleared,
+      }, "已取消评价"));
+    },
+  );
+
+  app.get<{ Params: SessionParams }>("/sessions/:sessionId/messages/feedback", async (request) => {
+    const sessions = await resolveSessionApplication(options, request);
+    const session = await sessions.getSession(request.params.sessionId);
+    if (!session) throw new HttpError(404, "not_found", "会话不存在");
+    await assertSessionReadable(request, session);
+    const items = await sessions.listMessageFeedback(request.params.sessionId);
+    // 投影到对外 schema 的 5 字段；存储 DTO 另含 session_id/tenant_id/user_id，strict 校验不容多余字段
+    return validateResponse(MessageFeedbackListResponseSchema, ok({
+      items: items.map((item) => ({
+        message_id: item.message_id,
+        value: item.value,
+        comment: item.comment,
+        created_at: item.created_at,
+        updated_at: item.updated_at,
+      })),
+    }, "获取评价列表成功"));
   });
 
   app.post<{ Params: SessionParams }>("/sessions/:sessionId/rollback", async (request) => {

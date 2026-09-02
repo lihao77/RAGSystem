@@ -92,6 +92,7 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
     conversationRuntime.outbox,
     conversationRuntime.workspaces,
     lifecycle,
+    conversationRuntime.messageFeedback,
   );
   // SaaS providers are Postgres-backed; ModelAdapterService is a pure in-process projection.
   // Keep provider configuration process-local so create/update never writes providers.yaml under dataRoot.
