@@ -3,7 +3,7 @@ import type { PaginatedResult } from "@ragsystem/backend-core/contracts/common.j
 import type { MessageInfo } from "@ragsystem/backend-core/contracts/session/session.js";
 import type { ConversationDb } from "./shared/db.js";
 import { runInTransaction } from "./shared/transaction.js";
-import { parseJsonObject, stringifyJson } from "./helpers.js";
+import { parseJsonObject, sqliteTimestampToIso, stringifyJson } from "./helpers.js";
 import { decodeChatFields, encodeChatFields } from "@ragsystem/backend-core/contracts/conversation-store/chat-message-codec.js";
 import { rowToMessage } from "./mappers.js";
 import { parseMessageProviderState } from "@ragsystem/backend-core/contracts/conversation-store/chat-message-codec.js";
@@ -75,7 +75,7 @@ export class MessageOps {
       metadata: persistedMetadata,
       thread_key: row.thread_key ?? "root",
       child_agent_id: row.child_agent_id,
-      created_at: row.created_at,
+      created_at: sqliteTimestampToIso(row.created_at),
       provider_state: parseMessageProviderState(input.providerState ?? null),
       ...decodeChatFields(persistedMetadata),
     };

@@ -4,7 +4,7 @@ import type {
   PendingInteractionStatus,
 } from "@ragsystem/backend-core/contracts/conversation-store/index.js";
 import type { ConversationDb } from "./shared/db.js";
-import { parseJsonObject, stringifyJson } from "./helpers.js";
+import { parseJsonObject, sqliteTimestampToIso, stringifyJson } from "./helpers.js";
 
 interface PendingInteractionRow extends Omit<PendingInteractionRecord, "request_payload" | "resolution_payload"> {
   request_payload: string;
@@ -219,6 +219,12 @@ function mapRow(row: PendingInteractionRow): PendingInteractionRecord {
     status: row.status,
     request_payload: parseJsonObject(row.request_payload),
     resolution_payload: row.resolution_payload ? parseJsonObject(row.resolution_payload) : null,
+    // created_at/updated_at/responded_at/consumed_at 由 CURRENT_TIMESTAMP 默认值产生（无时区标记的 UTC 文本），
+    // 出口统一补 Z 归一，避免消费方 new Date() 按本地时区解析。
+    created_at: sqliteTimestampToIso(row.created_at),
+    updated_at: sqliteTimestampToIso(row.updated_at),
+    responded_at: row.responded_at === null ? null : sqliteTimestampToIso(row.responded_at),
+    consumed_at: row.consumed_at === null ? null : sqliteTimestampToIso(row.consumed_at),
   };
 }
 

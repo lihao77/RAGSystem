@@ -27,13 +27,10 @@ export function sqliteTimestampToIso(value: string): string {
   return parsed.toISOString();
 }
 
-/** Convert an RFC3339 UTC cursor back to SQLite's indexed timestamp text format. */
+/** 把 RFC3339 游标或 SQLite 行文本统一收敛回内部比较用的 SQLite 时间戳文本（对两种输入形状幂等）。 */
 export function isoTimestampToSqlite(value: string): string {
-  const parsed = new Date(value);
-  if (!Number.isFinite(parsed.getTime())) {
-    throw new Error(`Invalid RFC3339 timestamp: ${value}`);
-  }
-  const iso = parsed.toISOString();
+  // 先经 sqliteTimestampToIso 归一：直接 new Date("YYYY-MM-DD HH:MM:SS") 会按本地时区解析，UTC+8 机器上偏 8 小时。
+  const iso = sqliteTimestampToIso(value);
   const seconds = iso.slice(0, 19).replace("T", " ");
   return iso.endsWith(".000Z") ? seconds : `${seconds}${iso.slice(19, 23)}`;
 }

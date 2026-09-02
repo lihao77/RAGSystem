@@ -1,5 +1,6 @@
 import type { ExecutionOverview, ExecutionTaskStatus } from "@ragsystem/backend-core/contracts/execution/execution.js";
 import type { ConversationDb } from "./shared/db.js";
+import { sqliteTimestampToIso } from "./helpers.js";
 import { rowToRun } from "./mappers.js";
 import type {
   CreatedRun,
@@ -202,8 +203,8 @@ export class RunOps {
         status: row.status,
         raw_status: row.status,
         elapsed_seconds: null,
-        started_at: row.created_at,
-        finished_at: row.status === "running" ? null : row.updated_at,
+        started_at: row.created_at === null ? null : sqliteTimestampToIso(row.created_at),
+        finished_at: row.status === "running" || row.updated_at === null ? null : sqliteTimestampToIso(row.updated_at),
         thread_alive: row.status === "running",
         timeout_seconds: null,
         waiting_status: null,

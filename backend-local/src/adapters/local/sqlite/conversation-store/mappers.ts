@@ -25,8 +25,8 @@ export function rowToSession(row: SessionRow): SessionInfo {
     workspace_id: row.workspace_id,
     permission_mode: row.permission_mode,
     metadata: parseJsonObject(row.metadata),
-    created_at: row.created_at,
-    updated_at: row.updated_at,
+    created_at: sqliteTimestampToIso(row.created_at),
+    updated_at: sqliteTimestampToIso(row.updated_at),
   };
 }
 
@@ -49,7 +49,7 @@ export function rowToMessage(row: MessageRow): MessageInfo {
     metadata,
     thread_key: row.thread_key ?? "root",
     child_agent_id: row.child_agent_id,
-    created_at: row.created_at,
+    created_at: sqliteTimestampToIso(row.created_at),
     provider_state: parseMessageProviderState(row.provider_state),
     ...decodeChatFields(metadata),
   };
@@ -70,8 +70,8 @@ export function rowToChildAgent(row: ChildAgentRow): ChildAgentInfo {
     parent_call_id: row.parent_call_id,
     last_run_id: row.last_run_id,
     metadata: parseJsonObject(row.metadata),
-    created_at: row.created_at,
-    updated_at: row.updated_at,
+    created_at: sqliteTimestampToIso(row.created_at),
+    updated_at: sqliteTimestampToIso(row.updated_at),
   };
 }
 
@@ -96,8 +96,8 @@ export function rowToRun(row: RunRow): RunInfo {
     parent_call_id: row.parent_call_id,
     child_agent_id: row.child_agent_id,
     final_message_id: row.final_message_id,
-    created_at: row.created_at,
-    updated_at: row.updated_at,
+    created_at: sqliteTimestampToIso(row.created_at),
+    updated_at: sqliteTimestampToIso(row.updated_at),
   };
 }
 

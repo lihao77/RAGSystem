@@ -3,6 +3,7 @@ import { MSG_TYPE } from "@ragsystem/backend-core/contracts/message-kinds.js";
 import { isSessionListVisibleMessage } from "@ragsystem/backend-core/contracts/session/session-list-projection.js";
 import type { MessageInfo } from "@ragsystem/backend-core/contracts/session/session.js";
 import type { ConversationDb } from "./shared/db.js";
+import { isoTimestampToSqlite } from "./helpers.js";
 import type { SessionRow } from "./types.js";
 
 /** SQL equivalent of the shared domain predicate, covered by the same test vectors. */
@@ -27,6 +28,7 @@ export class SessionListProjector {
       WHERE m.session_id=? AND m.seq < ? AND ${sessionListVisibleMessageSql("m")}
       LIMIT 1
     `).get(message.session_id, message.seq));
+    // activity_at 是 SQLite 内部比较列（排序/游标按字典序），MessageInfo.created_at 已是带 Z 的 ISO，写回须转内部格式。
     this.db.prepare(`
       UPDATE session_list_projection SET
         title=?,
@@ -38,7 +40,7 @@ export class SessionListProjector {
       hasEarlierVisible ? 1 : 0,
       text,
       text,
-      message.created_at,
+      isoTimestampToSqlite(message.created_at),
       0,
       message.session_id,
     );
@@ -74,7 +76,7 @@ export class SessionListProjector {
       session.session_id, session.tenant_id, session.owner_user_id, session.visibility,
       session.origin_type, session.origin_id, session.origin_channel, session.workspace_id,
       firstText.trim().slice(0, 30), firstText,
-      lastText, last?.created_at ?? session.created_at,
+      lastText, isoTimestampToSqlite(last?.created_at ?? session.created_at),
       0,
     );
   }
