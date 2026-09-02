@@ -1794,9 +1794,11 @@ function fakeFailureRuntime(overrides = {}) {
       listRuns: async (sessionId) => runs.get(sessionId) ?? [],
     },
   };
+  const knownTeams = (overrides.teams ?? []).map((name) => ({ team_name: name }));
   return {
     calls,
     registry: { async acquire() { return { runtime, release: () => {} }; } },
+    service: { getAgentConfigPort: () => ({ listTeams: async () => ({ teams: knownTeams }) }) },
   };
 }
 
@@ -1817,6 +1819,7 @@ test("collect_team_failures joins thumbs-down feedback with transcripts, runs, a
     { id: "m4", seq: 4, role: "assistant", content_parts: [{ type: "text", text: "It was rejected because the 30-day refund window had already closed when you asked, and per policy the order can no longer be refunded automatically; here is what you can still do next." }], child_agent_id: null },
   ];
   const fake = fakeFailureRuntime({
+    teams: ["support-team", "other-team"],
     feedback: [
       { message_id: "m4", session_id: sessionId, tenant_id: "tenant-test", value: "down", comment: "没给出补救方案", user_id: "u1", created_at: "2026-09-01T00:00:00Z", updated_at: "2026-09-01T00:00:00Z" },
       { message_id: "x9", session_id: "sess-other", tenant_id: "tenant-test", value: "down", comment: null, user_id: "u1", created_at: "2026-09-01T00:00:00Z", updated_at: "2026-09-01T00:00:00Z" },
@@ -1832,9 +1835,11 @@ test("collect_team_failures joins thumbs-down feedback with transcripts, runs, a
     ]]]),
   });
 
-  const report = await collectTeamFailures({ registry: fake.registry, tenantId: "tenant-test" }, "support-team");
+  const report = await collectTeamFailures({ service: fake.service, registry: fake.registry, tenantId: "tenant-test" }, "support-team");
 
-  assert.equal(report.feedback_rows_scanned, 2);
+  assert.equal(report.team_exists, true);
+  assert.equal(report.tenant_rows_scanned, 2);
+  assert.equal(report.has_more, false);
   assert.equal(report.sessions_matched, 1);
   assert.equal(report.samples.length, 1);
   const sample = report.samples[0];
@@ -1845,6 +1850,7 @@ test("collect_team_failures joins thumbs-down feedback with transcripts, runs, a
   assert.equal(sample.answered_by, "lead");
   assert.equal(sample.run.status, "completed");
   assert.equal(sample.run.task_summary, "refund rejection question");
+  assert.equal(sample.team_revision, "rev");
   assert.equal(sample.delegate_calls, 1);
   assert.deepEqual(sample.child_agents, ["policy_worker"]);
   assert.equal(sample.entry_router_only, false);
@@ -1863,6 +1869,7 @@ test("collect_team_failures flags a router-only entry from the interaction windo
     { id: "m3", seq: 3, role: "assistant", content_parts: [{ type: "text", text: "Here is the summary you asked for, produced entirely by the child." }], child_agent_id: "child-1" },
   ];
   const fake = fakeFailureRuntime({
+    teams: ["router-team"],
     feedback: [
       { message_id: "m3", session_id: sessionId, tenant_id: "tenant-test", value: "down", comment: null, user_id: "u1", created_at: "2026-09-01T00:00:00Z", updated_at: "2026-09-01T00:00:00Z" },
     ],
@@ -1873,7 +1880,7 @@ test("collect_team_failures flags a router-only entry from the interaction windo
     ]]]),
   });
 
-  const report = await collectTeamFailures({ registry: fake.registry, tenantId: "tenant-test" }, "router-team");
+  const report = await collectTeamFailures({ service: fake.service, registry: fake.registry, tenantId: "tenant-test" }, "router-team");
 
   const sample = report.samples[0];
   assert.equal(sample.delegate_calls, 1);
@@ -1884,15 +1891,64 @@ test("collect_team_failures flags a router-only entry from the interaction windo
 });
 
 test("collect_team_failures reports zero samples without inventing lessons", async () => {
-  const fake = fakeFailureRuntime({ feedback: [] });
-  const report = await collectTeamFailures({ registry: fake.registry, tenantId: "tenant-test" }, "quiet-team");
+  const fake = fakeFailureRuntime({ teams: ["quiet-team"], feedback: [] });
+  const report = await collectTeamFailures({ service: fake.service, registry: fake.registry, tenantId: "tenant-test" }, "quiet-team");
+  assert.equal(report.team_exists, true);
   assert.equal(report.samples.length, 0);
   assert.match(renderTeamFailureMarkdown(report), /暂无被踩样本/);
+});
+
+test("collect_team_failures refuses unknown teams without scanning or implying zero samples", async () => {
+  const fake = fakeFailureRuntime({
+    teams: ["support-team"],
+    feedback: [
+      { message_id: "m4", session_id: "sess-support", tenant_id: "tenant-test", value: "down", comment: null, user_id: "u1", created_at: "2026-09-01T00:00:00Z", updated_at: "2026-09-01T00:00:00Z" },
+    ],
+  });
+
+  const report = await collectTeamFailures({ service: fake.service, registry: fake.registry, tenantId: "tenant-test" }, "no-such-team-probe");
+
+  assert.equal(report.team_exists, false);
+  assert.equal(report.tenant_rows_scanned, 0);
+  assert.equal(report.samples.length, 0);
+  // 未扫描：反馈存储根本没被触碰
+  assert.equal(fake.calls.negative.length, 0);
+  assert.match(renderTeamFailureMarkdown(report), /团队不存在/);
+});
+
+test("collect_team_failures flags has_more when the scan hits the feedback limit", async () => {
+  const fake = fakeFailureRuntime({
+    teams: ["support-team"],
+    feedback: [
+      { message_id: "m2", session_id: "sess-support", tenant_id: "tenant-test", value: "down", comment: null, user_id: "u1", created_at: "2026-09-01T00:00:00Z", updated_at: "2026-09-01T00:00:00Z" },
+      { message_id: "m4", session_id: "sess-support", tenant_id: "tenant-test", value: "down", comment: null, user_id: "u1", created_at: "2026-08-31T00:00:00Z", updated_at: "2026-08-31T00:00:00Z" },
+    ],
+    sessions: new Map([["sess-support", failureSession("support-team")]]),
+    transcripts: new Map([["sess-support", [
+      { id: "m1", seq: 1, role: "user", content_parts: [{ type: "text", text: "q1" }], child_agent_id: null },
+      { id: "m2", seq: 2, role: "assistant", content_parts: [{ type: "text", text: "a1" }], child_agent_id: null },
+      { id: "m3", seq: 3, role: "user", content_parts: [{ type: "text", text: "q2" }], child_agent_id: null },
+      { id: "m4", seq: 4, role: "assistant", content_parts: [{ type: "text", text: "a2" }], child_agent_id: null },
+    ]]]),
+    runs: new Map([["sess-support", []]]),
+  });
+
+  const report = await collectTeamFailures(
+    { service: fake.service, registry: fake.registry, tenantId: "tenant-test" },
+    "support-team",
+    { feedbackLimit: 2 },
+  );
+
+  assert.equal(report.tenant_rows_scanned, 2);
+  assert.equal(report.has_more, true);
+  assert.match(renderTeamFailureMarkdown(report), /扫描上限/);
 });
 
 test("collect_team_failures tool writes the evidence file into the session workspace", async () => {
   const fixture = await createFixture();
   try {
+    // 工具经真实 service 校验团队存在性：先注册目标团队
+    await fixture.agentConfig.createTeam("support-team");
     const fake = fakeFailureRuntime({
       feedback: [
         { message_id: "m2", session_id: "sess-support", tenant_id: "tenant-test", value: "down", comment: null, user_id: "u1", created_at: "2026-09-01T00:00:00Z", updated_at: "2026-09-01T00:00:00Z" },
@@ -1914,10 +1970,19 @@ test("collect_team_failures tool writes the evidence file into the session works
     const result = await tool.call({ team_name: "support-team" }, { executionPaths: { workspace } });
 
     assert.equal(result.success, true);
+    assert.equal(result.content.team_exists, true);
     assert.equal(result.content.samples.length, 1);
     const evidencePath = path.join(workspace, result.content.evidence_file);
     assert.equal(fs.existsSync(evidencePath), true);
     assert.match(fs.readFileSync(evidencePath, "utf8"), /bad answer/);
+
+    // 拼错团队名：不扫描、不落盘、明确报告 team_exists=false
+    const miss = await tool.call({ team_name: "no-such-team-probe" }, { executionPaths: { workspace } });
+    assert.equal(miss.success, true);
+    assert.equal(miss.content.team_exists, false);
+    assert.equal(miss.content.evidence_file, undefined);
+    assert.equal(fake.calls.negative.length, 1);
+    assert.equal(fs.existsSync(path.join(workspace, ".ragsystem", "agent-builder", "evidence", "failures-no-such-team-probe.md")), false);
   } finally {
     fixture.cleanup();
   }

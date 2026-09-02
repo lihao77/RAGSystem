@@ -309,7 +309,7 @@ export function createAgentBuilderTools(
     }),
     buildTool({
       name: "collect_team_failures",
-      description: `Collect user-marked failure evidence for a published Team: tenant-wide thumbs-down feedback anchored to that Team's sessions, joined with the transcript around each rated answer (the user's input, the disliked answer, which agent produced it), the run status (status/terminal_reason), and a delegation observation (whether the entry agent only routed work to children instead of answering). Results are written to an evidence file under .ragsystem/agent-builder/evidence/ in the current Session workspace and also returned inline. Use it before redesigning or rebuilding a Team whose domain already has a live Team, and after users report dissatisfaction; treat samples as design input alongside domain exploration — regression inputs become acceptance cases (source: regression), pattern-level lessons go into instructions.`,
+      description: `Collect user-marked failure evidence for a published Team: tenant-wide thumbs-down feedback anchored to that Team's sessions, joined with the transcript around each rated answer (the user's input, the disliked answer, which agent produced it), the run status (status/terminal_reason), the team revision the session ran on, and a delegation observation (whether the entry agent only routed work to children instead of answering). Results are written to an evidence file under .ragsystem/agent-builder/evidence/ in the current Session workspace and also returned inline. A team name not present in the tenant registry returns team_exists=false without scanning or writing any file—use the published team name, not the draft name. has_more=true means the scan limit was reached and older feedback exists. Use it before redesigning or rebuilding a Team whose domain already has a live Team, and after users report dissatisfaction; treat samples as design input alongside domain exploration — regression inputs become acceptance cases (source: regression), pattern-level lessons go into instructions.`,
       inputSchema: CollectFailuresToolInputSchema,
       parameters: {
         type: "object",
@@ -330,13 +330,21 @@ export function createAgentBuilderTools(
         try {
           if (!options.registry || !options.tenantId) throw new Error("Failure collection is unavailable: runtime registry is not wired");
           const report = await collectTeamFailures(
-            { registry: options.registry, tenantId: options.tenantId },
+            { service, registry: options.registry, tenantId: options.tenantId },
             input.team_name,
             {
               ...(input.since ? { since: input.since } : {}),
               ...(input.feedback_limit ? { feedbackLimit: input.feedback_limit } : {}),
             },
           );
+          if (!report.team_exists) {
+            // 拼错团队名不该伪装成 0 样本，也不该留下空证据文件
+            return toolSuccess(report, {
+              toolName: "collect_team_failures",
+              summary: `Team '${input.team_name}' not found in the tenant registry; nothing scanned and no evidence file written. Check the published team name (not the draft name).`,
+              outputType: "json",
+            });
+          }
           // 证据落在工作区的 agent-builder 目录下，与草稿同根：Builder 用 read_file 即可回看
           const safeTeam = input.team_name.toLowerCase().replace(/[^a-z0-9_-]+/g, "-").slice(0, 64) || "team";
           const evidenceRelative = path.join(".ragsystem", "agent-builder", "evidence", `failures-${safeTeam}.md`);
@@ -348,7 +356,7 @@ export function createAgentBuilderTools(
             evidence_file: evidenceRelative,
           }, {
             toolName: "collect_team_failures",
-            summary: `Team '${input.team_name}': ${report.samples.length} failure sample(s) across ${report.sessions_matched} session(s) from ${report.feedback_rows_scanned} thumbs-down row(s); evidence written to ${evidenceRelative}`,
+            summary: `Team '${input.team_name}': ${report.samples.length} failure sample(s) across ${report.sessions_matched} session(s) from ${report.tenant_rows_scanned} tenant thumbs-down row(s)${report.has_more ? " (scan limit reached, older feedback not included)" : ""}; evidence written to ${evidenceRelative}`,
             outputType: "json",
           });
         } catch (error) {

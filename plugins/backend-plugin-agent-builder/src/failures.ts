@@ -29,6 +29,8 @@ export interface TeamFailureSample {
     terminal_reason: string | null;
     task_summary: string | null;
   };
+  /** 会话团队快照的 team_revision：失败归因到发布版本（创建会话时的快照口径）。 */
+  team_revision: string | null;
   /** D6 委派形态观察：该样本的交互窗口内入口 Agent 的委派与自产文本。 */
   delegate_calls: number;
   entry_own_text_chars: number;
@@ -38,16 +40,28 @@ export interface TeamFailureSample {
 
 export interface TeamFailureReport {
   team_name: string;
+  /** 团队是否存在于当前租户注册表：不存在时不扫描、不产生样本（拼错团队名不该伪装成 0 样本）。 */
+  team_exists: boolean;
   collected_at: string;
-  /** 扫描过的租户级被踩行数（含其他团队）。 */
-  feedback_rows_scanned: number;
+  /** 扫描过的租户级被踩行数（含其他团队；团队过滤发生在会话归属阶段）。 */
+  tenant_rows_scanned: number;
+  /** 行数达到扫描上限：历史里可能还有更早点踩，调大 feedback_limit 或用 since 分段。 */
+  has_more: boolean;
   sessions_matched: number;
   samples: TeamFailureSample[];
 }
 
 export interface TeamFailureDependencies {
+  readonly service: TeamFailureServiceAccess;
   readonly registry: RuntimeContainerRegistry;
   readonly tenantId: string;
+}
+
+/** Team 注册表访问的结构性子集：tool 层注入 AgentBuilderService，测试可伪造。 */
+export interface TeamFailureServiceAccess {
+  getAgentConfigPort(): {
+    listTeams(): Promise<{ teams: Array<{ team_name: string }> }>;
+  };
 }
 
 export interface TeamFailureOptions {
@@ -65,16 +79,35 @@ export async function collectTeamFailures(
   teamName: string,
   options?: TeamFailureOptions,
 ): Promise<TeamFailureReport> {
+  // 先验团队存在性：不存在的团队直接返回 team_exists=false，不扫反馈也不产出误导性空样本
+  const teamSummary = await deps.service.getAgentConfigPort().listTeams();
+  const collectedAt = new Date().toISOString();
+  if (!teamSummary.teams.some((team) => team.team_name === teamName)) {
+    return {
+      team_name: teamName,
+      team_exists: false,
+      collected_at: collectedAt,
+      tenant_rows_scanned: 0,
+      has_more: false,
+      sessions_matched: 0,
+      samples: [],
+    };
+  }
+
+  const scanLimit = options?.feedbackLimit ?? FEEDBACK_SCAN_LIMIT;
   const lease = await deps.registry.acquire(deps.tenantId);
   try {
     const runtime = lease.runtime;
     const feedback = await runtime.sessionApplication.listNegativeMessageFeedback({
       ...(options?.since ? { since: options.since } : {}),
-      limit: options?.feedbackLimit ?? FEEDBACK_SCAN_LIMIT,
+      limit: scanLimit,
     });
+    const hasMore = feedback.length >= scanLimit;
 
-    // 会话归属去重：同一会话的多条 👎 只展开一次转写，逐条生成样本
+    // 会话归属去重：同一会话的多条 👎 只展开一次转写，逐条生成样本；
+    // 快照 revision 一并留下，样本可归因到发布版本
     const sessionIds: string[] = [];
+    const sessionRevisions = new Map<string, string | null>();
     const seenSessions = new Set<string>();
     for (const row of feedback) {
       if (seenSessions.has(row.session_id)) continue;
@@ -82,6 +115,7 @@ export async function collectTeamFailures(
       if (!session || session.team_snapshot.team_name !== teamName) continue;
       seenSessions.add(row.session_id);
       sessionIds.push(row.session_id);
+      sessionRevisions.set(row.session_id, session.team_snapshot.team_revision ?? null);
       if (sessionIds.length >= MAX_SESSIONS_PER_TEAM) break;
     }
 
@@ -94,15 +128,17 @@ export async function collectTeamFailures(
       const messages = [...(snapshot?.items ?? [])].sort((left, right) => left.seq - right.seq);
       const sessionFeedback = feedback.filter((row) => row.session_id === sessionId);
       for (const row of sessionFeedback) {
-        samples.push(buildSample(row, sessionId, messages, runs));
+        samples.push(buildSample(row, sessionId, sessionRevisions.get(sessionId) ?? null, messages, runs));
       }
     }
     samples.sort((left, right) => right.rated_at.localeCompare(left.rated_at));
 
     return {
       team_name: teamName,
-      collected_at: new Date().toISOString(),
-      feedback_rows_scanned: feedback.length,
+      team_exists: true,
+      collected_at: collectedAt,
+      tenant_rows_scanned: feedback.length,
+      has_more: hasMore,
       sessions_matched: sessionIds.length,
       samples,
     };
@@ -123,6 +159,7 @@ interface TrialMessageLike {
 function buildSample(
   row: MessageFeedback,
   sessionId: string,
+  teamRevision: string | null,
   messages: readonly TrialMessageLike[],
   runs: readonly RunInfo[],
 ): TeamFailureSample {
@@ -184,6 +221,7 @@ function buildSample(
       terminal_reason: ratedRun?.terminal_reason ?? null,
       task_summary: ratedRun?.task_summary ?? null,
     },
+    team_revision: teamRevision,
     delegate_calls: delegateCalls,
     entry_own_text_chars: entryOwnTextChars,
     child_agents: childAgents,
@@ -213,10 +251,18 @@ function excerpt(text: string, maxChars: number): string {
 
 /** 证据文件正文：Builder 用 read_file 消费，人也能直接读。 */
 export function renderTeamFailureMarkdown(report: TeamFailureReport): string {
+  if (!report.team_exists) {
+    return [
+      `# 团队失败证据：${report.team_name}`,
+      "",
+      `采集时间：${report.collected_at}。团队不存在于当前租户的 Team 注册表（注意用发布后的团队名，不是草稿名）。未扫描反馈，未写入证据文件。`,
+      "",
+    ].join("\n");
+  }
   const lines: string[] = [
     `# 团队失败证据：${report.team_name}`,
     "",
-    `采集时间：${report.collected_at}；扫描租户级 👎 ${report.feedback_rows_scanned} 条，命中会话 ${report.sessions_matched} 个，样本 ${report.samples.length} 条。`,
+    `采集时间：${report.collected_at}；扫描租户级 👎 ${report.tenant_rows_scanned} 条（含其他团队，按更新时间倒序），命中会话 ${report.sessions_matched} 个，样本 ${report.samples.length} 条。${report.has_more ? "注意：行数已达扫描上限，更早的点踩未包含——需要时调大 feedback_limit 或用 since 分段回溯。" : ""}`,
     "",
   ];
   if (report.samples.length === 0) {
@@ -228,6 +274,7 @@ export function renderTeamFailureMarkdown(report: TeamFailureReport): string {
     lines.push(`- 用户输入：${sample.user_excerpt ?? "（转写中未找到，可能已被编辑或删除）"}`);
     lines.push(`- 被踩回答（by ${sample.answered_by ?? "unknown"}）：${sample.answer_excerpt ?? "（消息已删除）"}`);
     lines.push(`- 运行状态：${sample.run.status ?? "unknown"}${sample.run.terminal_reason ? ` / ${sample.run.terminal_reason}` : ""}${sample.run.task_summary ? ` — ${sample.run.task_summary}` : ""}`);
+    lines.push(`- 团队版本：${sample.team_revision ?? "unknown"}（会话创建时的团队快照；归因失败到发布版本用）`);
     lines.push(`- 委派形态：入口自产文本 ${sample.entry_own_text_chars} 字符，delegate 调用 ${sample.delegate_calls} 次${sample.child_agents.length > 0 ? `，子 Agent：${sample.child_agents.join("、")}` : ""}`);
     if (sample.entry_router_only) {
       lines.push("- ⚠️ 入口疑似纯路由：发生了委派但入口几乎不产出内容，按团队设计规范重新划分入口职责。");
