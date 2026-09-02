@@ -99,7 +99,7 @@ export class LocalSessionApplication implements SessionApplication {
   async listParticipantRuns(input: Parameters<SessionApplication["listParticipantRuns"]>[0]) { return this.sessions.listParticipantRuns(input); }
   async listParticipantRunExecutionSteps(input: Parameters<SessionApplication["listParticipantRunExecutionSteps"]>[0]) { return this.sessions.listParticipantRunExecutionSteps(input); }
   async updateUserMessage(input: Parameters<SessionApplication["updateUserMessage"]>[0]) { return this.sessions.updateUserMessage(input); }
-  async setMessageFeedback(input: { sessionId: string; messageId: string; value: MessageFeedbackValue; comment?: string | null }) {
+  async setMessageFeedback(input: { sessionId: string; messageId: string; value: MessageFeedbackValue; comment?: string | null; userId?: string | null }) {
     // 仅助手消息可评价：先验消息存在与角色，不可评价统一返回 null（路由层映射 404）。
     const message = this.conversations.getMessageById(input.sessionId, input.messageId);
     if (!message || message.role !== "assistant") return null;
@@ -109,7 +109,7 @@ export class LocalSessionApplication implements SessionApplication {
       tenantId: this.tenantId,
       value: input.value,
       comment: input.comment ?? null,
-      userId: null,
+      userId: input.userId ?? null,
     });
   }
   async clearMessageFeedback(input: { sessionId: string; messageId: string }) {

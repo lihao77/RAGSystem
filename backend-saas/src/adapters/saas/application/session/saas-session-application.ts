@@ -292,7 +292,7 @@ export class SaaSSessionApplication implements SessionApplication, ExecutionSess
   }
 
   async updateUserMessage(input: { sessionId: string; messageId: string; content: string }): Promise<boolean> { if (!(await this.getSession(input.sessionId))) return false; return this.repository.updateMessage({ sessionId: input.sessionId, messageId: input.messageId, contentParts: input.content ? [{ type: "text", text: input.content }] : [], roleFilter: "user" }); }
-  async setMessageFeedback(input: { sessionId: string; messageId: string; value: MessageFeedbackValue; comment?: string | null }) {
+  async setMessageFeedback(input: { sessionId: string; messageId: string; value: MessageFeedbackValue; comment?: string | null; userId?: string | null }) {
     if (!this.messageFeedback) return null;
     // 仅助手消息可评价：先验消息存在与角色，不可评价统一返回 null（路由层映射 404）。
     const message = await this.repository.getMessageById(input.sessionId, input.messageId);
@@ -303,7 +303,7 @@ export class SaaSSessionApplication implements SessionApplication, ExecutionSess
       tenantId: this.tenantId,
       value: input.value,
       comment: input.comment ?? null,
-      userId: null,
+      userId: input.userId ?? null,
     });
   }
   async clearMessageFeedback(input: { sessionId: string; messageId: string }): Promise<boolean> {

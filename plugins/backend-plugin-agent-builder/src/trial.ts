@@ -5,6 +5,7 @@ import { LOCAL_USER_ID } from "@ragsystem/backend-core/services/identity/local-i
 import type { SessionTeamSnapshot } from "@ragsystem/backend-core/contracts/session/session.js";
 import type { PermissionMode } from "@ragsystem/backend-core/contracts/runtime/permissions.js";
 import type { AgentExecuteResult, ExecuteRequest } from "@ragsystem/backend-core/contracts/execution/execution.js";
+import type { UserId } from "@ragsystem/backend-core/identity/types.js";
 
 import type { AgentBlueprint } from "./contracts.js";
 import { validateBlueprint, toRuntimeAgent, type AgentBuilderBindings, type AgentBuilderService } from "./service.js";
@@ -30,6 +31,8 @@ export interface DraftTrialCaseResult {
 
 export interface DraftTrialReport {
   staging_team: string;
+  /** 试运行所基于的草稿 revision（manifest 乐观锁口径），供结果追溯。 */
+  revision: number;
   results: DraftTrialCaseResult[];
   inputs_truncated: boolean;
   summary: {
@@ -60,7 +63,8 @@ export async function runDraftTrial(
   workspaceRoot: string,
   inputs?: readonly DraftTrialInput[] | null,
 ): Promise<DraftTrialReport> {
-  const blueprint = await deps.service.readWorkspaceBlueprint(draftId, workspaceRoot);
+  const { blueprint, revision } = await deps.service.readWorkspaceBlueprint(draftId, workspaceRoot);
+  const userId = (deps.userId?.trim() || LOCAL_USER_ID) as UserId;
   const validation = validateBlueprint(blueprint, deps.bindings.inventory);
   if (!validation.valid) {
     // 结构不合法的蓝图不物化：先让 Builder 修完 error 再来试（warning 不阻止试运行）
@@ -104,12 +108,27 @@ export async function runDraftTrial(
     });
     for (const [index, input] of batch.entries()) {
       const sessionId = `agent-builder-trial-${stagingTeam}-${index}-${randomUUID().slice(0, 8)}`;
-      results.push(await runSingleTrialInput(runtime, {
-        sessionId,
-        teamSnapshot,
-        entryAgent: blueprint.entry_agent,
-        input,
-      }));
+      // 单输入容错：一条输入的基础设施异常只作废该条（记 failed 行），
+      // 不丢弃整份报告——前面输入的观察是真实模型调用的成果。
+      try {
+        results.push(await runSingleTrialInput(runtime, userId, {
+          sessionId,
+          teamSnapshot,
+          entryAgent: blueprint.entry_agent,
+          input,
+        }));
+      } catch (error) {
+        results.push({
+          input: input.case,
+          status: "failed",
+          answer: null,
+          matched: [],
+          missed: [...(input.expect_contains ?? [])],
+          delegated_agents: [],
+          execution_time_ms: null,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
   } finally {
     // 清理与物化对称：先清 provider 能力绑定再删 Team；删除失败不掩盖运行期错误
@@ -128,6 +147,7 @@ export async function runDraftTrial(
 
   return {
     staging_team: stagingTeam,
+    revision,
     results,
     inputs_truncated: inputsTruncated,
     summary: {
@@ -174,6 +194,7 @@ interface TrialRuntime {
 
 async function runSingleTrialInput(
   runtime: TrialRuntime,
+  userId: UserId,
   options: {
     sessionId: string;
     teamSnapshot: SessionTeamSnapshot;
@@ -183,7 +204,7 @@ async function runSingleTrialInput(
 ): Promise<DraftTrialCaseResult> {
   await runtime.sessionApplication.ensureSession({
     sessionId: options.sessionId,
-    ownerUserId: LOCAL_USER_ID,
+    ownerUserId: userId,
     visibility: "private",
     originType: "bot",
     originId: "agent-builder-trial",
@@ -197,7 +218,7 @@ async function runSingleTrialInput(
       task: options.input.case,
       session_id: options.sessionId,
       agent: options.entryAgent,
-      userId: LOCAL_USER_ID,
+      userId,
       executionKind: "agent-builder.trial",
     }, randomUUID());
     const answer = result.answer ?? null;
@@ -213,7 +234,8 @@ async function runSingleTrialInput(
       delegated_agents: participants
         .filter((item) => item.scope !== "root" && item.participant_id !== "root")
         .map((item) => item.agent_name ?? item.participant_id),
-      execution_time_ms: result.execution_time ?? null,
+      // AgentExecuteResult.execution_time 的全仓口径是秒（message-render/formatElapsed 均按秒读），报告统一输出毫秒
+      execution_time_ms: result.execution_time != null ? Math.round(result.execution_time * 1000) : null,
       error: result.error ?? null,
     };
   } finally {

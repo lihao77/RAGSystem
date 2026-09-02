@@ -648,11 +648,14 @@ const {
 
 // ── 消息赞/踩反馈：满意度的原始采集入口（服务端按会话持久化，构建团队回流消费）──
 const messageFeedbackMap = reactive({});
+let feedbackLoadSeq = 0;
 const loadMessageFeedback = async (sessionId) => {
+  const seq = ++feedbackLoadSeq; // 竞态守卫：快速切换会话时，迟到的旧响应不再写入当前 map
   for (const key of Object.keys(messageFeedbackMap)) delete messageFeedbackMap[key];
   if (!sessionId) return;
   try {
     const result = await chatSdkClient.listMessageFeedback(sessionId);
+    if (seq !== feedbackLoadSeq) return;
     for (const item of result.data?.items || []) {
       messageFeedbackMap[item.message_id] = item.value;
     }
@@ -665,19 +668,22 @@ const loadMessageFeedback = async (sessionId) => {
 watch(currentSessionId, (sessionId) => { loadMessageFeedback(sessionId); }, { immediate: true });
 
 const rateMessage = async (msg, value) => {
-  if (!currentSessionId.value || !msg?.id) return;
+  const sessionId = currentSessionId.value;
+  if (!sessionId || !msg?.id) return;
   const previous = messageFeedbackMap[msg.id] || null;
   const next = previous === value ? null : value; // 同值再点 = 取消评价
   if (next) messageFeedbackMap[msg.id] = next; else delete messageFeedbackMap[msg.id];
   try {
     if (next) {
-      await chatSdkClient.setMessageFeedback(currentSessionId.value, msg.id, next);
+      await chatSdkClient.setMessageFeedback(sessionId, msg.id, next);
     } else {
-      await chatSdkClient.clearMessageFeedback(currentSessionId.value, msg.id);
+      await chatSdkClient.clearMessageFeedback(sessionId, msg.id);
     }
   } catch (e) {
-    // 失败回滚本地态，避免图标与持久化状态漂移
-    if (previous) messageFeedbackMap[msg.id] = previous; else delete messageFeedbackMap[msg.id];
+    // 失败回滚本地态（仅当仍处于同一会话，避免向新会话写回死键），避免图标与持久化状态漂移
+    if (currentSessionId.value === sessionId) {
+      if (previous) messageFeedbackMap[msg.id] = previous; else delete messageFeedbackMap[msg.id];
+    }
     showToast('评价失败，请稍后重试');
   }
 };

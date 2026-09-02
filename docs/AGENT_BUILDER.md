@@ -56,7 +56,7 @@ Blueprint（schema v2）包含：
 - 包名、描述和入口 Agent
 - 每个 Agent 的指令、模型配置、工具、Skill、MCP Server 和委派关系
 - Goal 与后台任务开关
-- `acceptance` 验收用例：每条含真实样本请求或失败修复场景（`case`）、期望输出包含的片段（`expect_contains`）与来源标记（`source`：`sample` 探索样本 / `regression` 线上失败补录）；用例必须源自实证，缺失时校验给出 `missing_acceptance_cases` 警告
+- `acceptance` 验收用例：每条含真实样本请求或失败修复场景（`case`）、期望输出包含的片段（`expect_contains`）与来源标记（`source`：`sample` 探索样本 / `regression` 实际观察到的失败（含试用期与线上）修复后补录）；用例必须源自实证，缺失时校验给出 `missing_acceptance_cases` 警告
 
 租户成员可以创建 Draft；发布权限不随模型工具下放。
 
@@ -126,7 +126,7 @@ Local 与 SaaS 都使用该文件系统 Store。SaaS 的 `dataRoot` 按租户隔
 ## 当前范围
 
 - 已实现结构、引用和委派拓扑校验。
-- 验收用例随 Blueprint 的 `acceptance` 字段保存（`source` 区分探索样本与线上失败补录），但尚未自动执行完整 Eval；无头执行验收是下一步计划。
+- 验收用例随 Blueprint 的 `acceptance` 字段保存（`source` 区分探索样本与失败补录）。`try_agent_draft` 已可在发布前对验收用例做无头试运行（观察报告，非门禁）；批量自动执行全量 Eval 与按结果分级发布仍是后续计划。
 - 不允许模型生成、安装或热加载后端插件代码。
 - 新 Tool 仍需由受信任的开发和部署流程实现；外部能力优先通过 MCP 接入，领域流程优先通过 Skill 复用。
 

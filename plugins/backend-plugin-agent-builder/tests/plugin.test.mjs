@@ -1402,6 +1402,7 @@ test("trial run executes acceptance inputs and cleans up the staging team", asyn
     assert.deepEqual(hit.matched, ["echo:"]);
     assert.deepEqual(hit.missed, []);
     assert.deepEqual(hit.delegated_agents, ["worker"]);
+    assert.equal(hit.execution_time_ms, 12000);
     assert.equal(miss.status, "completed");
     assert.deepEqual(miss.missed, ["never-appears"]);
     assert.equal(report.summary.all_expectations_met, false);
@@ -1512,6 +1513,47 @@ test("Builder template v14 migrates the trial protocol and tool from version 13"
     assert.ok(orchestrator.tools.enabled_tools.includes("try_agent_draft"));
     assert.equal(orchestrator.custom_params.behavior.builder_template_version, 14);
     assert.equal(await ensureAgentBuilderTeam(fixture.agentConfig), false);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("a failing input is isolated instead of discarding the whole trial report", async () => {
+  const fixture = await createFixture();
+  try {
+    let ensureCalls = 0;
+    const runtime = {
+      agentConfig: {
+        createTeamSnapshot: (input) => ({ team_name: input.teamName, team_revision: "rev", entry_agent_name: input.entryAgentName, agents: {} }),
+      },
+      sessionApplication: {
+        ensureSession: async () => {
+          ensureCalls += 1;
+          if (ensureCalls === 2) throw new Error("session bootstrap exploded");
+        },
+        deleteSession: async () => true,
+      },
+      agentExecution: {
+        executeSynchronously: async (request) => ({ success: true, suspended: false, answer: `echo:${request.task}` }),
+      },
+      agentDelegation: { listSessionParticipants: async () => ({ items: [], total: 0 }) },
+    };
+    const fake = { registry: { async acquire() { return { runtime, release: () => {} }; } } };
+    const { workspace, draftId } = await createTrialWorkspace(fixture);
+
+    const report = await runDraftTrial(
+      { service: fixture.service, registry: fake.registry, tenantId: "tenant-test", bindings: memoryBindings() },
+      draftId,
+      workspace,
+    );
+
+    assert.equal(report.results.length, 2);
+    assert.equal(report.results[0].status, "completed");
+    assert.equal(report.results[1].status, "failed");
+    assert.match(report.results[1].error, /session bootstrap exploded/);
+    // 清理照常执行：暂存 Team 删除
+    const teams = await fixture.agentConfig.listTeams();
+    assert.equal(teams.teams.some((team) => team.team_name.startsWith("staging-")), false);
   } finally {
     fixture.cleanup();
   }

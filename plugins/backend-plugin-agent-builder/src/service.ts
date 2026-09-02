@@ -272,10 +272,15 @@ export class AgentBuilderService {
     bindings: AgentBuilderBindings,
   ): Promise<AgentBuilderValidationReport> {
     try {
-      const blueprint = await this.readWorkspaceBlueprint(draftId, workspaceRoot);
+      const { blueprint } = await this.readWorkspaceBlueprint(draftId, workspaceRoot);
       return validateBlueprint(blueprint, bindings.inventory);
     } catch (error) {
-      if (error instanceof AgentBuilderValidationError || error instanceof AgentBuilderConflictError) throw error;
+      // NotFound 与 Conflict 原样抛出（草稿/工作区缺失不是蓝图格式问题）；
+      // ValidationError（blueprint.json 解析失败）转报告，兑现「随时返回校验报告」的工具契约
+      if (error instanceof AgentBuilderValidationError) {
+        return error.report;
+      }
+      if (error instanceof AgentBuilderConflictError || error instanceof AgentBuilderNotFoundError) throw error;
       return {
         valid: false,
         checked_at: new Date().toISOString(),
@@ -292,15 +297,17 @@ export class AgentBuilderService {
   /**
    * 读取当前会话工作区正在编辑的蓝图（manifest draft_id 校验 + revision 乐观锁检查）。
    * validate / publish / try 共用同一读取口径：试运行试的就是所见即所得的工作区版本。
+   * 返回蓝图与所基于的草稿 revision，供试用报告追溯试的是哪个版本。
    */
-  async readWorkspaceBlueprint(draftId: string, workspaceRoot: string): Promise<AgentBlueprint> {
+  async readWorkspaceBlueprint(draftId: string, workspaceRoot: string): Promise<{ blueprint: AgentBlueprint; revision: number }> {
     const current = await this.getDraft(draftId);
     const workspacePath = agentDraftWorkspacePath(workspaceRoot, draftId);
     const manifest = parseWorkspaceManifest(await readWorkspaceJson(workspacePath, "manifest.json"));
     if (manifest.draft_id !== draftId) throw new AgentBuilderConflictError("Workspace manifest draft_id does not match the requested draft");
     assertRevision(current, manifest.expected_revision);
     try {
-      return parseBlueprint(await readWorkspaceJson(workspacePath, "blueprint.json"));
+      const blueprint = parseBlueprint(await readWorkspaceJson(workspacePath, "blueprint.json"));
+      return { blueprint, revision: current.revision };
     } catch (error) {
       throw new AgentBuilderValidationError({
         valid: false,
@@ -317,19 +324,7 @@ export class AgentBuilderService {
   ): Promise<{ draft: AgentDraft; auto_published: boolean; workspacePath: string }> {
     const current = await this.getDraft(draftId);
     const workspacePath = agentDraftWorkspacePath(workspaceRoot, draftId);
-    const manifest = parseWorkspaceManifest(await readWorkspaceJson(workspacePath, "manifest.json"));
-    if (manifest.draft_id !== draftId) throw new AgentBuilderConflictError("Workspace manifest draft_id does not match the requested draft");
-    assertRevision(current, manifest.expected_revision);
-    let blueprint: AgentBlueprint;
-    try {
-      blueprint = parseBlueprint(await readWorkspaceJson(workspacePath, "blueprint.json"));
-    } catch (error) {
-      throw new AgentBuilderValidationError({
-        valid: false,
-        checked_at: new Date().toISOString(),
-        issues: [{ level: "error", code: "invalid_blueprint", path: "blueprint.json", message: error instanceof Error ? error.message : String(error) }],
-      });
-    }
+    const { blueprint } = await this.readWorkspaceBlueprint(draftId, workspaceRoot);
     const validation = validateBlueprint(blueprint, bindings.inventory);
     if (!validation.valid) throw new AgentBuilderValidationError(validation);
 

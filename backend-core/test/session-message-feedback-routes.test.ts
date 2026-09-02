@@ -35,9 +35,11 @@ function createFeedbackApplication(): SessionApplication & {
   feedback: Map<string, "up" | "down">;
 } {
   const feedback = new Map<string, "up" | "down">();
+  const messages = new Map<string, string>([["message-a", "assistant"], ["message-b", "user"]]);
   const app = {
-    getSession: async () => session,
+    getSession: async (sessionId: string) => (sessionId === session.session_id ? session : null),
     setMessageFeedback: async (input: { messageId: string; value: "up" | "down"; comment?: string | null }) => {
+      if (messages.get(input.messageId) !== "assistant") return null;
       feedback.set(input.messageId, input.value);
       return {
         message_id: input.messageId,
@@ -67,16 +69,19 @@ function createFeedbackApplication(): SessionApplication & {
   return app;
 }
 
+// 钩子引用的可变身份：鉴权用例在测试内切换（默认 owner = LOCAL_USER_ID）
+let identityForRequests = {
+  tenantId: session.tenant_id,
+  userId: LOCAL_USER_ID,
+  role: "owner",
+  permissions: [] as string[],
+};
+
 async function createApp() {
   const application = createFeedbackApplication();
   const app = Fastify();
   app.addHook("onRequest", async (request) => {
-    request.identity = {
-      tenantId: session.tenant_id,
-      userId: LOCAL_USER_ID,
-      role: "owner",
-      permissions: [],
-    };
+    request.identity = identityForRequests;
     // 仅预置 sessions 应用：反馈端点只消费它，避免为无关应用造假实现
     request.applications = { sessions: application } as unknown as RequestApplications;
   });
@@ -129,6 +134,39 @@ describe("session message feedback routes", () => {
         payload: { value: "meh" },
       });
       expect(response.statusCode).toBe(422);
+    } finally {
+      await app.close();
+    }
+  });
+});
+
+describe("session message feedback access control", () => {
+  it("rejects non-owner members and foreign tenants while keeping missing sessions 404", async () => {
+    const { app } = await createApp();
+    try {
+      // 同租户非 owner 普通成员：private 会话不可读、不可写（LOCAL_USER_ID 之外的用户）
+      await app.inject({ method: "PUT", url: "/api/agent/sessions/session-feedback/messages/message-a/feedback", payload: { value: "up" } });
+      const previousIdentity = identityForRequests;
+      identityForRequests = { tenantId: session.tenant_id, userId: "usr_other" as never, role: "member", permissions: [] };
+      const forbiddenPut = await app.inject({ method: "PUT", url: "/api/agent/sessions/session-feedback/messages/message-a/feedback", payload: { value: "up" } });
+      expect([403, 404]).toContain(forbiddenPut.statusCode);
+      const forbiddenGet = await app.inject({ method: "GET", url: "/api/agent/sessions/session-feedback/messages/feedback" });
+      expect([403, 404]).toContain(forbiddenGet.statusCode);
+      identityForRequests = previousIdentity;
+
+      // 租户不匹配：资源对跨租户请求表现为不存在
+      identityForRequests = { tenantId: "tnt_other" as never, userId: LOCAL_USER_ID as never, role: "owner", permissions: [] };
+      const foreignGet = await app.inject({ method: "GET", url: "/api/agent/sessions/session-feedback/messages/feedback" });
+      expect(foreignGet.statusCode).toBe(404);
+      identityForRequests = previousIdentity;
+
+      // 会话不存在：404 而非 500
+      const missingSession = await app.inject({ method: "GET", url: "/api/agent/sessions/no-such-session/messages/feedback" });
+      expect(missingSession.statusCode).toBe(404);
+
+      // 应用层判定消息不可评价（非助手消息/不存在）→ 404
+      const notRateable = await app.inject({ method: "PUT", url: "/api/agent/sessions/session-feedback/messages/missing-message/feedback", payload: { value: "up" } });
+      expect(notRateable.statusCode).toBe(404);
     } finally {
       await app.close();
     }

@@ -419,6 +419,7 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
         messageId: request.params.messageId,
         value: payload.value,
         comment: payload.comment ?? null,
+        userId: request.identity?.userId ?? null,
       });
       if (!feedback) {
         throw new HttpError(404, "not_found", "消息不存在或不可评价");

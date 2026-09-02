@@ -393,6 +393,14 @@ export class PostgresConversationRepository implements AsyncConversationReposito
           [tenantId, sessionId, fullyDeletedRunIds],
         );
       }
+      // 被删消息的赞/踩反馈同步清理：反馈表无消息级外键，残留会污染被踩回流清单
+      await executor.query(
+        `DELETE FROM conversation_message_feedback
+          WHERE session_id=$1 AND message_id IN (
+            SELECT id FROM conversation_messages WHERE session_id=$1 AND seq>$2
+          )`,
+        [sessionId, seq],
+      );
       const result = await executor.query("DELETE FROM conversation_messages WHERE session_id=$1 AND seq>$2", [sessionId, seq]);
       return Number(result.rowCount ?? 0);
     });

@@ -113,7 +113,7 @@ export interface SessionApplication {
   }>;
   updateUserMessage(input: { sessionId: string; messageId: string; content: string }): Promise<boolean>;
   /** 消息赞/踩：仅助手消息可评价；消息不存在或不可评价时返回 null（路由层映射 404）。 */
-  setMessageFeedback(input: { sessionId: string; messageId: string; value: MessageFeedbackValue; comment?: string | null }): Promise<MessageFeedback | null>;
+  setMessageFeedback(input: { sessionId: string; messageId: string; value: MessageFeedbackValue; comment?: string | null; userId?: string | null }): Promise<MessageFeedback | null>;
   clearMessageFeedback(input: { sessionId: string; messageId: string }): Promise<boolean>;
   listMessageFeedback(sessionId: string): Promise<MessageFeedback[]>;
   rollbackMessages(input: { sessionId: string; afterSeq?: number | null; afterMessageId?: string | null }): Promise<number>;

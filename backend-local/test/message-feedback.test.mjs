@@ -132,3 +132,27 @@ test("v22 conversation database upgrades to v23 with message_feedback", () => {
     db.close();
   }
 });
+
+test("rolling back messages removes their feedback rows", () => {
+  const store = createStore();
+  try {
+    store.addMessage({ sessionId: "session-feedback", role: "user", contentParts: [{ type: "text", text: "hi" }] });
+    const assistant = store.addMessage({ sessionId: "session-feedback", role: "assistant", contentParts: [{ type: "text", text: "answer" }] });
+    store.addMessage({ sessionId: "session-feedback", role: "user", contentParts: [{ type: "text", text: "again" }] });
+    const second = store.addMessage({ sessionId: "session-feedback", role: "assistant", contentParts: [{ type: "text", text: "answer2" }] });
+    store.setMessageFeedback({ sessionId: "session-feedback", messageId: assistant.id, tenantId: "tnt_test", value: "down" });
+    store.setMessageFeedback({ sessionId: "session-feedback", messageId: second.id, tenantId: "tnt_test", value: "up" });
+    assert.equal(store.listMessageFeedback("session-feedback").length, 2);
+
+    // 回滚到第一条助手回答之后：后续 user+assistant 两条（含第二条的赞）被删，第一条的踩保留
+    const deleted = store.deleteMessagesAfter("session-feedback", { afterSeq: assistant.seq });
+    assert.equal(deleted, 2);
+    assert.deepEqual(
+      store.listMessageFeedback("session-feedback").map((item) => item.message_id),
+      [assistant.id],
+    );
+    assert.equal(store.getMessageById("session-feedback", assistant.id)?.id, assistant.id);
+  } finally {
+    store.close();
+  }
+});

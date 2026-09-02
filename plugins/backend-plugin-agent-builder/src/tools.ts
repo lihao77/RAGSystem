@@ -275,6 +275,8 @@ export function createAgentBuilderTools(
               service,
               registry: options.registry,
               tenantId: options.tenantId,
+              // 试用会话/run 归属发起者本人（SaaS 下 usr_local 会造成归属错位与残留不可见）
+              ...(context.userId ? { userId: context.userId } : {}),
               bindings,
             },
             input.draft_id,

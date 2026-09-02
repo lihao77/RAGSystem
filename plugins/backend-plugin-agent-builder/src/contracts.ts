@@ -10,7 +10,7 @@ const IdentifierSchema = z.string()
   .regex(/^[a-z0-9][a-z0-9_-]*$/, "must use lower-case letters, digits, underscores, or hyphens");
 
 /**
- * 验收用例：构建前探索的真实样本或线上回流的失败修复沉淀而来，是蓝图的回归防线。
+ * 验收用例：构建前探索的真实样本或实际观察到的失败（含试用期与线上回流）修复后沉淀而来，是蓝图的回归防线。
  * source 区分两类来源：sample = 探索阶段真实样本；regression = 线上失败修复后补录。
  */
 export const AgentBlueprintAcceptanceCaseSchema = z.object({

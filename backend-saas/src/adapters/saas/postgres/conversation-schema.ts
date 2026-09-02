@@ -571,4 +571,13 @@ export const POSTGRES_CONVERSATION_MIGRATIONS: PostgresConversationMigration[] =
     CREATE INDEX conversation_message_feedback_tenant_value_updated_idx
       ON conversation_message_feedback(tenant_id, value, updated_at DESC);
   `,
+}, {
+  version: 11,
+  name: "message_feedback_drop_redundant_unique",
+  // (session_id, message_id) UNIQUE 与 PK message_id 冗余（message id 全局唯一），
+  // 多一份索引只有写放大；与 SQLite 端形态对齐。
+  sql: `
+    ALTER TABLE conversation_message_feedback
+      DROP CONSTRAINT IF EXISTS conversation_message_feedback_session_id_message_id_key;
+  `,
 }];

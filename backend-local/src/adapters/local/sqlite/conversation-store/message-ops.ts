@@ -262,6 +262,11 @@ export class MessageOps {
       }
       // run_steps/boundaries 归档已退役：回滚只需清消息行与派生 child_agents。
       this.db.prepare("DELETE FROM messages WHERE session_id=? AND seq > ?").run(sessionId, afterSeq);
+      // 被删消息的赞/踩反馈同步清理：反馈表无消息级外键，残留会污染被踩回流清单
+      const placeholders = rows.map(() => "?").join(", ");
+      this.db
+        .prepare(`DELETE FROM message_feedback WHERE session_id=? AND message_id IN (${placeholders})`)
+        .run(sessionId, ...rows.map((row) => row.id));
       this.db
         .prepare("DELETE FROM child_agents WHERE session_id=? AND created_seq IS NOT NULL AND created_seq > ?")
         .run(sessionId, afterSeq);

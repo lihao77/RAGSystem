@@ -12,7 +12,7 @@ blueprint.json 是本草稿的唯一编辑对象；manifest.json 由系统维护
 | description | 是 | 不超过 1000 字符 |
 | entry_agent | 是 | 必须是 agents[].name 之一 |
 | agents | 是 | 1 到 20 个 Agent |
-| acceptance | 否 | 验收用例数组（最多 50 条）。每条形如 \`{"case": "真实样本请求或失败修复场景", "expect_contains": ["期望输出包含的片段"], "source": "sample" | "regression"}\`。用例必须源自构建前探索的真实样本或实际观察到的失败，不得凭空编造；缺失时校验给出 missing_acceptance_cases 警告 |
+| acceptance | 否 | 验收用例数组（最多 50 条）。每条形如 \`{"case": "真实样本请求或失败修复场景（1..2000 字符）", "expect_contains": ["期望输出包含的片段（每条 1..500 字符，最多 20 条，可省略）"], "source": "sample" | "regression"}\`；\`expect_contains\` 与 \`source\` 可省略，默认 \`[]\` 与 \`"sample"\`。用例必须源自构建前探索的真实样本或实际观察到的失败（含试用期观察与线上失败），不得凭空编造；缺失时校验给出 missing_acceptance_cases 警告 |
 
 ## agents[] 字段
 
@@ -43,7 +43,7 @@ blueprint.json 是本草稿的唯一编辑对象；manifest.json 由系统维护
 
 - **会变的行为与角色方向 → agents[].instructions**：整体重写蒸馏，不要追加堆砌（上限 30000 字符，膨胀会劣化表现）。
 - **不变的领域知识 → Skill 草稿**：术语表、流程规范、数据格式、系统操作步骤走 create_skill_draft 沉淀为 Skill，跨团队复用；不要内联进提示词。
-- **犯过的错与真实样本 → acceptance 验收用例**：探索阶段的真实样本原样入册（source: sample），线上失败修复后补录（source: regression），构成回归防线。
+- **犯过的错与真实样本 → acceptance 验收用例**：探索阶段的真实样本原样入册（source: sample），实际观察到的失败（含试用期与线上）修复后补录（source: regression），构成回归防线。
 - 先验只能来自实证：构建前先向用户要真实样本请求、领域文档、知识库材料或系统访问，实际跑通代表性样本并记录卡点；拿不到样本时明确说明并保守设计，**禁止编造领域事实**。
 
 ## 校验语义（publish / validate 共用）
