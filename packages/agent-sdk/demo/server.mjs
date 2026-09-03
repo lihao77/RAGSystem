@@ -142,7 +142,6 @@ function buildProfile(config) {
     behavior: {
       systemPrompt: config.systemPrompt || "",
       compressionTriggerRatio: null,
-      summarizeMaxTokens: null,
       preserveRecentTurns: null,
     },
     customParams: {},

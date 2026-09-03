@@ -13,7 +13,6 @@ import type { MessageInfo } from "../src/contracts/session/session.js";
  */
 const SETTINGS = {
   compressionTriggerRatio: 0.85,
-  summarizeMaxTokens: 300,
   preserveRecentTurns: 3,
   preserveMinTokens: 1,
   preserveMaxTokens: 1,

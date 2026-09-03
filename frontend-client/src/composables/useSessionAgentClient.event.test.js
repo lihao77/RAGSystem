@@ -1833,7 +1833,7 @@ test('stream_output(delta) 追加内容并在缺少 first token 事件时兜底 
   assert.equal(deps.activeRun.firstTokenLatencyMs, 500);
 });
 
-test('root compression_summary 会插入主消息流并保留元数据', () => {
+test('root compression_summary 只清呼吸点，摘要正文不进消息流', () => {
   const { deps } = createDeps();
   deps.messages.value = [createAssistantMessage({ content: 'answer' })];
   deps.activeRun.active = true;
@@ -1856,14 +1856,11 @@ test('root compression_summary 会插入主消息流并保留元数据', () => {
     },
   }, 'session-1');
 
+  // 摘要正文不进消息流：列表完整渲染原始对话，手动 /compact 的提示由 command_result 承载。
   assert.equal(deps.isCompressing.value, false);
-  assert.equal(deps.messages.value.length, 2);
-  assert.equal(deps.messages.value[0].role, 'system');
-  assert.equal(deps.messages.value[0].content, '[历史摘要]\nroot summary');
-  assert.equal(deps.messages.value[0].metadata.msg_type, 'context_compression_summary');
-  assert.equal(deps.messages.value[0].metadata.thread_key, 'root');
-  assert.equal(deps.messages.value[0].metadata.run_id, 'run-root');
-  assert.equal(deps.activeRun.assistantMsgIndex, 1);
+  assert.equal(deps.messages.value.length, 1);
+  assert.equal(deps.messages.value[0].content, 'answer');
+  assert.equal(deps.activeRun.assistantMsgIndex, 0);
 });
 
 test('child compression_summary 不进入主消息流', () => {

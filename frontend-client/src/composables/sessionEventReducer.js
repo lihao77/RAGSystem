@@ -6,12 +6,18 @@ import {
 
 /** @typedef {Record<string, any>} AnyRecord */
 
-/** @param {AnyRecord} eventData */
-const isVisibleRootCompressionSummary = (eventData) => {
-  if (eventData.visible_to_user === false) return false;
-  if (eventData.conversation_scope === 'child') return false;
-  const threadKey = eventData.thread_key;
-  return threadKey == null || threadKey === '' || threadKey === 'root';
+/**
+ * 移除"正在压缩…"瞬态横线（context_compression_pending）；
+ * 按删除位置修正活动 assistant 消息索引，避免后续流式写入错位。
+ * 同时导出给 dispatcher 的 command_result 终态兜底使用。
+ * @param {{ value: AnyRecord[] }} messages @param {{ assistantMsgIndex: number }} activeRun
+ */
+export const removeCompactPendingMessages = (messages, activeRun) => {
+  for (let i = messages.value.length - 1; i >= 0; i -= 1) {
+    if (messages.value[i]?.metadata?.msg_type !== 'context_compression_pending') continue;
+    messages.value.splice(i, 1);
+    if (activeRun.assistantMsgIndex > i) activeRun.assistantMsgIndex -= 1;
+  }
 };
 
 /** @param {AnyRecord} model */
@@ -154,35 +160,30 @@ export function createSessionEventReducer({
         }
       } else if (category === 'compression') {
         const detail = payload.detail || {};
-        const isSummary = detail.type === 'compression_summary' || Boolean(detail.content);
-        if (!isSummary) {
-          isCompressing.value = true;
-        } else {
-          isCompressing.value = false;
-          if (isVisibleRootCompressionSummary(detail)) {
-            const summaryContent = detail.content || '';
-            const alreadyExists = messages.value.some(
-              /** @param {AnyRecord} message */
-              message => message.metadata?.msg_type === 'context_compression_summary'
-                && message.content === summaryContent,
-            );
-            if (!alreadyExists) {
-              messages.value.splice(activeRun.assistantMsgIndex, 0, {
-                role: 'system',
-                content: summaryContent,
-                content_parts: [{ type: 'text', text: summaryContent }],
-                metadata: {
-                  msg_type: 'context_compression_summary',
-                  ...(detail.thread_key != null ? { thread_key: detail.thread_key } : {}),
-                  ...(detail.conversation_scope != null ? { conversation_scope: detail.conversation_scope } : {}),
-                  ...(detail.visible_to_user != null ? { visible_to_user: detail.visible_to_user } : {}),
-                  ...(detail.child_agent_id != null ? { child_agent_id: detail.child_agent_id } : {}),
-                  ...(detail.run_id != null ? { run_id: detail.run_id } : {}),
-                },
-              });
-              activeRun.assistantMsgIndex += 1;
-            }
+        // 摘要正文不进消息流：压缩只影响发给 LLM 的上下文，列表完整渲染原始对话；
+        // 手动 /compact 的"压缩完成：N 条"由 command_result 消息承载。
+        const clearsIndicator = detail.type === 'compression_finished'
+          || detail.type === 'compression_summary'
+          || Boolean(detail.content);
+        isCompressing.value = !clearsIndicator;
+        // 自动/手动压缩都在消息流尾部挂"正在压缩…"瞬态横线（光拂过）；终态区别只在收尾：
+        // 手动（forced）压缩完成后由 command_result 横线（"压缩完成：N 条"）接管，
+        // 自动压缩直接移除、不留终态标记。防御性只认 root 线程帧——当前两个发布方
+        // （runtime-adapter isRootThread 门控 / slash handler 硬编码 root）都只发 root，
+        // 一旦未来放开子线程压缩，不应把根会话横线挂错。移除不设门（防御性清理）。
+        // 不提前 return：插入横线后要走尾部 scrollToBottom 让用户看到。
+        const isRootThread = detail.thread_key == null || detail.thread_key === '' || detail.thread_key === 'root';
+        if (!clearsIndicator && isRootThread) {
+          if (!messages.value.some(message => message.metadata?.msg_type === 'context_compression_pending')) {
+            messages.value.push({
+              role: 'system',
+              content: '正在压缩…',
+              content_parts: [{ type: 'text', text: '正在压缩…' }],
+              metadata: { msg_type: 'context_compression_pending' },
+            });
           }
+        } else {
+          removeCompactPendingMessages(messages, activeRun);
         }
       }
     } else if (eventType === 'model_request') {

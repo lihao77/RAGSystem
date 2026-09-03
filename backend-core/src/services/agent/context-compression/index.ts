@@ -12,7 +12,6 @@ import { resolveTierLlmParams } from "../llm-params.js";
 
 export interface ContextCompressionSettings {
   compressionTriggerRatio: number;
-  summarizeMaxTokens: number;
   preserveRecentTurns: number;
   /** 保留区 token 下限:除条数下限外,保留区估算 token 不低于此值,避免"保留 6 条但只有几百 token"叙事断裂。 */
   preserveMinTokens: number;
@@ -54,10 +53,6 @@ export function resolveContextCompressionSettings(agent: AgentConfig, systemConf
       numberOrDefault(behaviorConfig.compression_trigger_ratio, numberOrDefault(contextConfig.compression_trigger_ratio, 0.85)),
       0.5,
       0.99,
-    ),
-    summarizeMaxTokens: positiveIntOrDefault(
-      behaviorConfig.summarize_max_tokens,
-      positiveIntOrDefault(contextConfig.summarize_max_tokens, 30000),
     ),
     preserveRecentTurns: positiveIntOrDefault(
       behaviorConfig.preserve_recent_turns,

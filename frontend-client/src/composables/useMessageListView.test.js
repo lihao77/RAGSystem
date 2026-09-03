@@ -73,3 +73,74 @@ function followup(content, seq) {
     },
   };
 }
+
+test('压缩摘要消息不进列表，原始对话完整渲染', () => {
+  const old1 = { role: 'user', content: '旧消息1', seq: 1, metadata: {} };
+  const old2 = { role: 'assistant', content: '旧回复', seq: 2, metadata: {} };
+  const summary = {
+    role: 'assistant',
+    content: '[历史摘要]',
+    seq: 3,
+    metadata: { msg_type: 'context_compression_summary', replaces_up_to_seq: 2 },
+  };
+  const recent = { role: 'user', content: '压缩后的新消息', seq: 4, metadata: {} };
+  const messages = ref([old1, old2, summary, recent]);
+  const view = useMessageListView({ messages, showToast: () => {} });
+
+  // 压缩只影响发给 LLM 的上下文：被"替换"的旧消息仍然渲染，摘要消息本身隐藏。
+  assert.deepEqual(
+    view.visibleMessages.value.map(message => message.content),
+    ['旧消息1', '旧回复', '压缩后的新消息'],
+  );
+});
+
+test('刷新后 maintenance(compact) 租约派生补挂"正在压缩…"横线', () => {
+  const messages = ref([{ role: 'user', content: '/compact', seq: 1, metadata: {} }]);
+  const sessionRuntime = ref(null);
+  const view = useMessageListView({ messages, showToast: () => {}, sessionRuntime });
+
+  // 无租约：无横线。
+  assert.deepEqual(view.visibleMessages.value.map(m => m.content), ['/compact']);
+
+  // 刷新恢复：租约在（快照持久事实），瞬态横线丢失后由视图派生补挂。
+  sessionRuntime.value = { state: 'maintenance', maintenance: { kind: 'compact', expires_at: '2099-01-01T00:00:00Z' } };
+  const withDerived = view.visibleMessages.value;
+  assert.deepEqual(withDerived.map(m => m.content), ['/compact', '正在压缩…']);
+  assert.equal(withDerived[1].metadata.msg_type, 'context_compression_pending');
+
+  // 派生对象引用稳定：computed 重算不换 key、不重挂动画。
+  assert.equal(view.visibleMessages.value[1], withDerived[1]);
+
+  // 租约结束（完成/释放/过期）：横线自动消失。
+  sessionRuntime.value = { state: 'idle', maintenance: null };
+  assert.deepEqual(view.visibleMessages.value.map(m => m.content), ['/compact']);
+});
+
+test('maintenance 为 rollback 租约时不挂压缩横线', () => {
+  const messages = ref([{ role: 'user', content: 'hi', seq: 1, metadata: {} }]);
+  const sessionRuntime = ref({ state: 'maintenance', maintenance: { kind: 'rollback', expires_at: '2099-01-01T00:00:00Z' } });
+  const view = useMessageListView({ messages, showToast: () => {}, sessionRuntime });
+
+  assert.deepEqual(view.visibleMessages.value.map(m => m.content), ['hi']);
+});
+
+test('帧驱动瞬态横线已在列表时，派生逻辑不重复挂', () => {
+  const transient = {
+    role: 'system',
+    content: '正在压缩…',
+    content_parts: [{ type: 'text', text: '正在压缩…' }],
+    metadata: { msg_type: 'context_compression_pending' },
+  };
+  const messages = ref([
+    { role: 'user', content: '/compact', seq: 1, metadata: {} },
+    transient,
+  ]);
+  const sessionRuntime = ref({ state: 'maintenance', maintenance: { kind: 'compact', expires_at: '2099-01-01T00:00:00Z' } });
+  const view = useMessageListView({ messages, showToast: () => {}, sessionRuntime });
+
+  assert.equal(view.visibleMessages.value.length, 2);
+  // reactive 代理包住元素，引用比较不可靠；断言只有一条且是列表内那条（非派生对象）。
+  assert.equal(view.visibleMessages.value.filter(
+    m => m.metadata?.msg_type === 'context_compression_pending',
+  ).length, 1);
+});

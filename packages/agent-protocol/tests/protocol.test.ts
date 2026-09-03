@@ -619,6 +619,30 @@ describe("Session runtime snapshot invariants", () => {
     expect(SessionRuntimePayloadSchema.parse(idle)).toEqual(idle);
   });
 
+  it("maintenance·compact 放行 stop_run；maintenance·rollback 不可停止", () => {
+    const compactSnapshot = {
+      ...idle,
+      state: "maintenance" as const,
+      load_strategy: "watch_maintenance" as const,
+      allowed_actions: ["stop_run" as const],
+      maintenance: { kind: "compact" as const, expires_at: "2999-01-01T00:00:00.000Z" },
+    };
+    expect(SessionRuntimePayloadSchema.parse(compactSnapshot)).toEqual(compactSnapshot);
+
+    const rollbackSnapshot = {
+      ...idle,
+      state: "maintenance" as const,
+      load_strategy: "watch_maintenance" as const,
+      allowed_actions: [] as const[],
+      maintenance: { kind: "rollback" as const, expires_at: "2999-01-01T00:00:00.000Z" },
+    };
+    expect(SessionRuntimePayloadSchema.parse(rollbackSnapshot)).toEqual(rollbackSnapshot);
+
+    // 反例：rollback 租约放行 stop_run / compact 租约不给 stop_run 都视为矛盾快照。
+    expect(() => SessionRuntimePayloadSchema.parse({ ...rollbackSnapshot, allowed_actions: ["stop_run"] })).toThrow();
+    expect(() => SessionRuntimePayloadSchema.parse({ ...compactSnapshot, allowed_actions: [] })).toThrow();
+  });
+
   it.each([
     { ...idle, load_strategy: "attach_run" },
     { ...idle, active_run: activeRun },

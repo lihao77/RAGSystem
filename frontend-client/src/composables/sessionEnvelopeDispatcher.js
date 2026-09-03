@@ -1,7 +1,7 @@
 // @ts-check
 import { nextTick } from 'vue';
 import { sessionLoadStrategyRestoresActiveRun } from '@ragsystem/agent-protocol';
-import { createSessionEventReducer } from './sessionEventReducer.js';
+import { createSessionEventReducer, removeCompactPendingMessages } from './sessionEventReducer.js';
 import { createUserMessage } from './sessionCommandController.js';
 import { handlePluginEventPayload } from './usePluginEvents.js';
 import { getMessageAttachments, normalizeMessageContentParts } from '../utils/messageContentParts.js';
@@ -370,6 +370,16 @@ export function createSessionEnvelopeDispatcher({
   /** @param {AnyRecord} snapshot @param {string} sessionId */
   const applyRuntimeSnapshot = (snapshot, sessionId) => {
     applySessionRuntime(snapshot);
+    // 崩溃/租约过期自愈：快照不再持有 compact 租约且无活动 run 时，清帧驱动的瞬态横线与
+    // 呼吸点——后端在压缩中途崩溃不会有任何终态帧，静默重载的 preserve 反而会保留横线，
+    // 这里是唯一可靠的清除线（WS 有序，租约释放/过期后的首个快照必然晚于全部压缩帧）。
+    // 正常路径终态帧已先清，此为 no-op；run 内自动压缩有活动 run，不进此分支。
+    if (!activeRun.active && snapshot?.maintenance?.kind !== 'compact') {
+      if (messages.value.some(message => message?.metadata?.msg_type === 'context_compression_pending')) {
+        removeCompactPendingMessages(messages, activeRun);
+      }
+      isCompressing.value = false;
+    }
     const retryModel = snapshot.active_run?.activity?.models?.find(
       /** @param {AnyRecord} model */ model => model.status === 'retry_wait',
     );
@@ -710,12 +720,29 @@ export function createSessionEnvelopeDispatcher({
           scheduleCommandFallback(sessionId, 120000);
           return;
         }
+        // 命令终态兜底清压缩呼吸点：/compact 的终端 compression 帧若因后端崩溃丢失，
+        // command_result（每次必发）是最后一道清除线（同时移除"正在压缩…"瞬态横线）。
+        isCompressing.value = false;
+        removeCompactPendingMessages(messages, activeRun);
         clearCommandFallback();
         if (detail.request_id) finishRequest(detail.request_id);
         else finishPendingCommand();
         deps.deleteMessageCache(sessionId);
         deps.loadSessionMessages(sessionId, { silent: true });
         nextTick(() => deps.scrollToBottom(true));
+        return;
+      }
+      if (category === 'compression') {
+        // 压缩帧是会话级状态（呼吸点/摘要卡），不依赖消息载体；无活动 run 的会话
+        // （如刚打开就 /compact）assistantMsgIndex 为 -1，走通用路由会被整体丢弃。
+        handleRunEvent(event, messages.value[messages.value.length - 1] || {
+          role: 'assistant',
+          content: '',
+          content_parts: [],
+          finished: false,
+          status: [],
+          metadata: {},
+        }, sessionId);
         return;
       }
     }

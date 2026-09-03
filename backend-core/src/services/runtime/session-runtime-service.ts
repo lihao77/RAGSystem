@@ -56,6 +56,7 @@ export function projectSessionRuntime(facts: RuntimeSessionFacts): SessionRuntim
       facts.ownedByCurrentInstance,
       pendingInteractions.length > 0,
       resumeInteractionId !== null,
+      maintenance,
     ),
     active_run: activeRun,
     last_run: lastRun,
@@ -286,6 +287,7 @@ function allowedActions(
   ownedByCurrentInstance: boolean,
   hasPendingInteractions: boolean,
   canResume: boolean,
+  maintenance: SessionRuntimePayload["maintenance"],
 ): SessionRuntimeAction[] {
   switch (state) {
     case "idle": return ["send_message", "start_maintenance"];
@@ -297,7 +299,9 @@ function allowedActions(
       "stop_run",
     ];
     case "resuming": return ownedByCurrentInstance ? ["stop_run"] : [];
-    case "maintenance": return [];
+    // 压缩中的维护可停止——用户视角与 run 内自动压缩同属"进行中的指令"，统一可打断
+    // （前端停止按钮只认 stop_run）；回滚类维护是快速 DB 操作，保持不可停止。
+    case "maintenance": return maintenance?.kind === "compact" ? ["stop_run"] : [];
   }
 }
 

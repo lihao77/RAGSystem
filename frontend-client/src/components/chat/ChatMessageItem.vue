@@ -13,7 +13,11 @@
     @mouseenter="emit('hover', index)"
     @mouseleave="emit('hover', null)"
   >
-    <div v-if="commandResult" class="message-content-wrapper">
+    <div v-if="isCompactPending" class="message-content-wrapper">
+      <CompactPendingDivider />
+    </div>
+
+    <div v-else-if="commandResult" class="message-content-wrapper">
       <CommandResultMessage :result="commandResult" />
     </div>
 
@@ -58,6 +62,7 @@
 import CommandResultMessage from '../CommandResultMessage.vue';
 import AssistantMessage from './AssistantMessage.vue';
 import AssistantExecutionSteps from './AssistantExecutionSteps.vue';
+import CompactPendingDivider from './CompactPendingDivider.vue';
 import MessageActions from './MessageActions.vue';
 import UserMessage from './UserMessage.vue';
 import { computed, inject } from 'vue';
@@ -74,6 +79,8 @@ const props = defineProps({
 const emit = defineEmits(['hover', 'update:editingDraft', 'notify', 'citation-click']);
 const messageContext = inject('messageContext');
 const commandResult = computed(() => getMessageCommandResult(props.msg));
+// 压缩进行中的瞬态横线（手动 /compact 与 run 内自动压缩共用，客户端插入，终态帧移除）。
+const isCompactPending = computed(() => props.msg.metadata?.msg_type === 'context_compression_pending');
 const showExecutionSteps = computed(() => (
   props.msg.role === 'user'
   && (Boolean(props.msg.has_execution) || Boolean(props.msg.executionTree?.root))

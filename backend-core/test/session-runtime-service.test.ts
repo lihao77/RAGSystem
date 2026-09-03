@@ -104,6 +104,13 @@ describe("SessionRuntimeService projection", () => {
       facts({ session: session({ runtime_maintenance: { kind: "rollback", expires_at: "2999-01-01T00:00:00.000Z" } }) }),
       [],
     ],
+    [
+      "maintenance",
+      "watch_maintenance",
+      // 压缩中的维护放行 stop_run：与 run 内自动压缩统一"指令可打断"语义。
+      facts({ session: session({ runtime_maintenance: { kind: "compact", expires_at: "2999-01-01T00:00:00.000Z" } }) }),
+      ["stop_run"],
+    ],
     ["running", "attach_run", facts({ activeRootRun: run(), ownedByCurrentInstance: true }), ["send_followup", "stop_run"]],
     [
       "waiting_interaction",

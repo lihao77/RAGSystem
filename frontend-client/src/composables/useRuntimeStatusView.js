@@ -73,7 +73,13 @@ export function useRuntimeStatusView({
     }
 
     const state = sessionRuntime.value?.state || 'idle';
-    if (state === 'maintenance') return '会话维护中';
+    if (state === 'maintenance') {
+      // 维护租约带 kind：compact 即 /compact 压缩执行中——刷新后瞬态横线/呼吸点都不在了，
+      // 这个胶囊是唯一的进行时反馈，文案按 kind 说清楚在干什么。
+      const maintenanceKind = sessionRuntime.value?.maintenance?.kind;
+      if (maintenanceKind === 'compact') return '正在压缩上下文…';
+      return '会话维护中';
+    }
     if (state === 'suspended') return getInteractionWaitingText(true);
     if (state === 'waiting_interaction') return getInteractionWaitingText();
     if (state === 'resuming') return '正在恢复执行';

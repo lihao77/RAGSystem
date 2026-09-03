@@ -112,3 +112,44 @@ describe("session cancellation", () => {
     expect(publishUserInterrupt).toHaveBeenCalledOnce();
   });
 });
+
+describe("stopSession maintenance 分支（手动 /compact 可停止）", () => {
+  function buildDeps({
+    cancelMaintenanceAbort,
+  }: {
+    cancelMaintenanceAbort: ReturnType<typeof vi.fn>;
+  }) {
+    const interruptSession = vi.fn(async () => ({ records: [], interruptedRuns: [], cancelledInteractions: 0 }));
+    const cancelSession = vi.fn(async () => 0);
+    const deliver = vi.fn(async () => undefined);
+    const control = createSessionControl({
+      statusTracker: {
+        getRunningHandleBySession: vi.fn(() => null),
+        cancelMaintenanceAbort,
+      },
+      eventPublisher: { publishUserInterrupt: vi.fn() },
+      pendingInteractions: { cancelSession },
+      runtimeStorage: { operations: { interruptSession } },
+      clientEvents: { deliver },
+    } as never);
+    return { control, interruptSession, cancelSession, deliver };
+  }
+
+  it("无活跃 run 但有维护中的压缩：触发中止并返回 true，不走 DB interrupt 兜底", async () => {
+    const cancelMaintenanceAbort = vi.fn(() => true);
+    const { control, interruptSession } = buildDeps({ cancelMaintenanceAbort });
+
+    await expect(control.stopSession("session-1")).resolves.toBe(true);
+    expect(cancelMaintenanceAbort).toHaveBeenCalledWith("session-1", "user_stop");
+    expect(interruptSession).not.toHaveBeenCalled();
+  });
+
+  it("无维护中止句柄时回退 interruptSession 兜底（游离 run 清理语义不变）", async () => {
+    const cancelMaintenanceAbort = vi.fn(() => false);
+    const { control, interruptSession } = buildDeps({ cancelMaintenanceAbort });
+
+    await expect(control.stopSession("session-1")).resolves.toBe(false);
+    expect(cancelMaintenanceAbort).toHaveBeenCalled();
+    expect(interruptSession).toHaveBeenCalledWith({ sessionId: "session-1" });
+  });
+});

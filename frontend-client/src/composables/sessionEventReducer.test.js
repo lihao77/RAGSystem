@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createSessionEventReducer } from './sessionEventReducer.js';
+import { createSessionEventReducer, removeCompactPendingMessages } from './sessionEventReducer.js';
 
 const reference = value => ({ value });
 
@@ -37,18 +37,19 @@ function buildReducer({ depOverrides = {} } = {}) {
     markToolFinished: () => {},
     isDurableReplayActive: () => runtimeState.replaying,
   };
+  const isCompressing = reference(false);
   const reducer = createSessionEventReducer({
     deps,
     runtime,
     activeRun,
     messages,
-    isCompressing: reference(false),
+    isCompressing,
     contextUsage,
     llmRetryState: reference(null),
     handleApprovalRequired: () => {},
     handleUserInputRequired: () => {},
   });
-  return { reducer, messages, activeRun, calls, contextUsage, runtimeState };
+  return { reducer, messages, activeRun, calls, contextUsage, runtimeState, isCompressing };
 }
 
 test('SessionEventReducer routes child stream output through execution projection', () => {
@@ -232,8 +233,8 @@ test('SessionEventReducer incrementally inserts file parts and reconciles the fi
   assert.equal(currentMessage.finished, true);
 });
 
-test('SessionEventReducer only inserts visible root compression summaries', () => {
-  const { reducer, messages, activeRun } = buildReducer();
+test('SessionEventReducer clears the indicator on summary frames without inserting cards', () => {
+  const { reducer, messages, activeRun, isCompressing } = buildReducer();
   const currentMessage = { content: '', metadata: {}, status: [], finished: false };
   messages.value.push(currentMessage);
 
@@ -241,14 +242,38 @@ test('SessionEventReducer only inserts visible root compression summaries', () =
     type: 'state_sync',
     payload: { category: 'compression', detail: { content: 'root summary', thread_key: 'root' } },
   }, currentMessage, 'session-1');
+  assert.equal(isCompressing.value, false);
+  // 摘要正文不再进消息流：列表完整渲染原始对话，压缩提示由 command_result 承载。
+  assert.equal(messages.value.length, 1);
+  assert.equal(activeRun.assistantMsgIndex, 0);
+});
+
+test('SessionEventReducer toggles the compressing indicator on started/finished frames', () => {
+  const { reducer, messages, isCompressing } = buildReducer();
+  const currentMessage = { content: '', metadata: {}, status: [], finished: false };
+  messages.value.push(currentMessage);
+
   reducer({
     type: 'state_sync',
-    payload: { category: 'compression', detail: { content: 'child summary', conversation_scope: 'child' } },
+    payload: { category: 'compression', detail: { type: 'compression_started', thread_key: 'root' } },
   }, currentMessage, 'session-1');
+  assert.equal(isCompressing.value, true);
 
-  assert.equal(messages.value.length, 2);
-  assert.equal(messages.value[0].content, 'root summary');
-  assert.equal(activeRun.assistantMsgIndex, 1);
+  // 收尾帧（跳过/失败）：只清呼吸点，不落摘要卡。
+  reducer({
+    type: 'state_sync',
+    payload: { category: 'compression', detail: { type: 'compression_finished', reason: 'summary_unavailable', thread_key: 'root' } },
+  }, currentMessage, 'session-1');
+  assert.equal(isCompressing.value, false);
+  assert.equal(messages.value.length, 1);
+
+  // 摘要帧：同样只清呼吸点，不落卡。
+  reducer({
+    type: 'state_sync',
+    payload: { category: 'compression', detail: { type: 'compression_summary', content: 'root summary', thread_key: 'root' } },
+  }, currentMessage, 'session-1');
+  assert.equal(isCompressing.value, false);
+  assert.equal(messages.value.length, 1);
 });
 
 test('SessionEventReducer ignores estimates and only displays provider usage', () => {
@@ -515,4 +540,71 @@ test('SessionEventReducer folds child run cache deltas into session totals witho
   reducer(contextUsageEvent('run-child', 3300, 4400, 'child-agent'), currentMessage, 'session-1');
   assert.equal(contextUsage.value.cachedInputTokens, 4300);
   assert.equal(contextUsage.value.inputTokens, 9400);
+});
+
+test('手动压缩(forced)挂"正在压缩…"瞬态横线，结束时由 command_result 接管；自动压缩挂横线、完成直接移除', () => {
+  const { reducer, messages, isCompressing } = buildReducer();
+  const currentMessage = { content: '', metadata: {}, status: [], finished: false };
+  messages.value.push(currentMessage);
+
+  // 自动压缩 started（无 forced，root 线程）：同样挂横线，亮呼吸点。
+  reducer({
+    type: 'state_sync',
+    payload: { category: 'compression', detail: { type: 'compression_started', thread_key: 'root' } },
+  }, currentMessage, 'session-1');
+  assert.equal(isCompressing.value, true);
+  assert.equal(messages.value.length, 2);
+  assert.equal(messages.value[1].metadata.msg_type, 'context_compression_pending');
+
+  // 自动压缩完成（summary 帧，无 forced）：直接移除，不留终态标记（区别于手动的 command_result）。
+  reducer({
+    type: 'state_sync',
+    payload: { category: 'compression', detail: { type: 'compression_summary', content: '摘要', thread_key: 'root' } },
+  }, currentMessage, 'session-1');
+  assert.equal(isCompressing.value, false);
+  assert.equal(messages.value.length, 1);
+
+  // 手动压缩 started（forced）：挂 pending 横线。
+  reducer({
+    type: 'state_sync',
+    payload: { category: 'compression', detail: { type: 'compression_started', forced: true, thread_key: 'root' } },
+  }, currentMessage, 'session-1');
+  assert.equal(isCompressing.value, true);
+  assert.equal(messages.value.length, 2);
+  assert.equal(messages.value[1].metadata.msg_type, 'context_compression_pending');
+  assert.equal(messages.value[1].content, '正在压缩…');
+
+  // 重复 started 帧不重复挂。
+  reducer({
+    type: 'state_sync',
+    payload: { category: 'compression', detail: { type: 'compression_started', forced: true, thread_key: 'root' } },
+  }, currentMessage, 'session-1');
+  assert.equal(messages.value.length, 2);
+
+  // 结束帧：横线移除（由 command_result 横线接管终态），呼吸点清除。
+  reducer({
+    type: 'state_sync',
+    payload: { category: 'compression', detail: { type: 'compression_summary', forced: true, thread_key: 'root' } },
+  }, currentMessage, 'session-1');
+  assert.equal(isCompressing.value, false);
+  assert.equal(messages.value.length, 1);
+});
+
+test('run 中断时 finalizeActiveRun 兜底清自动压缩横线（无终结帧场景）', () => {
+  // started/finished 帧是 ephemeral：摘要中途停止/崩溃不会有终结帧，
+  // 横线不能越过 run 生命周期——直接验证 removeCompactPendingMessages 的索引修正语义。
+  const { reducer, messages, activeRun } = buildReducer();
+  const currentMessage = { content: '', metadata: {}, status: [], finished: false };
+  messages.value.push(currentMessage);
+  activeRun.assistantMsgIndex = 0;
+
+  reducer({
+    type: 'state_sync',
+    payload: { category: 'compression', detail: { type: 'compression_started', thread_key: 'root' } },
+  }, currentMessage, 'session-1');
+  assert.equal(messages.value.some(m => m.metadata?.msg_type === 'context_compression_pending'), true);
+
+  removeCompactPendingMessages(messages, activeRun);
+  assert.equal(messages.value.length, 1);
+  assert.equal(activeRun.assistantMsgIndex, 0);
 });

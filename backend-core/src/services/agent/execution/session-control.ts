@@ -59,6 +59,12 @@ export function createSessionControl(deps: SessionControlDeps): SessionControlAp
     async stopSession(sessionId) {
       const handle = deps.statusTracker.getRunningHandleBySession(sessionId);
       if (!handle) {
+        // 维护中的手动 /compact 也是用户视角"正在执行的指令"：与 run 停止同一入口、
+        // 同一按钮（allowed_actions 放行 stop_run）。中止后由 slash handler 自己收尾
+        // （compression_finished + command_result + 释放租约），这里只触发。
+        if (deps.statusTracker.cancelMaintenanceAbort(sessionId, "user_stop")) {
+          return true;
+        }
         const result = await deps.runtimeStorage.operations.interruptSession({
           sessionId,
         });

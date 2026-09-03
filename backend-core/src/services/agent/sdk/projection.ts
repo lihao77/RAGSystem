@@ -220,7 +220,6 @@ export function projectBehavior(agent: AgentConfig): AgentProfile["behavior"] {
   const result: AgentProfile["behavior"] = {
     systemPrompt,
     compressionTriggerRatio: pickNumber(behavior?.compression_trigger_ratio, null),
-    summarizeMaxTokens: pickNumber(behavior?.summarize_max_tokens, null),
     preserveRecentTurns: pickNumber(behavior?.preserve_recent_turns, null),
   };
   return result;

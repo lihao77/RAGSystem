@@ -242,6 +242,67 @@ test('participant history reconciliation preserves a real user execution boundar
   );
 });
 
+test('静默权威重载保留压缩进行中的"正在压缩…"瞬态横线', async () => {
+  setActivePinia(createPinia());
+  const store = useSessionRunStore();
+  const { currentSessionId, rootMessages } = storeToRefs(store);
+  currentSessionId.value = 'session-1';
+  const divider = {
+    role: 'system',
+    content: '正在压缩…',
+    content_parts: [{ type: 'text', text: '正在压缩…' }],
+    metadata: { msg_type: 'context_compression_pending' },
+  };
+  store.setParticipantMessages('root', [
+    { role: 'user', id: 'cmd-1', seq: 1, content: '/compact', metadata: {} },
+    divider,
+  ]);
+  const chatSdkClient = { async listMessages() { return {
+    data: {
+      items: [{ id: 'cmd-1', seq: 1, role: 'user', content: '/compact', metadata: {} }],
+      outbox_watermark: 3,
+    },
+  }; } };
+
+  const sessionMessages = useSessionMessages(createDeps({ chatSdkClient }));
+  await sessionMessages.loadSessionMessages('session-1', { silent: true });
+
+  assert.deepEqual(
+    rootMessages.value.map(message => message.id || message.metadata?.msg_type),
+    ['cmd-1', 'context_compression_pending'],
+  );
+  // pinia reactive 代理包住原始对象，引用比较不可靠；断言横线行内容完整保留。
+  assert.equal(rootMessages.value[1].role, 'system');
+  assert.equal(rootMessages.value[1].content, '正在压缩…');
+});
+
+test('非静默重载（进入/刷新会话）不保留瞬态横线，避免后端崩溃后横线滞留', async () => {
+  setActivePinia(createPinia());
+  const store = useSessionRunStore();
+  const { currentSessionId, rootMessages } = storeToRefs(store);
+  currentSessionId.value = 'session-1';
+  store.setParticipantMessages('root', [
+    { role: 'user', id: 'cmd-1', seq: 1, content: '/compact', metadata: {} },
+    {
+      role: 'system',
+      content: '正在压缩…',
+      content_parts: [{ type: 'text', text: '正在压缩…' }],
+      metadata: { msg_type: 'context_compression_pending' },
+    },
+  ]);
+  const chatSdkClient = { async listMessages() { return {
+    data: {
+      items: [{ id: 'cmd-1', seq: 1, role: 'user', content: '/compact', metadata: {} }],
+      outbox_watermark: 3,
+    },
+  }; } };
+
+  const sessionMessages = useSessionMessages(createDeps({ chatSdkClient }));
+  await sessionMessages.loadSessionMessages('session-1');
+
+  assert.deepEqual(rootMessages.value.map(message => message.id), ['cmd-1']);
+});
+
 test('realtime agent messages sort before the matching root carrier without losing its active index', () => {
   setActivePinia(createPinia());
   const store = useSessionRunStore();
@@ -265,4 +326,38 @@ test('realtime agent messages sort before the matching root carrier without losi
   assert.deepEqual(store.rootMessages.map(message => message.id || message.run_id), ['mailbox-root', 'root-run']);
   assert.equal(store.rootMessages[1], carrier);
   assert.equal(store.activeRun.assistantMsgIndex, 1);
+});
+
+test('静默缓存恢复路径同样保留压缩进行中的瞬态横线', async () => {
+  setActivePinia(createPinia());
+  const store = useSessionRunStore();
+  const { currentSessionId, rootMessages } = storeToRefs(store);
+  currentSessionId.value = 'session-1';
+  const divider = {
+    role: 'system',
+    content: '正在压缩…',
+    content_parts: [{ type: 'text', text: '正在压缩…' }],
+    metadata: { msg_type: 'context_compression_pending' },
+  };
+  const chatSdkClient = { async listMessages() { return {
+    data: {
+      items: [{ id: 'cmd-1', seq: 1, role: 'user', content: '/compact', metadata: {} }],
+      outbox_watermark: 3,
+    },
+  }; } };
+  const sessionMessages = useSessionMessages(createDeps({ chatSdkClient }));
+
+  // 权威加载一次写热缓存（缓存内容不含横线）。
+  await sessionMessages.loadSessionMessages('session-1');
+  assert.equal(sessionMessages.messageCache.value.has('session-1::root'), true);
+
+  // 横线由压缩 started 帧进入当前列表（缓存仍是旧内容）。
+  rootMessages.value.push(divider);
+
+  // 静默重载命中缓存恢复分支：横线仍保留（maintenance 心跳触发的重载不冲掉指示）。
+  await sessionMessages.loadSessionMessages('session-1', { silent: true });
+  assert.equal(
+    rootMessages.value.filter(m => m.metadata?.msg_type === 'context_compression_pending').length,
+    1,
+  );
 });

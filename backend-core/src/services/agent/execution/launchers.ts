@@ -720,12 +720,16 @@ class AgentLaunchers {
       retry_of_message_id: retryMessage.id,
     };
 
+    // 维护租约 kind 是前端刷新恢复的事实源（maintenance·compact → "正在压缩…"横线/呼吸点/
+    // 胶囊文案派生）：回滚入口重发 /compact 时整个压缩都跑在本租约下（slash handler 只续租
+    // 不改 kind），必须按实际操作标 compact，否则刷新后派生不命中。
+    const maintenanceKind = parseSlashCommand(task)?.name === "compact" ? "compact" : "rollback";
     const maintenanceToken = randomUUID();
     const maintenanceTtlMs = 60_000;
     const maintenance = await this.runtimeStorage.operations.claimSessionMaintenance({
       sessionId,
       token: maintenanceToken,
-      kind: "rollback",
+      kind: maintenanceKind,
       ttlMs: maintenanceTtlMs,
     });
     if (!maintenance.claimed) {
@@ -803,6 +807,9 @@ class AgentLaunchers {
           ...submitted.start,
           deleted,
           command_result: { success: submitted.success, content: submitted.content },
+          // 命令失败（含用户主动停止压缩）时把真实文案带给路由层：否则 400 兜底成
+          // "重试启动失败"，前端 toast 与消息流里的 command_result 文案对不上。
+          ...(submitted.success ? {} : { error: submitted.content || "命令执行失败" }),
         };
       }
 

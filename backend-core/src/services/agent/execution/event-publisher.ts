@@ -99,7 +99,9 @@ export class AgentExecutionEventPublisher {
 
   /**
    * Ephemeral journal path: 直发实时总线，不落 outbox（流式增量/在飞轮快照等展示帧）。
-   * 与 durable 帧的相对顺序由调用方的 journal 串行化保证；部署无实时通道时降级 durable 兜底。
+   * 不与 durable 帧保序（见 DurableClientEventPublisher.publishEphemeral）——依赖
+   * ephemeral→durable 先后语义的调用方必须自带收尾兜底（如压缩 started 丢失仅损失
+   * 瞬态指示，durable summary/终端帧才是真相）；部署无实时通道时降级 durable 兜底。
    */
   publishEphemeralEnvelope(envelope: Envelope): Promise<void> {
     const sessionId = typeof envelope.session_id === "string" ? envelope.session_id : "";

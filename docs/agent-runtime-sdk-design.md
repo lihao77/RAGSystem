@@ -58,7 +58,7 @@ const runtime = createRuntime({
     agentName, displayName,
     llmTiers,                // 全量解析的扁平 tier 表（投影算死，内核零兜底）；参数/预算/摘要候选的真相源
     memory,                  // { auto_inject, allowed_scopes, write_scopes, archive_scopes }
-    behavior,                // { system_prompt, compression_trigger_ratio, summarize_max_tokens, preserve_recent_turns, ... }
+    behavior,                // { system_prompt, compression_trigger_ratio, preserve_recent_turns, ... }
   },
 
   // —— 工具（已解析的实例，非配置系统按名解析）——

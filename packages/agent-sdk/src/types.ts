@@ -34,7 +34,6 @@ export type TierMap = Record<string, ResolvedTier>;
 export interface AgentBehavior {
   systemPrompt: string;
   compressionTriggerRatio: number | null;
-  summarizeMaxTokens: number | null;
   preserveRecentTurns: number | null;
 }
 

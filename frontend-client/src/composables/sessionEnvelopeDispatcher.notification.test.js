@@ -57,6 +57,8 @@ function createDispatcherFixture() {
       scrollToBottom: () => {},
       showToast: () => {},
       cacheMessages: () => {},
+      deleteMessageCache: () => {},
+      loadSessionMessages: () => {},
       enqueueApproval: () => {},
       updateRecentSession: () => {},
     },
@@ -70,7 +72,7 @@ function createDispatcherFixture() {
     onRuntimeSnapshot: () => {},
     getStop: () => () => {},
   });
-  return { dispatcher, messages };
+  return { dispatcher, messages, state };
 }
 
 const bgRunStarted = {
@@ -206,4 +208,97 @@ test('reconcileParticipantMessages 把无 id 合成卡并入持久化卡', () =>
   assert.equal(next.length, 1);
   assert.equal(next[0].id, 'msg-1');
   assert.equal(next[0].seq, 7);
+});
+
+// 回归：压缩进度帧是会话级状态，不得依赖消息载体——无活动 run 的会话
+// （assistantMsgIndex=-1，如刚打开就 /compact）下通用路由会丢弃这些帧。
+// 摘要正文不进消息流（列表完整渲染原始对话），帧只驱动呼吸点。
+test('compression frames light the indicator without inserting a card and without an active run', () => {
+  setActivePinia(createPinia());
+  const { dispatcher, messages, state } = createDispatcherFixture();
+
+  dispatcher.handleEnvelope({
+    type: 'state_sync',
+    session_id: 'session-1',
+    payload: { category: 'compression', detail: { type: 'compression_started', thread_key: 'root' } },
+  }, 'session-1');
+  assert.equal(state.isCompressing.value, true);
+
+  dispatcher.handleEnvelope({
+    type: 'state_sync',
+    session_id: 'session-1',
+    payload: {
+      category: 'compression',
+      detail: { type: 'compression_summary', content: '摘要正文', thread_key: 'root', conversation_scope: 'root' },
+    },
+  }, 'session-1');
+  assert.equal(state.isCompressing.value, false);
+  assert.equal(messages.value.length, 0);
+});
+
+// 回归：/compact 的 started 帧点亮后若终端 compression 帧丢失，
+// command_result（每次必发）兜底清除呼吸点并移除"正在压缩…"瞬态横线。
+test('terminal command_result clears a stuck compressing indicator', () => {
+  setActivePinia(createPinia());
+  const { dispatcher, messages, state } = createDispatcherFixture();
+
+  dispatcher.handleEnvelope({
+    type: 'state_sync',
+    session_id: 'session-1',
+    payload: { category: 'compression', detail: { type: 'compression_started', forced: true, thread_key: 'root' } },
+  }, 'session-1');
+  assert.equal(state.isCompressing.value, true);
+  assert.equal(messages.value.filter(item => item.metadata?.msg_type === 'context_compression_pending').length, 1);
+
+  dispatcher.handleEnvelope({
+    type: 'state_sync',
+    session_id: 'session-1',
+    payload: { category: 'command_result', detail: { command: 'compact', success: true, content: '压缩完成' } },
+  }, 'session-1');
+  assert.equal(state.isCompressing.value, false);
+  assert.equal(messages.value.filter(item => item.metadata?.msg_type === 'context_compression_pending').length, 0);
+});
+
+test('runtime 快照无 compact 租约且无活动 run 时清瞬态横线与呼吸点（后端崩溃自愈）', () => {
+  setActivePinia(createPinia());
+  const { dispatcher, messages, state } = createDispatcherFixture();
+  messages.value = [
+    { role: 'user', id: 'cmd-1', seq: 1, content: '/compact', metadata: {} },
+    {
+      role: 'system',
+      content: '正在压缩…',
+      content_parts: [{ type: 'text', text: '正在压缩…' }],
+      metadata: { msg_type: 'context_compression_pending' },
+    },
+  ];
+  state.isCompressing.value = true;
+
+  // 快照仍持有 compact 租约：压缩进行中，保留横线与呼吸点。
+  dispatcher.handleEnvelope({
+    type: 'session.runtime',
+    session_id: 'session-1',
+    payload: { state: 'maintenance', load_strategy: 'watch_maintenance', maintenance: { kind: 'compact', expires_at: '2999-01-01T00:00:00Z' }, pending_interactions: [] },
+  }, 'session-1');
+  assert.equal(messages.value.some(m => m.metadata?.msg_type === 'context_compression_pending'), true);
+  assert.equal(state.isCompressing.value, true);
+
+  // 活动 run（run 内自动压缩）：无 maintenance 也不清——呼吸点归 run 生命周期管。
+  state.activeRun.active = true;
+  dispatcher.handleEnvelope({
+    type: 'session.runtime',
+    session_id: 'session-1',
+    payload: { state: 'running', load_strategy: 'attach_run', maintenance: null, pending_interactions: [] },
+  }, 'session-1');
+  assert.equal(messages.value.some(m => m.metadata?.msg_type === 'context_compression_pending'), true);
+  assert.equal(state.isCompressing.value, true);
+  state.activeRun.active = false;
+
+  // 租约结束（释放/60s 过期，崩溃场景唯一清除线）：清横线与呼吸点。
+  dispatcher.handleEnvelope({
+    type: 'session.runtime',
+    session_id: 'session-1',
+    payload: { state: 'idle', load_strategy: 'history', maintenance: null, pending_interactions: [] },
+  }, 'session-1');
+  assert.equal(messages.value.some(m => m.metadata?.msg_type === 'context_compression_pending'), false);
+  assert.equal(state.isCompressing.value, false);
 });

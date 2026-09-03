@@ -43,6 +43,20 @@ export function useSessionMessages(deps) {
 
   const cacheKey = (sessionId, participantId = 'root') => `${sessionId}::${participantId || 'root'}`;
 
+  // "正在压缩…"横线（context_compression_pending）是纯客户端瞬态项，不落库。静默权威重载会
+  // 整表替换列表：主输入框 /compact 时 message_saved 先结束 pendingCommand，随后 maintenance
+  // 心跳触发的 session_updated 静默重载护栏失效，横线刚挂上就被替换抹掉（回滚路径因 maintenance
+  // 快照先到、isLoading 护栏跳过重载而幸免）。故静默替换时保留横线；非静默（进入/刷新会话）
+  // 不保留——刷新后由运行状态胶囊（maintenance·compact）承担进行时反馈，也避免后端崩溃后
+  // 横线永久滞留。终态 command_result 先移除横线再重载，保留只作用于压缩进行中的窗口。
+  const preserveCompactPendingDivider = (list, { silent }) => {
+    if (!silent || list.some(message => message?.metadata?.msg_type === 'context_compression_pending')) return list;
+    const pending = rootMessages.value.find(
+      message => message?.metadata?.msg_type === 'context_compression_pending',
+    );
+    return pending ? [...list, pending] : list;
+  };
+
   const cacheMessages = (sessionId, list, participantId = 'root') => {
     if (!sessionId) return;
     const key = cacheKey(sessionId, participantId);
@@ -111,7 +125,7 @@ export function useSessionMessages(deps) {
             preserveLiveExecution: reconcileMode === 'live',
           });
         } else {
-          sessionRunStore.setParticipantMessages(targetParticipantId, restored);
+          sessionRunStore.setParticipantMessages(targetParticipantId, preserveCompactPendingDivider(restored, { silent }));
         }
         messagesLoading.value = false;
         await nextTick();
@@ -193,9 +207,9 @@ export function useSessionMessages(deps) {
       if (!isCurrent()) return;
       const nextMessages = targetParticipantId !== 'root' || preserveStream || reconcileMode === 'live'
         ? sessionRunStore.reconcileParticipantMessages(targetParticipantId, mapped, {
-          preserveLiveExecution: reconcileMode === 'live',
-        })
-        : sessionRunStore.setParticipantMessages(targetParticipantId, mapped);
+            preserveLiveExecution: reconcileMode === 'live',
+          })
+        : sessionRunStore.setParticipantMessages(targetParticipantId, preserveCompactPendingDivider(mapped, { silent }));
       cacheMessages(sessionId, nextMessages, targetParticipantId);
       messagesLoading.value = false;
       await nextTick();

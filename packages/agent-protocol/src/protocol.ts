@@ -745,7 +745,10 @@ export const SessionRuntimePayloadSchema = z.object({
           ? runtime.pending_interactions.length > 0 ? ["respond_interaction", "stop_run"] : ["resume_run", "stop_run"]
           : runtime.state === "resuming"
             ? owner === "attached" ? ["stop_run"] : []
-            : [];
+            : runtime.state === "maintenance"
+              // 压缩中的维护可停止（与 run 内自动压缩统一"指令可打断"）；回滚类维护不可。
+              ? runtime.maintenance?.kind === "compact" ? ["stop_run"] : []
+              : [];
   const actualActionSet = new Set(runtime.allowed_actions);
   if (expectedActions.length !== actualActionSet.size || expectedActions.some((action) => !actualActionSet.has(action))) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ["allowed_actions"], message: "allowed actions do not match state and execution owner" });

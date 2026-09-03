@@ -92,7 +92,7 @@
             :context-usage="contextUsage"
             :context-usage-pct="contextUsagePct"
             :context-usage-class="contextUsageClass"
-            :is-compressing="isCompressing"
+            :is-compressing="compressingActive"
             :team="currentSessionTeam"
             :team-options="teamOptions"
             :team-loading="teamLoading"
@@ -644,7 +644,16 @@ const {
 } = useMessageListView({
   messages,
   showToast,
+  sessionRuntime,
+  // 压缩横线只属于根会话视图（root 压缩期间切到子参与者视图时不显示）。
+  isRootView: isRootParticipant,
 });
+
+// "压缩中"呼吸点：帧驱动瞬态 + maintenance(compact) 租约派生（刷新后事件态丢失，
+// 快照仍在租约期内时由持久事实兜底亮灯）。
+const compressingActive = computed(
+  () => isCompressing.value || sessionRuntime.value?.maintenance?.kind === 'compact',
+);
 
 // ── 消息赞/踩反馈：满意度的原始采集入口（服务端按会话持久化，构建团队回流消费）──
 const messageFeedbackMap = reactive({});

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ref } from 'vue';
+import { nextTick, ref } from 'vue';
 import MockAdapter from 'axios-mock-adapter';
 import { createPinia, setActivePinia, storeToRefs } from 'pinia';
 
@@ -133,6 +133,44 @@ test('confirmEditAndResend 锚定旧消息并将编辑内容交给统一发送�
     assert.deepEqual(cacheDeleteCalls, ['session-1']);
     assert.equal(revision.editingMessage.value, null);
   }
+});
+
+test('命令路径（/compact）HTTP 未返回时，新消息被接受即关编辑框并重载，不卡"提交中"', async () => {
+  let resolveRequest = null;
+  const { deps, reloadCalls, sessionRunStore } = createDeps({
+    chatSdkClient: {
+      rollbackAndRetrySession: () => new Promise((resolve) => { resolveRequest = resolve; }),
+    },
+  });
+  deps.messages.value = [
+    { role: 'user', id: 'msg-1', seq: 1, content: 'first' },
+    { role: 'user', id: 'msg-2', seq: 2, content: 'draft' },
+  ];
+  const revision = useMessageRevision(deps);
+  revision.startEditMessage(deps.messages.value[1]);
+  revision.editingDraft.value = '/compact';
+
+  const pending = revision.confirmEditAndResend();
+  // confirmEditAndResend 在首个 await（附件物化）后才 beginPendingCommand，先等一拍再取。
+  await nextTick();
+  const requestId = sessionRunStore.pendingCommands[0]?.request_id;
+  assert.equal(typeof requestId, 'string');
+
+  // 模拟 dispatcher：message_saved（携带 request_id）到达 → finishPendingCommand 移除本项。
+  // 此时 HTTP 仍未返回（/compact 在请求内跑数十秒），编辑框应立即收尾并重载权威视图。
+  sessionRunStore.finishPendingCommand(requestId);
+  await nextTick();
+  await nextTick();
+
+  assert.equal(revision.editingMessage.value, null);
+  assert.equal(revision.editingSubmitting.value, false);
+  assert.deepEqual(reloadCalls, ['session-1']);
+  assert.equal(sessionRunStore.isLoading, false);
+
+  resolveRequest({ data: { started: true } });
+  await pending;
+  // 响应返回后不重复重载。
+  assert.deepEqual(reloadCalls, ['session-1']);
 });
 
 test('rollbackAndRetry 失败时重新加载服务端消息并提示错误', async () => {

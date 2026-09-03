@@ -175,7 +175,6 @@ function buildDefaultConfig(): SystemConfigData {
     },
     context: {
       compression_trigger_ratio: 0.85,
-      summarize_max_tokens: 30000,
       preserve_recent_turns: 3,
     },
   };
@@ -227,7 +226,6 @@ function buildSystemConfigSchema(): SystemConfigSchema {
         description: "上下文预算配置",
         fields: [
           numberField("compression_trigger_ratio", "Compression Trigger Ratio", "触发上下文压缩的 token 使用比例", 0.85, { min: 0.5, max: 0.99, step: 0.1 }),
-          numberField("summarize_max_tokens", "Summarize Max Tokens", "LLM 摘要的最大 token 数", 30000, { min: 50, step: 1 }),
           numberField("preserve_recent_turns", "Preserve Recent Turns", "压缩时保留的最近对话轮数", 3, { min: 1, max: 20, step: 1 }),
         ],
       },

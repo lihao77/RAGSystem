@@ -1,5 +1,15 @@
 <template>
-  <div :class="['command-result', statusClass]">
+  <!-- /compact 的结果渲染为横线分隔形式：压缩只是上下文管理动作，不值得占一张卡片。 -->
+  <div v-if="isCompact" :class="['compact-divider', statusClass]">
+    <span class="divider-line" />
+    <span class="divider-text">
+      <IconCheck v-if="statusClass === 'success'" :size="13" />
+      <IconClose v-else :size="13" />
+      {{ result.text }}
+    </span>
+    <span class="divider-line" />
+  </div>
+  <div v-else :class="['command-result', statusClass]">
     <span class="command-name">{{ commandName }}</span>
     <span class="command-status"><IconCheck v-if="statusClass === 'success'" :size="13" /><IconClose v-else :size="13" /></span>
     <span class="command-text">{{ result.text }}</span>
@@ -14,6 +24,8 @@ import IconClose from './icons/IconClose.vue';
 const props = defineProps({
   result: { type: Object, required: true },
 });
+
+const isCompact = computed(() => props.result.name === 'compact');
 
 const commandName = computed(() => {
   return `/${props.result.name || 'unknown'}`;
@@ -70,5 +82,51 @@ const statusClass = computed(() => {
 
 .command-text {
   color: var(--color-text-secondary);
+}
+
+.compact-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0.75rem 0;
+  font-size: var(--font-size-sm, 13px);
+  line-height: 1.5;
+}
+
+.divider-line {
+  flex: 1;
+  height: 1px;
+  background: var(--color-border, #e0e0e0);
+  min-width: 1.5rem;
+}
+
+.divider-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--color-text-secondary);
+  text-align: center;
+  word-break: break-word;
+  max-width: 72%;
+}
+
+.compact-divider.success .divider-text {
+  color: var(--color-text-secondary);
+}
+
+.compact-divider.success .divider-text svg {
+  color: var(--color-success);
+}
+
+.compact-divider.error .divider-line {
+  background: rgba(var(--color-error-rgb), 0.3);
+}
+
+.compact-divider.error .divider-text {
+  color: var(--color-error);
+}
+
+.compact-divider.error .divider-text svg {
+  color: var(--color-error);
 }
 </style>

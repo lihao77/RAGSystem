@@ -13,6 +13,7 @@ import type { TenantId } from "../../../identity/types.js";
 import type { RuntimeStorage } from "../../../contracts/storage/runtime-storage.js";
 import type { SessionIdentity } from "../../../contracts/session/session.js";
 import type { MessageContentPart } from "@ragsystem/agent-protocol";
+import { partsToPlainText } from "@ragsystem/agent-protocol";
 
 export interface ParsedSlashCommand {
   name: string;
@@ -237,6 +238,10 @@ export class SlashCommandHandler {
       };
     }
     await this.publishRuntimeInvalidation(input.sessionId, "maintenance_claimed");
+    // 与 run 相同的中断通道：手动 /compact 进行中可被 stopSession 中止（用户视角统一
+    // "指令可打断"）。signal 传给 forceCompact → 摘要 LLM 请求，abort 在传输层掐断 HTTP。
+    const compactAbort = new AbortController();
+    this.statusTracker.registerMaintenanceAbort(input.sessionId, compactAbort);
     let maintenanceLost = false;
     const maintenanceHeartbeat = setInterval(() => {
       void this.runtimeStorage.operations.renewSessionMaintenance({
@@ -250,6 +255,25 @@ export class SlashCommandHandler {
       });
     }, 20_000);
     maintenanceHeartbeat.unref?.();
+    // "压缩中"客户端帧：forceCompact 调摘要 LLM 可能数十秒，先亮前端呼吸点；收尾帧兜底清除。
+    // forced: true 标记手动路径——前端据此区分终态（手动由 command_result 结果行接管，
+    // "压缩完成：N 条"）；横线本身自动/手动都挂（前端 reducer 不再看 forced）。
+    // started/finished 是瞬态帧（与 run 内自动压缩的 runtime-adapter 口径一致）：不落
+    // outbox、不进重连回放——刷新恢复由 maintenance·compact 租约派生承担，崩溃时也不留
+    // 孤儿 durable 行；无实时通道时降级 durable publish，宁可落库不静默丢帧。
+    // 定义在 try 外：catch（用户停止/失败）同样要发 finished 收尾帧。
+    const publishCompressionState = (detail: Record<string, unknown>): Promise<unknown> => {
+      const envelope = {
+        type: "state_sync" as const,
+        session_id: input.sessionId,
+        payload: { category: "compression", detail: { ...detail, forced: true, thread_key: "root" } },
+      };
+      return this.clientEvents.publishEphemeral?.(input.sessionId, envelope)
+        ?? this.clientEvents.publish(input.sessionId, envelope, {
+          aggregateType: "session",
+          aggregateId: input.sessionId,
+        });
+    };
     try {
       if (!this.compressionService) {
         return { command: "compact", success: false, content: "压缩服务未装配", error: "compression_unavailable" };
@@ -258,10 +282,16 @@ export class SlashCommandHandler {
       const compactProfile = projectAgentProfile({ agent: ready.agent, providers: this.providersProvider() });
       const compactMode = resolveToolInstructionMode(compactProfile.llmTiers.default?.provider);
       const systemPromptTokens = estimateTokens(buildFullSystemPrompt(compactProfile, {}, compactMode));
+      let summarizeStarted = false;
       const result = await this.compressionService.forceCompact({
         agent: ready.agent,
         sessionId: input.sessionId,
         systemPromptTokens,
+        signal: compactAbort.signal,
+        onSummarizeStart: () => {
+          summarizeStarted = true;
+          void publishCompressionState({ type: "compression_started" }).catch(() => undefined);
+        },
       });
       if (maintenanceLost || !await this.runtimeStorage.operations.renewSessionMaintenance({
         sessionId: input.sessionId,
@@ -272,6 +302,9 @@ export class SlashCommandHandler {
       }
       if (result.status === "skipped") {
         if (result.reason === "summary_unavailable") {
+          if (summarizeStarted) {
+            await publishCompressionState({ type: "compression_finished", reason: "summary_unavailable" });
+          }
           return {
             command: "compact",
             success: false,
@@ -294,7 +327,19 @@ export class SlashCommandHandler {
         type: "state_sync",
         session_id: input.sessionId,
         agent_id: ready.agent.agent_name,
-        payload: { category: "compression", detail: { replaced_message_count: result.replacedMessageCount, replaces_up_to_seq: result.replacesUpToSeq } },
+        // 带 type/content 才能让前端清"压缩中"并落摘要卡（reducer 契约：无 content 的 compression 帧视为 started）。
+        payload: {
+          category: "compression",
+          detail: {
+            type: "compression_summary",
+            content: result.summaryMessage ? partsToPlainText(result.summaryMessage.content_parts) : "",
+            forced: true,
+            thread_key: "root",
+            conversation_scope: "root",
+            replaced_message_count: result.replacedMessageCount,
+            replaces_up_to_seq: result.replacesUpToSeq,
+          },
+        },
       }, {
         aggregateType: "session",
         aggregateId: input.sessionId,
@@ -306,12 +351,20 @@ export class SlashCommandHandler {
         data: result,
       };
     } catch (error) {
+      // 用户停止与真实失败分开收尾：停止不是错误（摘要只在 LLM 返回后才入库，中途 abort
+      // 历史零改动），文案如实说明；帧 reason 同步区分，前端横线/胶囊按既有契约清除。
+      const userStopped = compactAbort.signal.aborted;
+      void publishCompressionState({ type: "compression_finished", reason: userStopped ? "user_stop" : "error" })
+        .catch(() => undefined);
       return {
         command: "compact",
         success: false,
-        content: `压缩失败: ${error instanceof Error ? error.message : String(error)}`,
+        content: userStopped
+          ? "压缩已停止，历史保持原样"
+          : `压缩失败: ${error instanceof Error ? error.message : String(error)}`,
       };
     } finally {
+      this.statusTracker.unregisterMaintenanceAbort(input.sessionId, compactAbort);
       clearInterval(maintenanceHeartbeat);
       if (ownsMaintenance) {
         await this.runtimeStorage.operations.releaseSessionMaintenance({

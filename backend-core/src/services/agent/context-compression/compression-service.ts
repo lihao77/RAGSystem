@@ -69,6 +69,8 @@ export interface CompressInput {
   threadKey?: string | null;
   childAgentId?: string | null;
   signal?: AbortSignal;
+  /** 摘要 LLM 调用开始前回调（调用方发"压缩中"客户端帧用）；低于阈值/选段失败不触发。 */
+  onSummarizeStart?: () => void;
   /** 当前 system prompt token 数（含注入上下文、base 和 tools）。budget = window×0.9 − 此值。调用方算好传入。 */
   systemPromptTokens: number;
   /** 上一轮 provider 实测输入 token + 当前新增消息的校准估算；有值时优先用于阈值判断。 */
@@ -85,16 +87,24 @@ interface LoadedHistory {
   threadKey: string;
 }
 
+/** 结构化错误日志出口（与 AgentExecutionLogger 结构兼容；容器注入，缺省静默）。 */
+export interface CompressionLogger {
+  error(bindings: Record<string, unknown>, message: string): void;
+}
+
 export class AgentCompressionService {
   private readonly llm: LlmClient;
+  private readonly logger: CompressionLogger | null;
 
   constructor(
     private readonly history: CompressionHistoryPort,
     private readonly providersProvider: () => ModelProviderConfig[],
     private readonly systemConfig: SystemConfigService,
+    logger?: CompressionLogger | null,
     llm?: LlmClient,
   ) {
     this.llm = llm ?? new LlmProviderClient();
+    this.logger = logger ?? null;
   }
 
   /** 阈值门控压缩（run 内 round.before 触发）。 */
@@ -124,11 +134,12 @@ export class AgentCompressionService {
     if (!selected.ok) {
       return skipped(selected.reason, loaded.budgetTokens, loaded.historyTokens, thresholdTokens);
     }
+    // 走到这里必然要调摘要 LLM（可能 10-30s），先通知调用方亮"压缩中"。
+    input.onSummarizeStart?.();
     const summaryContent = await this.summarizeSegment(
       selected.segment,
       selected.existingSummary,
       loaded.profile,
-      loaded.settings.summarizeMaxTokens,
       input.signal,
     );
     if (summaryContent === null) {
@@ -189,23 +200,34 @@ export class AgentCompressionService {
   /**
    * 摘要核心:读 [tiers.fast, tiers.default] 去重候选,逐候选用 readTierParams 取参调 LLM;
    * 前级失败(非 abort)降级;全失败返回 null(保留完整历史,不做有损截断)。
+   * 摘要输出上限不再单设配置,直接用 tier 自己的 max_completion_tokens。
    */
   private async summarizeSegment(
     segment: ReadonlyArray<MessageInfo>,
     existingSummary: string,
     profile: LoadedHistory["profile"],
-    maxTokens: number,
     signal?: AbortSignal,
   ): Promise<string | null> {
     const candidates = resolveSummaryTierCandidates(profile.llmTiers);
     for (const candidate of candidates) {
       const params = readTierParams(profile.llmTiers, candidate.tier);
       try {
-        return await this.generateSummary(candidate, params, segment, existingSummary, maxTokens, signal);
+        return await this.generateSummary(candidate, params, segment, existingSummary, signal);
       } catch (error) {
         if (signal?.aborted) {
           throw error;
         }
+        // 降级前留痕:静默吞错会让 summary_unavailable 无法归因(空内容/网络/鉴权一视同仁)。
+        this.logger?.error(
+          {
+            tier: candidate.tier,
+            provider_key: candidate.provider.key,
+            provider_type: candidate.provider.provider_type,
+            model: candidate.modelName,
+            error: error instanceof Error ? error.message : String(error),
+          },
+          "compression summary candidate failed; falling through to next tier",
+        );
       }
     }
     return null;
@@ -216,7 +238,6 @@ export class AgentCompressionService {
     params: ReturnType<typeof readTierParams>,
     segment: ReadonlyArray<MessageInfo>,
     existingSummary: string,
-    maxTokens: number,
     signal?: AbortSignal,
   ): Promise<string> {
     const request: LlmRequest = {
@@ -224,7 +245,10 @@ export class AgentCompressionService {
       model: candidate.modelName,
       provider: candidate.provider,
       temperature: params.temperature,
-      maxCompletionTokens: Math.min(maxTokens, params.maxCompletionTokens ?? maxTokens),
+      maxCompletionTokens: params.maxCompletionTokens,
+      // 摘要是格式化任务,显式关思考:思考默认开启的模型会用推理块占满输出预算,
+      // 正文一个 token 都拿不到,压缩整链路退化为 summary_unavailable。
+      thinkingLevel: "off",
       extraParams: params.extraParams,
     };
     if (signal) {

@@ -16,6 +16,7 @@ import type { AgentConfig } from "../../../contracts/agent/agent-config.js";
 import type { MessageInfo, SessionIdentity } from "../../../contracts/session/session.js";
 import type { BackendContextSourceFactory } from "../../../plugins/backend-plugin.js";
 import type { MessageContentPart } from "@ragsystem/agent-protocol";
+import { partsToPlainText } from "@ragsystem/agent-protocol";
 import type { HookRegistry } from "@ragsystem/agent-sdk";
 import type { ModelProviderConfig } from "../../../contracts/integrations/model-adapter.js";
 import type { ExecutionEventPersister, ExecutionStartDisposition, ExecutionStorage } from "../../../contracts/execution/execution-storage.js";
@@ -861,6 +862,23 @@ export async function executeRunWithSdk(
             estimateTokens(systemPromptBase),
             prediction?.systemPromptTokens ?? 0,
           );
+          // "压缩中"客户端帧：只在真要调摘要 LLM 时发（低于阈值/选段失败不发,避免每轮噪音）;
+          // 仅 root 线程——子线程压缩不影响根上下文,会话级呼吸点不该亮。
+          const compressionThreadKey = input.threadKey?.trim() || "root";
+          const isRootThread = compressionThreadKey === "root";
+          const publishCompressionFrame = (detail: Record<string, unknown>, durable = false): void => {
+            const envelope: Envelope = {
+              type: "state_sync",
+              session_id: input.sessionId,
+              run_id: input.runId,
+              payload: { category: "compression", detail: { ...detail, thread_key: compressionThreadKey } },
+            };
+            const published = durable
+              ? deps.eventPublisher.commitEnvelope(envelope)
+              : deps.eventPublisher.publishEphemeralEnvelope(envelope);
+            void published.catch(() => undefined);
+          };
+          let summarizeStarted = false;
           const result = await deps.compressionService!.compressIfNeeded({
             agent: input.agent,
             sessionId: input.sessionId,
@@ -871,12 +889,33 @@ export async function executeRunWithSdk(
             systemPromptTokens,
             ...(prediction ? { providerAdjustedInputTokens: prediction.inputTokens } : {}),
             ...(input.signal ? { signal: input.signal } : {}),
+            ...(isRootThread
+              ? {
+                  onSummarizeStart: () => {
+                    summarizeStarted = true;
+                    publishCompressionFrame({ type: "compression_started", run_id: input.runId });
+                  },
+                }
+              : {}),
           });
           if (result.status !== "success") {
             if (result.reason === "summary_unavailable") {
               consecutiveCompressionFailures += 1;
+              if (summarizeStarted) {
+                publishCompressionFrame({ type: "compression_finished", reason: "summary_unavailable" });
+              }
             }
             return;
+          }
+          if (isRootThread) {
+            // durable:摘要卡要进重连回放;started/finished 是瞬态,走 ephemeral。
+            publishCompressionFrame({
+              type: "compression_summary",
+              content: result.summaryMessage ? partsToPlainText(result.summaryMessage.content_parts) : "",
+              conversation_scope: "root",
+              replaced_message_count: result.replacedMessageCount,
+              replaces_up_to_seq: result.replacesUpToSeq,
+            }, true);
           }
           consecutiveCompressionFailures = 0;
           cacheTracker.invalidate(input.sessionId, input.threadKey);

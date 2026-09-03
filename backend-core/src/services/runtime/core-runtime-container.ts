@@ -112,6 +112,7 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
       compressionHistory,
       () => modelAdapter.listProviders(),
       systemConfig,
+      dependencies.logger ?? null,
     ),
     ...((dependencies.hooks || dependencies.plugins) ? {
       hooks: (registry) => {

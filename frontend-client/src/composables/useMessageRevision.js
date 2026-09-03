@@ -125,6 +125,8 @@ export function useMessageRevision(deps) {
 
     editingSubmitting.value = true;
     let rollbackRequested = false;
+    let stopAcceptWatch = null;
+    let accepted = false;
     try {
       // 先物化附件（上传本地文件拿 file_id），再交给后端执行“回滚 -> 统一发送”。
       const materialized = await deps.materializeAttachmentsForSend(draftAttachments, sessionId);
@@ -141,24 +143,46 @@ export function useMessageRevision(deps) {
       const requestId = createRequestId();
       sessionRunStore.beginPendingCommand('rollback', requestId);
       rollbackRequested = true;
-      const resp = await deps.chatSdkClient.rollbackAndRetrySession(
+      const request = deps.chatSdkClient.rollbackAndRetrySession(
         sessionId,
         retryBody,
         { requestId },
       );
+      // 命令路径（如 /compact）整个跑在本次 HTTP 请求内，数十秒才返回；期间编辑框不能一直
+      // 卡"提交中"，列表也不能停留在"未回滚的旧历史 + 尾部新消息"的双重视图。新消息被接受
+      // （message_saved 携带 request_id → finishPendingCommand 移除本项）即代表回滚已落定：
+      // 立即关编辑框并重载权威视图，不等响应返回；失败兜底仍由 catch 承接（toast + 重载）。
+      stopAcceptWatch = watch(
+        () => sessionRunStore.pendingCommands.some(item => item.request_id === requestId),
+        (stillPending) => {
+          if (stillPending || accepted) return;
+          accepted = true;
+          if (currentSessionId.value !== sessionId || !editingTarget.value) return;
+          void reloadCanonicalSessionState(sessionId);
+          resetEditingState();
+        },
+      );
+      const resp = await request;
       const result = resp.data || {};
       if (!result.started) {
         throw new Error(result.error || '操作失败');
       }
 
-      await reloadCanonicalSessionState(sessionId);
+      if (!accepted) {
+        await reloadCanonicalSessionState(sessionId);
+        resetEditingState();
+      }
       sessionRunStore.finishPendingCommand(requestId);
-      resetEditingState();
     } catch (error) {
+      stopAcceptWatch?.();
       editingSubmitting.value = false;
-      if (rollbackRequested) await reloadCanonicalSessionState(sessionId);
+      // 接受路径已重载过权威视图（命令被停止/失败时 command_result 文案也在其中）；
+      // 未接受（请求前置失败）才需要 catch 里的恢复性重载，避免双重视图二次刷新。
+      if (rollbackRequested && !accepted) await reloadCanonicalSessionState(sessionId);
       sessionRunStore.finishPendingCommand();
       deps.showToast(error.message || '操作失败');
+    } finally {
+      stopAcceptWatch?.();
     }
   };
 

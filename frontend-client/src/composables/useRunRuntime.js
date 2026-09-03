@@ -1,6 +1,7 @@
 import { reactive } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useSessionRunStore } from '../stores/session-run.js';
+import { removeCompactPendingMessages } from './sessionEventReducer.js';
 
 const FINALIZED_RUN_WINDOW_MS = 10_000;
 const DURABLE_REPLAY_RUN_EVENT_TYPES = new Set([
@@ -413,6 +414,10 @@ export function useRunRuntime(deps) {
     }
     deps.clearLlmRetryState();
     isCompressing.value = false;
+    // run 终结（完成/中断/失败）兜底清自动压缩的瞬态横线：started/finished 帧是 ephemeral，
+    // 摘要中途被打断（停止/崩溃）不会有终结帧，横线不能越过 run 生命周期。手动 /compact
+    // 无 run，不经此路径，仍由 command_result 收尾。
+    removeCompactPendingMessages(messages, activeRun);
     deps.scrollToBottom();
   };
 

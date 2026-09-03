@@ -30,8 +30,30 @@ export class AgentExecutionStatusTracker {
   private readonly handlesByTask = new Map<string, ExecutionHandle>();
   private readonly taskBySession = new Map<string, string>();
   private readonly controllersByRun = new Map<string, AbortController>();
+  // 维护类长操作（当前仅 /compact 摘要）按会话注册的中止通道；与 run 的 controllersByRun
+  // 同语义：进程内句柄，stopSession 直接触发 abort。跨实例场景与前台 run 一致不覆盖
+  // （租约 TTL 过期自愈），这里只服务"本实例正在执行的维护可被用户停止"。
+  private readonly maintenanceControllers = new Map<string, AbortController>();
   private readonly streamSnapshotEmitters = new Map<string, StreamSnapshotEmitter>();
   private readonly statusHistory = new Map<string, ExecutionTaskStatus>();
+
+  registerMaintenanceAbort(sessionId: string, controller: AbortController): void {
+    if (!sessionId) return;
+    this.maintenanceControllers.set(sessionId, controller);
+  }
+
+  unregisterMaintenanceAbort(sessionId: string, controller?: AbortController): void {
+    const current = this.maintenanceControllers.get(sessionId);
+    if (current && (!controller || current === controller)) this.maintenanceControllers.delete(sessionId);
+  }
+
+  /** 用户视角统一语义：进行中的压缩无论来源（run 内自动 / 手动 /compact）都可停止。 */
+  cancelMaintenanceAbort(sessionId: string, reason = "user_stop"): boolean {
+    const controller = this.maintenanceControllers.get(sessionId);
+    if (!controller) return false;
+    if (!controller.signal.aborted) controller.abort(new Error(reason));
+    return true;
+  }
 
   registerStreamSnapshot(runId: string, emit: StreamSnapshotEmitter): void {
     if (!runId) return;
