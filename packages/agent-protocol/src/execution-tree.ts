@@ -142,7 +142,12 @@ function ensureRound(agent: ExecutionAgent, round: number): ExecutionRound {
   const existing = agent.rounds.find((r) => r.round === round);
   if (existing) return existing;
   const r: ExecutionRound = { round, reasoning: "", reasoningComplete: false, intent: "", intentComplete: false, text: "", textComplete: false, toolCalls: [] };
-  agent.rounds.push(r);
+  // 按轮号数值位插入，不尾插：乱序应用（边界队列迟冲刷、迟到补投）会先建大号轮
+  // 再补小号轮，尾插会让 rounds 数组序偏离轮号序——视图按数组序渲染，整个轮次
+  // 会交错（后轮内容浮到前轮上方）。有序插入让数组序恒等于轮号序。
+  const at = agent.rounds.findIndex((item) => item.round > round);
+  if (at < 0) agent.rounds.push(r);
+  else agent.rounds.splice(at, 0, r);
   return r;
 }
 
@@ -285,11 +290,14 @@ function applyOutputStream(state: ExecutionTreeState, env: Envelope, payload: Re
   }
 }
 
-/** 活跃轮：最新一个 text 未定格的轮；都已完成则开新轮（latestRound+1）。 */
+/** 活跃轮：最新一个 text 未定格的轮；都已完成则开新轮（latestRound+1）。
+ * 已有工具调用的轮不算活跃：工具开跑即该轮模型回合结束（工具执行发生在完整响应
+ * 之后），无文字工具轮永远等不到 intent_complete——若仍按未完成轮吸收文字，下一轮
+ * delta 会误入工具轮 text 通道，渲染成"说明文字插在工具行上方"且流式副本无人清理。 */
 function ensureActiveRound(agent: ExecutionAgent): ExecutionRound {
   const rounds = agent.rounds;
   const last = rounds[rounds.length - 1];
-  if (last && !last.textComplete && !last.intentComplete) return last;
+  if (last && !last.textComplete && !last.intentComplete && last.toolCalls.length === 0) return last;
   return ensureRound(agent, (last ? last.round : -1) + 1);
 }
 
