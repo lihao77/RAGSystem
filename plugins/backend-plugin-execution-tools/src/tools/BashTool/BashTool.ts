@@ -61,7 +61,7 @@ export function createBashTools(deps: BashToolDeps): Tool[] {
         properties: {
           command: {
             type: "string",
-            description: "Shell command to execute. Command substitution, hidden newlines, dangerous env overrides, and write redirection are blocked.",
+            description: "Shell command to execute. Multi-line commands are supported. Command substitution, env overrides such as PATH=..., and write redirection require approval.",
           },
           cwd: {
             type: "string",

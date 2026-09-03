@@ -342,6 +342,50 @@ test("execute_bash writes into the same workspace seen by glob", async () => {
   }
 });
 
+test("bash syntax downgrades route to approval instead of hard block", async () => {
+  const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-bash-policy-"));
+  try {
+    const resolver = new ManagedPathResolver(dataRoot);
+    const context = { sessionId: "session-bash-policy", runId: "run-bash-policy" };
+    const pathPolicy = new PathApprovalService();
+    const bash = new LocalBashToolService({ dataRoot, pathResolver: resolver, bashExecutable: null });
+
+    const redirected = bash.prepareExecution(
+      { command: "node -e \"console.log('redir-ok')\" > downgraded.txt" },
+      context,
+      null,
+      pathPolicy,
+    );
+    assert.equal(redirected.ok, true, redirected.ok ? "" : redirected.result.summary);
+    assert.equal(redirected.plan.approvalRequired, true);
+    assert.ok(redirected.plan.approvalCommands.includes(">"));
+    const executed = await bash.executePlan(redirected.plan, context);
+    assert.equal(executed.success, true, executed.summary);
+    assert.ok(
+      fs.readFileSync(path.join(resolver.roots(context).workspace, "downgraded.txt"), "utf8").includes("redir-ok"),
+    );
+
+    const substituted = bash.prepareExecution({ command: "echo $(date)" }, context, null, pathPolicy);
+    assert.equal(substituted.ok, true);
+    assert.equal(substituted.plan.category, "interpreter");
+    assert.ok(substituted.plan.dangerousCommands.includes("$(...)"));
+
+    const multiline = bash.prepareExecution({ command: "ls\npwd" }, context, null, pathPolicy);
+    assert.equal(multiline.ok, true);
+    assert.equal(multiline.plan.approvalRequired, false);
+
+    const envOverride = bash.prepareExecution({ command: "PATH=/opt/bin ls" }, context, null, pathPolicy);
+    assert.equal(envOverride.ok, true);
+    assert.equal(envOverride.plan.approvalRequired, true);
+    assert.ok(envOverride.plan.approvalCommands.includes("PATH="));
+
+    const hijack = bash.prepareExecution({ command: "LD_PRELOAD=./evil.so ls" }, context, null, pathPolicy);
+    assert.equal(hijack.ok, false);
+  } finally {
+    fs.rmSync(dataRoot, { recursive: true, force: true });
+  }
+});
+
 test("local and SaaS search adapters share todo validation and result shape", () => {
   const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-search-policy-"));
   try {

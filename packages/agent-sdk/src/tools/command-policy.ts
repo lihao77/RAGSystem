@@ -5,6 +5,11 @@ import type { RiskLevel } from "./tool.js";
 export type CommandCategory = "read_only" | "write" | "destructive" | "network" | "interpreter" | "unknown";
 type ValidationStatus = "allowed" | "approval_required" | "blocked";
 
+// 语法级审批触发器标记：命令替换（$()/反引号/进程替换）、写重定向、环境变量覆盖
+// 不封禁，但强制走审批，并以标记形式出现在 approvalCommands/command_segments 里让用户看见触发原因。
+export const COMMAND_SUBSTITUTION_MARKER = "$(...)";
+const APPROVAL_ENV_OVERRIDES = ["PATH", "PYTHONPATH", "PS1", "PS2"];
+
 const READ_ONLY_COMMANDS = new Set([
   "grep", "find", "cat", "ls", "head", "tail", "wc",
   "echo", "sort", "uniq", "cut", "awk", "diff", "comm",
@@ -64,7 +69,9 @@ export function validateCommand(command: string): {
 
   const approvalCommands: string[] = [];
   const categories: CommandCategory[] = [];
-  for (const segment of splitShellChain(command)) {
+  // 反斜杠+换行是行续接，先折叠；换行与 ; 同级作为链分隔符，多行命令逐行分类。
+  const normalized = normalizeLineContinuations(command);
+  for (const segment of splitShellChain(normalized)) {
     const tokens = shellSplit(segment.trim());
     if (!tokens.length) {
       continue;
@@ -74,6 +81,26 @@ export function validateCommand(command: string): {
     categories.push(category);
     if (category !== "read_only" && !approvalCommands.includes(commandName)) {
       approvalCommands.push(commandName);
+    }
+  }
+  // 语法级触发器：分类器看不见这些构造的内部语义（如 echo $(rm ...) 只认得 echo），
+  // 因此不降级为直行，一律强制审批；命令替换会派生子 shell，类别抬到 interpreter。
+  if (detectCommandSubstitution(normalized)) {
+    categories.push("interpreter");
+    if (!approvalCommands.includes(COMMAND_SUBSTITUTION_MARKER)) {
+      approvalCommands.push(COMMAND_SUBSTITUTION_MARKER);
+    }
+  }
+  const redirection = detectWriteRedirection(normalized);
+  if (redirection) {
+    categories.push("write");
+    if (!approvalCommands.includes(redirection)) {
+      approvalCommands.push(redirection);
+    }
+  }
+  for (const envMarker of detectEnvOverrides(normalized)) {
+    if (!approvalCommands.includes(envMarker)) {
+      approvalCommands.push(envMarker);
     }
   }
   const category = highestCategory(categories);
@@ -172,14 +199,7 @@ export function buildApprovalDescription(input: {
 }
 
 function validateCommandSecurity(command: string): string | null {
-  const stripped = command.replace(/2>\s*\/dev\/null|2>&1/g, "");
-  if (stripped.includes("$(") || stripped.includes("`")) {
-    return "禁止命令替换: $() 或反引号";
-  }
-  if (/(?<![12&])>(?!>?\s*\/dev\/null)/.test(stripped)) {
-    return "禁止写重定向操作符: > 或 >>";
-  }
-  if (/\bIFS\s*=/.test(stripped)) {
+  if (/\bIFS\s*=/.test(command)) {
     return "禁止修改 IFS 变量";
   }
   if (/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(command)) {
@@ -188,29 +208,113 @@ function validateCommandSecurity(command: string): string | null {
   if (/[\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]/.test(command)) {
     return "禁止包含 Unicode 伪空格字符";
   }
-  if (/--?\w+=.*\$\(|--?\w+=.*`/.test(stripped)) {
-    return "禁止在 flag 参数中嵌入命令替换";
-  }
-  if (/\b(?:PATH|LD_PRELOAD|LD_LIBRARY_PATH|PYTHONPATH|DYLD_INSERT_LIBRARIES|IFS|BASH_ENV|ENV|PROMPT_COMMAND|PS1|PS2)\s*=/.test(stripped)) {
-    return "禁止修改危险环境变量（PATH/LD_PRELOAD 等）";
-  }
-  if (command.includes("\n") || command.includes("\r")) {
-    return "禁止在命令中包含换行符";
-  }
-  if (/\{[^}]*\.\.[^}]*\}/.test(stripped)) {
+  if (/\{[^}]*\.\.[^}]*\}/.test(command)) {
     return "禁止花括号展开中包含路径穿越";
   }
-  if (/\/proc\/[^/]*\/environ/.test(stripped)) {
+  if (/\/proc\/[^/]*\/environ/.test(command)) {
     return "禁止访问 /proc/*/environ";
   }
-  if (/\\[\n\r]/.test(command)) {
-    return "禁止反斜杠转义换行";
+  if (/\b(?:LD_PRELOAD|LD_LIBRARY_PATH|DYLD_INSERT_LIBRARIES|BASH_ENV|ENV|PROMPT_COMMAND)\s*=/.test(command)) {
+    return "禁止注入劫持型环境变量（LD_PRELOAD/BASH_ENV 等）";
   }
   return null;
 }
 
+/**
+ * 命令替换检测：`$(...)`、反引号与进程替换 `<(...)` 都会派生子 shell 执行，
+ * 三者等价，任一命中即强制审批。单引号内是字面量、反斜杠转义后不展开，不算。
+ * 双引号内会展开，算。`>(...)` 由写重定向检测覆盖。
+ */
+function detectCommandSubstitution(command: string): boolean {
+  let inSingle = false;
+  let inDouble = false;
+  let escaped = false;
+  for (let index = 0; index < command.length; index += 1) {
+    const char = command[index]!;
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === "\\" && !inSingle) {
+      escaped = true;
+      continue;
+    }
+    if (char === "'" && !inDouble) {
+      inSingle = !inSingle;
+      continue;
+    }
+    if (char === "\"" && !inSingle) {
+      inDouble = !inDouble;
+      continue;
+    }
+    if (!inSingle && (command.startsWith("$(", index) || command.startsWith("<(", index) || char === "`")) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * 写重定向检测：在引号外扫描 `>`/`>>`（含 1>、2>、&> 等 fd 前缀形式——它们同样写文件）。
+ * 例外：N>&M / N>&- 是 fd 复制或关闭，不写文件；目标整词是 /dev/null 是丢弃输出。
+ * 返回触发审批的标记（">" 或 ">>"），无则 null。
+ */
+function detectWriteRedirection(command: string): string | null {
+  let inSingle = false;
+  let inDouble = false;
+  let escaped = false;
+  for (let index = 0; index < command.length; index += 1) {
+    const char = command[index]!;
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === "\\" && !inSingle) {
+      escaped = true;
+      continue;
+    }
+    if (char === "'" && !inDouble) {
+      inSingle = !inSingle;
+      continue;
+    }
+    if (char === "\"" && !inSingle) {
+      inDouble = !inDouble;
+      continue;
+    }
+    if (inSingle || inDouble || char !== ">") {
+      continue;
+    }
+    if (/^>&(?:\d+|-)(?![\w.\-/])/.test(command.slice(index))) {
+      continue;
+    }
+    const append = command[index + 1] === ">";
+    const after = append ? index + 2 : index + 1;
+    // /dev/null 必须是完整目标词：/dev/nullabc、/dev/null-x 都是真实文件。
+    if (/^\s*\/dev\/null(?=$|[\s;&|<>)])/.test(command.slice(after))) {
+      continue;
+    }
+    return append ? ">>" : ">";
+  }
+  return null;
+}
+
+function detectEnvOverrides(command: string): string[] {
+  const found: string[] = [];
+  for (const name of APPROVAL_ENV_OVERRIDES) {
+    if (new RegExp(`\\b${name}\\s*=`).test(command)) {
+      found.push(`${name}=`);
+    }
+  }
+  return found;
+}
+
+function normalizeLineContinuations(command: string): string {
+  return command.replace(/\\\r?\n/g, " ");
+}
+
 function splitShellChain(command: string): string[] {
-  const chainSegments = splitByShellOperators(command, ["&&", "||", ";"]);
+  // 换行与 ; 同级：多行脚本逐行分类后取最高风险。
+  const chainSegments = splitByShellOperators(command, ["&&", "||", ";", "\n", "\r"]);
   return chainSegments.flatMap((segment) => splitShellPipeline(segment));
 }
 

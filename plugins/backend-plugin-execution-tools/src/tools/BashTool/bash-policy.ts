@@ -2,6 +2,7 @@ import {
   buildApprovalDescription,
   categoryRisk,
   classifyCommand,
+  COMMAND_SUBSTITUTION_MARKER,
   validateCommand,
   type CommandCategory,
   type ToolExecutionResult,
@@ -104,7 +105,9 @@ export function classifyBashCommand(
     };
   }
   const description = normalizeString(input.description) ?? "";
+  // 命令替换标记不在命令词表里，须单独认定为高风险（派生子 shell）。
   const dangerousCommands = validation.approvalCommands.filter((commandName) =>
+    commandName === COMMAND_SUBSTITUTION_MARKER ||
     ["destructive", "network", "interpreter"].includes(classifyCommand(commandName)),
   );
   return {
