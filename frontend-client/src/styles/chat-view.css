@@ -792,18 +792,28 @@
 }
 
 /* ===== Loading Indicator ===== */
+/* 与执行时间线（AssistantExecutionNode.vue 的 .assistant-step-row）排成同一条流：
+   图标列 14×14 起点贴行首（无左内边距，与步骤图标同列）、间距 8px、行距
+   padding-block 3px，字号/行高与最终答案、intent 轮文本同基线（14px/1.7）——
+   loading 行看起来就是时间线上正在产出的下一个步骤。字号用固定 14px 而非
+   var(--font-size-sm)：后者随断点缩小，step/final/intent 均为固定 14px。 */
 .loading-indicator {
   display: inline-flex;
   align-items: center;
-  gap: var(--spacing-sm);
-  padding: 4px var(--spacing-sm);
-  line-height: 1;
-  min-height: 28px;
+  gap: 8px;
+  padding-block: 3px;
+  font-size: 14px;
+  line-height: 1.7;
   color: var(--color-text-secondary);
 }
 
-.loading-text {
-  font-size: var(--font-size-sm);
+/* spinner 与步骤图标同格 14×14（覆盖 size-4 的 16px），运行态用品牌色——
+   与 status-running 步骤图标一致。 */
+.loading-indicator .loading-spinner {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  color: var(--color-brand-accent);
 }
 
 .dot {

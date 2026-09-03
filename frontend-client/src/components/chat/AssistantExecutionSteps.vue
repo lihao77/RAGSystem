@@ -34,7 +34,7 @@
             </template>
 
             <div v-else-if="msg.executionStepsLoading" class="assistant-execution-state" role="status">
-              <Spinner aria-hidden="true" />
+              <Spinner class="loading-spinner" aria-hidden="true" />
               <span>正在加载执行步骤...</span>
             </div>
 
@@ -312,6 +312,13 @@ function nodeKey(node, index) {
   padding-block: 3px;
   color: var(--color-text-muted);
   font-size: 12px;
+}
+
+/* 加载态 spinner 与步骤行图标同格（14×14，覆盖 size-4 的 16px），图标列宽一致。 */
+.assistant-execution-state :deep(.loading-spinner) {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
 }
 
 @media (prefers-reduced-motion: reduce) {

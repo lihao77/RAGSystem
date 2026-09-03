@@ -6,7 +6,7 @@
     aria-live="polite"
     aria-atomic="true"
   >
-    <Spinner aria-hidden="true" />
+    <Spinner class="loading-spinner" aria-hidden="true" />
     <span class="loading-text">{{ messageContext.getAssistantRuntimeStatusText(msg) || '正在运行...' }}</span>
   </div>
 

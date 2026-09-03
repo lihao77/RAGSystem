@@ -13,7 +13,8 @@ test('消息项按正文、操作按钮、执行步骤排列，正文组件不�
   assert.equal(source.includes('v-if="showLoadingIndicator"'), true);
   assert.equal(source.includes('!props.msg.content && !props.msg.finished'), true);
   assert.equal(source.includes('getAssistantRuntimeStatusText(msg)'), true);
-  assert.equal(source.includes('<Spinner aria-hidden="true"'), true);
+  // spinner 带 loading-spinner 钩子：chat-view.css 里与步骤行图标同格（14×14）对齐
+  assert.equal(source.includes('<Spinner class="loading-spinner" aria-hidden="true"'), true);
   assert.equal(source.includes('role="status"'), true);
   assert.equal(source.includes('aria-live="polite"'), true);
 });
@@ -59,6 +60,10 @@ test('消息列表复用 Widget 的紧凑气泡和工具调用视觉结构', asy
   // 运行态指示：图标保持不变，步骤名以“光拂过”shimmer 呈现（旋转 spinner 已移除）
   assert.equal(nodeSource.includes('is-shimmer'), true);
   assert.equal(nodeSource.includes('assistant-step-spinner'), false);
+  // loading 行与执行时间线排成同一条流：spinner 14×14 贴行首、14px/1.7 与
+  // step/final/intent 同基线（详见 chat-view.css 的 .loading-indicator 注释）
+  assert.equal(styles.includes('.loading-indicator .loading-spinner'), true);
+  assert.equal(styles.includes('padding: 4px var(--spacing-sm)'), false);
   assert.equal(styles.includes('--message-list-gap: 16px'), true);
   assert.equal(styles.includes('--message-bubble-radius: 16px'), true);
   assert.equal(styles.includes('max-width: 80%'), true);
