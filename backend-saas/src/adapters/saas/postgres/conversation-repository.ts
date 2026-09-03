@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
 
+import { partsToPlainText } from "@ragsystem/agent-protocol";
 import type { PaginatedResult } from "@ragsystem/backend-core/contracts/common.js";
 import type { AddMessageInput } from "@ragsystem/backend-core/contracts/conversation-store/index.js";
 import { AddMessageInputSchema } from "@ragsystem/backend-core/contracts/conversation-store/types.js";
 import { decodeChatFields, encodeChatFields, parseMessageProviderState } from "@ragsystem/backend-core/contracts/conversation-store/chat-message-codec.js";
+import { isSessionListVisibleMessage } from "@ragsystem/backend-core/contracts/session/session-list-projection.js";
 import type { PermissionMode } from "@ragsystem/backend-core/contracts/runtime/permissions.js";
 import type {
   CreateSessionRecordInput,
@@ -82,7 +84,30 @@ function message(row: Record<string, unknown>): MessageInfo {
 }
 
 export class PostgresConversationRepository implements AsyncConversationRepository {
+  /**
+   * 首条可见用户消息确立时按租户回调（会话标题异步生成的触发点）。
+   * 仓储实例进程级共享、租户无关；注册方是各租户容器（其 systemConfig/providers
+   * 才携带正确的租户 LLM 配置），故以 tenantId 为键而不是单播。
+   */
+  private readonly sessionTitleNotifiers = new Map<TenantId, (sessionId: string, messageText: string) => void>();
+
   constructor(private readonly executor: PostgresExecutor) {}
+
+  registerSessionTitleNotifier(tenantId: TenantId, notifier: (sessionId: string, messageText: string) => void): void {
+    this.sessionTitleNotifiers.set(tenantId, notifier);
+  }
+
+  unregisterSessionTitleNotifier(tenantId: TenantId): void {
+    this.sessionTitleNotifiers.delete(tenantId);
+  }
+
+  private notifySessionTitle(tenantId: TenantId, sessionId: string, messageText: string): void {
+    try {
+      this.sessionTitleNotifiers.get(tenantId)?.(sessionId, messageText);
+    } catch {
+      // 通知方违约（同步抛出）也不允许破坏消息写入路径。
+    }
+  }
 
   async createSession(input: CreateSessionRecordInput): Promise<void> {
     const metadata = normalizeSessionMetadata(input.metadata ?? {});
@@ -235,7 +260,39 @@ export class PostgresConversationRepository implements AsyncConversationReposito
     });
     const threadKey = normalized.threadKey?.trim() || "root";
     const contentParts: MessageContentPart[] = normalized.contentParts;
-    return this.executor.transaction(async (executor) => {
+    // holder 规避 CFA 看不见闭包内赋值导致的 never 收窄
+    const titleTrigger: { tenantId: TenantId | null } = { tenantId: null };
+    const inserted = await this.executor.transaction(async (executor) => {
+      // 首条可见用户消息确立检测（与 SQLite 端语义一致）：本条是可见 user 消息且
+      // 之前无任何可见 user 消息。插入前在事务内检查，通知在提交后发出。
+      const candidate = normalized.role === "user" && isSessionListVisibleMessage({
+        role: normalized.role,
+        metadata,
+        thread_key: threadKey,
+        child_agent_id: normalized.childAgentId ?? null,
+      });
+      if (candidate) {
+        const identity = await executor.query(`
+          SELECT s.tenant_id AS tenant_id, EXISTS (
+            SELECT 1 FROM conversation_messages m
+            WHERE m.session_id=s.session_id
+              AND m.role='user'
+              AND m.thread_key='root'
+              AND m.child_agent_id IS NULL
+              AND m.metadata->>'react_intermediate' IS DISTINCT FROM 'true'
+              AND m.metadata->>'visible_to_user' IS DISTINCT FROM 'false'
+              AND m.metadata->>'conversation_scope' IS DISTINCT FROM 'child'
+              AND COALESCE(m.metadata->>'msg_type','') NOT IN ('observation')
+            LIMIT 1
+          ) AS has_earlier_visible_user
+          FROM conversation_sessions s
+          WHERE s.session_id=$1
+        `, [normalized.sessionId]);
+        const identityRow = identity.rows[0] as { tenant_id: string; has_earlier_visible_user: boolean } | undefined;
+        if (identityRow && !identityRow.has_earlier_visible_user) {
+          titleTrigger.tenantId = identityRow.tenant_id as TenantId;
+        }
+      }
       const result = await executor.query(
         "INSERT INTO conversation_messages(id,session_id,role,content_parts,metadata,thread_key,child_agent_id,provider_state) VALUES($1,$2,$3,$4::jsonb,$5::jsonb,$6,$7,$8::jsonb) RETURNING *",
         [id, normalized.sessionId, normalized.role, JSON.stringify(contentParts), JSON.stringify(metadata), threadKey, normalized.childAgentId ?? null, normalized.providerState ? JSON.stringify(normalized.providerState) : null],
@@ -244,6 +301,42 @@ export class PostgresConversationRepository implements AsyncConversationReposito
       if (!result.rows[0]) throw new Error("message insert returned no row");
       return message(result.rows[0]);
     });
+    if (titleTrigger.tenantId !== null) {
+      this.notifySessionTitle(titleTrigger.tenantId, normalized.sessionId, partsToPlainText(contentParts));
+    }
+    return inserted;
+  }
+
+  /** 单会话列表投影（title 回显等轻量读取）。 */
+  async getSessionListProjection(sessionId: string): Promise<SessionListProjection | null> {
+    const result = await this.executor.query(
+      "SELECT * FROM conversation_session_list_projection WHERE session_id=$1",
+      [sessionId],
+    );
+    const row = result.rows[0] as Record<string, unknown> | undefined;
+    return row ? projection(row) : null;
+  }
+
+  /**
+   * LLM 生成标题回写：title_override 与展示 title 同步落，投影重建触发器以
+   * override 优先。EXISTS 守卫确保只在可见用户消息真实存在时回写。
+   */
+  async updateSessionListTitle(sessionId: string, title: string): Promise<void> {
+    await this.executor.query(`
+      UPDATE conversation_session_list_projection SET title_override=$2, title=$2
+      WHERE session_id=$1 AND EXISTS (
+        SELECT 1 FROM conversation_messages m
+        WHERE m.session_id=$1
+          AND m.role='user'
+          AND m.thread_key='root'
+          AND m.child_agent_id IS NULL
+          AND m.metadata->>'react_intermediate' IS DISTINCT FROM 'true'
+          AND m.metadata->>'visible_to_user' IS DISTINCT FROM 'false'
+          AND m.metadata->>'conversation_scope' IS DISTINCT FROM 'child'
+          AND COALESCE(m.metadata->>'msg_type','') NOT IN ('observation')
+        LIMIT 1
+      )
+    `, [sessionId, title]);
   }
 
   async listMessages(sessionId: string, limit = 10_000, offset = 0, threadKey?: string | null): Promise<PaginatedResult<MessageInfo>> {

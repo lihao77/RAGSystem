@@ -7,7 +7,7 @@ export interface MigrationDatabase {
   prepare: import("node:sqlite").DatabaseSync["prepare"];
 }
 
-export const LATEST_SCHEMA_VERSION = 24;
+export const LATEST_SCHEMA_VERSION = 25;
 
 export function assertVersionsContiguous(migrations: readonly { version: number; name: string }[]): void {
   migrations.forEach((migration, index) => {
@@ -33,7 +33,7 @@ export function runMigrations(db: MigrationDatabase): void {
     assertCurrentSchema(db);
     return;
   }
-  if (current >= 1 && current <= 23) {
+  if (current >= 1 && current <= 24) {
     assertVersionOneSchema(db);
     runInTransaction(db, () => {
       if (current === 1) db.exec("ALTER TABLE runs ADD COLUMN terminal_reason TEXT");
@@ -110,6 +110,15 @@ export function runMigrations(db: MigrationDatabase): void {
           WHERE available_at IS NOT NULL AND available_at NOT LIKE '%Z'
             AND strftime('%Y-%m-%dT%H:%M:%fZ', available_at) IS NOT NULL;
         `);
+      }
+      if (current <= 24) {
+        // v25: session_list_projection.title_override——LLM 生成标题的持久层落点。
+        // 投影派生（首条可见消息截 30 字符）仍是兜底，override 非空时优先；
+        // 形状驱动（列已存在则跳过）、幂等，无数据回填（存量会话维持派生标题）。
+        const projectionColumns = db.prepare("PRAGMA table_info(session_list_projection)").all() as unknown as Array<{ name: string }>;
+        if (!projectionColumns.some((column) => column.name === "title_override")) {
+          db.exec("ALTER TABLE session_list_projection ADD COLUMN title_override TEXT");
+        }
       }
       if (current <= 19) {
         // v20: run_steps/run_message_boundaries/step_resources 归档退役（执行视图由消息行合成）。
@@ -349,6 +358,10 @@ function assertCurrentSchema(db: MigrationDatabase): void {
   ).get();
   if (!feedbackTable) {
     throw new Error("Conversation database is missing message_feedback table");
+  }
+  const projectionColumns = db.prepare("PRAGMA table_info(session_list_projection)").all() as unknown as Array<{ name: string }>;
+  if (!projectionColumns.some((column) => column.name === "title_override")) {
+    throw new Error("Conversation database is missing session_list_projection.title_override column");
   }
 }
 

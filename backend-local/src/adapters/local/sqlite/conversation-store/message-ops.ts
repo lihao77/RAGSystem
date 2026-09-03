@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
+import { partsToPlainText } from "@ragsystem/agent-protocol";
 import type { PaginatedResult } from "@ragsystem/backend-core/contracts/common.js";
 import type { MessageInfo } from "@ragsystem/backend-core/contracts/session/session.js";
+import { isSessionListVisibleMessage } from "@ragsystem/backend-core/contracts/session/session-list-projection.js";
 import type { ConversationDb } from "./shared/db.js";
 import { runInTransaction } from "./shared/transaction.js";
 import { parseJsonObject, sqliteTimestampToIso, stringifyJson } from "./helpers.js";
@@ -10,7 +12,13 @@ import { parseMessageProviderState } from "@ragsystem/backend-core/contracts/con
 import type { AddMessageInput } from "@ragsystem/backend-core/contracts/conversation-store/index.js";
 import { AddMessageInputSchema } from "@ragsystem/backend-core/contracts/conversation-store/types.js";
 import type { MessageRow, SqlInputValue } from "./types.js";
-import { SessionListProjector } from "./session-list-projector.js";
+import { SessionListProjector, sessionListVisibleMessageSql } from "./session-list-projector.js";
+
+/**
+ * 首条可见用户消息确立时的通知（会话标题异步生成的触发点）。
+ * 约定：同步调度、绝不抛出——本调用点位于插入事务内，通知方自行 fire-and-forget。
+ */
+export type FirstVisibleUserMessageNotifier = (sessionId: string, messageText: string) => void;
 
 /**
  * listMessages / getRecentMessages 的默认查询条数上限（SQL LIMIT 防野）。
@@ -21,10 +29,17 @@ export const DEFAULT_MESSAGE_LIST_LIMIT = 10_000;
 
 /** messages 聚合根操作（迁移自 ConversationStore，方法体零改动）。 */
 export class MessageOps {
+  private firstVisibleUserMessageNotifier: FirstVisibleUserMessageNotifier | null = null;
+
   constructor(
     private readonly db: ConversationDb,
     private readonly projector: SessionListProjector,
   ) {}
+
+  /** 组合根在装配标题生成服务时注册；通知只做调度，不能影响落库事务。 */
+  setFirstVisibleUserMessageNotifier(notifier: FirstVisibleUserMessageNotifier | null): void {
+    this.firstVisibleUserMessageNotifier = notifier;
+  }
 
   addMessage(input: AddMessageInput): MessageInfo {
     const normalized = AddMessageInputSchema.parse(input);
@@ -80,7 +95,29 @@ export class MessageOps {
       ...decodeChatFields(persistedMetadata),
     };
     this.projector.projectInsertedMessage(message);
+    this.notifyFirstVisibleUserMessage(message);
     return message;
+  }
+
+  /**
+   * 首条可见用户消息确立检测：本条是可见 user 消息且之前无任何可见 user 消息。
+   * 与标题派生条件（首条可见消息，任意角色）刻意不同——系统欢迎语等非用户消息
+   * 不应占用标题生成时机，标题始终由用户意图驱动。
+   */
+  private notifyFirstVisibleUserMessage(message: MessageInfo): void {
+    if (!this.firstVisibleUserMessageNotifier) return;
+    if (message.role !== "user" || !isSessionListVisibleMessage(message)) return;
+    const hasEarlierVisibleUser = Boolean(this.db.prepare(`
+      SELECT 1 FROM messages m
+      WHERE m.session_id=? AND m.seq < ? AND m.role='user' AND ${sessionListVisibleMessageSql("m")}
+      LIMIT 1
+    `).get(message.session_id, message.seq));
+    if (hasEarlierVisibleUser) return;
+    try {
+      this.firstVisibleUserMessageNotifier(message.session_id, partsToPlainText(message.content_parts));
+    } catch {
+      // 通知方违约（同步抛出）也不允许破坏落库事务。
+    }
   }
 
   insertCompressionMessage(input: {

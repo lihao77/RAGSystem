@@ -157,7 +157,7 @@
 <script setup>
 import { ref, computed, nextTick, onMounted, onUnmounted, watch, inject, provide, reactive } from 'vue';
 import { useRoute } from 'vue-router';
-import { useChatSessionController } from '../composables/useChatSessionController';
+import { useChatSessionController, syncSessionTitleAfterFirstMessage } from '../composables/useChatSessionController';
 import { getFrontendChatSdk } from '../composables/chatSdkClient';
 import { useSessionAgentClient } from '../composables/useSessionAgentClient';
 import { useSessionRuntimeStatus } from '../composables/useSessionRuntimeStatus';
@@ -526,6 +526,7 @@ const {
   getCurrentSelectedLlm,
   getCurrentThinkingLevel,
   ensureSession: (...a) => ensureSession(...a),
+  onMessageSent: (...a) => handleSessionMessageSent(...a),
   materializeAttachmentsForSend: (...a) => materializeAttachmentsForSend(...a),
   clearComposerAttachments: () => clearComposerAttachments(),
   resetEditingState: (...a) => resetEditingState(...a),
@@ -636,6 +637,11 @@ const {
   chatSdkClient,
   loadSessionParticipants,
 });
+
+// 首条消息发送成功 → 立即回显派生标题，并在 LLM 异步生成完成后同步侧边栏。
+const handleSessionMessageSent = (sessionId, content) => {
+  syncSessionTitleAfterFirstMessage({ sessionListStore, chatSdkClient, sessionId, content });
+};
 
 const {
   messageKey,

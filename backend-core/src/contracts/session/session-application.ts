@@ -7,6 +7,7 @@ import type {
   MessageInfo,
   SessionFacetCounts,
   SessionInfo,
+  SessionListProjection,
   SessionListProjectionPage,
   SessionListQuery,
   SessionIdentity,
@@ -77,6 +78,8 @@ export interface SessionApplication {
   createSession(input: SessionCreateInput): Promise<SessionInfo>;
   listSessions(input: Omit<SessionListQuery, "tenantId">): Promise<SessionListProjectionPage>;
   listSessionFacets(input: Pick<SessionListQuery, "access">): Promise<SessionFacetCounts>;
+  /** 单会话列表投影（title 回显等轻量读取）。 */
+  getSessionListProjection(sessionId: string): Promise<SessionListProjection | null>;
   listWorkspacesByIds(workspaceIds: readonly string[]): Promise<WorkspaceRecord[]>;
   listWorkspaces(): Promise<WorkspaceRecord[]>;
   removeWorkspace(workspaceId: string): Promise<boolean>;

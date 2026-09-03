@@ -17,6 +17,11 @@ export function sessionListVisibleMessageSql(alias: string): string {
     AND COALESCE(json_extract(${alias}.metadata, '$.msg_type'), '') NOT IN ('${MSG_TYPE.OBSERVATION}')`;
 }
 
+/** 派生兜底标题：首条可见消息纯文本截 30 字符。 */
+function derivedTitle(text: string): string {
+  return text.trim().slice(0, 30);
+}
+
 export class SessionListProjector {
   constructor(private readonly db: ConversationDb) {}
 
@@ -36,7 +41,9 @@ export class SessionListProjector {
         last_message=?, activity_at=?, unread_count=?
       WHERE session_id=?
     `).run(
-      hasEarlierVisible ? this.currentTitle(message.session_id) : text.trim().slice(0, 30),
+      hasEarlierVisible
+        ? this.currentTitle(message.session_id)
+        : this.currentTitleOverride(message.session_id) ?? derivedTitle(text),
       hasEarlierVisible ? 1 : 0,
       text,
       text,
@@ -60,6 +67,7 @@ export class SessionListProjector {
     `).get(sessionId) as { content_parts: string; created_at: string } | undefined;
     const firstText = first ? partsToPlainText(JSON.parse(first.content_parts)) : "";
     const lastText = last ? partsToPlainText(JSON.parse(last.content_parts)) : "";
+    const titleOverride = this.currentTitleOverride(sessionId);
     this.db.prepare(`
       INSERT INTO session_list_projection (
         session_id, tenant_id, owner_user_id, visibility, origin_type, origin_id,
@@ -75,10 +83,27 @@ export class SessionListProjector {
     `).run(
       session.session_id, session.tenant_id, session.owner_user_id, session.visibility,
       session.origin_type, session.origin_id, session.origin_channel, session.workspace_id,
-      firstText.trim().slice(0, 30), firstText,
+      titleOverride ?? derivedTitle(firstText), firstText,
       lastText, isoTimestampToSqlite(last?.created_at ?? session.created_at),
       0,
     );
+  }
+
+  /**
+   * LLM 生成标题回写：title_override 与展示 title 同步落，后续消息插入与 rebuild
+   * 均以 override 优先。EXISTS 守卫确保只在首条可见用户消息真实存在时回写
+   * （触发通知的插入事务若回滚，此处静默跳过，不产生无消息来源的标题）。
+   */
+  updateTitle(sessionId: string, title: string): boolean {
+    const result = this.db.prepare(`
+      UPDATE session_list_projection SET title_override=?, title=?
+      WHERE session_id=? AND EXISTS (
+        SELECT 1 FROM messages m
+        WHERE m.session_id=? AND m.role='user' AND ${sessionListVisibleMessageSql("m")}
+        LIMIT 1
+      )
+    `).run(title, title, sessionId, sessionId);
+    return Number(result.changes) > 0;
   }
 
   private getSession(sessionId: string): SessionRow {
@@ -94,5 +119,10 @@ export class SessionListProjector {
   private currentTitle(sessionId: string): string {
     const row = this.db.prepare("SELECT title FROM session_list_projection WHERE session_id=?").get(sessionId) as { title: string } | undefined;
     return row?.title ?? "";
+  }
+
+  private currentTitleOverride(sessionId: string): string | null {
+    const row = this.db.prepare("SELECT title_override FROM session_list_projection WHERE session_id=?").get(sessionId) as { title_override: string | null } | undefined;
+    return row?.title_override ?? null;
   }
 }

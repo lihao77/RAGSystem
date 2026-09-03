@@ -580,4 +580,107 @@ export const POSTGRES_CONVERSATION_MIGRATIONS: PostgresConversationMigration[] =
     ALTER TABLE conversation_message_feedback
       DROP CONSTRAINT IF EXISTS conversation_message_feedback_session_id_message_id_key;
   `,
+}, {
+  version: 12,
+  name: "session_list_title_override",
+  // LLM 生成标题的持久层落点：title_override 非空时投影 title 以其为准，
+  // 触发器重建不再把显式回写的标题冲回首条消息截断值（对齐 SQLite 端语义）。
+  sql: `
+    ALTER TABLE conversation_session_list_projection ADD COLUMN IF NOT EXISTS title_override TEXT;
+
+    CREATE OR REPLACE FUNCTION rebuild_conversation_session_list_projection(target_session_id TEXT)
+    RETURNS VOID
+    LANGUAGE plpgsql
+    AS $$
+    DECLARE
+      target_session conversation_sessions%ROWTYPE;
+      first_row RECORD;
+      last_row RECORD;
+      title_override_text TEXT;
+    BEGIN
+      SELECT * INTO target_session
+      FROM conversation_sessions
+      WHERE session_id = target_session_id;
+
+      IF NOT FOUND THEN
+        DELETE FROM conversation_session_list_projection WHERE session_id = target_session_id;
+        RETURN;
+      END IF;
+
+      SELECT title_override INTO title_override_text
+      FROM conversation_session_list_projection
+      WHERE session_id = target_session_id;
+
+      SELECT plain_text, created_at INTO first_row
+      FROM (
+        SELECT m.created_at,
+               COALESCE((
+                 SELECT string_agg(elem->>'text', '')
+                 FROM jsonb_array_elements(m.content_parts) AS elem
+                 WHERE elem->>'type' = 'text'
+               ), '') AS plain_text
+        FROM conversation_messages m
+        WHERE m.session_id = target_session_id
+          AND m.thread_key = 'root'
+          AND m.child_agent_id IS NULL
+          AND m.role IN ('user','assistant','system')
+          AND m.metadata->>'react_intermediate' IS DISTINCT FROM 'true'
+          AND m.metadata->>'visible_to_user' IS DISTINCT FROM 'false'
+          AND m.metadata->>'conversation_scope' IS DISTINCT FROM 'child'
+          AND COALESCE(m.metadata->>'msg_type','') NOT IN ('observation')
+        ORDER BY m.seq ASC
+        LIMIT 1
+      ) first_pick;
+
+      SELECT plain_text, created_at INTO last_row
+      FROM (
+        SELECT m.created_at,
+               COALESCE((
+                 SELECT string_agg(elem->>'text', '')
+                 FROM jsonb_array_elements(m.content_parts) AS elem
+                 WHERE elem->>'type' = 'text'
+               ), '') AS plain_text
+        FROM conversation_messages m
+        WHERE m.session_id = target_session_id
+          AND m.thread_key = 'root'
+          AND m.child_agent_id IS NULL
+          AND m.role IN ('user','assistant','system')
+          AND m.metadata->>'react_intermediate' IS DISTINCT FROM 'true'
+          AND m.metadata->>'visible_to_user' IS DISTINCT FROM 'false'
+          AND m.metadata->>'conversation_scope' IS DISTINCT FROM 'child'
+          AND COALESCE(m.metadata->>'msg_type','') NOT IN ('observation')
+        ORDER BY m.seq DESC
+        LIMIT 1
+      ) last_pick;
+
+      INSERT INTO conversation_session_list_projection(
+        session_id, tenant_id, owner_user_id, visibility, origin_type, origin_id,
+        origin_channel, workspace_id, title, first_message, last_message,
+        activity_at, unread_count
+      ) VALUES (
+        target_session.session_id, target_session.tenant_id,
+        target_session.owner_user_id, target_session.visibility,
+        target_session.origin_type, target_session.origin_id,
+        target_session.origin_channel, target_session.workspace_id,
+        COALESCE(
+          title_override_text,
+          COALESCE(left(btrim(first_row.plain_text), 30), '')
+        ), COALESCE(first_row.plain_text, ''),
+        COALESCE(last_row.plain_text, ''), COALESCE(last_row.created_at, target_session.created_at), 0
+      )
+      ON CONFLICT (session_id) DO UPDATE SET
+        tenant_id = EXCLUDED.tenant_id,
+        owner_user_id = EXCLUDED.owner_user_id,
+        visibility = EXCLUDED.visibility,
+        origin_type = EXCLUDED.origin_type,
+        origin_id = EXCLUDED.origin_id,
+        origin_channel = EXCLUDED.origin_channel,
+        workspace_id = EXCLUDED.workspace_id,
+        title = EXCLUDED.title,
+        first_message = EXCLUDED.first_message,
+        last_message = EXCLUDED.last_message,
+        activity_at = EXCLUDED.activity_at;
+    END;
+    $$;
+  `,
 }];

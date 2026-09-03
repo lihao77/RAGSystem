@@ -50,6 +50,11 @@ create/update 路径复用其中的 `canonicalizeProviderConfig` / `normalizePro
   `PRAGMA user_version` 编号迁移（无步骤 id 注册）。v24 将 event_outbox 的时间列
   （created_at/available_at）由 CURRENT_TIMESTAMP 无 Z 文本回填为 ISO-Z，消除与
   delivered_at 等显式 ISO-Z 列的混排（GC 字符串比较与 MIN 统计依赖同构格式）。
+  v25 为 `session_list_projection` 增加 `title_override` 列（LLM 生成标题的持久层落点，
+  投影派生仍为首条可见消息截 30 字符兜底、override 非空时优先；无数据回填，
+  存量会话维持派生标题）。SaaS 端对应变更见
+  `backend-saas/src/adapters/saas/postgres/conversation-schema.ts` v12（同语义，含触发器
+  重建保留 override 的函数改写）。
 - **启动补齐**：桌面产品侧（Oceanx electron）按 ensure 语义补齐 Team 模板与
   planning Provider，属产品组合层，不在共享树内。
 

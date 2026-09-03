@@ -669,8 +669,11 @@ async function assembleSessionDetail(
 ) {
   const sourceNames = await loadSourceNames(options, request.identity.tenantId);
   const workspaces = await application.listWorkspacesByIds(session.workspace_id ? [session.workspace_id] : []);
+  const listEntry = await application.getSessionListProjection(session.session_id);
   return {
     session_id: session.session_id,
+    // 列表投影 title（含 LLM 生成）：前端在首条消息后用它回显侧边栏标题。
+    title: listEntry?.title ?? "",
     team_name: session.team_snapshot.team_name,
     team_revision: session.team_snapshot.team_revision,
     entry_agent_name: session.team_snapshot.entry_agent_name,
@@ -697,7 +700,8 @@ async function assembleCreatedSession(
   options: AgentRouteOptions,
   request: Parameters<typeof sessionListAccess>[0],
 ) {
-  const { tenant_id: _tenantId, created_at: _createdAt, updated_at: _updatedAt, ...created } =
+  const {
+    tenant_id: _tenantId, title: _title, created_at: _createdAt, updated_at: _updatedAt, ...created } =
     await assembleSessionDetail(session, application, options, request);
   return created;
 }

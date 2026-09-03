@@ -13,6 +13,7 @@ import { AgentConfigService } from "@ragsystem/backend-core/services/agent/confi
 import type { AgentExecutionLogger } from "@ragsystem/backend-core/services/agent/execution/index.js";
 import { AsyncKernelEventPersister } from "@ragsystem/backend-core/services/agent/sdk/async-event-persister.js";
 import { SystemConfigService } from "@ragsystem/backend-core/services/config/system-config-service.js";
+import { SessionTitleService } from "@ragsystem/backend-core/services/sessions/session-title-service.js";
 // system config store is created via conversationRuntime (Postgres sole source of truth)
 import { ModelAdapterService } from "@ragsystem/backend-core/services/integrations/model-adapter-service.js";
 import { BackgroundTaskService } from "@ragsystem/backend-core/services/runtime/background-task-service.js";
@@ -105,6 +106,29 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
     conversationRuntime.createSystemConfigStore(tenantId),
   );
   await systemConfig.initialize();
+  // 首条可见用户消息落库 → 异步 LLM 标题生成（会话入口 Agent 的 fast → default 档，
+  // 无档位回落本租户系统 LLM）→ 回写投影。仓储进程级共享，通知按 tenantId 注册；
+  // 容器关闭时注销。
+  const conversationRepository = conversationRuntime.conversation;
+  const sessionTitles = new SessionTitleService({
+    updateSessionListTitle: (sessionId, title) => conversationRepository.updateSessionListTitle(sessionId, title),
+    systemConfig,
+    modelProviders: modelAdapter,
+    getAgentLlmTiers: async (sessionId) => {
+      const session = await conversationRepository.getSession(sessionId);
+      if (!session) return null;
+      const agent = agentConfig.getConfig(session.team_snapshot.entry_agent_name, {
+        teamName: session.team_snapshot.team_name,
+      });
+      return agent?.llm_tiers ?? null;
+    },
+    logger: options.logger
+      ? { warn: (message, meta) => options.logger?.error({ tenantId, ...meta }, message) }
+      : null,
+  });
+  conversationRepository.registerSessionTitleNotifier(tenantId, (sessionId, text) => {
+    sessionTitles.notifyFirstVisibleUserMessage(sessionId, text);
+  });
   const notificationQueue = new SessionNotificationQueue();
   const backgroundTasks = new BackgroundTaskService({
     notificationQueue,
@@ -228,6 +252,7 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
     },
     closeInfrastructure: async () => {
       backgroundTasks.dispose();
+      conversationRepository.unregisterSessionTitleNotifier(tenantId);
       // Shared process-level outbox dispatcher is owned by conversationRuntime.
       realtimeEvents.close();
       try {

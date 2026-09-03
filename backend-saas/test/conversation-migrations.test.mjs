@@ -24,3 +24,18 @@ test("PostgreSQL adds a forward compensation migration for missing Run message b
   assert.match(compensation.sql, /ORDER BY message.seq ASC/);
   assert.match(compensation.sql, /WHERE NOT EXISTS/);
 });
+
+test("PostgreSQL session list title override migration preserves explicit titles on rebuild", () => {
+  const migration = POSTGRES_CONVERSATION_MIGRATIONS.find(item => item.version === 12);
+  assert.ok(migration);
+  assert.equal(migration?.name, "session_list_title_override");
+  // 列落点：LLM 生成标题持久化在投影行自身
+  assert.match(migration?.sql ?? "", /ALTER TABLE conversation_session_list_projection ADD COLUMN IF NOT EXISTS title_override TEXT/);
+  // 重建函数读取现有 override 并优先于首条消息截断派生
+  assert.match(migration?.sql ?? "", /SELECT title_override INTO title_override_text/);
+  assert.match(migration?.sql ?? "", /COALESCE\(\s*title_override_text,\s*COALESCE\(left\(btrim\(first_row\.plain_text\), 30\), ''\)\s*\)/);
+  // ON CONFLICT 更新清单不得触碰 title_override（否则下一条消息的触发器重建会把显式标题冲掉）
+  const conflictClause = migration?.sql ?? "";
+  const updateList = conflictClause.split("ON CONFLICT (session_id) DO UPDATE SET")[1] ?? "";
+  assert.doesNotMatch(updateList, /title_override\s*=/);
+});

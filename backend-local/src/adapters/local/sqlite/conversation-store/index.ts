@@ -11,6 +11,7 @@ import { WorkflowTaskOps } from "./workflow-task-ops.js";
 import { GoalOps } from "./goal-ops.js";
 import { MessageFeedbackOps } from "./feedback-ops.js";
 import { SessionListProjector } from "./session-list-projector.js";
+import type { FirstVisibleUserMessageNotifier } from "./message-ops.js";
 import { WorkspaceOps } from "./workspace-ops.js";
 import { AgentMailboxOps } from "./agent-mailbox-ops.js";
 
@@ -93,7 +94,14 @@ export function createConversationStore(options: ConversationStoreOptions) {
     deleteSession: sessions.deleteSession.bind(sessions),
     listSessions: sessions.listSessions.bind(sessions),
     listSessionFacets: sessions.listSessionFacets.bind(sessions),
+    getSessionListProjection: sessions.getSessionListProjection.bind(sessions),
     rebuildSessionListProjection: projector.rebuildSessionListProjection.bind(projector),
+    /** LLM 生成标题回写（override 优先，带可见用户消息存在性守卫）。 */
+    updateSessionListTitle: projector.updateTitle.bind(projector),
+    /** 组合根装配标题生成服务后注册；消息落库路径据此在首条可见用户消息确立时收到通知。 */
+    setFirstVisibleUserMessageNotifier: (notifier: FirstVisibleUserMessageNotifier | null) => {
+      messages.setFirstVisibleUserMessageNotifier(notifier);
+    },
 
     // workspace
     resolveLocalWorkspace: workspaces.resolveLocal.bind(workspaces),

@@ -173,6 +173,7 @@ export const BASELINE_SCHEMA_SQL = `
       origin_channel TEXT NOT NULL,
       workspace_id TEXT,
       title TEXT NOT NULL DEFAULT '',
+      title_override TEXT,
       first_message TEXT NOT NULL DEFAULT '',
       last_message TEXT NOT NULL DEFAULT '',
       activity_at TIMESTAMP NOT NULL,

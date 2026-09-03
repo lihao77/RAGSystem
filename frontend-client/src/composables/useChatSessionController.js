@@ -37,6 +37,50 @@ export const updateListedSessionActivity = (sessionListStore, sessionId, content
   });
 };
 
+/** 会话占位标题（新建会话乐观插入用）。 */
+export const PLACEHOLDER_SESSION_TITLE = '新会话';
+
+/** 首条消息的乐观标题：与后端投影派生兜底（首行压空白、截 30 字符）保持一致。 */
+export const deriveDisplaySessionTitle = (content) => {
+  const firstLine = String(content || '').split(/\r?\n/, 1)[0] || '';
+  return firstLine.replace(/\s+/g, ' ').trim().slice(0, 30);
+};
+
+/** LLM 标题异步生成完成前的延迟重试节奏（秒级；生成通常 1~3s 内完成）。 */
+const TITLE_SYNC_DELAYS_MS = [4000, 12000];
+const TITLE_SYNC_FINAL_CLEAR_MS = 20_000;
+const pendingTitleSyncs = new Set();
+
+/**
+ * 首条消息发送成功后的标题回显：
+ * 1) 立即以派生兜底替换占位"新会话"（与后端投影初始值一致）；
+ * 2) 延迟拉取会话详情，把 LLM 生成的标题带回侧边栏（标题只生成一次，重复发送不重排）。
+ */
+export const syncSessionTitleAfterFirstMessage = ({ sessionListStore, chatSdkClient, sessionId, content }) => {
+  if (!sessionId || !chatSdkClient) return;
+  const item = sessionListStore.getById(sessionId);
+  // 已有真实标题的会话（非首条消息）不参与：后端只对首条可见用户消息生成标题。
+  if (!item || (item.title && item.title !== PLACEHOLDER_SESSION_TITLE)) return;
+  const fallbackTitle = deriveDisplaySessionTitle(content);
+  if (fallbackTitle) sessionListStore.updateTitle(sessionId, fallbackTitle);
+  if (pendingTitleSyncs.has(sessionId)) return;
+  pendingTitleSyncs.add(sessionId);
+  const syncOnce = async () => {
+    try {
+      const response = await chatSdkClient.getSession(sessionId);
+      const title = response?.data?.title;
+      if (typeof title === 'string' && title && title !== PLACEHOLDER_SESSION_TITLE) {
+        sessionListStore.updateTitle(sessionId, title);
+        pendingTitleSyncs.delete(sessionId);
+      }
+    } catch {
+      // 静默重试：下一次延迟或列表刷新自然带回。
+    }
+  };
+  for (const delay of TITLE_SYNC_DELAYS_MS) setTimeout(syncOnce, delay);
+  setTimeout(() => pendingTitleSyncs.delete(sessionId), TITLE_SYNC_FINAL_CLEAR_MS);
+};
+
 /**
  * 聊天页的会话入口、历史、创建与导出控制。
  */

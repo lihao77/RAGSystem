@@ -47,6 +47,9 @@ export class LocalSessionApplication implements SessionApplication {
   async listSessionFacets(input: Parameters<SessionApplication["listSessionFacets"]>[0]) {
     return this.sessions.listSessionFacets({ ...input, tenantId: this.tenantId });
   }
+  async getSessionListProjection(sessionId: string) {
+    return this.conversations.getSessionListProjection(sessionId);
+  }
   async listWorkspacesByIds(workspaceIds: readonly string[]) {
     return this.conversations.listWorkspacesByIds(this.tenantId, workspaceIds);
   }

@@ -79,6 +79,11 @@ export class SaaSSessionApplication implements SessionApplication, ExecutionSess
   listSessionFacets(input: Pick<import("@ragsystem/backend-core/contracts/session/session.js").SessionListQuery, "access">) {
     return this.repository.listSessionFacets({ ...input, tenantId: this.tenantId });
   }
+  /** 单会话列表投影（title 回显等轻量读取）；跨租户读取按不存在处理。 */
+  async getSessionListProjection(sessionId: string) {
+    const row = await this.repository.getSessionListProjection(sessionId);
+    return row?.tenant_id === this.tenantId ? row : null;
+  }
   listWorkspacesByIds(workspaceIds: readonly string[]) {
     return this.workspaces?.listByIds(this.tenantId, workspaceIds) ?? Promise.resolve([]);
   }

@@ -25,6 +25,8 @@ const detail = {
   workspace: { workspace_id: "workspace-1", display_name: "ragsystem", root_path: "D:/work" },
   permission_mode: null,
   metadata: { title: "Session" },
+  // 列表投影标题（首条消息截断或 LLM 生成回写）
+  title: "Session",
   created_at: "2026-07-16 10:00:00",
   updated_at: "2026-07-16 10:00:00",
 };

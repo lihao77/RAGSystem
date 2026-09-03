@@ -2,6 +2,7 @@ import type {
   CreateSessionRecordInput,
   SessionFacetCounts,
   SessionInfo,
+  SessionListProjection,
   SessionListProjectionPage,
   SessionListQuery,
 } from "@ragsystem/backend-core/contracts/session/session.js";
@@ -71,6 +72,16 @@ export class SessionOps {
       FROM sessions WHERE session_id=?
     `).get(sessionId) as SessionRow | undefined;
     return row ? rowToSession(row) : null;
+  }
+
+  /** 单会话列表投影（title 回显等轻量读取）。 */
+  getSessionListProjection(sessionId: string): SessionListProjection | null {
+    const row = this.db.prepare(`
+      SELECT session_id, tenant_id, owner_user_id, visibility, origin_type, origin_id,
+             origin_channel, workspace_id, title, first_message, last_message, activity_at, unread_count
+      FROM session_list_projection WHERE session_id=?
+    `).get(sessionId) as unknown as SessionListProjectionRow | undefined;
+    return row ? rowToSessionListProjection(row) : null;
   }
 
   updateSessionMetadata(sessionId: string, patch: Record<string, unknown>): Record<string, unknown> | null {

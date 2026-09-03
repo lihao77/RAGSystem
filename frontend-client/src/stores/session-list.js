@@ -298,6 +298,20 @@ export const useSessionListStore = defineStore('session-list', () => {
     recordLocalMutation(sessionId, 'remove');
   };
 
+  /** 只改标题（LLM 生成标题回显）；顺序不变，空值/同值跳过。 */
+  const updateTitle = (sessionId, title) => {
+    const nextTitle = String(title ?? '').trim();
+    if (!nextTitle) return null;
+    const index = items.value.findIndex(item => item.session_id === sessionId);
+    if (index < 0) return null;
+    const existing = items.value[index];
+    if (existing.title === nextTitle) return existing;
+    const updated = { ...existing, title: nextTitle };
+    items.value.splice(index, 1, updated);
+    recordLocalMutation(sessionId, 'upsert', updated);
+    return updated;
+  };
+
   const getById = sessionId => (sessionId
     ? items.value.find(item => item.session_id === sessionId) || null
     : null);
@@ -325,6 +339,7 @@ export const useSessionListStore = defineStore('session-list', () => {
     syncCreatedSessionFacets,
     upsert,
     updateActivity,
+    updateTitle,
     remove,
     getById,
     dispose,

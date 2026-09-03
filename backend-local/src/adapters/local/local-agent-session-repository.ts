@@ -18,6 +18,7 @@ export class LocalAgentSessionRepository implements AgentSessionRepositoryPort {
   async deleteSession(sessionId: string) { return this.store.deleteSession(sessionId); }
   async listSessions(input: Parameters<AgentSessionRepositoryPort["listSessions"]>[0]) { return this.store.listSessions(input); }
   async listSessionFacets(input: Parameters<AgentSessionRepositoryPort["listSessionFacets"]>[0]) { return this.store.listSessionFacets(input); }
+  async getSessionListProjection(sessionId: string) { return this.store.getSessionListProjection(sessionId); }
 
   async addMessage(input: AgentSessionMessageInput) { return this.store.addMessage(input); }
   async listMessages(sessionId: string, limit: number, offset: number, threadKey?: string | null) {

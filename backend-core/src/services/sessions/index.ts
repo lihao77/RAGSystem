@@ -56,6 +56,10 @@ export class AgentSessionApplication implements ExecutionSessionPort {
     return this.repository.listSessionFacets(input);
   }
 
+  async getSessionListProjection(sessionId: string) {
+    return this.repository.getSessionListProjection(sessionId);
+  }
+
   async getSession(sessionId: string): Promise<SessionInfo | null> {
     return this.repository.getSession(sessionId);
   }

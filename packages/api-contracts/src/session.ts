@@ -64,6 +64,8 @@ export const CreatedSessionSchema = z.object({
 
 export const SessionDetailSchema = CreatedSessionSchema.extend({
   tenant_id: z.string().min(1),
+  /** 列表投影标题（首条消息截断，或异步 LLM 生成后的回写值）。 */
+  title: z.string(),
   created_at: z.string(),
   updated_at: z.string(),
 }).strict();

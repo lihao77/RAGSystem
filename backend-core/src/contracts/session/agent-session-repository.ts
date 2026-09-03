@@ -4,6 +4,7 @@ import type {
   MessageInfo,
   SessionFacetCounts,
   SessionInfo,
+  SessionListProjection,
   SessionListProjectionPage,
   SessionListQuery,
   SessionMessageListSnapshot,
@@ -50,6 +51,8 @@ export interface AgentSessionRepositoryPort {
   deleteSession(sessionId: string): Promise<boolean>;
   listSessions(input: SessionListQuery): Promise<SessionListProjectionPage>;
   listSessionFacets(input: Pick<SessionListQuery, "tenantId" | "access">): Promise<SessionFacetCounts>;
+  /** 单会话列表投影（title 回显等轻量读取）。 */
+  getSessionListProjection(sessionId: string): Promise<SessionListProjection | null>;
 
   addMessage(input: AgentSessionMessageInput): Promise<MessageInfo>;
   listMessages(sessionId: string, limit: number, offset: number, threadKey?: string | null): Promise<SessionMessageListSnapshot>;

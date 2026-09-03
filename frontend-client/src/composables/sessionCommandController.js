@@ -149,6 +149,7 @@ export function createSessionCommandController({
         throw new Error(result.error || '启动执行失败');
       }
       if (result.kind === 'command') scheduleCommandFallback(sessionId, 60000);
+      deps.onMessageSent?.(sessionId, content);
       return true;
     } catch (error) {
       console.error('Error sending message:', error);

@@ -10,6 +10,7 @@ import { ModelAdapterService } from "@ragsystem/backend-core/services/integratio
 import { CapabilityRegistry } from "@ragsystem/backend-core/plugins/capability-registry.js";
 import { EXECUTION_ENVIRONMENT_CAPABILITY, createLocalExecutionEnvironment } from "@ragsystem/backend-core/contracts/execution/execution-environment.js";
 import { AgentSessionApplication } from "@ragsystem/backend-core/services/sessions/index.js";
+import { SessionTitleService } from "@ragsystem/backend-core/services/sessions/session-title-service.js";
 import { createConversationStore } from "./sqlite/conversation-store/index.js";
 import { FileHistoryService } from "./files/file-history-service.js";
 import { FileIndexService } from "./files/file-index-service.js";
@@ -124,6 +125,27 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
     configPath: options.systemConfigPath,
   }));
   await systemConfig.initialize();
+  // 首条可见用户消息落库 → 异步 LLM 标题生成 → 回写列表投影（override 优先）。
+  // 调用目标：会话入口 Agent 的 fast → default 档，无档位回落系统 LLM。
+  // 失败静默退回首条消息截断兜底，不进入任何用户可见错误路径。
+  const sessionTitles = new SessionTitleService({
+    updateSessionListTitle: (sessionId, title) => {
+      conversationStore.updateSessionListTitle(sessionId, title);
+    },
+    systemConfig,
+    modelProviders: modelAdapter,
+    getAgentLlmTiers: (sessionId) => {
+      const session = conversationStore.getSession(sessionId);
+      if (!session) return null;
+      const agent = agentConfig.getConfig(session.team_snapshot.entry_agent_name, {
+        teamName: session.team_snapshot.team_name,
+      });
+      return agent?.llm_tiers ?? null;
+    },
+  });
+  conversationStore.setFirstVisibleUserMessageNotifier((sessionId, text) => {
+    sessionTitles.notifyFirstVisibleUserMessage(sessionId, text);
+  });
   const fileIndex = new FileIndexService({ dbPath: options.dbPath, dataRoot: options.dataRoot });
 
   const hostToolsEnabled = options.hostToolsEnabled !== false;
