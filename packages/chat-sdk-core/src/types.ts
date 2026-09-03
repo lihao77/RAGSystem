@@ -18,6 +18,7 @@ export type RagChatEndpointName =
   | "deleteSession"
   | "exportSession"
   | "listSessionsFacets"
+  | "listSessionWorkspacePreview"
   | "listWorkspaces"
   | "createWorkspace"
   | "removeWorkspace"
@@ -94,6 +95,13 @@ export interface ListSessionsOptions {
   originType?: "direct" | "bot" | "widget" | null;
   originId?: string | null;
   workspaceId?: string | null;
+  signal?: AbortSignal;
+}
+
+export interface ListSessionWorkspacePreviewOptions {
+  limit?: number;
+  originType?: "direct" | "bot" | "widget" | null;
+  originId?: string | null;
   signal?: AbortSignal;
 }
 

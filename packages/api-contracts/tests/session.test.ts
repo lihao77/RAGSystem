@@ -10,6 +10,7 @@ import {
   SessionParticipantRunListResponseSchema,
   SessionParticipantRunStepsResponseSchema,
   SessionPermissionResponseSchema,
+  SessionWorkspacePreviewResponseSchema,
 } from "../src/session.js";
 
 const origin = { type: "direct" as const, id: null, display_name: "直接对话", channel: "web" as const };
@@ -80,6 +81,40 @@ describe("Session REST contracts", () => {
     expect(data.next_cursor).toBe("opaque-cursor");
     expect(data.items[0]).not.toHaveProperty("metadata");
     expect(data.items[0]).not.toHaveProperty("updated_at");
+  });
+
+  it("models the workspace preview as per-group first pages with own cursors", () => {
+    const listItem = {
+      session_id: detail.session_id,
+      title: "Session",
+      last_message: "hello",
+      activity_at: detail.updated_at,
+      first_message: "hello",
+      unread_count: 0,
+      origin,
+      workspace: null,
+    };
+    const data = SessionWorkspacePreviewResponseSchema.parse({
+      success: true,
+      message: "ok",
+      data: {
+        groups: [
+          { workspace_id: "workspace-1", items: [listItem], next_cursor: "opaque-cursor" },
+          { workspace_id: "__unassigned__", items: [], next_cursor: null },
+        ],
+      },
+    }).data;
+    expect(data.groups).toHaveLength(2);
+    expect(data.groups[1]?.workspace_id).toBe("__unassigned__");
+    expect(data.groups[1]?.next_cursor).toBeNull();
+    // 组内条目沿用列表投影形态，不携带存储字段
+    expect(data.groups[0]?.items[0]).not.toHaveProperty("metadata");
+    // groups 至少一组（未归属组恒在），空数组拒绝
+    expect(() => SessionWorkspacePreviewResponseSchema.parse({
+      success: true,
+      message: "ok",
+      data: { groups: [] },
+    })).toThrow();
   });
 
   it("models source and workspace facets", () => {

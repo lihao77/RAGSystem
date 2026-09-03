@@ -10,6 +10,7 @@ import type {
   SessionDetailResponse,
   SessionListFacetsResponse,
   SessionListResponse,
+  SessionWorkspacePreviewResponse,
   SessionMessageListResponse,
   SessionMessageExecutionResponse,
   SessionParticipantListResponse,
@@ -44,6 +45,7 @@ import { AguiSseClient, type AguiEvent, type AguiRunHandle, type AguiRunInput } 
 import type {
   ListMessagesOptions,
   ListSessionsOptions,
+  ListSessionWorkspacePreviewOptions,
   RagChatClientOptions,
   RagChatEndpointName,
   RagChatInteractionHandler,
@@ -228,6 +230,14 @@ export class RagChatClient {
     return this.request<SessionListFacetsResponse>("listSessionsFacets", {
       ...(options.signal ? { signal: options.signal } : {}),
     });
+  }
+
+  async listSessionWorkspacePreview(options: ListSessionWorkspacePreviewOptions = {}): Promise<SessionWorkspacePreviewResponse> {
+    const query = new URLSearchParams();
+    query.set("limit", String(options.limit ?? 5));
+    if (options.originType) query.set("origin_type", options.originType);
+    if (options.originId) query.set("origin_id", options.originId);
+    return this.request<SessionWorkspacePreviewResponse>("listSessionWorkspacePreview", { query, ...(options.signal ? { signal: options.signal } : {}) });
   }
 
   async listWorkspaces(options: { signal?: AbortSignal } = {}): Promise<WorkspaceListResponse> {
@@ -740,6 +750,7 @@ function defaultEndpoint(name: RagChatEndpointName, context: Record<string, unkn
     case "deleteSession": return `/api/agent/sessions/${sessionId}`;
     case "exportSession": return `/api/agent/sessions/${sessionId}/export`;
     case "listSessionsFacets": return "/api/agent/sessions/facets";
+    case "listSessionWorkspacePreview": return "/api/agent/sessions/workspace-preview";
     case "listWorkspaces": return "/api/agent/workspaces";
     case "createWorkspace": return "/api/agent/workspaces";
     case "removeWorkspace": return `/api/agent/workspaces/${workspaceId}`;

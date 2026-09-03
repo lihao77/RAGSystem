@@ -10,6 +10,7 @@ import {
   SessionDetailResponseSchema,
   SessionListFacetsResponseSchema,
   SessionListResponseSchema,
+  SessionWorkspacePreviewResponseSchema,
   SessionMessageListResponseSchema,
   SessionMessageExecutionResponseSchema,
   SessionParticipantRunListResponseSchema,
@@ -155,6 +156,33 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
       }),
     };
     return validateResponse(SessionListFacetsResponseSchema, ok(data, "获取会话筛选项成功"));
+  });
+
+  // 项目视图首屏：一次请求返回每个项目各自的最新一页（含未归属组），并附各自续页游标。
+  // 聚合在路由层完成，复用 listSessions 的 workspace 过滤与游标语义，local/saas 持久层同样生效。
+  app.get("/sessions/workspace-preview", async (request) => {
+    const query = request.query as { limit?: string; origin_type?: string; origin_id?: string };
+    const limit = clampInt(query.limit, 5, 1, 50);
+    const originType = query.origin_type ? SessionOriginTypeSchema.parse(query.origin_type) : null;
+    const originId = query.origin_id?.trim() || null;
+    if (originId && (!originType || originType === "direct")) throw new HttpError(400, "invalid_request", "origin_id 仅能与 bot/widget origin_type 一起使用");
+    const application = await resolveSessionApplication(options, request);
+    const access = sessionListAccess(request);
+    const workspaces = await application.listWorkspaces();
+    const groupIds = [...workspaces.map((workspace) => workspace.workspace_id), "__unassigned__"];
+    const pages = await Promise.all(groupIds.map(async (workspaceId) => ({
+      workspaceId,
+      page: await application.listSessions({ access, limit, originType, originId, workspaceId }),
+    })));
+    const groups = [];
+    for (const { workspaceId, page } of pages) {
+      groups.push({
+        workspace_id: workspaceId,
+        items: await assembleSessionList(page.items, application, options, request),
+        next_cursor: page.nextCursor ? encodeSessionListCursor(page.nextCursor) : null,
+      });
+    }
+    return validateResponse(SessionWorkspacePreviewResponseSchema, ok({ groups }, "获取项目会话预览成功"));
   });
 
   app.get("/workspaces", async (request) => {

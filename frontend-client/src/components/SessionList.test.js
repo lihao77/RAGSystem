@@ -86,3 +86,28 @@ test('timeline items show workspace context while project items stay compact', (
   assert.doesNotMatch(timelineSource, /\bcompact\b/);
   assert.match(listSource, /v-for="item in group\.items"[\s\S]*?\bcompact\b/);
 });
+
+test('timeline keeps scroll auto-paging; project view has no global load-more entry', () => {
+  assert.match(listSource, /@scroll="handleScroll"/);
+  assert.match(listSource, /function handleScroll\(\) \{\s*if \(props\.viewMode === 'project'\) return;/);
+  assert.doesNotMatch(listSource, /session-load-more/);
+  assert.doesNotMatch(listSource, /ChevronsDown/);
+});
+
+test('project groups render all loaded sessions without client-side reveal capping', () => {
+  assert.doesNotMatch(listSource, /GROUP_REVEAL_STEP|GROUP_INITIAL_VISIBLE|groupVisibleLimits|visibleItems|hiddenCount/);
+  assert.doesNotMatch(listSource, /显示更多/);
+});
+
+test('each project group pages from its own workspace cursor via the group button', () => {
+  assert.match(listSource, /v-if="workspaceHasMore\(group\.id\)"/);
+  assert.match(listSource, /loadingWorkspaceIds\[group\.id\]/);
+  assert.match(listSource, /store\.loadWorkspace\(group\.id\)/);
+  assert.match(listSource, />加载中…</);
+  assert.match(listSource, /加载失败 · 点击重试/);
+});
+
+test('project view first screen is seeded by the workspace preview endpoint', () => {
+  assert.match(listSource, /store\.loadWorkspacePreview\(\)/);
+  assert.match(listSource, /mode === 'project' && !loading/);
+});

@@ -135,7 +135,18 @@
                     @delete="$emit('delete', item)"
                   />
                 </div>
-                <div v-else class="project-session-group__empty">暂无对话</div>
+                <div v-else-if="!workspaceHasMore(group.id)" class="project-session-group__empty">暂无对话</div>
+                <button
+                  v-if="workspaceHasMore(group.id)"
+                  type="button"
+                  class="project-session-group__more"
+                  :disabled="Boolean(loadingWorkspaceIds[group.id])"
+                  @click="loadGroupMore(group)"
+                >
+                  <template v-if="loadingWorkspaceIds[group.id]">加载中…</template>
+                  <template v-else-if="groupErrors[group.id]">加载失败 · 点击重试</template>
+                  <template v-else>加载更多</template>
+                </button>
               </section>
             </template>
 
@@ -167,7 +178,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import type { SessionListItem as SessionListItemData } from '@ragsystem/api-contracts';
 import { Ellipsis, FolderMinus, FolderOpen } from 'lucide-vue-next';
@@ -218,9 +229,12 @@ const {
   loadingInitial,
   loadingMore,
   loadingFacets,
+  loadingWorkspaceIds,
   error,
   hasMore,
 } = storeToRefs(store);
+/** setup store 的动作是闭包，解构不丢响应式上下文 */
+const workspaceHasMore = store.workspaceHasMore;
 const { items: workspaceItems, currentWorkspaceId, removingWorkspaceId } = storeToRefs(workspaceStore);
 const now = useSessionListTime();
 const scrollContainer = ref<HTMLElement | null>(null);
@@ -235,6 +249,8 @@ const hasFacetData = computed(() => (
 const isSoftRefreshing = computed(() => loadingInitial.value && items.value.length > 0);
 /** 仅冷启动或筛空后的加载才用骨架 */
 const showSkeleton = computed(() => loadingInitial.value && items.value.length === 0);
+
+/** 项目视图分组：组 id 即工作区 id（未归属组为 __unassigned__），已加载条目全部直接渲染 */
 const projectGroups = computed(() => {
   if (props.viewMode !== 'project') return [];
   const groups = new Map();
@@ -257,6 +273,27 @@ const projectGroups = computed(() => {
   return Array.from(groups.values());
 });
 
+/** 组级取页失败标记：按钮文案转为“点击重试”，不弹全局错误 */
+const groupErrors = ref<Record<string, boolean>>({});
+
+/** 组内「加载更多」：项目视图唯一翻页入口，取该项目自己的下一页 */
+function loadGroupMore(group: { id: string }) {
+  groupErrors.value = { ...groupErrors.value, [group.id]: false };
+  void store.loadWorkspace(group.id).catch(() => {
+    groupErrors.value = { ...groupErrors.value, [group.id]: true };
+  });
+}
+
+/** 时间轴视图沿用滚动到底自动翻页；项目视图每组按自己的工作区游标独立翻页 */
+function handleScroll() {
+  if (props.viewMode === 'project') return;
+  const element = scrollContainer.value;
+  if (!element || loadingMore.value || loadingInitial.value || !hasMore.value) return;
+  if (element.scrollTop + element.clientHeight >= element.scrollHeight - 80) {
+    void store.load().catch(() => undefined);
+  }
+}
+
 function applyFilters(next: Partial<typeof filters.value>) {
   void store.setFilters(next).catch(() => undefined);
   if (scrollContainer.value) scrollContainer.value.scrollTop = 0;
@@ -267,21 +304,37 @@ function clearFilters() {
   if (scrollContainer.value) scrollContainer.value.scrollTop = 0;
 }
 
-function handleScroll() {
-  const element = scrollContainer.value;
-  if (!element || loadingMore.value || loadingInitial.value || !hasMore.value) return;
-  if (element.scrollTop + element.clientHeight >= element.scrollHeight - 80) {
-    void store.load().catch(() => undefined);
-  }
-}
-
 function retry() {
   void store.load({ reset: items.value.length === 0 }).catch(() => undefined);
 }
 
+function requestProjectPreview() {
+  if (props.viewMode === 'project' && !loadingInitial.value) {
+    void store.loadWorkspacePreview().catch(() => undefined);
+  }
+}
+
 onMounted(() => {
-  if (!items.value.length) void store.initialize().catch(() => undefined);
-  else void store.loadFacets().catch(() => undefined);
+  if (!items.value.length) {
+    // 冷启动先等初始全局页落定再取预览，避免请求刚发出就被 initialize 的 reset 中止
+    void store.initialize().catch(() => undefined).finally(requestProjectPreview);
+  } else {
+    void store.loadFacets().catch(() => undefined);
+    requestProjectPreview();
+  }
+});
+
+/** 项目视图首屏靠预览接口补齐每个项目自己的最新一页；也覆盖运行中切换视图/筛选重置的场景 */
+watch(
+  [() => props.viewMode, loadingInitial],
+  ([mode, loading]) => {
+    if (mode === 'project' && !loading) void store.loadWorkspacePreview().catch(() => undefined);
+  },
+);
+
+/** 筛选重置会作废全部工作区游标，组级失败标记一并清空 */
+watch(filters, () => {
+  groupErrors.value = {};
 });
 </script>
 
@@ -388,6 +441,33 @@ onMounted(() => {
   padding: 5px 8px 7px 31px;
   color: var(--color-text-muted);
   font-size: 12px;
+}
+
+/* 分组「加载更多」：与组内条目同缩进的弱化文字按钮，项目视图唯一翻页入口 */
+.project-session-group__more {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+  margin: 1px 0 2px;
+  padding: 4px 6px 5px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.project-session-group__more:hover:not(:disabled) {
+  background: var(--color-active-bg);
+  color: var(--color-text-primary);
+}
+
+.project-session-group__more:disabled {
+  cursor: default;
+  opacity: 0.6;
 }
 
 .session-list-scroll.is-soft-refreshing {

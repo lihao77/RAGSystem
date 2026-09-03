@@ -15,6 +15,7 @@ export type {
   RagChatInteractionHandler,
   RagChatRequestContext,
   ListSessionsOptions,
+  ListSessionWorkspacePreviewOptions,
   ListMessagesOptions,
   UploadFilesOptions,
 } from "./types.js";
@@ -63,6 +64,8 @@ export type {
   SessionDetailResponse,
   SessionListFacetsResponse,
   SessionListResponse,
+  SessionWorkspacePreviewGroup,
+  SessionWorkspacePreviewResponse,
   WorkspaceListResponse,
   CreateWorkspaceRequest,
   WorkspaceResponse,

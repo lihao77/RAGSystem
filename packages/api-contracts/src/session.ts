@@ -86,6 +86,19 @@ export const SessionListDataSchema = z.object({
   next_cursor: z.string().min(1).nullable(),
 }).strict();
 
+/**
+ * 项目视图首屏预览：每个项目（含未归属，workspace_id 为 "__unassigned__"）各自的最新一页
+ * 与各自的续页游标。一次请求补齐所有分组的首屏，组内「加载更多」沿用 next_cursor 续页。
+ */
+export const SessionWorkspacePreviewGroupSchema = z.object({
+  workspace_id: z.string().min(1),
+  items: z.array(SessionListItemSchema),
+  next_cursor: z.string().min(1).nullable(),
+}).strict();
+export const SessionWorkspacePreviewDataSchema = z.object({
+  groups: z.array(SessionWorkspacePreviewGroupSchema).min(1),
+}).strict();
+
 export const SessionListFacetsSchema = z.object({
   type_counts: z.object({
     direct: z.number().int().nonnegative(),
@@ -215,6 +228,7 @@ export const CreateSessionResponseSchema = successResponseSchema(CreatedSessionS
 export const SessionDetailResponseSchema = successResponseSchema(SessionDetailSchema);
 export const SessionListResponseSchema = successResponseSchema(SessionListDataSchema);
 export const SessionListFacetsResponseSchema = successResponseSchema(SessionListFacetsSchema);
+export const SessionWorkspacePreviewResponseSchema = successResponseSchema(SessionWorkspacePreviewDataSchema);
 export const WorkspaceListResponseSchema = successResponseSchema(WorkspaceListDataSchema);
 export const SessionPermissionResponseSchema = successResponseSchema(SessionPermissionDataSchema);
 export const SessionMetadataResponseSchema = successResponseSchema(z.object({
@@ -304,6 +318,9 @@ export type CreateSessionResponse = z.infer<typeof CreateSessionResponseSchema>;
 export type SessionDetailResponse = z.infer<typeof SessionDetailResponseSchema>;
 export type SessionListResponse = z.infer<typeof SessionListResponseSchema>;
 export type SessionListFacetsResponse = z.infer<typeof SessionListFacetsResponseSchema>;
+export type SessionWorkspacePreviewGroup = z.infer<typeof SessionWorkspacePreviewGroupSchema>;
+export type SessionWorkspacePreviewData = z.infer<typeof SessionWorkspacePreviewDataSchema>;
+export type SessionWorkspacePreviewResponse = z.infer<typeof SessionWorkspacePreviewResponseSchema>;
 export type WorkspaceListItem = z.infer<typeof WorkspaceListItemSchema>;
 export type WorkspaceListResponse = z.infer<typeof WorkspaceListResponseSchema>;
 export type CreateWorkspaceRequest = z.infer<typeof CreateWorkspaceRequestSchema>;

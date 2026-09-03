@@ -63,20 +63,53 @@ export const useSessionListStore = defineStore('session-list', () => {
   const loadingMore = ref(false);
   const loadingFacets = ref(false);
   const error = ref('');
+  /** 项目视图按工作区独立分页：工作区 id（含 __unassigned__）→ 该工作区自己的下一页游标；null 表示取尽 */
+  const workspaceCursors = ref({});
+  const loadingWorkspaceIds = ref({});
+  /** 项目视图首屏预览每个筛选生命周期只取一次；reset 时随游标一起失效 */
+  const previewLoaded = ref(false);
   let listController = null;
   let facetsController = null;
+  let previewController = null;
   let listRequestVersion = 0;
   let facetsRequestVersion = 0;
   let localMutationVersion = 0;
   const localMutations = new Map();
   const optimisticFacetSessionIds = new Set();
+  const workspaceControllers = new Map();
   let chatSdkClient = null;
+
+  /** 全局页与工作区页按活跃时间各排各的，工作区首页常与已加载项整页重复；连追几页直到出现新会话 */
+  const WORKSPACE_CHASE_LIMIT = 4;
 
   const setChatSdkClient = (client) => {
     chatSdkClient = client || null;
   };
 
   const hasMore = computed(() => nextCursor.value !== null);
+
+  const workspaceHasMore = (workspaceId) => {
+    // 面板工作区筛选激活时，其他组的数据会被 matchesFilters 全部丢弃，按钮不可用
+    if (filters.value.workspaceId && filters.value.workspaceId !== workspaceId) return false;
+    const cursor = workspaceCursors.value[workspaceId];
+    if (cursor === null) return false;
+    // facets 的全量计数（无来源筛选时准确）可先一步排除空项目，避免渲染出点了才消失的死按钮
+    if (workspaceId !== UNASSIGNED_WORKSPACE_ID && !filters.value.originType && !filters.value.originId) {
+      const facet = facets.value.workspaces.find(entry => entry.workspace_id === workspaceId);
+      if (facet && facet.count === 0) return false;
+    }
+    return true;
+  };
+
+  const resetWorkspaceCursors = () => {
+    for (const controller of workspaceControllers.values()) controller.abort();
+    workspaceControllers.clear();
+    workspaceCursors.value = {};
+    loadingWorkspaceIds.value = {};
+    previewController?.abort();
+    previewController = null;
+    previewLoaded.value = false;
+  };
 
   const cancelListRequest = () => {
     listController?.abort();
@@ -115,6 +148,7 @@ export const useSessionListStore = defineStore('session-list', () => {
     if (!reset && (loadingInitial.value || loadingMore.value || !hasMore.value)) return;
     if (reset) {
       cancelListRequest();
+      resetWorkspaceCursors();
       items.value = items.value.filter(item => matchesFilters(item, filters.value));
       nextCursor.value = null;
       loadingInitial.value = false;
@@ -158,6 +192,94 @@ export const useSessionListStore = defineStore('session-list', () => {
         loadingMore.value = false;
         listController = null;
       }
+    }
+  };
+
+  /**
+   * 项目视图按工作区独立翻页：游标只属于该工作区，取回的条目并进共享 items（时间轴视图同样受益）。
+   * 与全局翻页互不影响；筛选变更（reset）会使全部工作区游标失效重来。
+   */
+  const loadWorkspace = async (workspaceId) => {
+    if (!workspaceId || loadingWorkspaceIds.value[workspaceId] || !workspaceHasMore(workspaceId)) return;
+    if (!chatSdkClient) throw new Error('Chat SDK 未初始化');
+
+    const filtersAtStart = filters.value;
+    const controller = new AbortController();
+    workspaceControllers.set(workspaceId, controller);
+    loadingWorkspaceIds.value = { ...loadingWorkspaceIds.value, [workspaceId]: true };
+
+    try {
+      const knownIds = new Set(items.value.map(entry => entry.session_id));
+      let cursor = workspaceCursors.value[workspaceId] ?? null;
+      for (let attempt = 0; attempt < WORKSPACE_CHASE_LIMIT; attempt += 1) {
+        const result = await chatSdkClient.listSessions({
+          limit: PAGE_SIZE,
+          cursor,
+          workspaceId,
+          originType: filtersAtStart.originType,
+          originId: filtersAtStart.originId,
+          signal: controller.signal,
+        });
+        if (controller.signal.aborted || filters.value !== filtersAtStart) return;
+        const page = result.data;
+        const merged = page.items.filter(entry => entry?.session_id && matchesFilters(entry, filtersAtStart));
+        const fresh = merged.filter(entry => !knownIds.has(entry.session_id));
+        items.value = applyLocalMutations([...items.value, ...merged], 0);
+        workspaceCursors.value = { ...workspaceCursors.value, [workspaceId]: page.next_cursor };
+        if (fresh.length > 0 || page.next_cursor === null) break;
+        cursor = page.next_cursor;
+      }
+    } catch (err) {
+      if (controller.signal.aborted || filters.value !== filtersAtStart) return;
+      throw err;
+    } finally {
+      // reset 中止后同组可能已有新请求在途：只清理仍属于自己的登记
+      if (workspaceControllers.get(workspaceId) === controller) {
+        workspaceControllers.delete(workspaceId);
+        loadingWorkspaceIds.value = { ...loadingWorkspaceIds.value, [workspaceId]: false };
+      }
+    }
+  };
+
+  /**
+   * 项目视图首屏：一次请求带回每个项目各自的最新一页（含未归属组）和续页游标。
+   * 解决全局首页被活跃项目占满时，安静项目在项目视图里一条都轮不上的问题；
+   * 回来的游标直接播种 workspaceCursors，组内「加载更多」顺着它续页（不会再与全局页重叠）。
+   */
+  const loadWorkspacePreview = async () => {
+    if (previewLoaded.value) return;
+    if (filters.value.workspaceId) return;
+    if (!chatSdkClient) throw new Error('Chat SDK 未初始化');
+    previewLoaded.value = true;
+
+    const filtersAtStart = filters.value;
+    const controller = new AbortController();
+    previewController = controller;
+    try {
+      const result = await chatSdkClient.listSessionWorkspacePreview({
+        limit: 5,
+        originType: filtersAtStart.originType,
+        originId: filtersAtStart.originId,
+        signal: controller.signal,
+      });
+      if (controller.signal.aborted || filters.value !== filtersAtStart) return;
+      const merged = [];
+      const cursors = {};
+      for (const group of result.data.groups) {
+        for (const entry of group.items) {
+          if (entry?.session_id && matchesFilters(entry, filtersAtStart)) merged.push(entry);
+        }
+        // 用户可能已在 preview 在途时点过某组「加载更多」推进了游标，不回退到更浅的位置
+        if (!(group.workspace_id in workspaceCursors.value)) cursors[group.workspace_id] = group.next_cursor;
+      }
+      items.value = applyLocalMutations([...items.value, ...merged], 0);
+      workspaceCursors.value = { ...workspaceCursors.value, ...cursors };
+    } catch (err) {
+      if (controller.signal.aborted || filters.value !== filtersAtStart) return;
+      previewLoaded.value = false;
+      throw err;
+    } finally {
+      if (previewController === controller) previewController = null;
     }
   };
 
@@ -319,6 +441,7 @@ export const useSessionListStore = defineStore('session-list', () => {
   const dispose = () => {
     cancelListRequest();
     facetsController?.abort();
+    resetWorkspaceCursors();
   };
 
   return {
@@ -329,10 +452,15 @@ export const useSessionListStore = defineStore('session-list', () => {
     loadingInitial,
     loadingMore,
     loadingFacets,
+    loadingWorkspaceIds,
+    workspaceCursors,
     error,
     hasMore,
     initialize,
     load,
+    loadWorkspace,
+    loadWorkspacePreview,
+    workspaceHasMore,
     loadFacets,
     setFilters,
     clearFilters,
