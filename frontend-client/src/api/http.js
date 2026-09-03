@@ -97,7 +97,8 @@ export async function request(url, options = {}) {
 
 /**
  * 取原始响应（含 data/headers/status），用于 blob 下载等需要 headers 或非 JSON body 的场景。
- * 失败仍抛 Error（与 request 一致，且 error.status 可用）。options.responseType 指定解析类型。
+ * 失败仍抛 Error（与 request 一致，且 error.status 可用）。options.responseType 指定解析类型；
+ * options.validateStatus 透传 axios 同名配置（如需把 304 当成功走条件重验证分支）。
  */
 export async function getRaw(url, options = {}) {
   return httpClient.request({
@@ -107,6 +108,7 @@ export async function getRaw(url, options = {}) {
     headers: options.headers,
     params: options.params,
     signal: options.signal,
+    validateStatus: options.validateStatus,
     _rawResponse: true,
   });
 }

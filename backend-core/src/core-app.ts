@@ -184,6 +184,8 @@ export async function buildCoreApp(options: CoreBuildAppOptions): Promise<Fastif
       cb(null, allowed);
     },
     credentials: true,
+    // ETag 不在 CORS 响应头 safelist，不暴露则跨域前端读不到、条件重验证整条失效
+    exposedHeaders: ["etag"],
   });
   const maxContentLength = 104_857_600;
   await app.register(multipart, {

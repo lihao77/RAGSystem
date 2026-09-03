@@ -21,14 +21,14 @@ export class SaaSWorkspaceBlobStorage implements WorkspaceBlobStorage {
       });
     }
     const metadata = await this.objects.put(ref.key, input.body, input.contentType ?? null);
-    return { ...ref, content_type: metadata.contentType, size: metadata.contentLength };
+    return { ...ref, content_type: metadata.contentType, size: metadata.contentLength, etag: metadata.etag };
   }
 
   async get(input: { sessionId: string; runId?: string | null; space: DurableManagedSpace; relativePath: string }): Promise<{ body: Uint8Array; ref: WorkspaceBlobRef } | null> {
     const ref = this.resolve(input);
     const result = await this.objects.get(ref.key);
     if (!result) return null;
-    return { body: result.body, ref: { ...ref, content_type: result.metadata.contentType, size: result.metadata.contentLength } };
+    return { body: result.body, ref: { ...ref, content_type: result.metadata.contentType, size: result.metadata.contentLength, etag: result.metadata.etag } };
   }
 
   async delete(input: { sessionId: string; runId?: string | null; space: DurableManagedSpace; relativePath: string }): Promise<boolean> {

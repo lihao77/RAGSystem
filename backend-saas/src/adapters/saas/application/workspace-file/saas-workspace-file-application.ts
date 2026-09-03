@@ -13,6 +13,7 @@ export class SaaSWorkspaceFileApplication implements WorkspaceFileApplication {
       contentType: result.ref.content_type,
       size: result.ref.size,
       path: result.ref.relative_path,
+      etag: result.ref.etag ?? null,
     };
   }
 }

@@ -22,6 +22,8 @@ export class LocalWorkspaceFileApplication implements WorkspaceFileApplication {
         contentType: inferMimeType(resolved),
         size: stats.size,
         path: relativePath,
+        // mtime+size 足以识别同路径改写；文件系统精度内同毫秒等长重写属可忽略的极端情形
+        etag: `local-ws-${stats.mtimeMs}-${stats.size}`,
       };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return { status: "not_found" };

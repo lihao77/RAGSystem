@@ -8,6 +8,8 @@ export interface WorkspaceBlobRef {
   relative_path: string;
   content_type: string | null;
   size: number;
+  /** 对象存储侧 etag（get/put 后回填，resolve 产物为 null），供读取端做内容版本判定。 */
+  etag?: string | null;
 }
 
 /** Durable managed files. System temporary files are intentionally excluded. */
