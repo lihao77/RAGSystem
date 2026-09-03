@@ -10,6 +10,7 @@
  * - runXmlStreamRound：边流边解析边发 delta（逐字 emit first_token/output_delta/reasoning_*）。
  * - 修复重试循环：解析失败（tool_calls 标签未闭合/参数解析失败 / 空响应）追加 feedback 消息重试，
  *   上限 MAX_PROTOCOL_REPAIR_ATTEMPTS=2，整轮在单次 invoke 内消化，不递增内核 round。
+ *   重试期间不发 intent_complete——该轮文字只在最终成功的轮末派生一次（见 emitRoundNote）。
  * - 非流式兜底：LlmClient 无 stream 时走 complete，拿完整响应后整体解析。
  *
  * 事件 emit 铁律：onChunk 回调里逐字 emit（first_token / output_delta），严禁改成攒完整段再
@@ -150,8 +151,10 @@ export class XmlProtocol implements Protocol {
       }
 
       if (roundResult.error) {
-        // 已流出的裸正文按动作说明定格进过程树（并给前端清气泡信号），再进修复重试。
-        this.emitRoundNote(agentName, round, roundResult.text);
+        // 失败尝试的裸正文不定格为 intent：intent_complete 在投影端的语义是"该轮文字
+        // 定稿、轮次封口"——重试前发会把即将作废的尝试封成正式说明，重试的 delta 只能
+        // 落进幻影新轮（同文两份且吞噬下一轮正文）。正文在投影端留在本轮 text 通道里
+        // 续写，由最终成功时唯一一次 emitRoundNote 定稿收敛；气泡清空同样随之发生。
         if (protocolRepairAttempts >= MAX_PROTOCOL_REPAIR_ATTEMPTS) {
           throw new Error(`XML protocol repair exceeded max attempts: ${roundResult.error}`);
         }
