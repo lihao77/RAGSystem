@@ -147,11 +147,20 @@ const loadModels = async () => {
   try {
     const availableModels = await getAvailableModels();
     models.value = availableModels;
-    // store 已持有保存的选择（构造时从 localStorage 恢复）；若不在可用列表则清除
-    const savedModel = selectedModel.value;
-    if (savedModel && !availableModels.some(m => m.value === savedModel)) {
-      llmStore.setSelectedLLM('');
-    }
+    // store 已持有保存的选择（构造时从 localStorage 恢复 / 会话恢复覆盖层）；
+    // 失效时先清会话覆盖（恢复值对应的模型已下线），回落后的个人默认也失效才清全局。
+    // 走 discardStaleDefault 而非 setSelectedLLM：自动清理不是用户选择，
+    // 不得触发"选择即落库"把会话恢复记录抹成默认。
+    const invalidateIfStale = () => {
+      const current = selectedModel.value;
+      if (!current || models.value.some(m => m.value === current)) return;
+      llmStore.clearSessionOverride();
+      const fallback = selectedModel.value;
+      if (fallback && !models.value.some(m => m.value === fallback)) {
+        llmStore.discardStaleDefault();
+      }
+    };
+    invalidateIfStale();
     // 不自动选择第一个，保持默认状态由 agent 配置决定
   } catch (err) {
     console.error('Failed to load models:', err);

@@ -180,6 +180,13 @@ type MailboxLaunchDisposition = "completed" | "deferred" | "skipped";
 
 export const MAILBOX_CONTINUATION_REQUEST_PREFIX = "agent_result:";
 
+/**
+ * 会话 metadata 键：最近一次用户请求的模型/思考档位覆盖（字段 null = 该次未覆盖）。
+ * 前端恢复对话时据此回显选择器（会话维度覆盖层），同时补齐审计——
+ * _context_token_usage 只记解析后的模型，请求级来源与档位此前无处落库。
+ */
+export const SESSION_REQUEST_OVERRIDES_METADATA_KEY = "_request_overrides";
+
 export function mailboxContinuationSourceMessageId(requestId: string | null | undefined): string | null {
   const normalized = requestId?.trim() ?? "";
   if (!normalized.startsWith(MAILBOX_CONTINUATION_REQUEST_PREFIX)) return null;
@@ -513,6 +520,18 @@ class AgentLaunchers {
     if (!started.ok) {
       return { kind: "error", sessionId, error: started.error };
     }
+    // 覆盖记录挂在 durableStarted 之后（新会话行此刻已持久化）；写入失败静默——
+    // 丢的只是恢复回显线索，不应影响发送主流程。语义为"最后一次发送生效的覆盖"，
+    // 未覆盖时写 null 抹掉旧值，与会话实际执行口径保持一致。
+    void started.handle.durableStarted
+      .then(() => this.sessions.updateSessionMetadata(sessionId, {
+        [SESSION_REQUEST_OVERRIDES_METADATA_KEY]: {
+          selected_llm: input.selectedLlm?.trim() || null,
+          thinking_level: input.thinkingLevel ?? null,
+          updated_at: new Date().toISOString(),
+        },
+      }))
+      .catch(() => undefined);
     return { kind: "run", sessionId, agentName: started.agentName, handle: started.handle };
   }
 

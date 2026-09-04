@@ -5,6 +5,11 @@ import { useDictionariesStore } from '../stores/dictionaries.js';
 import { useSessionListStore } from '../stores/session-list.js';
 import { useSessionRunStore } from '../stores/session-run.js';
 import { UNASSIGNED_WORKSPACE_ID, useWorkspaceStore } from '../stores/workspace.js';
+import { useLlmStore } from '../stores/llm.js';
+import { useThinkingStore } from '../stores/thinking.js';
+import { setActiveSessionId, setSelectionChangeListener } from '../stores/sessionScope.js';
+import { resolveRestorableOverrides } from '../api/modelAdapter.js';
+import { updateSessionRequestOverrides } from '../api/session.js';
 import { getDefaultPermissionMode } from '../utils/permissionPresentation.js';
 
 const stripWrappedQuotes = (value) => {
@@ -90,6 +95,8 @@ export function useChatSessionController(deps) {
   const sessionListStore = useSessionListStore();
   const sessionRunStore = useSessionRunStore();
   const workspaceStore = useWorkspaceStore();
+  const llmStore = useLlmStore();
+  const thinkingStore = useThinkingStore();
   const {
     currentSessionId,
     messages,
@@ -98,6 +105,24 @@ export function useChatSessionController(deps) {
     pendingEntryAgent,
     sessionWorkspaceDisplay,
   } = storeToRefs(sessionRunStore);
+  // 用户主动选择（模型/思考档位）即时落会话，与权限模式"选择即更新"对齐：
+  // 仅激活会话时写；同一次交互里模型+档位连点合并为一次 PATCH；失败静默——
+  // 丢一次即时落库只影响"未发送选择的恢复"，发送路径后端仍会补写同键。
+  const persistRequestOverrides = deps.persistRequestOverrides ?? updateSessionRequestOverrides;
+  let overridePersistTimer = null;
+  setSelectionChangeListener(() => {
+    const sessionId = currentSessionId.value;
+    if (!sessionId) return;
+    // 通知时刻快照生效对：定时器触发时会话可能已切走，写目标与值必须同源
+    const overrides = {
+      selectedLLM: llmStore.selectedLLM || '',
+      thinkingLevel: thinkingStore.thinkingLevel || '',
+    };
+    clearTimeout(overridePersistTimer);
+    overridePersistTimer = setTimeout(() => {
+      persistRequestOverrides(sessionId, overrides).catch(() => {});
+    }, 0);
+  });
   const teamOptions = ref([]);
   const teamLoading = ref(false);
   const entryAgentOptions = ref([]);
@@ -212,6 +237,21 @@ export function useChatSessionController(deps) {
     const result = await client.getSession(sessionId);
     if (!isCurrent()) return false;
     const detail = result.data;
+    // 会话维度恢复：最近一次发送/选择的模型+思考档位覆盖（校验通过才建覆盖层；
+    // 无记录（存量会话）返回 null 不动全局默认）。providers 走 dictionaries 缓存
+    // （消除聊天页重复拉取）；失败/无记录均静默回落——恢复是回显增强，不阻塞会话加载。
+    try {
+      const providers = await dictStore.ensureProviders();
+      if (isCurrent()) {
+        const restorable = resolveRestorableOverrides(detail?.metadata, providers);
+        if (restorable) {
+          llmStore.applySessionOverride(sessionId, restorable.selectedLLM);
+          thinkingStore.applySessionOverride(sessionId, restorable.thinkingLevel);
+        }
+      }
+    } catch {
+      // ensureProviders/解析异常均兜底；恢复失败不影响主流程
+    }
     const workspace = detail.workspace || listItem?.workspace || null;
     const workspaceRoot = normalizeWorkspaceRootInput(workspace?.root_path || '');
     sessionRunStore.applySessionContext({
@@ -291,6 +331,7 @@ export function useChatSessionController(deps) {
       deps.clearExecutionState({ resetContextUsage: true });
       sessionRunStore.resetSessionParticipants();
       currentSessionId.value = sessionId;
+      setActiveSessionId(sessionId);
       // 不先清空上下文：列表无 team，清空会先闪「未选择」；
       // workspace 能从列表立刻 seed，team 等 hydrate 覆盖（短暂保留上一会话 team 优于假空）。
       const matched = sessionListStore.getById(sessionId);
@@ -322,6 +363,7 @@ export function useChatSessionController(deps) {
      deps.invalidateActiveStream();
       deps.clearExecutionState({ resetContextUsage: true });
       currentSessionId.value = null;
+      setActiveSessionId('');
       sessionRunStore.resetSessionParticipants();
       deps.sessionFiles.value = [];
       await resetNewSessionSetup();
@@ -383,6 +425,7 @@ export function useChatSessionController(deps) {
       });
       if (currentSessionId.value !== sessionId) {
         currentSessionId.value = sessionId;
+        setActiveSessionId(sessionId);
       }
       const navigate = replaceRoute ? router.replace : router.push;
       await navigate(getChatSessionPath(sessionId));

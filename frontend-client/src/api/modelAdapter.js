@@ -105,6 +105,41 @@ export async function describeThinkingForModel(selectedValue) {
   }
 }
 
+/**
+ * 会话 metadata._request_overrides → 可安全回显的覆盖值（恢复对话用）。纯函数：
+ * providers 由调用方注入（聊天页走 dictionaries 的 ensureProviders 缓存）。
+ * 返回 null = 无记录（存量会话/新会话），调用方不应建覆盖层，保持全局个人默认。
+ * 有记录时逐项校验：selected_llm 需仍存在于 providers（模型名非空才匹配，
+ * 防 "provider|" 两段值误命中无名条目）；thinking_level 需在该模型合法档位内
+ * （且依赖模型命中）。校验失败该项回退空串（= 会话内显示"默认/跟随"）——
+ * 宁可不恢复也不回显一个后端会拒收的值。
+ */
+export function resolveRestorableOverrides(metadata, providers) {
+  const record = metadata && typeof metadata === 'object' ? metadata._request_overrides : null
+  if (!record || typeof record !== 'object') return null
+  const list = Array.isArray(providers) ? providers : []
+  const result = { selectedLLM: '', thinkingLevel: '' }
+  const rawLlm = typeof record.selected_llm === 'string' ? record.selected_llm.trim() : ''
+  if (rawLlm) {
+    const { provider: providerName, model: modelName } = findProviderModelByValue(rawLlm)
+    const provider = providerName && modelName
+      ? list.find(item => (item.name || item.key) === providerName)
+      : null
+    const modelEntry = provider && Array.isArray(provider.models)
+      ? provider.models.find(item => String(item?.name || '') === modelName)
+      : null
+    if (provider && modelEntry) {
+      result.selectedLLM = rawLlm
+      const rawLevel = typeof record.thinking_level === 'string' ? record.thinking_level.trim() : ''
+      if (rawLevel) {
+        const capability = thinkingCapabilityFor(provider, modelName)
+        if (capability.levels.includes(rawLevel)) result.thinkingLevel = rawLevel
+      }
+    }
+  }
+  return result
+}
+
 export async function createProvider(data) {
   return http.post(`${API_BASE}/providers`, data)
 }

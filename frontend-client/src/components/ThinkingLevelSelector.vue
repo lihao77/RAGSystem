@@ -108,10 +108,19 @@ const selectLevel = (value) => {
 const loadCapability = async () => {
   capability.value = await describeThinkingForModel(selectedLLM.value);
   // 已保存档位不在当前模型能力集内（模型不支持思考，或开关型存的 on 换到分级模型）
-  // 时丢弃覆盖，避免静默携带后端会拒收的档位。
-  if (thinkingLevel.value && !capability.value.levels.includes(thinkingLevel.value)) {
-    thinkingStore.setThinkingLevel('');
-  }
+  // 时丢弃覆盖，避免静默携带后端会拒收的档位。会话恢复值失效先清覆盖层，
+  // 回落后的个人默认也失效才清全局；走 discardStaleDefault——自动清理不是
+  // 用户选择，不得触发"选择即落库"。
+  const invalidateIfStale = () => {
+    const current = thinkingLevel.value;
+    if (!current || capability.value.levels.includes(current)) return;
+    thinkingStore.clearSessionOverride();
+    const fallback = thinkingLevel.value;
+    if (fallback && !capability.value.levels.includes(fallback)) {
+      thinkingStore.discardStaleDefault();
+    }
+  };
+  invalidateIfStale();
 };
 
 onMounted(loadCapability);
