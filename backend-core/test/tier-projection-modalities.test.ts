@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { AgentConfigSchema } from "../src/contracts/agent/agent-config.js";
 import type { ModelProviderConfig } from "../src/contracts/integrations/model-adapter.js";
-import { projectAgentProfile } from "../src/services/agent/sdk/projection.js";
+import { projectAgentProfile, providerModelSupportsVision } from "../src/services/agent/sdk/projection.js";
 
 const provider: ModelProviderConfig = {
   key: "openai_openai_chat",
@@ -82,5 +82,19 @@ describe("tier projection derives supports_vision from model input modalities", 
     const bareProvider: ModelProviderConfig = { ...provider, models: [{ name: "unlisted-model" }] };
     const tier = projectAgentProfile({ agent, providers: [bareProvider] }).llmTiers.default;
     expect(tier?.provider.supports_vision).toBeNull();
+  });
+});
+
+describe("providerModelSupportsVision（原始 provider + modelName 的同源判定）", () => {
+  it("按模型条目 input_modalities 派生；纯文本/条目缺失/未声明模态 → false", () => {
+    expect(providerModelSupportsVision(provider, "vision-model")).toBe(true);
+    expect(providerModelSupportsVision(provider, "text-model")).toBe(false);
+    expect(providerModelSupportsVision(provider, "unlisted-model")).toBe(false);
+    expect(providerModelSupportsVision({ ...provider, models: [{ name: "bare" }] }, "bare")).toBe(false);
+  });
+
+  it("provider 级残留的废弃 supports_vision 不参与判定（水合剥离字段，原始形态不可信）", () => {
+    const legacy = { ...provider, supports_vision: true } as ModelProviderConfig;
+    expect(providerModelSupportsVision(legacy, "text-model")).toBe(false);
   });
 });

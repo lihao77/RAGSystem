@@ -27,6 +27,7 @@ import type { AgentRunEngine } from "./run-engine.js";
 import type { AgentExecutionStatusTracker } from "./status-tracker.js";
 import type { AgentExecutionEventPublisher } from "./event-publisher.js";
 import type { MessageExtension } from "../context/extensions/kinds.js";
+import { providerModelSupportsVision } from "../sdk/projection.js";
 import type { SessionNotificationQueue } from "../../runtime/session-notification-queue.js";
 import type { TenantId } from "../../../identity/types.js";
 import type { BackgroundTaskService } from "../../runtime/background-task-service.js";
@@ -482,7 +483,8 @@ class AgentLaunchers {
     // ACK 已在此前前置（onAccepted），变换耗时不阻塞确认；单图耗时由插件自身超时约束
     // （image_tools.timeout_seconds 默认 60s）；失败回退原始 parts。
     // 与 launchRun 同一口径提前解析主模型：多模态模型直接看原图，插件跳过冗余的视觉辅助描述
-    // （解析失败时不传标志，transformer 保持原行为）。
+    // （解析失败时不传标志，transformer 保持原行为）。视觉能力按模型条目 input_modalities
+    // 派生（与执行期 profile 投影同源）——原始 provider 不承载 supports_vision（水合剥离的废弃字段）。
     const readyForTransform = this.resolveRunReadiness(input.agentName, sessionIdentity, input.selectedLlm);
     const persistedContentParts = this.transformUserMessage
       ? (await this.transformUserMessage({
@@ -490,7 +492,14 @@ class AgentLaunchers {
           tenantId: this.tenantId,
           contentParts,
           attachments: attachmentResolution.attachments,
-          ...(readyForTransform.ok ? { mainModelSupportsVision: readyForTransform.provider.supports_vision === true } : {}),
+          ...(readyForTransform.ok
+            ? {
+                mainModelSupportsVision: providerModelSupportsVision(
+                  readyForTransform.provider,
+                  readyForTransform.modelName,
+                ),
+              }
+            : {}),
         })) ?? contentParts
       : contentParts;
 

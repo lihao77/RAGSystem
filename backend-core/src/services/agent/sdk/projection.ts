@@ -180,8 +180,21 @@ function buildTierFromProvider(provider: ModelProviderConfig, modelName: string)
 }
 
 function findModelEntry(provider: ModelProviderConfig, modelName: string): ProviderModelEntry | null {
+  // 精确匹配（trim 后 ===，不归一大小写），与 readiness.isModelAvailable 的归一匹配（trim+小写）
+  // 口径不同：错配时条目失配 → 能力位按未知保守处理。所有 supports_vision 消费点共用本查找
+  // 保持对称，勿单点改成归一匹配打破两路一致；要统一须连 readiness 一起动。
   const target = modelName.trim();
   return provider.models.find((model) => model.name === target) ?? null;
+}
+
+/**
+ * 主模型视觉能力判定：供发送前变换等拿到原始 provider + modelName 的消费点复用，
+ * 与执行期读 profile.llmTiers.default.provider.supports_vision 同源。
+ * 不能直接读原始 provider.supports_vision——那是 LEGACY_PROVIDER_FIELDS 水合剥离的
+ * 废弃字段，原始形态恒为空；能力位只在 buildTierFromProvider 合并模型条目时派生。
+ */
+export function providerModelSupportsVision(provider: ModelProviderConfig, modelName: string): boolean {
+  return buildTierFromProvider(provider, modelName).provider.supports_vision === true;
 }
 
 /**
