@@ -55,6 +55,7 @@ import IconExpand from './icons/IconExpand.vue';
 import IconMinimize from './icons/IconMinimize.vue';
 import { Button } from './ui/button';
 import * as echarts from 'echarts/core';
+import { buildChartOption } from './files/chartOption.js';
 import { useThemeStore } from '../stores/theme.js';
 import { BarChart, LineChart, PieChart, ScatterChart } from 'echarts/charts';
 import {
@@ -108,85 +109,29 @@ const chartInstance = ref(null);
 const isFullscreen = ref(false);
 const themeStore = useThemeStore();
 
+const emit = defineEmits(['render-failed']);
+
 // 读 CSS token：ECharts 不接受 CSS var，需解析为具体色值；主题切换时重算自动跟随
 const readCssToken = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
-// 🔧 提取配置合并逻辑为独立函数（避免重复）
-const buildFinalOption = (userConfig) => {
-  void themeStore.isDark; // 主题切换时重算,readCssToken 重读新主题
+const readThemeTokens = () => ({
+  textSecondary: readCssToken('--color-text-secondary'),
+  textPrimary: readCssToken('--color-text-primary'),
+  textMuted: readCssToken('--color-text-muted'),
+  bgElevated: readCssToken('--color-bg-elevated'),
+  border: readCssToken('--color-border')
+});
 
-  const textSecondary = readCssToken('--color-text-secondary');
-  const textPrimary = readCssToken('--color-text-primary');
-  const textMuted = readCssToken('--color-text-muted');
-  const bgElevated = readCssToken('--color-bg-elevated');
-  const border = readCssToken('--color-border');
-
-  // 基础配置 - 适配模式
-  const baseOption = {
-    backgroundColor: 'transparent',
-    textStyle: {
-      color: textSecondary
-    },
-    title: {
-      textStyle: {
-        color: textPrimary
-      }
-    },
-    legend: {
-      textStyle: {
-        color: textPrimary
-      }
-    },
-    tooltip: {
-      backgroundColor: bgElevated,
-      borderColor: border,
-      textStyle: {
-        color: textPrimary
-      }
-    }
-  };
-
-  // 深度合并坐标轴配置
-  const mergeAxisConfig = (userAxis, baseColors) => {
-    if (!userAxis) return undefined;
-
-    return {
-      ...userAxis,
-      axisLine: {
-        ...(userAxis.axisLine || {}),
-        lineStyle: {
-          color: baseColors.axisLine,
-          ...(userAxis.axisLine?.lineStyle || {})
-        }
-      },
-      axisLabel: {
-        color: baseColors.axisLabel,
-        ...(userAxis.axisLabel || {})
-      },
-      splitLine: {
-        ...(userAxis.splitLine || {}),
-        lineStyle: {
-          color: baseColors.splitLine,
-          ...(userAxis.splitLine?.lineStyle || {})
-        }
-      }
-    };
-  };
-
-  const axisColors = {
-    axisLine: textMuted,
-    axisLabel: textSecondary,
-    splitLine: border
-  };
-
-  // 合并配置
-  return {
-    ...baseOption,
-    ...userConfig,
-    backgroundColor: userConfig.backgroundColor || 'transparent',
-    xAxis: userConfig.xAxis ? mergeAxisConfig(userConfig.xAxis, axisColors) : undefined,
-    yAxis: userConfig.yAxis ? mergeAxisConfig(userConfig.yAxis, axisColors) : undefined
-  };
+// setOption 抛错发生在 Vue 渲染 flush 内，会把整条渲染队列打断、页面卡死：
+// option 构建与设置都就地吞错，销毁半初始化实例并通知父组件降级展示，绝不外抛。
+const applyOption = (userConfig, notMerge = false) => {
+  try {
+    chartInstance.value.setOption(buildChartOption(userConfig, readThemeTokens()), notMerge);
+  } catch (error) {
+    chartInstance.value?.dispose();
+    chartInstance.value = null;
+    emit('render-failed', error?.message || String(error));
+  }
 };
 
 // 初始化图表
@@ -201,11 +146,8 @@ const initChart = (container) => {
   // 创建新实例
   chartInstance.value = echarts.init(container);
 
-  // 构建最终配置（使用提取的公共函数）
-  const finalOption = buildFinalOption(props.echartsConfig);
-
-  // 设置配置
-  chartInstance.value.setOption(finalOption);
+  // 构建最终配置（含主题色合并）并设置
+  applyOption(props.echartsConfig);
 
   // 添加响应式
   window.addEventListener('resize', handleResize);
@@ -253,8 +195,7 @@ const downloadChart = () => {
 // 监听配置变化（使用公共配置合并函数）
 watch(() => props.echartsConfig, (newConfig) => {
   if (chartInstance.value && newConfig) {
-    const finalOption = buildFinalOption(newConfig);
-    chartInstance.value.setOption(finalOption, true);
+    applyOption(newConfig, true);
   }
 }, { deep: true });
 

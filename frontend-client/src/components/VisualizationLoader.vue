@@ -21,11 +21,12 @@
         <div v-if="caption || fileName" class="image-caption">{{ caption || fileName }}</div>
       </div>
 
-      <!-- 交互图表：inline/preview 均直接渲染（自带标题栏/下载 PNG/全屏） -->
+      <!-- 交互图表：inline/preview 均直接渲染（自带标题栏/下载 PNG/全屏）；渲染失败降级 JSON 视图 -->
       <ChartRenderer
         v-else-if="renderMode === 'chart'"
         :echarts-config="chartSpec.option"
         :title="caption || fileName"
+        @render-failed="onChartRenderFailed"
       />
 
       <!-- 文本/二进制内容 inline：统一外壳（标题栏 + 限高内容 + 操作） -->
@@ -55,7 +56,7 @@
             :text="displayText"
             :language="categoryInfo.category === 'json' || categoryInfo.category === 'chart' ? 'json' : categoryInfo.language"
             :truncated="textState.truncated"
-            :note="categoryInfo.category === 'chart' ? `图表数据无法解析（${chartSpec?.reason || '未知原因'}），已按 JSON 展示` : ''"
+            :note="chartFallbackNote"
             :max-height="420"
             @notify="payload => emit('notify', payload)"
           />
@@ -180,6 +181,8 @@ const { loading, error, asset, ensureObjectUrl, reload } = useWorkspaceFileAsset
 const downloading = ref(false);
 const dialogOpen = ref(false);
 const lightbox = useImageLightbox();
+// 交互图表 setOption 失败时记录原因，渲染降级为 JSON 视图（不外抛打断渲染队列）
+const chartRenderError = ref('');
 
 const fileName = computed(() => String(props.filePath).replace(/\\/g, '/').split('/').pop() || props.filePath);
 const fileSize = computed(() => asset.value?.size || 0);
@@ -204,6 +207,7 @@ const dialogTextState = ref({ text: '', truncated: false });
 
 watch(asset, async (entry) => {
   textState.value = { text: '', truncated: false };
+  chartRenderError.value = '';
   if (!entry || !TEXTUAL_CATEGORIES.includes(categoryInfo.value.category)) return;
   const decoded = await blobToText(entry.blob, TEXT_PREVIEW_LIMIT);
   if (asset.value === entry) textState.value = decoded;
@@ -239,6 +243,17 @@ const chartSpec = computed(() => (categoryInfo.value.category === 'chart'
   ? parseChartSpec(displayText.value)
   : null));
 
+const onChartRenderFailed = (message) => {
+  chartRenderError.value = message;
+};
+
+// 图表兜底视图（FileCodeView JSON）的说明文案：区分"解析失败"与"渲染失败"
+const chartFallbackNote = computed(() => {
+  if (categoryInfo.value.category !== 'chart') return '';
+  if (chartRenderError.value) return `图表渲染失败（${chartRenderError.value}），已按 JSON 展示`;
+  return `图表数据无法解析（${chartSpec.value?.reason || '未知原因'}），已按 JSON 展示`;
+});
+
 /**
  * presentation × category → 渲染模式：
  *   image        图片（inline 全尺寸 / preview 缩略图），点击 lightbox
@@ -252,7 +267,7 @@ const renderMode = computed(() => {
   const { category } = categoryInfo.value;
   if (category === 'image') return props.presentation === 'attachment' ? 'card' : 'image';
   if (props.presentation === 'attachment') return 'card';
-  if (category === 'chart') return chartSpec.value?.ok ? 'chart' : 'inline';
+  if (category === 'chart') return chartSpec.value?.ok && !chartRenderError.value ? 'chart' : 'inline';
   if (category === 'audio') return binaryWithinLimit.value ? 'inline' : 'card';
   if (TEXTUAL_CATEGORIES.includes(category)) return isPreviewPresentation.value ? 'preview-card' : 'inline';
   if (binaryWithinLimit.value) return isPreviewPresentation.value ? 'preview-card' : 'inline';

@@ -23,14 +23,14 @@
             :text="text"
             :language="category === 'json' || category === 'chart' ? 'json' : language"
             :truncated="truncated"
-            :note="category === 'chart' ? `图表数据无法解析（${chartSpec?.reason || '未知原因'}），已按 JSON 展示` : (truncated ? '完整内容超出预览上限' : '')"
+            :note="chartFallbackNote"
             @notify="payload => emit('notify', payload)"
           />
         </div>
 
-        <!-- 交互图表：撑满视口 -->
+        <!-- 交互图表：撑满视口；渲染失败降级为上方文本分支按 JSON 展示 -->
         <div v-else-if="category === 'chart' && chartSpec?.ok" class="min-h-0 flex-1 overflow-hidden rounded-lg border border-border">
-          <ChartRenderer :echarts-config="chartSpec.option" :title="title" />
+          <ChartRenderer :echarts-config="chartSpec.option" :title="title" @render-failed="onChartRenderFailed" />
         </div>
 
         <!-- CSV：全行数表格 -->
@@ -72,7 +72,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, ref, watch } from 'vue';
 import {
   Dialog,
   DialogContent,
@@ -108,8 +108,22 @@ const emit = defineEmits(['update:open', 'download', 'notify']);
 
 const csvDialogRows = CSV_DIALOG_ROWS;
 const chartSpec = computed(() => (props.category === 'chart' ? parseChartSpec(props.text) : null));
+// 交互图表 setOption 失败时记录原因，并入文本分支按 JSON 展示
+const chartRenderError = ref('');
+watch(() => [props.fileName, props.text], () => {
+  chartRenderError.value = '';
+});
 // 图表数据解析失败时并入文本分支按 JSON 展示
 const isTextual = computed(() => ['markdown', 'code', 'json'].includes(props.category)
-  || (props.category === 'chart' && !chartSpec.value?.ok));
+  || (props.category === 'chart' && (!chartSpec.value?.ok || chartRenderError.value)));
+// 文本分支的说明文案：区分"解析失败"与"渲染失败"
+const chartFallbackNote = computed(() => {
+  if (props.category !== 'chart') return props.truncated ? '完整内容超出预览上限' : '';
+  if (chartRenderError.value) return `图表渲染失败（${chartRenderError.value}），已按 JSON 展示`;
+  return `图表数据无法解析（${chartSpec.value?.reason || '未知原因'}），已按 JSON 展示`;
+});
 const categoryIcon = computed(() => getCategoryIcon(props.category));
+const onChartRenderFailed = (message) => {
+  chartRenderError.value = message;
+};
 </script>
