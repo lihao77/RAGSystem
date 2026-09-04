@@ -295,3 +295,74 @@ test('hydrate restores validated request overrides into the session override lay
   assert.equal(thinkingStore.thinkingLevel, '');
   mock.restore();
 });
+
+test('hydrate restores default-model thinking level through defaultLlm resolution', async () => {
+  localStorage.clear();
+  const pinia = createPinia();
+  setActivePinia(pinia);
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [{ path: '/', component: { template: '<div />' } }, { path: '/chat/:sessionId', component: { template: '<div />' } }],
+  });
+  const app = createApp({ template: '<div />' });
+  app.use(pinia);
+  app.use(router);
+  const mock = new MockAdapter(httpClient);
+  mock.onGet('/api/model-adapter/providers').reply(200, {
+    success: true,
+    providers: [{
+      key: 'ali_alibaba',
+      name: 'ali',
+      thinking: { kind: 'toggle', levels: ['off', 'on'] },
+      models: [{ name: 'deepseek-v4-flash', thinking_levels: ['high', 'max'] }],
+    }],
+  });
+  const chatSdkClient = {
+    getSession: async () => ({
+      data: {
+        workspace: null,
+        team_name: 'team-a',
+        entry_agent_name: 'agent-a',
+        metadata: {
+          // "默认模型 + 档位"记录：selected_llm 为空，档位按默认生效模型校验
+          _request_overrides: { selected_llm: null, thinking_level: 'high' },
+        },
+      },
+    }),
+  };
+  const deps = {
+    sessionFiles: ref([]),
+    sessionFilesDrawerVisible: ref(false),
+    sessionFilesDrawerTarget: ref('composer'),
+    disconnectSessionWS: () => {},
+    invalidateActiveStream: () => {},
+    clearExecutionState: () => {},
+    clearComposerAttachments: () => {},
+    loadSessionMessages: async () => 0,
+    loadSessionFiles: async () => {},
+    loadSessionParticipants: async () => {},
+    initializeSessionEventCursor: () => {},
+    connectSessionWS: async () => {},
+    waitForSessionRuntime: async () => {},
+    showToast: () => {},
+    chatSdkClient,
+    fetchDefaultLlm: async (teamName, agentName) => {
+      if (teamName !== 'team-a') throw new Error(`unexpected team: ${teamName}`);
+      if (agentName !== 'agent-a') throw new Error(`unexpected agent: ${agentName}`);
+      return { provider: 'ali', provider_type: 'alibaba', model: 'deepseek-v4-flash' };
+    },
+  };
+  let controller;
+  app.runWithContext(() => {
+    controller = useChatSessionController(deps);
+  });
+
+  await controller.syncSessionFromRoute('session-d');
+
+  const llmStore = useLlmStore();
+  const thinkingStore = useThinkingStore();
+  // 模型保持默认（空串），档位恢复为会话记录值
+  assert.equal(llmStore.selectedLLM, '');
+  assert.equal(thinkingStore.thinkingLevel, 'high');
+  mock.restore();
+});

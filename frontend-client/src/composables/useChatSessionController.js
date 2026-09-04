@@ -9,6 +9,7 @@ import { useLlmStore } from '../stores/llm.js';
 import { useThinkingStore } from '../stores/thinking.js';
 import { setActiveSessionId, setSelectionChangeListener } from '../stores/sessionScope.js';
 import { resolveRestorableOverrides } from '../api/modelAdapter.js';
+import { fetchDefaultLlm } from '../api/runtimeCore.js';
 import { updateSessionRequestOverrides } from '../api/session.js';
 import { getDefaultPermissionMode } from '../utils/permissionPresentation.js';
 
@@ -109,6 +110,7 @@ export function useChatSessionController(deps) {
   // 仅激活会话时写；同一次交互里模型+档位连点合并为一次 PATCH；失败静默——
   // 丢一次即时落库只影响"未发送选择的恢复"，发送路径后端仍会补写同键。
   const persistRequestOverrides = deps.persistRequestOverrides ?? updateSessionRequestOverrides;
+  const resolveDefaultLlm = deps.fetchDefaultLlm ?? fetchDefaultLlm;
   let overridePersistTimer = null;
   setSelectionChangeListener(() => {
     const sessionId = currentSessionId.value;
@@ -242,8 +244,10 @@ export function useChatSessionController(deps) {
     // （消除聊天页重复拉取）；失败/无记录均静默回落——恢复是回显增强，不阻塞会话加载。
     try {
       const providers = await dictStore.ensureProviders();
+      // "默认模型 + 档位"记录按会话团队与入口 Agent 解析默认生效模型校验（与执行路径同源）
+      const defaultLlm = await resolveDefaultLlm(detail?.team_name || '', detail?.entry_agent_name || '');
       if (isCurrent()) {
-        const restorable = resolveRestorableOverrides(detail?.metadata, providers);
+        const restorable = resolveRestorableOverrides(detail?.metadata, providers, defaultLlm);
         if (restorable) {
           llmStore.applySessionOverride(sessionId, restorable.selectedLLM);
           thinkingStore.applySessionOverride(sessionId, restorable.thinkingLevel);

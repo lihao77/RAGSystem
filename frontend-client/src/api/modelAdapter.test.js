@@ -78,3 +78,71 @@ test('providers 非数组按空处理', () => {
     { selectedLLM: '', thinkingLevel: '' },
   );
 });
+
+// ---- 默认模型 + 档位记录（"默认"状态下选择的档位，selected_llm 为空）----
+
+const defaultLlm = { provider: 'ali', provider_type: 'alibaba', model: 'deepseek-v4-flash' };
+
+test('仅档位记录按 defaultLlm 能力校验后恢复，模型保持默认', () => {
+  // deepseek-v4-flash 子集 [high, max]（toggle 升级 effort）→ high 合法
+  assert.deepEqual(
+    resolveRestorableOverrides(
+      { _request_overrides: { selected_llm: null, thinking_level: 'high' } },
+      providers,
+      defaultLlm,
+    ),
+    { selectedLLM: '', thinkingLevel: 'high' },
+  );
+});
+
+test('仅档位记录超出默认模型值域时丢弃', () => {
+  assert.deepEqual(
+    resolveRestorableOverrides(
+      { _request_overrides: { selected_llm: null, thinking_level: 'medium' } },
+      providers,
+      defaultLlm,
+    ),
+    { selectedLLM: '', thinkingLevel: '' },
+  );
+});
+
+test('无 defaultLlm 时仅档位记录不恢复（无法确定校验目标）', () => {
+  assert.deepEqual(
+    resolveRestorableOverrides(
+      { _request_overrides: { selected_llm: null, thinking_level: 'high' } },
+      providers,
+    ),
+    { selectedLLM: '', thinkingLevel: '' },
+  );
+});
+
+test('defaultLlm 的模型/provider 已不在 providers 时档位不恢复', () => {
+  assert.deepEqual(
+    resolveRestorableOverrides(
+      { _request_overrides: { selected_llm: null, thinking_level: 'high' } },
+      providers,
+      { provider: 'ali', provider_type: 'alibaba', model: 'gone-model' },
+    ),
+    { selectedLLM: '', thinkingLevel: '' },
+  );
+  assert.deepEqual(
+    resolveRestorableOverrides(
+      { _request_overrides: { selected_llm: null, thinking_level: 'high' } },
+      providers,
+      { provider: 'ghost', provider_type: '', model: 'deepseek-v4-flash' },
+    ),
+    { selectedLLM: '', thinkingLevel: '' },
+  );
+});
+
+test('显式 selected_llm 优先：defaultLlm 在场也不参与解析', () => {
+  // defaultLlm 故意指向不存在条目——显式模型合法恢复即证明 defaultLlm 未被消费
+  assert.deepEqual(
+    resolveRestorableOverrides(
+      { _request_overrides: { selected_llm: 'ali|alibaba|deepseek-v4-flash', thinking_level: 'high' } },
+      providers,
+      { provider: 'ghost', provider_type: '', model: 'gone-model' },
+    ),
+    { selectedLLM: 'ali|alibaba|deepseek-v4-flash', thinkingLevel: 'high' },
+  );
+});
