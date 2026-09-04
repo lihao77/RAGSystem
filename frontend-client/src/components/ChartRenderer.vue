@@ -148,9 +148,6 @@ const initChart = (container) => {
 
   // 构建最终配置（含主题色合并）并设置
   applyOption(props.echartsConfig);
-
-  // 添加响应式
-  window.addEventListener('resize', handleResize);
 };
 
 // 响应式调整大小
@@ -207,6 +204,8 @@ watch(() => themeStore.isDark, () => {
 
 onMounted(() => {
   initChart(chartContainer.value);
+  // resize 监听只注册一次（handleResize 引用稳定，随实例卸载移除；initChart 会被全屏/主题切换反复调用）
+  window.addEventListener('resize', handleResize);
 });
 
 onUnmounted(() => {
