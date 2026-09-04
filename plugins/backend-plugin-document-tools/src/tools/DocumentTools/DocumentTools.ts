@@ -81,7 +81,7 @@ export const DOCUMENT_TOOLS: RuntimeToolDefinition[] = [
     allowed_callers: ["direct"],
     observationPolicy: "inline",
     description:
-      "Read a managed workspace file by line range. Defaults to line 1 and at most 2000 lines. Use offset/limit for large files.",
+      "Read a managed workspace file by line range. Defaults to line 1, at most 2000 lines, and a per-call character budget; oversized lines are truncated. Use offset/limit for large files.",
     returns: {
       description: "成功时返回文件内容和分页元数据。",
       shape: {
@@ -94,13 +94,17 @@ export const DOCUMENT_TOOLS: RuntimeToolDefinition[] = [
           end_line: "number",
           has_more: "boolean",
           next_offset: "number|null",
+          char_truncated: "boolean",
+          truncated_lines: "number",
         },
       },
     },
     usage_contract: [
       "读取已有文件内容优先用 read_file，而非 execute_bash 的 cat 或 execute_code。",
-      "read_file 默认只返回前 2000 行；大文件请用 metadata.next_offset 继续分页。",
-      "返回内容为文件原始文本内容，不附带行号。",
+      "read_file 默认最多返回 2000 行（limit 至多 10000），且受单次字符预算约束（约 1.6 万字符）；达到任一上限时用 metadata.next_offset 继续分页读取。",
+      "超长单行会被截断，被截断的尾部无法通过分页找回；确需完整超长行内容时，改用 execute_code/execute_bash 处理文件。",
+      "不知道文件大小时不要假设一次能读全：先看返回 metadata 里的 file_size/total_lines，数据文件优先用 preview_data_structure 了解结构。",
+      "返回内容为文件原始文本内容（超长行除外），不附带行号。",
       "file_path 必须是真实路径字符串，不是变量名文本。",
       "数据文件已有路径时，优先用 preview_data_structure 确认结构。",
     ],
@@ -144,7 +148,7 @@ export const DOCUMENT_TOOLS: RuntimeToolDefinition[] = [
           type: "integer",
           minimum: 1,
           maximum: 10000,
-          description: "Maximum lines to read. Defaults to 2000.",
+          description: "Maximum lines to read. Defaults to 2000. A per-call character budget applies independently of this limit.",
         },
       },
     },

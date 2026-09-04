@@ -39,6 +39,10 @@ export interface LineSelection {
   endLine: number;
   hasMore: boolean;
   nextOffset: number | null;
+  /** 在行数上限之前因单次字符预算提前截断（少行超宽文件的防线）。 */
+  charTruncated: boolean;
+  /** 被按 READ_FILE_MAX_LINE_CHARS 截短的行数。 */
+  truncatedLines: number;
 }
 
 export function normalizeEncoding(value: string | null | undefined): BufferEncoding {
@@ -99,11 +103,25 @@ export function renderWritableContent(content: unknown, mode: "text" | "json"): 
   return String(content);
 }
 
-export function selectLineRange(content: string, offset: number, limit: number): LineSelection {
+/* read_file 单次返回的字符预算：与 agent-sdk observation 的 inline 阈值对齐。
+   行数分页拦不住"少行超宽"文件（minified JS、单行 JSON、base64），
+   几行几十万字符会整文件灌进上下文，字符预算是第二道硬防线。 */
+export const READ_FILE_CHAR_BUDGET = 16_000;
+/* 单行截断上限：超长行截短到该长度，完整内容靠分页逐段读取。 */
+export const READ_FILE_MAX_LINE_CHARS = 2_000;
+
+export function selectLineRange(
+  content: string,
+  offset: number,
+  limit: number,
+  budget: { charBudget?: number; maxLineChars?: number } = {},
+): LineSelection {
+  const charBudget = Math.max(1, budget.charBudget ?? READ_FILE_CHAR_BUDGET);
+  const maxLineChars = Math.max(1, budget.maxLineChars ?? READ_FILE_MAX_LINE_CHARS);
   const allLines = splitPreservingLineEndings(content);
   const totalLines = allLines.length;
   const startIndex = offset - 1;
-  const endIndex = Math.min(startIndex + limit, totalLines);
+  const hardEnd = Math.min(startIndex + limit, totalLines);
   if (startIndex >= totalLines) {
     return {
       content: "",
@@ -112,18 +130,46 @@ export function selectLineRange(content: string, offset: number, limit: number):
       endLine: offset,
       hasMore: false,
       nextOffset: null,
+      charTruncated: false,
+      truncatedLines: 0,
     };
   }
-  const selectedLines = allLines.slice(startIndex, endIndex);
-  const actualEndLine = startIndex + selectedLines.length;
-  const hasMore = endIndex < totalLines;
+  const selectedLines: string[] = [];
+  let usedChars = 0;
+  let truncatedLines = 0;
+  let charTruncated = false;
+  let lastIncluded = startIndex - 1;
+  for (let index = startIndex; index < hardEnd; index++) {
+    const remaining = charBudget - usedChars;
+    if (remaining <= 0) {
+      charTruncated = true;
+      break;
+    }
+    // cap 同时受剩余预算约束，保证 usedChars 不超过 charBudget；首行至少推进 1 字符。
+    const cap = Math.min(maxLineChars, remaining);
+    let line = allLines[index]!;
+    if (line.length > cap) {
+      // 截断时保留行尾换行符（LF/CRLF），否则相邻行在 content 中熔接成一行。
+      const ending = line.endsWith("\r\n") ? "\r\n" : line.endsWith("\n") ? "\n" : "";
+      const headLength = cap - ending.length;
+      line = headLength >= 0 ? line.slice(0, headLength) + ending : line.slice(0, cap);
+      truncatedLines++;
+    }
+    selectedLines.push(line);
+    usedChars += line.length;
+    lastIncluded = index;
+  }
+  const hasMore = lastIncluded < totalLines - 1;
+  const endLine = lastIncluded + 1;
   return {
     content: selectedLines.join("").replace(/\n+$/, ""),
     totalLines,
     startLine: offset,
-    endLine: actualEndLine,
+    endLine,
     hasMore,
-    nextOffset: hasMore ? actualEndLine + 1 : null,
+    nextOffset: hasMore ? endLine + 1 : null,
+    charTruncated,
+    truncatedLines,
   };
 }
 

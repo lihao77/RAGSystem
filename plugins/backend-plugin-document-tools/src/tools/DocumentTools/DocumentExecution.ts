@@ -15,6 +15,8 @@ import { LocalDocumentPathManager } from "./path-manager.js";
 import type { ExecutionEnvironmentCapability } from "@ragsystem/backend-core/contracts/execution/execution-environment.js";
 import type { PathAccessPolicy } from "@ragsystem/backend-core/contracts/runtime/path-access-policy.js";
 import {
+  READ_FILE_CHAR_BUDGET,
+  READ_FILE_MAX_LINE_CHARS,
   buildDiffPreview,
   countOccurrences,
   normalizeEncoding,
@@ -93,6 +95,8 @@ export class LocalDocumentToolService {
             end_line: selection.endLine,
             has_more: false,
             next_offset: null,
+            char_truncated: false,
+            truncated_lines: 0,
           },
           toolName,
         });
@@ -103,6 +107,12 @@ export class LocalDocumentToolService {
         summary += `；还有后续内容，可继续调用 read_file(offset=${selection.nextOffset})`;
       } else {
         summary += "；已到文件末尾";
+      }
+      if (selection.charTruncated) {
+        summary += `；本次受单次 ${READ_FILE_CHAR_BUDGET} 字符预算限制提前截断`;
+      }
+      if (selection.truncatedLines > 0) {
+        summary += `；${selection.truncatedLines} 行超长，已各截断至前 ${READ_FILE_MAX_LINE_CHARS} 字符`;
       }
 
       return successResult(selection.content, {
@@ -118,7 +128,8 @@ export class LocalDocumentToolService {
           end_line: selection.endLine,
           has_more: selection.hasMore,
           next_offset: selection.nextOffset,
-          user_approved_full_read: false,
+          char_truncated: selection.charTruncated,
+          truncated_lines: selection.truncatedLines,
         },
         toolName,
       });

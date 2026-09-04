@@ -4,6 +4,8 @@ import type { RunSandboxRuntime } from "@ragsystem/backend-core/contracts/sandbo
 import { toolError, toolSuccess } from "@ragsystem/backend-core/services/agent/sdk/tool-results.js";
 import { resolveSandboxPath } from "@ragsystem/backend-core/contracts/sandbox/sandbox-paths.js";
 import {
+  READ_FILE_CHAR_BUDGET,
+  READ_FILE_MAX_LINE_CHARS,
   normalizeEncoding,
   normalizePreviewLimit,
   normalizeReadRange,
@@ -32,11 +34,21 @@ export class SaaSDocumentToolService {
         maxBytes: MAX_TOOL_FILE_BYTES,
       });
       const selection = selectLineRange(result.content, range.offset, range.limit);
+      let summary = `文件读取成功: ${file.displayPath}`;
+      if (selection.hasMore) {
+        summary += `；还有后续内容，可继续调用 read_file(offset=${selection.nextOffset})`;
+      } else {
+        summary += "；已到文件末尾";
+      }
+      if (selection.charTruncated) {
+        summary += `；本次受单次 ${READ_FILE_CHAR_BUDGET} 字符预算限制提前截断`;
+      }
+      if (selection.truncatedLines > 0) {
+        summary += `；${selection.truncatedLines} 行超长，已各截断至前 ${READ_FILE_MAX_LINE_CHARS} 字符`;
+      }
       return toolSuccess(selection.content, {
         toolName,
-        summary: selection.hasMore
-          ? `文件读取成功: ${file.displayPath}；还有后续内容，可继续调用 read_file(offset=${selection.nextOffset})`
-          : `文件读取成功: ${file.displayPath}`,
+        summary,
         outputType: "text",
         metadata: {
           file_path: file.displayPath,
@@ -47,6 +59,8 @@ export class SaaSDocumentToolService {
           end_line: selection.endLine,
           has_more: selection.hasMore,
           next_offset: selection.nextOffset,
+          char_truncated: selection.charTruncated,
+          truncated_lines: selection.truncatedLines,
         },
       });
     } catch (error) {
