@@ -15,6 +15,9 @@ const SKILL_TOOL_TEMPLATES = {
 
 const CHART_TOOLS = ['create_chart']
 const FILE_TOOLS = ['read_file', 'write_file', 'edit_file', 'preview_data_structure']
+/* shell 执行工具现名 execute_shell；execute_bash 为退役名，历史会话事件仍以旧名落库，渲染层双名兼容。 */
+const SHELL_TOOL_NAMES = ['execute_shell', 'execute_bash']
+const isShellTool = (name) => SHELL_TOOL_NAMES.includes(name)
 
 export function parseToolPayload(node) {
   const preview = node?.result_preview ?? node?.result ?? ''
@@ -72,7 +75,7 @@ export function getToolDisplayName(nodeOrName, maybeArgs = null) {
 export function getToolInspectorLabel(toolName = '') {
   const name = String(toolName || '')
   if (parseMcpToolName(name)) return 'MCP 工具详情'
-  if (name === 'execute_bash') return '命令详情'
+  if (isShellTool(name)) return '命令详情'
   if (name === 'execute_code') return '代码详情'
   if (FILE_TOOLS.includes(name)) return '文件详情'
   if (name === 'grep' || name === 'glob') return '搜索详情'
@@ -93,7 +96,7 @@ export function getToolIconKind(toolName = '') {
   if (name === 'agent') return 'agentCall'
   if (name.includes('skill')) return 'skill'
   if (name.includes('chart') || name.includes('visual') || name.includes('risk_matrix')) return 'chart'
-  if (name.includes('bash') || name.includes('code') || name.includes('script') || name.includes('terminal')) return 'code'
+  if (name.includes('bash') || name.includes('shell') || name.includes('code') || name.includes('script') || name.includes('terminal')) return 'code'
   if (name.includes('file') || name.includes('document') || name.includes('report') || name.includes('artifact')) return 'file'
   if (name.includes('grep') || name.includes('glob') || name.includes('search') || name.includes('query') || name.includes('explore')) return 'search'
   if (name.includes('web') || name.includes('fetch') || name.includes('http') || name.includes('url')) return 'globe'
@@ -118,7 +121,7 @@ export function getToolSubtitle(node, options = {}) {
   }
   if (name === 'agent') return previewAgent(node, args, content, running)
   if (name === 'request_user_input') return previewUserInput(args, metadata, running)
-  if (name === 'execute_bash') return previewBash(args, content, metadata, running)
+  if (isShellTool(name)) return previewBash(args, content, metadata, running)
   if (name === 'execute_code') return previewCode(args, content, metadata, running)
   if (FILE_TOOLS.includes(name)) return previewFileTool(name, args, content, metadata, running)
   if (name === 'grep' || name === 'glob') return previewSearchTool(name, args, content, running)
@@ -167,15 +170,16 @@ export function formatToolContent(value, maxLength = 1600) {
 }
 
 /** streams 呈现类型的终端视图：命令/stdout/stderr/退出码/后台。
-   判据是 raw_result 信封的 output_type（协议契约）；工具名兜底兼容旧数据
+   判据是 raw_result 信封的 output_type（协议契约）；shell 工具名兜底兼容旧数据
    （旧 bash 消息 output_type 为 json，但渲染格式同为 streams 排版）。 */
 export function getToolTerminalView(node) {
   if (!node || node.type !== 'tool_call') return null
   const { args, content, metadata, preview, payload } = parseToolPayload(node)
-  if (payload?.output_type !== 'streams' && node.tool_name !== 'execute_bash') return null
+  const shellTool = isShellTool(node.tool_name)
+  if (payload?.output_type !== 'streams' && !shellTool) return null
   const text = parseBashObservationText(preview)
   return {
-    title: node.tool_name === 'execute_bash' ? 'bash' : getToolDisplayName(node),
+    title: shellTool ? 'shell' : getToolDisplayName(node),
     command: pickString(args.command, metadata.command),
     description: pickString(args.description),
     workingDir: compactPath(pickString(metadata.working_dir, args.working_dir), 48),
@@ -196,8 +200,8 @@ export function getToolTerminalView(node) {
   }
 }
 
-/* execute_bash 的 observation 无 json 围栏，走专用渲染器(renderBashToolObservation)：
-   摘要行 + 裸 stdout + `[stderr]`/`[stdout]` 标记块（失败时 stderr 块在 stdout 前）。
+/* shell 工具（execute_shell/退役名 execute_bash）的 observation 无 json 围栏，走专用渲染器
+   (renderStreamsObservation)：摘要行 + 裸 stdout + `[stderr]`/`[stdout]` 标记块（失败时 stderr 块在 stdout 前）。
    按标记与摘要行格式确定性还原 stdout/stderr/退出码/后台任务。 */
 function parseBashObservationText(value) {
   const text = stripResultEnvelope(String(value || '')).trim()
@@ -380,7 +384,7 @@ function buildToolMeta(node, args, content, metadata, payload) {
     return meta
   }
 
-  if (name === 'execute_bash') {
+  if (isShellTool(name)) {
     add('工作目录', compactPath(pickString(metadata.working_dir, args.working_dir)))
     add('退出码', firstNumber(content?.return_code, content?.exit_code, metadata.return_code, metadata.exit_code))
     add('风险', riskLabel(pickString(metadata.risk_level)))
@@ -480,7 +484,7 @@ function buildToolSummarySections(node, args, content, metadata, payload) {
   const sections = []
   const summary = pickString(payload?.summary, content?.summary, content?.message, payload?.message)
 
-  if (name === 'execute_bash') {
+  if (isShellTool(name)) {
     sections.push(section('summary-bash-desc', '用途', args.description))
     sections.push(section('summary-tool-result', '结果摘要', summary))
     return compactSections(sections)

@@ -416,7 +416,7 @@ function renderMetadataObservationPrefix(result: ToolExecutionResult): string {
 
 /* streams 类型渲染：进程执行结果（{stdout, stderr, return_code}）。
    裸 stdout + [stderr]/[stdout] 标记块；失败（return_code≠0）时 stderr 在前——
-   错误原因优先进入模型注意力。声明该类型的工具（execute_bash、execute_skill_script 等）
+   错误原因优先进入模型注意力。声明该类型的工具（execute_shell、execute_skill_script 等）
    自动获得此排版，核心不认识任何工具名。 */
 function renderStreamsObservation(result: ToolExecutionResult): string {
   const content = result.content;

@@ -96,7 +96,7 @@ export class SaaSBashToolService {
       defaultTimeoutSeconds: 120,
       maxTimeoutSeconds: 600,
       backgroundSupported: false,
-      backgroundUnsupportedMessage: "SaaS 沙箱第一版不支持后台 Bash",
+      backgroundUnsupportedMessage: "SaaS 沙箱第一版不支持后台 shell 命令",
     });
   }
 
@@ -107,7 +107,7 @@ export class SaaSBashToolService {
       const c = classified.classification;
       const cwd = resolveSandboxPath(c.cwd, { operation: "search" });
       return { ok: true, plan: buildBashExecutionPlan(c, cwd.internalPath, cwd.displayPath) };
-    } catch (error) { return { ok: false, result: toolError("execute_bash", messageOf(error)) }; }
+    } catch (error) { return { ok: false, result: toolError("execute_shell", messageOf(error)) }; }
   }
 
   getExternalCandidates(): string[] { return []; }
@@ -120,12 +120,12 @@ export class SaaSBashToolService {
         timeoutSeconds: plan.timeoutSeconds,
       });
       return toolSuccess({ stdout: result.stdout, stderr: result.stderr, return_code: result.returnCode, interrupted: result.interrupted, background_task_id: null, background_started: false, classification: plan.category }, {
-        toolName: "execute_bash",
+        toolName: "execute_shell",
         summary: result.interrupted ? `命令执行超时（${plan.timeoutSeconds} 秒）` : `命令执行完成，返回码 ${result.returnCode}`,
         outputType: "streams",
         metadata: { ...plan.metadata, truncated: result.truncated === true, shell: "sandbox" },
       });
-    } catch (error) { return toolError("execute_bash", `命令执行失败: ${messageOf(error)}`, plan.metadata); }
+    } catch (error) { return toolError("execute_shell", `命令执行失败: ${messageOf(error)}`, plan.metadata); }
   }
 }
 

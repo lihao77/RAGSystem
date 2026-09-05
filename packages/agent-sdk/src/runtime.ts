@@ -147,6 +147,7 @@ export function createRuntime(options: CreateRuntimeOptions): { run: (input: Run
   const promptContext: AgentPromptContext = {
     tools: registry.listDefinitions(),
     ...(options.execContext?.executionPaths ? { executionPaths: options.execContext.executionPaths } : {}),
+    ...(options.execContext?.shellEnvironment ? { shellEnvironment: options.execContext.shellEnvironment } : {}),
   };
   const contextPort: Context = makeContextPort(profile, toolInstructionMode, promptContext);
 

@@ -1,4 +1,5 @@
 import type { AgentConfig } from "./agent-config.js";
+import { retiredToolNameAliases } from "./tool-name-aliases.js";
 import type { AgentConfigTeam } from "./team-store.js";
 
 /** Tool names owned by runtime/config wiring; strip them from persisted agent tool lists. */
@@ -21,6 +22,26 @@ export const CONFIG_MANAGED_TOOL_NAMES = new Set([
 
 export function stripConfigManagedToolNames(enabledTools: readonly string[] | undefined): string[] {
   return (enabledTools ?? []).filter((toolName) => !CONFIG_MANAGED_TOOL_NAMES.has(toolName));
+}
+
+/**
+ * 退役工具名归一为现名（插件经描述符 retired_names 声明、core 聚合，本层不硬编码
+ * 任何插件工具名；core 自有工具的退役名单在上方 CONFIG_MANAGED_TOOL_NAMES）。
+ * 保序去重；无别名声明时（注册表为空）原样返回副本。
+ */
+export function canonicalizeEnabledToolNames(
+  enabledTools: readonly string[],
+  aliases: Readonly<Record<string, string>> = retiredToolNameAliases(),
+): string[] {
+  if (!Object.keys(aliases).length) {
+    return [...enabledTools];
+  }
+  const next: string[] = [];
+  for (const toolName of enabledTools) {
+    const canonical = aliases[toolName] ?? toolName;
+    if (!next.includes(canonical)) next.push(canonical);
+  }
+  return next;
 }
 
 export function cloneConfig(config: AgentConfig): AgentConfig {
@@ -47,7 +68,7 @@ export function normalizeConfig(config: AgentConfig): AgentConfig {
     llm_tiers: config.llm_tiers ?? null,
     tools: {
       ...tools,
-      enabled_tools: stripConfigManagedToolNames(tools.enabled_tools),
+      enabled_tools: canonicalizeEnabledToolNames(stripConfigManagedToolNames(tools.enabled_tools)),
     },
     goals: config.goals ?? { enabled: false },
     tasks: config.tasks ?? { background: false },

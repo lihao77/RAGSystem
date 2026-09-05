@@ -100,9 +100,9 @@ export const DOCUMENT_TOOLS: RuntimeToolDefinition[] = [
       },
     },
     usage_contract: [
-      "读取已有文件内容优先用 read_file，而非 execute_bash 的 cat 或 execute_code。",
+      "读取已有文件内容优先用 read_file，而非 execute_shell 的 cat 或 execute_code。",
       "read_file 默认最多返回 2000 行（limit 至多 10000），且受单次字符预算约束（约 1.6 万字符）；达到任一上限时用 metadata.next_offset 继续分页读取。",
-      "超长单行会被截断，被截断的尾部无法通过分页找回；确需完整超长行内容时，改用 execute_code/execute_bash 处理文件。",
+      "超长单行会被截断，被截断的尾部无法通过分页找回；确需完整超长行内容时，改用 execute_code/execute_shell 处理文件。",
       "不知道文件大小时不要假设一次能读全：先看返回 metadata 里的 file_size/total_lines，数据文件优先用 preview_data_structure 了解结构。",
       "返回内容为文件原始文本内容（超长行除外），不附带行号。",
       "file_path 必须是真实路径字符串，不是变量名文本。",

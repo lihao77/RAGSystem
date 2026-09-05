@@ -238,6 +238,8 @@ export interface ToolExecContext {
   workspaceRoot?: string | null;
   /** Concrete run-scoped directories shared by file, shell, code, and Skill tools. */
   executionPaths?: ToolExecutionPaths;
+  /** Host shell/platform facts supplied by the deployment; consumed by the prompt "运行环境" section. */
+  shellEnvironment?: ShellEnvironment;
   /** 当前有效上下文引用的会话附件；SaaS 沙箱据此执行最小权限挂载。 */
   attachmentFileIds?: readonly string[];
   /**
@@ -251,6 +253,25 @@ export interface ToolExecContext {
 export interface ToolExecutionPaths {
   workspace: string;
   uploads: string;
+}
+
+/**
+ * 执行环境的 shell/平台事实（宿主注入，提示词与执行工具共享同一来源）。
+ * 只描述"命令在哪种 shell 里跑"，不含任何路径或权限决策。
+ */
+export interface ShellEnvironment {
+  /** 归一化平台。 */
+  platform: "windows" | "macos" | "linux";
+  /** 系统版本（os.release()），可省。 */
+  osRelease?: string;
+  /** CPU 架构（os.arch()），可省。 */
+  arch?: string;
+  /** 人类可读 shell 标签，如 "Git Bash (bash)"、"cmd.exe"、"sh"。 */
+  shellLabel: string;
+  /** 命令语法族：posix（bash/sh/zsh）或 windows（cmd）。 */
+  shellSyntax: "posix" | "windows";
+  /** 路径分隔符风格。 */
+  pathStyle: "windows" | "posix";
 }
 
 /** 后台任务等待请求。 */

@@ -51,7 +51,7 @@ async function main(): Promise<void> {
     run_id: "run-1",
     call_id: "call-1",
     payload: {
-      tool: "execute_bash",
+      tool: "execute_shell",
       phase: "start",
       mode: "projection",
       input: { cmd: "ls" },
@@ -63,7 +63,7 @@ async function main(): Promise<void> {
     session_id: "session-1",
     run_id: "run-1",
     call_id: "call-1",
-    payload: { tool: "execute_bash", phase: "end", mode: "projection", ok: true, observation: "file.txt" },
+    payload: { tool: "execute_shell", phase: "end", mode: "projection", ok: true, observation: "file.txt" },
   });
 
   const tree = sdk.executionTree.get();
@@ -72,7 +72,7 @@ async function main(): Promise<void> {
   const projectionOk =
     root?.agentId === "orchestrator"
     && root.rounds[0]?.intent === "I will list files"
-    && tool?.toolName === "execute_bash"
+    && tool?.toolName === "execute_shell"
     && tool?.status === "succeeded";
   console.log(
     `[demo] executionTree: rootAgent=${root?.agentId} rounds=${root?.rounds.length} toolStatus=${tool?.status}`,

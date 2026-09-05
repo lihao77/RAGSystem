@@ -303,7 +303,7 @@ test('Local 崩溃恢复对无可恢复交互的 run 使用 interrupted', async 
     toolCalls: [{
       id: 'call-recovery-1',
       type: 'function',
-      function: { name: 'execute_bash', arguments: '{"command":"pwd"}' },
+      function: { name: 'execute_shell', arguments: '{"command":"pwd"}' },
     }],
     metadata: { run_id: 'run-1', round: 1, agent_name: 'root' },
   });
@@ -338,7 +338,7 @@ test('中断终态会关闭悬空 tool call 并写入 tool_result 事件', async
     toolCalls: [{
       id: 'call-bash-1',
       type: 'function',
-      function: { name: 'execute_bash', arguments: '{"command":"find /"}' },
+      function: { name: 'execute_shell', arguments: '{"command":"find /"}' },
     }],
     metadata: { run_id: 'run-1', round: 1, agent_name: 'root' },
   });

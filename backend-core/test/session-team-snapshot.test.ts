@@ -2,11 +2,42 @@ import { describe, expect, it } from "vitest";
 
 import { TeamSelectionError } from "../src/contracts/agent/agent-config.js";
 import type { AgentConfigTeam, IAgentConfigTeamStore } from "../src/contracts/agent/team-store.js";
-import { normalizeSessionMetadata, SessionTeamSnapshotSchema } from "../src/contracts/session/session.js";
+import { registerRetiredToolNames } from "../src/contracts/agent/tool-name-aliases.js";
+import {
+  computeSessionTeamRevision,
+  normalizeSessionMetadata,
+  normalizeSessionTeamSnapshot,
+  SessionTeamSnapshotSchema,
+} from "../src/contracts/session/session.js";
 import { AgentConfigService } from "../src/services/agent/config/index.js";
 
+// 退役名是插件知识：单测环境无插件注册，按执行工具插件描述符的声明方式注册。
+registerRetiredToolNames("execute_shell", ["execute_bash"]);
+
 class MemoryTeamStore implements IAgentConfigTeamStore {
-  async loadTeams() { return null; }
+  async loadTeams() {
+    // 内核不再兜底出厂 team：夹具预置最小 default team（产品层 ensure 的等价物）。
+    return {
+      activeTeam: "default",
+      teams: new Map<string, AgentConfigTeam>([
+        ["default", new Map(Object.entries({
+          orchestrator_agent: {
+            agent_name: "orchestrator_agent",
+            display_name: "Orchestrator Agent",
+            description: "入口编排 Agent。",
+            enabled: true,
+            default_entry: true,
+            llm_tiers: null,
+            tools: { enabled_tools: [] },
+            goals: { enabled: false },
+            tasks: { background: false },
+            delegation: { enabled_agents: [], parallel_children: false },
+            custom_params: {},
+          },
+        }))],
+      ]),
+    };
+  }
   async saveAll(_activeTeam: string, _teams: Map<string, AgentConfigTeam>) {}
   async saveIndex(_activeTeam: string, _teams: Map<string, AgentConfigTeam>) {}
   async removeTeam(_teamName: string) {}
@@ -50,5 +81,76 @@ describe("Session Team snapshots", () => {
     await service.initialize();
     expect(() => service.createTeamSnapshot({ teamName: "missing" })).toThrow(TeamSelectionError);
     expect(() => service.createTeamSnapshot({ entryAgentName: "missing" })).toThrow(TeamSelectionError);
+  });
+
+  it("renames retired execute_bash in persisted snapshots and reanchors the revision", () => {
+    // 历史形状：改名前落库的快照，agents.enabled_tools 携带 execute_bash，
+    // team_revision 是对旧形状计算的内容锚点。
+    const rawAgents = {
+      orchestrator_agent: {
+        agent_name: "orchestrator_agent",
+        tools: { enabled_tools: ["read_file", "execute_bash"] },
+      },
+    };
+    const persisted = {
+      team_name: "default",
+      team_revision: computeSessionTeamRevision(rawAgents),
+      entry_agent_name: "orchestrator_agent",
+      agents: rawAgents,
+    };
+
+    const normalized = normalizeSessionTeamSnapshot(persisted);
+    expect(normalized.agents.orchestrator_agent?.tools?.enabled_tools).toEqual(["read_file", "execute_shell"]);
+    // 重锚定：revision 改写为现名形状的哈希，恒等于 parse 结果内容的内容哈希，
+    // 下游（run-engine 身份比对、SaaS createSession 冲突检测）比较原文即一致。
+    expect(normalized.team_revision).toBe(computeSessionTeamRevision(normalized.agents));
+    expect(normalized.team_revision).not.toBe(persisted.team_revision);
+    // 幂等：归一后的快照再 parse 不变。
+    const current = normalizeSessionTeamSnapshot(normalized);
+    expect(current).toEqual(normalized);
+  });
+
+  it("keeps duplicate tool names when renaming so the stored revision anchor still matches", () => {
+    // 历史形状（review P1-1 反例）：存量 enabled_tools 含重复项且带退役名。落库 revision
+    // 按未去重原形状计算——逐项改名（不全局去重）才能让锚点命中并重锚定，快照不至于不可读。
+    const rawAgents = {
+      orchestrator_agent: {
+        agent_name: "orchestrator_agent",
+        tools: { enabled_tools: ["read_file", "read_file", "execute_bash"] },
+      },
+    };
+    const persisted = {
+      team_name: "default",
+      team_revision: computeSessionTeamRevision(rawAgents),
+      entry_agent_name: "orchestrator_agent",
+      agents: rawAgents,
+    };
+
+    const normalized = normalizeSessionTeamSnapshot(persisted);
+    expect(normalized.agents.orchestrator_agent?.tools?.enabled_tools)
+      .toEqual(["read_file", "read_file", "execute_shell"]);
+    expect(normalized.team_revision).toBe(computeSessionTeamRevision(normalized.agents));
+  });
+
+  it("parses mixed retired/current names by renaming item-wise (hand-edited degenerate shape)", () => {
+    // 新旧名并存只会来自对库内快照的手工编辑；逐项改名语义 = execute_bash→execute_shell、
+    // 其余原样，revision 命中退役名形状哈希即重锚定。行为钉死，防止后人无意改断。
+    const rawAgents = {
+      orchestrator_agent: {
+        agent_name: "orchestrator_agent",
+        tools: { enabled_tools: ["execute_bash", "execute_shell", "read_file"] },
+      },
+    };
+    const persisted = {
+      team_name: "default",
+      team_revision: computeSessionTeamRevision(rawAgents),
+      entry_agent_name: "orchestrator_agent",
+      agents: rawAgents,
+    };
+
+    const normalized = normalizeSessionTeamSnapshot(persisted);
+    expect(normalized.agents.orchestrator_agent?.tools?.enabled_tools)
+      .toEqual(["execute_shell", "execute_shell", "read_file"]);
+    expect(normalized.team_revision).toBe(computeSessionTeamRevision(normalized.agents));
   });
 });

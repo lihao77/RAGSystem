@@ -72,14 +72,14 @@ export function classifyBashCommand(
 ): BashClassificationResult {
   const command = normalizeString(input.command);
   if (!command) {
-    return { ok: false, result: toolError("execute_bash", "execute_bash 缺少 command", { command: "" }) };
+    return { ok: false, result: toolError("execute_shell", "execute_shell 缺少 command", { command: "" }) };
   }
   if (input.runInBackground && !options.backgroundSupported) {
     return {
       ok: false,
       result: toolError(
-        "execute_bash",
-        options.backgroundUnsupportedMessage ?? "当前执行环境不支持后台 Bash",
+        "execute_shell",
+        options.backgroundUnsupportedMessage ?? "当前执行环境不支持后台 shell 命令",
         { command, background_started: false },
       ),
     };
@@ -87,7 +87,7 @@ export function classifyBashCommand(
   if (input.runInBackground && !agent?.tasks?.background) {
     return {
       ok: false,
-      result: toolError("execute_bash", "当前 Agent 未启用 tasks.background，不能使用 run_in_background 后台执行", {
+      result: toolError("execute_shell", "当前 Agent 未启用 tasks.background，不能使用 run_in_background 后台执行", {
         command,
         background_started: false,
       }),
@@ -98,7 +98,7 @@ export function classifyBashCommand(
   if (validation.status === "blocked") {
     return {
       ok: false,
-      result: toolError("execute_bash", `命令安全检查失败: ${validation.error}`, {
+      result: toolError("execute_shell", `命令安全检查失败: ${validation.error}`, {
         command,
         classification: "unknown",
       }),

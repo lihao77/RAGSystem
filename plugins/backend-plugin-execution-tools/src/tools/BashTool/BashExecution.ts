@@ -1,7 +1,6 @@
 import { normalizeString } from "@ragsystem/backend-core/utils/guards.js";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -14,6 +13,7 @@ import type { AgentConfig } from "@ragsystem/backend-core/contracts/agent/agent-
 import type { PathAccessPolicy } from "@ragsystem/backend-core/contracts/runtime/path-access-policy.js";
 import { terminateProcessTree } from "@ragsystem/backend-core/services/runtime/process-tree.js";
 import { executionPathEnvironment } from "@ragsystem/backend-core/contracts/execution/execution-environment.js";
+import { detectHostShell } from "@ragsystem/backend-core/contracts/execution/shell-detection.js";
 import {
   buildBashExecutionPlan,
   classifyBashCommand,
@@ -31,7 +31,7 @@ export type {
   BashExecutionPlanResult,
 } from "./bash-policy.js";
 
-const TOOL_NAME = "execute_bash";
+const TOOL_NAME = "execute_shell";
 const DEFAULT_TIMEOUT_SECONDS = 120;
 const MAX_TIMEOUT_SECONDS = 600;
 const DEFAULT_MAX_OUTPUT_CHARS = 50000;
@@ -58,6 +58,8 @@ export class LocalBashToolService {
   private readonly maxTimeoutSeconds: number;
   private readonly maxOutputChars: number;
   private readonly bashExecutable: string | null;
+  /** 实际执行命令的 shell 种类标识（写入结果 metadata；bash 存在时恒为 "bash"）。 */
+  private readonly shellKind: "bash" | "cmd" | "sh";
   private readonly backgroundTasks: BackgroundTaskPort | null;
   private readonly clientEvents: ClientEventPublisherPort | null;
   private readonly paths: ManagedPathResolver;
@@ -79,7 +81,12 @@ export class LocalBashToolService {
     this.defaultTimeoutSeconds = positiveInt(options.defaultTimeoutSeconds, DEFAULT_TIMEOUT_SECONDS);
     this.maxTimeoutSeconds = positiveInt(options.maxTimeoutSeconds, MAX_TIMEOUT_SECONDS);
     this.maxOutputChars = positiveInt(options.maxOutputChars, DEFAULT_MAX_OUTPUT_CHARS);
-    this.bashExecutable = options.bashExecutable === undefined ? findBashExecutable() : options.bashExecutable;
+    // Windows 降级链（env 覆盖 → PATH（跳过 WSL）→ Git 固定位置）见 shell-detection；无 bash 时
+    // spawn(shell:true) 实际走 cmd.exe（Windows）/ sh（POSIX）。显式传入 bashExecutable 供测试注入。
+    const detected = detectHostShell();
+    this.bashExecutable = options.bashExecutable === undefined ? detected.bashExecutable : options.bashExecutable;
+    // 与实际 spawn 分支同源：有 bash 用 bash；否则显式置 null（测试）也按平台真实降级 shell 报告。
+    this.shellKind = this.bashExecutable ? "bash" : process.platform === "win32" ? "cmd" : "sh";
     this.backgroundTasks = options.backgroundTasks ?? null;
     this.clientEvents = options.clientEvents ?? null;
     this.paths = options.pathResolver ?? new ManagedPathResolver(this.dataRoot);
@@ -157,7 +164,7 @@ export class LocalBashToolService {
           ...plan.metadata,
           execution_paths: this.paths.roots(context),
           truncated,
-          shell: this.bashExecutable ? "bash" : "system",
+          shell: this.shellKind,
         },
       });
     } catch (error) {
@@ -171,7 +178,7 @@ export class LocalBashToolService {
   private executeBackgroundPlan(plan: BashExecutionPlan, context: ToolExecContext): ToolExecutionResult {
     throwIfAborted(context.signal, "Bash execution aborted");
     if (!this.backgroundTasks) {
-      return errorResult("execute_bash 后台执行暂不可用", {
+      return errorResult("execute_shell 后台执行暂不可用", {
         ...plan.metadata,
         background_started: false,
       });
@@ -220,7 +227,7 @@ export class LocalBashToolService {
           background_output_path: displayPath,
           background_kind: task.kind,
           cancel_supported: task.cancel_supported,
-          shell: this.bashExecutable ? "bash" : "system",
+          shell: this.shellKind,
         },
       },
     );
@@ -428,17 +435,6 @@ function successResult<T>(
 
 function errorResult(message: string, metadata: Record<string, unknown> = {}): ToolExecutionResult {
   return toolError(TOOL_NAME, message, metadata);
-}
-
-function findBashExecutable(): string | null {
-  if (process.platform !== "win32") {
-    return null;
-  }
-  const candidates = [
-    path.join(process.env.ProgramFiles ?? "C:\\Program Files", "Git", "bin", "bash.exe"),
-    path.join(process.env.ProgramFiles ?? "C:\\Program Files", "Git", "usr", "bin", "bash.exe"),
-  ];
-  return candidates.find((candidate) => fs.existsSync(candidate)) ?? null;
 }
 
 function positiveInt(value: unknown, fallback: number): number {

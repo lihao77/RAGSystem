@@ -7,7 +7,7 @@ import type { AgentConfig } from "@ragsystem/backend-core/contracts/agent/agent-
 import type { PathAccessPolicy } from "@ragsystem/backend-core/contracts/runtime/path-access-policy.js";
 import { optionalBoolean, optionalInteger, optionalString } from "@ragsystem/backend-core/tools/schema-helpers.js";
 
-const EXECUTE_BASH_TOOL_NAME = "execute_bash";
+const EXECUTE_SHELL_TOOL_NAME = "execute_shell";
 
 interface BashToolDeps {
   bashTools: CommandExecutionPort | null;
@@ -30,23 +30,23 @@ export function createBashTools(deps: BashToolDeps): Tool[] {
     return [];
   }
   const enabled = new Set(deps.agent.tools.enabled_tools ?? []);
-  if (!enabled.has(EXECUTE_BASH_TOOL_NAME)) {
+  if (!enabled.has(EXECUTE_SHELL_TOOL_NAME)) {
     return [];
   }
   // run_in_background 仅在 agent 启用 tasks.background 时暴露给模型（与 BashExecution 守卫同源）。
   const allowBackground = !!deps.agent.tasks?.background;
   return [
     buildTool({
-      name: EXECUTE_BASH_TOOL_NAME,
+      name: EXECUTE_SHELL_TOOL_NAME,
       description:
-        "Execute a shell command with the run workspace as the default working directory. Read-only commands run directly; write, unknown, network, destructive, and interpreter commands may require approval.",
+        "Execute a shell command in the host shell (a POSIX shell when available, otherwise the Windows system shell) with the run workspace as the default working directory. Read-only commands run directly; write, unknown, network, destructive, and interpreter commands may require approval.",
       source: "execution",
       category: "execution",
       riskLevel: "high",
       allowedCallers: ["direct"],
       extendedUsage: `#### 适用场景
 
-仅在确实需要 shell/系统命令、且没有专用工具（read_file/edit_file/write_file/glob/grep 等）适用时使用 execute_bash；文件读写与搜索请优先用专用工具。
+仅在确实需要 shell/系统命令、且没有专用工具（read_file/edit_file/write_file/glob/grep 等）适用时使用 execute_shell；文件读写与搜索请优先用专用工具。
 
 #### 运行时环境
 
@@ -137,4 +137,4 @@ export function createBashTools(deps: BashToolDeps): Tool[] {
   ];
 }
 
-export { EXECUTE_BASH_TOOL_NAME };
+export { EXECUTE_SHELL_TOOL_NAME };

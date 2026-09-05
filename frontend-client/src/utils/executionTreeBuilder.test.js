@@ -198,13 +198,13 @@ test('preserves intent completion so inline rendering only streams the active in
 test('maps protocol rawResult onto node.raw_result for structured consumption', () => {
   const rawResult = {
     success: true,
-    tool_name: 'execute_bash',
+    tool_name: 'execute_shell',
     summary: '命令执行完成，返回码 0',
     content: { stdout: '3 passed', stderr: '', return_code: 0 },
     metadata: { working_dir: 'D:/work' },
   };
   const tree = treeWith([
-    { ...tool('tool-raw', 'execute_bash'), observation: 'rendered text', rawResult },
+    { ...tool('tool-raw', 'execute_shell'), observation: 'rendered text', rawResult },
     tool('tool-legacy', 'grep'),
   ]);
 

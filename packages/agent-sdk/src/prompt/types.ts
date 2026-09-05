@@ -5,12 +5,14 @@
  * 而是由对应工具写入参数 schema；system prompt 只补充 schema 外的通用约束。
  */
 import type { RuntimeToolDefinition } from "./tool-types.js";
-import type { ToolExecutionPaths } from "../contracts.js";
+import type { ShellEnvironment, ToolExecutionPaths } from "../contracts.js";
 
 export interface AgentPromptContext {
   tools?: RuntimeToolDefinition[] | undefined;
   /** Stable paths for the current execution environment, supplied by the host. */
   executionPaths?: ToolExecutionPaths | undefined;
+  /** Host shell/platform facts for the "运行环境" section, supplied by the host. */
+  shellEnvironment?: ShellEnvironment | undefined;
 }
 
 export function collectSections(parts: Array<string | null | undefined>): string[] {

@@ -55,6 +55,48 @@ test("系统提示词各段按固定顺序拼装", () => {
   ]);
 });
 
+test("注入 shellEnvironment 时渲染运行环境段（当前执行目录之后、工具使用之前）", () => {
+  const prompt = buildFullSystemPrompt(
+    profile(),
+    {
+      tools: [minimalTool],
+      executionPaths: { workspace: "/data/ws", uploads: "/data/uploads" },
+      shellEnvironment: {
+        platform: "windows",
+        osRelease: "10.0.26200",
+        arch: "x64",
+        shellLabel: "Git Bash",
+        shellSyntax: "posix",
+        pathStyle: "windows",
+      },
+    },
+    "xml",
+  );
+  assertInOrder(prompt, ["## 当前执行目录", "## 运行环境", "## 工具使用"]);
+  assert.ok(prompt.includes("Shell: Git Bash（POSIX 语法）"));
+  // 工具已更名 execute_shell，提示词不得再以 bash 指代工具或环境之外的执行方式
+  assert.ok(!prompt.includes("execute_bash"), "提示词不应出现退役工具名");
+  assert.ok(prompt.includes("当前是 Windows 上的 POSIX shell"), "Windows 上的 POSIX shell 应提示原生程序路径差异");
+});
+
+test("cmd 降级环境的运行环境段给出 Windows 命令语法指引", () => {
+  const prompt = buildFullSystemPrompt(profile(), {
+    shellEnvironment: {
+      platform: "windows",
+      shellLabel: "cmd.exe",
+      shellSyntax: "windows",
+      pathStyle: "windows",
+    },
+  });
+  assert.ok(prompt.includes("Windows cmd 语法"));
+  assert.ok(prompt.includes("`dir` 而非 `ls`"));
+  assert.ok(!prompt.includes("Windows 上的 POSIX shell"), "cmd 环境不应渲染 POSIX shell 提示");
+});
+
+test("未注入 shellEnvironment 时不渲染运行环境段", () => {
+  assert.ok(!fullPrompt.includes("## 运行环境"));
+});
+
 test("无角色提示词时不渲染 Agent 角色段", () => {
   const prompt = buildFullSystemPrompt(profile(), {});
   assert.ok(!prompt.includes("## Agent 角色"));

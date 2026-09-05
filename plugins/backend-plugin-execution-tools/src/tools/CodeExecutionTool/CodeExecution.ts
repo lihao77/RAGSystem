@@ -466,7 +466,7 @@ stdout_capture = io.StringIO()
 try:
     with redirect_stdout(stdout_capture):
         exec(compile(code, "<execute_code>", "exec"), env, env)
-    # 与 execute_bash 一致：直接返回代码打印到 stdout 的内容，不依赖 result 变量。
+    # 与 execute_shell 一致：直接返回代码打印到 stdout 的内容，不依赖 result 变量。
     _emit({
         "success": True,
         "result": stdout_capture.getvalue(),

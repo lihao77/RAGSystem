@@ -42,6 +42,7 @@ import type { SessionFileLookupPort } from "../../../contracts/session/session-f
 import { resolveResumeBoundaryMessageId, resolveResumeToolResults, resolveRunStartRound } from "./run-round.js";
 import { terminalReason } from "./terminal-reason.js";
 import type { ExecutionEnvironmentCapability } from "../../../contracts/execution/execution-environment.js";
+import { describeShellEnvironment } from "../../../contracts/execution/shell-detection.js";
 import type { StreamSnapshotRegistry } from "../execution/status-tracker.js";
 
 export interface SdkRuntimeAdapterDeps {
@@ -409,6 +410,7 @@ export async function executeRunWithSdk(
         runId: input.runId,
         workspaceRoot: input.workspaceRoot ?? asString(input.agent.custom_params.workspace_root),
       }),
+      shellEnvironment: describeShellEnvironment(deps.executionEnvironment.deploymentKind),
     } : {}),
     ...(input.signal ? { signal: input.signal } : {}),
   };
@@ -856,6 +858,7 @@ export async function executeRunWithSdk(
           const systemPromptBase = buildFullSystemPrompt(profile, {
             tools: registry.listDefinitions(),
             ...(baseExecCtx.executionPaths ? { executionPaths: baseExecCtx.executionPaths } : {}),
+            ...(baseExecCtx.shellEnvironment ? { shellEnvironment: baseExecCtx.shellEnvironment } : {}),
           }, mode);
           const prediction = inputTokenTracker.predict(hookInput.ctx.messages);
           const systemPromptTokens = Math.max(

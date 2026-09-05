@@ -22,6 +22,7 @@ import { requireTenantAdmin, requireTenantMember } from "../tenant-role.js";
 import { assertSessionReadable } from "../session-owner.js";
 import { isRecord, normalizeString } from "../../utils/guards.js";
 import { EXECUTION_ENVIRONMENT_CAPABILITY } from "../../contracts/execution/execution-environment.js";
+import { describeShellEnvironment } from "../../contracts/execution/shell-detection.js";
 import { readPersistedSessionCacheTotals, readPersistedSessionContextTokenUsage } from "../../services/agent/context-compression/input-token-tracker.js";
 
 interface ContextSnapshotQuery {
@@ -159,6 +160,10 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
     const executionPaths = sessionId && executionEnvironment
       ? executionEnvironment.paths({ sessionId, workspaceRoot })
       : undefined;
+    // preview 的 system prompt 须与真实 run 同源——shell/平台事实同样注入。
+    const shellEnvironment = executionEnvironment
+      ? describeShellEnvironment(executionEnvironment.deploymentKind)
+      : undefined;
     const teamName = teamSnapshot.team_name;
 
     // 装配 createRuntime（轻量，只 preview 不 run）—— preview 内部用 SDK builder + protocol.buildRequest，
@@ -214,6 +219,7 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
           threadKey,
           sessionFiles: request.container.sessionFiles,
           ...(executionPaths ? { executionPaths } : {}),
+          ...(shellEnvironment ? { shellEnvironment } : {}),
           ...(sessionInfo ? { sessionIdentity: toSessionIdentity(sessionInfo) } : {}),
           ...(request.container.contextSourceFactories
             ? { frontContextSources: request.container.contextSourceFactories }

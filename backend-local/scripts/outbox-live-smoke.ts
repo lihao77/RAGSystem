@@ -48,13 +48,13 @@ const DEFAULT_TASK = "Reply exactly: outbox-live-smoke-ok";
 const DEFAULT_INTERRUPT_TASK =
   "Write a long, detailed migration analysis of at least 2000 words. Continue until stopped.";
 const DEFAULT_BACKGROUND_TASK = [
-  "You must call execute_bash exactly once.",
+  "You must call execute_shell exactly once.",
   "Use command 'echo outbox-bg-ok'.",
   "Set run_in_background to true, timeout to 30, and description to 'outbox background smoke'.",
   "After the tool starts, reply with a concise final answer.",
 ].join(" ");
 const DEFAULT_APPROVAL_TASK = [
-  "You must call execute_bash exactly once.",
+  "You must call execute_shell exactly once.",
   "Use command 'touch outbox-approval-smoke.txt'.",
   "Set run_in_background to false, timeout to 30, and description to 'outbox approval smoke'.",
   "After the tool completes, reply with a concise final answer.",

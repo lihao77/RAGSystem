@@ -19,15 +19,30 @@ import { OptionalSessionIdSchema } from "./session-id.js";
 import type { TenantId } from "../../identity/types.js";
 import type { MessageContentPart } from "@ragsystem/agent-protocol";
 import { AgentConfigSchema, type AgentConfig } from "../agent/agent-config.js";
+import { retiredToolNameAliases } from "../agent/tool-name-aliases.js";
 import type { MessageProviderState } from "../conversation-store/types.js";
 import { createHash } from "node:crypto";
 
-export const SessionTeamSnapshotSchema = z.object({
+const SessionTeamSnapshotObjectSchema = z.object({
   team_name: z.string().trim().min(1),
   team_revision: z.string().trim().min(1),
   entry_agent_name: z.string().trim().min(1),
   agents: z.record(z.string(), AgentConfigSchema),
-}).strict().superRefine((snapshot, context) => {
+}).strict();
+
+/**
+ * 会话 team 快照 schema（带形态归一）。
+ *
+ * preprocess 在校验前做两件事（幂等，parse 结果恒为现名形态）：
+ * 1. enabled_tools 里的退役工具名（如 execute_bash → execute_shell）**逐项**改名——只改名字
+ *    本身，保留重复项、不动非字符串项（脏项仍交 schema 拒绝）。不做全局去重：存量快照的
+ *    revision 是按落库原形状（可能含重复工具名）算的，去重会让锚点失配、快照永久不可读。
+ * 2. 重锚定：若库内 team_revision 恰等于退役名形状的哈希（存量快照的落库锚点），改写为
+ *    现名形状的哈希。revision 从此始终等于 parse 结果内容的内容哈希，superRefine 保持
+ *    单哈希严格校验，下游（run-engine 身份比对、SaaS createSession 冲突检测）比较原文即可一致。
+ *    revision 与退役名哈希不符的（真正被篡改的）原样透传，交 superRefine 拒绝。
+ */
+export const SessionTeamSnapshotSchema = z.preprocess(normalizeSnapshotAgentsShape, SessionTeamSnapshotObjectSchema.superRefine((snapshot, context) => {
   for (const [agentName, config] of Object.entries(snapshot.agents)) {
     if (config.agent_name !== agentName) {
       context.addIssue({
@@ -44,15 +59,61 @@ export const SessionTeamSnapshotSchema = z.object({
       message: `Entry agent '${snapshot.entry_agent_name}' is not present in the Team snapshot`,
     });
   }
-  const expectedRevision = computeSessionTeamRevision(snapshot.agents);
-  if (snapshot.team_revision !== expectedRevision) {
+  if (snapshot.team_revision !== computeSessionTeamRevision(snapshot.agents)) {
     context.addIssue({
       code: z.ZodIssueCode.custom,
       path: ["team_revision"],
       message: "Team snapshot revision does not match its Agent configuration",
     });
   }
-});
+}));
+
+/** 快照 raw 输入上的退役工具名归一 + revision 重锚定（parse 前应用；非快照形状原样透传）。 */
+function normalizeSnapshotAgentsShape(value: unknown): unknown {
+  if (!isRecord(value) || !isRecord(value.agents)) return value;
+  // 一次 parse 内统一别名快照：改名映射与重锚定校验必须用同一份注册表状态。
+  const aliases = retiredToolNameAliases();
+  if (!Object.keys(aliases).length) return value;
+  let renamed = false;
+  const agents: Record<string, unknown> = {};
+  for (const [agentName, config] of Object.entries(value.agents)) {
+    if (!isRecord(config) || !isRecord(config.tools) || !Array.isArray(config.tools.enabled_tools)) {
+      agents[agentName] = config;
+      continue;
+    }
+    let agentRenamed = false;
+    const enabledTools = config.tools.enabled_tools.map((tool: unknown) => {
+      if (typeof tool === "string" && tool in aliases) {
+        agentRenamed = true;
+        return aliases[tool];
+      }
+      return tool;
+    });
+    renamed = renamed || agentRenamed;
+    agents[agentName] = agentRenamed
+      ? { ...config, tools: { ...config.tools, enabled_tools: enabledTools } }
+      : config;
+  }
+  if (!renamed) return value;
+  const revision = typeof value.team_revision === "string" ? value.team_revision : null;
+  const reanchored = revision === null ? null : reanchorRevision(revision, value.agents, agents);
+  return reanchored === null
+    ? { ...value, agents }
+    : { ...value, agents, team_revision: reanchored };
+}
+
+/**
+ * 库内 revision 与退役名形状的哈希一致时，返回现名形状的哈希（重锚定）；不匹配或形状
+ * 无法解析时返回 null——保持原值透传，交 superRefine 按单哈希严格校验拒绝。
+ */
+function reanchorRevision(revision: string, rawAgents: unknown, renamedAgents: unknown): string | null {
+  try {
+    if (revision !== computeSessionTeamRevision(rawAgents as Record<string, unknown>)) return null;
+    return computeSessionTeamRevision(renamedAgents as Record<string, unknown>);
+  } catch {
+    return null;
+  }
+}
 
 export interface SessionTeamSnapshot {
   team_name: string;
@@ -316,5 +377,6 @@ export function normalizeSessionMetadata(value: unknown): Record<string, unknown
 }
 
 export function normalizeSessionTeamSnapshot(value: unknown): SessionTeamSnapshot {
+  // 退役工具名归一在 SessionTeamSnapshotSchema 的 preprocess 里完成，parse 结果恒为现名形态。
   return SessionTeamSnapshotSchema.parse(value) as SessionTeamSnapshot;
 }

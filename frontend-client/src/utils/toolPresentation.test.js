@@ -39,10 +39,10 @@ test('Goal list preview reports the returned history count', () => {
   assert.equal(getToolSubtitle(node), 'Goal 历史 2 项')
 })
 
-test('execute_bash terminal view exposes command, streams and exit code', () => {
+test('execute_shell terminal view exposes command, streams and exit code', () => {
   const node = {
     type: 'tool_call',
-    tool_name: 'execute_bash',
+    tool_name: 'execute_shell',
     status: 'completed',
     arguments: JSON.stringify({
       command: 'python -m pytest',
@@ -62,6 +62,27 @@ test('execute_bash terminal view exposes command, streams and exit code', () => 
   assert.equal(view.stderr, '')
   assert.equal(view.exitCode, 0)
   assert.equal(getToolTerminalView({ type: 'tool_call', tool_name: 'edit_file' }), null)
+})
+
+test('retired execute_bash name keeps the shell terminal presentation for historical sessions', () => {
+  const node = {
+    type: 'tool_call',
+    tool_name: 'execute_bash',
+    status: 'completed',
+    arguments: JSON.stringify({ command: 'npm test', description: '跑测试' }),
+    raw_result: JSON.stringify({
+      content: { stdout: 'ok', stderr: '', return_code: 0 },
+    }),
+  }
+
+  const view = getToolTerminalView(node)
+  assert.equal(view.command, 'npm test')
+  assert.equal(view.exitCode, 0)
+  assert.equal(view.title, 'shell')
+  assert.equal(getToolInspectorLabel('execute_bash'), '命令详情')
+  assert.equal(getToolIconKind('execute_bash'), 'code')
+  assert.equal(getToolIconKind('execute_shell'), 'code')
+  assert.match(getToolSubtitle(node), /npm test/)
 })
 
 test('parseDiffPreviewText parses backend diff preview into a line model', () => {
@@ -114,16 +135,16 @@ test('getToolDiffView builds the edit_file diff model with stats', () => {
   assert.equal(view.added, 1)
   assert.equal(view.removed, 1)
   assert.deepEqual(view.lines.map((line) => line.type), ['hunk', 'removed', 'added'])
-  assert.equal(getToolDiffView({ type: 'tool_call', tool_name: 'execute_bash' }), null)
+  assert.equal(getToolDiffView({ type: 'tool_call', tool_name: 'execute_shell' }), null)
 })
 
 test('terminal view recovers stdout/stderr from the rendered bash observation text', () => {
   const node = {
     type: 'tool_call',
-    tool_name: 'execute_bash',
+    tool_name: 'execute_shell',
     status: 'success',
     arguments: JSON.stringify({ command: 'npm test', description: '跑测试' }),
-    result_preview: '<tool_result id="t1" name="execute_bash" ok="true">命令执行完成，返回码 0\n3 passed\n1 failed\n[stderr]\nwidget overflow</tool_result>',
+    result_preview: '<tool_result id="t1" name="execute_shell" ok="true">命令执行完成，返回码 0\n3 passed\n1 failed\n[stderr]\nwidget overflow</tool_result>',
   }
 
   const view = getToolTerminalView(node)
@@ -136,7 +157,7 @@ test('terminal view recovers stdout/stderr from the rendered bash observation te
 test('terminal view parses failure observations where stderr precedes stdout', () => {
   const node = {
     type: 'tool_call',
-    tool_name: 'execute_bash',
+    tool_name: 'execute_shell',
     status: 'success',
     arguments: JSON.stringify({ command: 'python bad.py' }),
     result_preview: '命令执行完成，返回码 1（stdout 已截断）\n[stderr]\nTraceback (most recent call last):\n  File "bad.py", line 3\n[stdout]\npartial output',
@@ -151,7 +172,7 @@ test('terminal view parses failure observations where stderr precedes stdout', (
 test('terminal view recognizes background task observations', () => {
   const node = {
     type: 'tool_call',
-    tool_name: 'execute_bash',
+    tool_name: 'execute_shell',
     status: 'success',
     arguments: JSON.stringify({ command: 'npm run dev', run_in_background: true }),
     result_preview: '后台任务已启动\ntask_id: bash-123',

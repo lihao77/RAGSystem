@@ -1,4 +1,4 @@
-import { createRuntime, type AgentProfile, type PreviewResult, type ToolExecutionPaths, type ToolRegistry } from "@ragsystem/agent-sdk";
+import { createRuntime, type AgentProfile, type PreviewResult, type ShellEnvironment, type ToolExecutionPaths, type ToolRegistry } from "@ragsystem/agent-sdk";
 
 import type { AgentConfig } from "../../../contracts/agent/agent-config.js";
 import type { SessionIdentity } from "../../../contracts/session/session.js";
@@ -18,6 +18,8 @@ export async function previewBackendAgentContext(
     threadKey?: string | null;
     sessionFiles?: SessionFileLookupPort | null;
     executionPaths?: ToolExecutionPaths | undefined;
+    /** 宿主 shell/平台事实；preview 的 system prompt 与真实 run 同源必需。 */
+    shellEnvironment?: ShellEnvironment | undefined;
     /** 会话身份快照（组装前置插件 source 用；缺失时跳过前置贡献）。 */
     sessionIdentity?: SessionIdentity | null;
     /** 插件贡献的前置 source 工厂（与 run 同一份；预览 touch=false，source 不得产生写副作用）。 */
@@ -32,7 +34,10 @@ export async function previewBackendAgentContext(
     profile,
     tools: registry,
     dataRoot: options.dataRoot,
-    ...(options.executionPaths ? { execContext: { executionPaths: options.executionPaths } } : {}),
+    execContext: {
+      ...(options.executionPaths ? { executionPaths: options.executionPaths } : {}),
+      ...(options.shellEnvironment ? { shellEnvironment: options.shellEnvironment } : {}),
+    },
   });
   try {
     const preview = runtime.preview({

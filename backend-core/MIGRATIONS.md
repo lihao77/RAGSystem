@@ -29,6 +29,23 @@
 
 ## 形态归一层
 
+### Agent 配置与会话 team 快照（`src/contracts/agent/tool-name-aliases.ts`、`config-normalize.ts`、`src/contracts/session/session.ts`）
+
+链目标：agent 配置走 `normalizeConfig`（磁盘水合 loadTeamConfigFile 与 create/update/apply/import
+写路径全量过此函数）；会话 team 快照走 `SessionTeamSnapshotSchema` 的 preprocess
+（local mappers 与 SaaS conversation-repository 的读取汇点 `normalizeSessionTeamSnapshot`）。
+二者均为永久归一，无应用戳。
+
+退役工具名是**插件知识**：插件在 `BackendToolDescriptor.retired_names` 里声明历史名，
+plugin-manager 注册描述符时聚合进 `tool-name-aliases` 注册表，core 不硬编码任何插件工具名
+（core 自有工具的退役/托管名单见 `stripConfigManagedToolNames`）。时序由 `buildCoreApp`
+保证：pluginManager.register() 先于部署容器构建（agent 配置水合发生处）。
+
+| id | 归一内容 |
+| --- | --- |
+| `enabled_tools` 退役名归一（`canonicalizeEnabledToolNames` + 注册表） | 插件声明的退役名映射为现名（首个声明：执行工具插件 `execute_bash` → `execute_shell`，2026-09 更名为平台中性的 shell 执行）。配置路径保序去重；快照路径在 schema preprocess 中**逐项**改名（保留重复项、不动非字符串项——存量 revision 锚点按落库原形状计算，去重会失配致快照不可读），并当库内 `team_revision` 命中退役名形状哈希时**重锚定**为现名形状哈希——revision 恒等于 parse 结果内容的内容哈希，superRefine 单哈希严格校验不变，下游身份比较（run-engine、SaaS createSession 冲突检测）比较原文即一致 |
+| `stripConfigManagedToolNames` | 剥离 runtime/config 接线托管的工具名与退役 workflow 工具名（task_* 等 core 自有工具），早于归一层长期存在 |
+
 ### Provider 配置（`src/services/integrations/model-adapter-hydration.ts`）
 
 链目标：单条 provider 条目；`loadProvidersFromDisk`（磁盘水合）与

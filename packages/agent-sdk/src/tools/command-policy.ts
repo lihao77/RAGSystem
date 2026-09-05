@@ -191,7 +191,7 @@ export function buildApprovalDescription(input: {
   category: CommandCategory;
   dangerousCommands: string[];
 }): string {
-  let description = `execute_bash 申请执行${categoryLabel(input.category)}：${input.description || input.command.slice(0, 120)}`;
+  let description = `execute_shell 申请执行${categoryLabel(input.category)}：${input.description || input.command.slice(0, 120)}`;
   if (input.dangerousCommands.length) {
     description += "。高风险命令可能导致删除文件、下载远程内容、启动解释器/子 shell 或影响系统状态。";
   }

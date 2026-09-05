@@ -15,7 +15,7 @@
  * - 语言规则（用户语言/代码原样/不暴露推理）→ 系统约束（协议层只描述流式形态事实，不复述）
  */
 import type { RuntimeToolDefinition } from "./tool-types.js";
-import type { ToolExecutionPaths, ToolInstructionMode } from "../contracts.js";
+import type { ShellEnvironment, ToolExecutionPaths, ToolInstructionMode } from "../contracts.js";
 import { collectSections } from "./types.js";
 import {
   formatToolContract,
@@ -98,8 +98,38 @@ export function buildExecutionPathsSection(paths: ToolExecutionPaths | null | un
   return `## 当前执行目录
 - \`workspace\`: \`${formatPromptPath(paths.workspace)}\`（相对路径的默认根目录，可持久化并用于最终文件引用）
 - \`uploads\`: \`${formatPromptPath(paths.uploads)}\`（用户输入，只读）
-- bash、code、skill 和文件工具共享同一文件视图；执行工具可以通过 \`cwd\` 选择工作目录，未传时才使用 workspace
+- shell、code、skill 和文件工具共享同一文件视图；执行工具可以通过 \`cwd\` 选择工作目录，未传时才使用 workspace
 - 相对 \`cwd\` 从 workspace 解析；workspace/uploads 外的路径统一进入路径审批。transient 或 workspace 外文件只能作为中间输入，最终回答引用前必须将需要交付的文件写入 workspace`;
+}
+
+/**
+ * 运行环境段：平台 + 实际执行命令的 shell 类型。模型据此选择命令语法
+ * （POSIX vs Windows cmd），避免在 Git Bash/cmd 降级环境中发出必然失败的命令。
+ */
+export function buildShellEnvironmentSection(env: ShellEnvironment | null | undefined): string {
+  if (!env) return "";
+  const osParts = [platformLabel(env.platform), env.osRelease, env.arch].filter(Boolean).join(" ");
+  const lines = [
+    "## 运行环境",
+    "",
+    `- 操作系统: ${osParts}`,
+    `- Shell: ${env.shellLabel}（${env.shellSyntax === "posix" ? "POSIX 语法" : "Windows cmd 语法"}）`,
+    `- 路径分隔符: ${env.pathStyle === "windows" ? "`\\`（Windows 风格）" : "`/`（POSIX 风格）"}`,
+    `- shell 命令必须匹配上述 shell 的语法、内置命令与路径写法`,
+  ];
+  if (env.shellSyntax === "posix" && env.platform === "windows") {
+    lines.push("- 当前是 Windows 上的 POSIX shell（具体见上方 Shell 条目）：POSIX 命令与 `/` 路径可用；调用 Windows 原生程序时注意它可能只接受 Windows 形式的路径参数");
+  }
+  if (env.shellSyntax === "windows") {
+    lines.push("- 按 Windows 语法书写命令：如 `dir` 而非 `ls`、`%VAR%` 而非 `$VAR`、`\\` 或盘符开头的路径");
+  }
+  return lines.join("\n");
+}
+
+function platformLabel(platform: ShellEnvironment["platform"]): string {
+  if (platform === "windows") return "Windows";
+  if (platform === "macos") return "macOS";
+  return "Linux";
 }
 
 export function buildPromptToolsSection(tools: RuntimeToolDefinition[], mode: ToolInstructionMode): string {

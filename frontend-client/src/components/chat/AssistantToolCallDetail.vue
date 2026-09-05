@@ -2,7 +2,7 @@
   <div class="tool-call-detail">
     <div v-if="errorText" class="tool-call-detail-error">{{ errorText }}</div>
 
-    <!-- execute_bash：终端风格（红黄绿灯 + $ 提示符 + stdout/stderr 分流着色） -->
+    <!-- execute_shell（兼容退役名 execute_bash）：终端风格（红黄绿灯 + $ 提示符 + stdout/stderr 分流着色） -->
     <div v-if="terminalView" class="tool-terminal markdown-body">
       <div class="tool-terminal__chrome">
         <span class="tool-terminal__dots" aria-hidden="true"><i></i><i></i><i></i></span>

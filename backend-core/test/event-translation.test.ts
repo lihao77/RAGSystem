@@ -309,7 +309,7 @@ describe("kernel event wire translation", () => {
     };
     const rawResult = {
       success: true,
-      tool_name: "execute_bash",
+      tool_name: "execute_shell",
       summary: "done",
       content: { stdout: "ok", stderr: "", return_code: 0 },
       metadata: {},
@@ -318,7 +318,7 @@ describe("kernel event wire translation", () => {
       type: "tool_result" as const,
       agentName: "agent",
       toolCallId: "tool-raw",
-      toolName: "execute_bash",
+      toolName: "execute_shell",
       success: true,
       summary: "done",
       observation: "rendered",

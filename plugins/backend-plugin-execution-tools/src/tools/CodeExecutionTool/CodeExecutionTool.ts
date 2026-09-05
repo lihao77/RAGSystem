@@ -63,7 +63,7 @@ export function createCodeExecutionTools(deps: CodeExecutionToolDeps): Tool[] {
         properties: {
           code: {
             type: "string",
-            description: "Python code. Printed stdout is returned as the tool result, like execute_bash.",
+            description: "Python code. Printed stdout is returned as the tool result, like execute_shell.",
           },
           cwd: {
             type: "string",

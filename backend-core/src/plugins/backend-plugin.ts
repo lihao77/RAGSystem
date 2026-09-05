@@ -172,6 +172,12 @@ export interface BackendToolDescriptor {
   readonly description: string;
   readonly category: string;
   readonly risk_level: "low" | "medium" | "high";
+  /**
+   * 该工具的历史（退役）名。工具名所有权在插件：改名时在此声明旧名，
+   * core 聚合进退役名注册表，配置/快照归一层据此把存量 enabled_tools
+   * 收敛为现名。core 自有工具的退役名单见 CONFIG_MANAGED_TOOL_NAMES。
+   */
+  readonly retired_names?: readonly string[];
 }
 
 export type BackendToolFactory = (

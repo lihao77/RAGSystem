@@ -28,7 +28,7 @@ const descriptors = [
   "grep",
   "web_fetch",
   "todo_write",
-  "execute_bash",
+  "execute_shell",
   "execute_code",
 ];
 
@@ -45,6 +45,26 @@ test("execution tool descriptors are contributed only when the plugin is install
     installed.runtimeContributions().listTools().map((tool) => tool.name),
     descriptors,
   );
+});
+
+test("retired tool names declared by the descriptor flow into the core normalization layer", async () => {
+  // 端到端：插件在描述符里声明 execute_bash → execute_shell，plugin-manager 聚合进
+  // core 注册表，core 的配置归一层（无插件知识）据此收敛存量 enabled_tools。
+  const manager = new BackendPluginManager([
+    createExecutionToolsPlugin({ runtimeFactory: () => emptyRuntime() }),
+  ]);
+  await manager.register();
+
+  const { retiredToolNameAliases } = await import("@ragsystem/backend-core/contracts/agent/tool-name-aliases.js");
+  assert.equal(retiredToolNameAliases().execute_bash, "execute_shell");
+
+  const { normalizeConfig } = await import("@ragsystem/backend-core/contracts/agent/config-normalize.js");
+  const { AgentConfigSchema } = await import("@ragsystem/backend-core/contracts/agent/agent-config.js");
+  const normalized = normalizeConfig(AgentConfigSchema.parse({
+    agent_name: "legacy",
+    tools: { enabled_tools: ["read_file", "execute_bash"] },
+  }));
+  assert.deepEqual(normalized.tools.enabled_tools, ["read_file", "execute_shell"]);
 });
 
 test("standard plugin module selects the deployment runtime without product wiring", async () => {
@@ -272,7 +292,7 @@ test("execute_code uses standard Python and the shared workspace", async () => {
       ].join("\n"),
     }, context);
     assert.equal(result.success, true, result.summary);
-    // execute_code 与 execute_bash 一致：返回 stdout 内容，不依赖 result 变量。
+    // execute_code 与 execute_shell 一致：返回 stdout 内容，不依赖 result 变量。
     const content = JSON.parse(result.content);
     assert.equal(content.cwd, result.metadata.execution_paths.workspace);
     assert.equal(content.workspace, result.metadata.execution_paths.workspace);
@@ -317,7 +337,7 @@ test("execute_code ignores a blank RAGSYSTEM_PYTHON and falls back to PYTHON", a
   }
 });
 
-test("execute_bash writes into the same workspace seen by glob", async () => {
+test("execute_shell writes into the same workspace seen by glob", async () => {
   const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-bash-workspace-"));
   try {
     const resolver = new ManagedPathResolver(dataRoot);

@@ -98,7 +98,7 @@ test('工具调用详情按工具类型分化：bash 终端块、edit diff 块�
   // 渲染节点只负责行与折叠，工具详情整体交给专用组件
   assert.equal(nodeSource.includes('<AssistantToolCallDetail'), true);
   assert.equal(nodeSource.includes('formatArguments'), false);
-  // 三种形态：终端(execute_bash) → diff(edit_file) → 通用参数/结果（不做 per-tool 分段适配）
+  // 三种形态：终端(execute_shell) → diff(edit_file) → 通用参数/结果（不做 per-tool 分段适配）
   assert.equal(detailSource.includes('v-if="terminalView"'), true);
   assert.equal(detailSource.includes('v-else-if="diffView"'), true);
   assert.equal(detailSource.includes('getToolTerminalView'), true);

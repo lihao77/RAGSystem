@@ -36,6 +36,7 @@ import type {
 } from "./backend-plugin.js";
 import { CapabilityRegistry, provideCapability, type CapabilityProvider } from "./capability-registry.js";
 import { createPluginClientEventPublisher } from "./plugin-event-publisher.js";
+import { registerRetiredToolNames } from "../contracts/agent/tool-name-aliases.js";
 import type { BackendResourceToken } from "./resource-registry.js";
 
 class BackendRouteRegistry {
@@ -244,6 +245,13 @@ class BackendToolContributionRegistry {
       register: (factory, descriptors = []) => {
         const contribution = { pluginId, factory, descriptors };
         this.contributions.push(contribution);
+        // 工具历史名是插件知识：随描述符声明灌入注册表，配置/快照归一层消费。
+        // 只增不删——退役名是历史事实，注销（下方 dispose）不回收。
+        for (const descriptor of descriptors) {
+          if (descriptor.retired_names?.length) {
+            registerRetiredToolNames(descriptor.name, descriptor.retired_names);
+          }
+        }
         return () => {
           const index = this.contributions.indexOf(contribution);
           if (index >= 0) this.contributions.splice(index, 1);

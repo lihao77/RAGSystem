@@ -864,11 +864,11 @@ describe("tool_result raw_result（结构化结果透传）", () => {
       session_id: "session-1",
       run_id: "run-1",
       call_id: "tool-raw-1",
-      payload: { phase: "start", status: "running", tool: "execute_bash" },
+      payload: { phase: "start", status: "running", tool: "execute_shell" },
     }));
     const rawResult = {
       success: true,
-      tool_name: "execute_bash",
+      tool_name: "execute_shell",
       summary: "命令执行完成，返回码 0",
       content: { stdout: "3 passed", stderr: "", return_code: 0 },
       metadata: { working_dir: "D:/work" },
@@ -878,7 +878,7 @@ describe("tool_result raw_result（结构化结果透传）", () => {
       session_id: "session-1",
       run_id: "run-1",
       call_id: "tool-raw-1",
-      payload: { phase: "end", ok: true, status: "succeeded", tool: "execute_bash", observation: "rendered text", raw_result: rawResult },
+      payload: { phase: "end", ok: true, status: "succeeded", tool: "execute_shell", observation: "rendered text", raw_result: rawResult },
     }));
 
     const tool = getExecutionTree(state).root?.rounds[0]?.toolCalls[0]!;

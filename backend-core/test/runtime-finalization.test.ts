@@ -40,7 +40,7 @@ describe("buildTerminalToolMessages", () => {
         tool_calls: [{
           id: "call-1",
           type: "function",
-          function: { name: "execute_bash", arguments: '{"command":"find /"}' },
+          function: { name: "execute_shell", arguments: '{"command":"find /"}' },
         }],
       },
     ] as MessageInfo[];
@@ -58,7 +58,7 @@ describe("buildTerminalToolMessages", () => {
       messageId: "current-run:tool:call-1",
       role: "tool",
       toolCallId: "call-1",
-      name: "execute_bash",
+      name: "execute_shell",
       contentParts: [{ type: "text", text: content }],
       metadata: {
         terminal_tool_result: true,
@@ -83,7 +83,7 @@ describe("buildTerminalToolMessages", () => {
       tool_calls: [{
         id: "call-active",
         type: "function",
-        function: { name: "execute_bash", arguments: "{}" },
+        function: { name: "execute_shell", arguments: "{}" },
       }],
     }] as MessageInfo[];
 
