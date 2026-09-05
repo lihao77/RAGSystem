@@ -1,4 +1,4 @@
-import type { FastifyPluginAsync } from "fastify";
+import type { FastifyPluginAsync, FastifyRequest } from "fastify";
 import { randomUUID } from "node:crypto";
 
 import { ok } from "../../contracts/common.js";
@@ -43,21 +43,12 @@ export const registerExecutionRoutes: FastifyPluginAsync<RouteOptions> = async (
     );
   };
 
-  app.post("/execute", async (request) => {
-    const payload = ExecuteRequestSchema.parse(request.body);
-    const sessions = await resolveSessionApplication(options, request);
-    await assertExecutableSessionIfExists(request, payload.session_id, sessions);
-    return executeSynchronously(
-      (await ensureRequestApplications(request, options)).execution,
-      { ...payload, userId: request.identity.userId },
-      request.headers["x-request-id"]?.toString() ?? randomUUID(),
-    );
-  });
-
-  app.post<{ Params: ExecuteAgentParams }>("/execute/:agentName", async (request) => {
+  // /execute 与 /execute/:agentName 共享同一处理体：路径段仅作为 body.agent 的
+  // 覆盖来源，两个 URL 都是同一入口（executeSynchronously → sendUserMessage）的适配。
+  const handleExecute = async (request: FastifyRequest, agentName?: string) => {
     const payload = ExecuteRequestSchema.parse({
       ...(isRecord(request.body) ? request.body : {}),
-      agent: request.params.agentName,
+      ...(agentName !== undefined ? { agent: agentName } : {}),
     });
     const sessions = await resolveSessionApplication(options, request);
     await assertExecutableSessionIfExists(request, payload.session_id, sessions);
@@ -66,7 +57,12 @@ export const registerExecutionRoutes: FastifyPluginAsync<RouteOptions> = async (
       { ...payload, userId: request.identity.userId },
       request.headers["x-request-id"]?.toString() ?? randomUUID(),
     );
-  });
+  };
+
+  app.post("/execute", async (request) => handleExecute(request));
+
+  app.post<{ Params: ExecuteAgentParams }>("/execute/:agentName", async (request) =>
+    handleExecute(request, request.params.agentName));
 
   app.post("/collaborate", async (request) => {
     const payload = parseCollaborateRequest(request.body);

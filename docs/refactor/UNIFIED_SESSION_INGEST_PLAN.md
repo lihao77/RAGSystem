@@ -211,11 +211,28 @@ goal 续跑的 claim/lease/maxContinuations 保护保留在生成侧（门控是
    （agent 由目标 run 决定而非会话入口、确定性 ID、child/root 分叉、lineage 校验），
    其会话级设定读取已与助手同源（readSessionRequestOverrides），强行收口会丢
    专有 invoke 字段。resume 与 child 委派维持不并入（非消息入口）。
-3. **阶段 3：persistUserMessage 退役**。首发=入队+原子认领（startOrAppendRoot 现有
-   fence），run-engine 只剩 rootMailboxMessage 一种初始输入。注意保持 durableStarted
-   语义与 onAccepted ACK 时序不变；commitRunInput 的 canonicalMetadata 需按
-   input_type 区分，避免用户首发消息沾上 agent_message 类标记。
-4. **阶段 4：collaborate/插件调用点切换 + 端点合并**（低风险收尾）。
+3. **阶段 3：persistUserMessage 退役**。✅ **核验后认定已满足，形状清理刻意不做**：
+   实施前细读存储层发现目标架构本就存在——`RuntimeStartOrAppendRootInput` 的初始
+   输入就是 `mailboxMessage: EnqueueAgentMailboxMessageInput`（runtime-storage.ts:155-158），
+   `startOrAppendRoot` started 分支同事务 `enqueueAgentMailboxMessage` +
+   `settleAgentMailboxMessage`（sqlite-runtime-storage.ts:477-482 / postgres 同构），
+   followup 分支入队留给活动 run（:456-458），会话消息行经 `rootMailboxConversationMessage`
+   从 mailbox 形状派生——**首发与排队补跑在 persister 以下完全是同一条路径**，"首发=
+   入队+原子认领"由存储事务保证（崩溃恢复语义甚至优于"先入队再另行认领"）。
+   剩余的 `persistUserMessage`/`rootMailboxMessage` 双输入形状只存在于 invoke 输入层：
+   合成分支必须留在 run-engine 内（run_id/task_id 在 startRun 里生成后才合入 metadata，
+   先行构造会触发 sameMessageIdentity 幂等冲突），"退役"只能是把双字段换成一个字段
+   加隐式合成标志——契约搅动大、纯改名无架构收益，且双形状+互斥守卫比"单字段+标志"
+   更显式。canonicalMetadata 按 input_type 区分在 refresh 侧已是现状
+   （runtime-adapter.ts isUserMessage 分支）。原清单第 2 项剥离据此关闭。
+4. **阶段 4：collaborate/插件调用点切换 + 端点合并**。✅ 已收尾（2026-09-05）：
+   - `/execute` 与 `/execute/:agentName` 处理体合一（routes/agent/execution.ts
+     `handleExecute`，路径段仅作 body.agent 覆盖来源，两 URL 均保留零破坏）。
+   - collaborate"绕路"核验为**正确形态不剥离**：`sessionControl → deps.executeSynchronously
+     → sendUserMessage` 只有一层函数间接（注入为破依赖环），逐 task 错误隔离与同步
+     结果组装正是该适配器的职责；协作任务已走唯一入口。
+   - 插件调用点（scheduler/feishu/agent-builder trial）本就是 executeSynchronously
+     的协议适配形态（executionKind 透传保留），无需切换。
 
 ## 8. 明确不做
 
