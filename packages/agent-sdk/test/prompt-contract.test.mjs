@@ -90,6 +90,8 @@ test("cmd 降级环境的运行环境段给出 Windows 命令语法指引", () =
   });
   assert.ok(prompt.includes("Windows cmd 语法"));
   assert.ok(prompt.includes("`dir` 而非 `ls`"));
+  // cmd 经 /c 只执行首行，必须显式引导模型写单行命令
+  assert.ok(prompt.includes("命令必须写成单行"), "cmd 环境应提示命令保持单行、用 & 串联");
   assert.ok(!prompt.includes("Windows 上的 POSIX shell"), "cmd 环境不应渲染 POSIX shell 提示");
 });
 

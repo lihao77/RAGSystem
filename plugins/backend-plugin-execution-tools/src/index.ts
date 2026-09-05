@@ -4,6 +4,7 @@ export * from "./dependencies.js";
 export * from "./module.js";
 export * from "./plugin.js";
 export * from "./resources.js";
+export * from "./system-config.js";
 export * from "./storage/local/runtime.js";
 export * from "./storage/saas/runtime.js";
 export * from "./tools/BashTool/BashExecution.js";

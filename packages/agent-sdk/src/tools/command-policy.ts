@@ -49,9 +49,17 @@ const INTERPRETER_COMMANDS = new Set([
   "iptables", "ufw", "firewall-cmd",
   "systemctl", "service", "init",
   "useradd", "userdel", "usermod", "passwd", "groupadd",
+  // Windows 系统状态/能力命令：注册表、磁盘、服务、账户、计划任务、权限与常见 lolbin。
+  "reg", "regedit", "diskpart", "bcdedit",
+  "taskkill", "tasklist", "sc", "net", "netsh", "schtasks",
+  "takeown", "icacls", "cipher",
+  "certutil", "bitsadmin", "mshta", "wscript", "cscript",
 ]);
 
-export function validateCommand(command: string): {
+export function validateCommand(
+  command: string,
+  options: { windowsAmpersand?: boolean } = {},
+): {
   status: ValidationStatus;
   error: string;
   approvalCommands: string[];
@@ -71,7 +79,7 @@ export function validateCommand(command: string): {
   const categories: CommandCategory[] = [];
   // 反斜杠+换行是行续接，先折叠；换行与 ; 同级作为链分隔符，多行命令逐行分类。
   const normalized = normalizeLineContinuations(command);
-  for (const segment of splitShellChain(normalized)) {
+  for (const segment of splitShellChain(normalized, options.windowsAmpersand === true)) {
     const tokens = shellSplit(segment.trim());
     if (!tokens.length) {
       continue;
@@ -135,6 +143,11 @@ export function classifyCommand(commandName: string, tokens: string[] = []): Com
     }
   }
 
+  if (name === "rd" || name === "rmdir") {
+    // cmd 的 rd/rmdir 带 /s 是递归删除整棵目录树（POSIX rmdir 仅删空目录，归 write）。
+    // POSIX 侧参数以 - 开头，/s 只可能是 cmd 语境，不会误伤。
+    return args.some((arg) => /^\/s\b/i.test(arg)) ? "destructive" : "write";
+  }
   if (name === "sed") {
     return shortFlags.has("i") || args.some((arg) => arg === "-i" || (arg.startsWith("-i") && !arg.startsWith("--")))
       ? "write"
@@ -312,9 +325,10 @@ function normalizeLineContinuations(command: string): string {
   return command.replace(/\\\r?\n/g, " ");
 }
 
-function splitShellChain(command: string): string[] {
-  // 换行与 ; 同级：多行脚本逐行分类后取最高风险。
-  const chainSegments = splitByShellOperators(command, ["&&", "||", ";", "\n", "\r"]);
+function splitShellChain(command: string, windowsAmpersand = false): string[] {
+  // 换行与 ; 同级：多行脚本逐行分类后取最高风险。单个 & 与 &&/|| 同为链分隔符——
+  // cmd 的无条件顺序执行与 bash 的后台执行都不该让 & 之后的命令逃过分类。
+  const chainSegments = splitByShellOperators(command, ["&&", "&", "||", ";", "\n", "\r"], windowsAmpersand);
   return chainSegments.flatMap((segment) => splitShellPipeline(segment));
 }
 
@@ -322,7 +336,7 @@ function splitShellPipeline(command: string): string[] {
   return splitByShellOperators(command, ["|"]);
 }
 
-function splitByShellOperators(command: string, operators: string[]): string[] {
+function splitByShellOperators(command: string, operators: string[], windowsAmpersand = false): string[] {
   const segments: string[] = [];
   let current = "";
   let inSingle = false;
@@ -330,6 +344,18 @@ function splitByShellOperators(command: string, operators: string[]): string[] {
   let escaped = false;
   for (let index = 0; index < command.length; index += 1) {
     const char = command[index]!;
+    // windows(cmd) 语法下反斜杠是路径分隔符、单引号不是引号——`\&` 与 `'a & b'` 里的 &
+    // 仍是真实的命令分隔符，必须拆段（POSIX 模式维持转义/单引号字面量语义）。
+    // fd 复制（& 前邻 >）与 &> 整体重定向（& 后邻 >）豁免不变；双引号内的 & 仍按引号处理。
+    if (windowsAmpersand && char === "&" && !inDouble) {
+      const matched = operators.find((operator) => command.slice(index, index + operator.length) === operator);
+      if (matched && !(command[index - 1] === ">" || command[index + 1] === ">")) {
+        segments.push(current);
+        current = "";
+        index += matched.length - 1;
+        continue;
+      }
+    }
     if (escaped) {
       current += char;
       escaped = false;
@@ -352,6 +378,12 @@ function splitByShellOperators(command: string, operators: string[]): string[] {
     }
     if (!inSingle && !inDouble) {
       const matched = operators.find((operator) => command.slice(index, index + operator.length) === operator);
+      // >&N（fd 复制/关闭，如 2>&1）与前邻 > 的 & 属于重定向语法；&>（整体重定向）
+      // 的 & 后邻 >。三种都不是链分隔符，误拆会让无害的 2>&1 凭空触发审批。
+      if (matched === "&" && (command[index - 1] === ">" || command[index + 1] === ">")) {
+        current += char;
+        continue;
+      }
       if (matched) {
         segments.push(current);
         current = "";

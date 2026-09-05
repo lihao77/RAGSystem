@@ -63,6 +63,13 @@ export interface BashPolicyOptions {
   maxTimeoutSeconds: number;
   backgroundSupported: boolean;
   backgroundUnsupportedMessage?: string;
+  /** 目标 shell 是否支持多行命令（bash -c 支持；cmd.exe 经 /c 只执行首行，其余静默丢弃）。 */
+  multilineSupported?: boolean;
+  /**
+   * 目标 shell 是否为 windows(cmd) 语法。cmd 下反斜杠不是转义、单引号不是引号，
+   * `\&` 与单引号内的 `&` 仍是命令分隔符，需按 cmd 语义拆段（POSIX 维持字面量）。
+   */
+  windowsShell?: boolean;
 }
 
 export function classifyBashCommand(
@@ -73,6 +80,18 @@ export function classifyBashCommand(
   const command = normalizeString(input.command);
   if (!command) {
     return { ok: false, result: toolError("execute_shell", "execute_shell 缺少 command", { command: "" }) };
+  }
+  if (options.multilineSupported === false && /[\r\n]/.test(command)) {
+    // cmd.exe 经 /c 收到含换行的命令串时只执行首行、其余静默忽略且返回码 0——
+    // 模型会误以为整段执行成功，必须显式报错让它改成 `&` 串联的单行形式。
+    return {
+      ok: false,
+      result: toolError(
+        "execute_shell",
+        "cmd.exe 不支持多行命令（换行后的内容会被忽略且不报错）：请将多条命令用 & 串联在同一行后重试",
+        { command },
+      ),
+    };
   }
   if (input.runInBackground && !options.backgroundSupported) {
     return {
@@ -94,7 +113,7 @@ export function classifyBashCommand(
     };
   }
 
-  const validation = validateCommand(command);
+  const validation = validateCommand(command, { windowsAmpersand: options.windowsShell === true });
   if (validation.status === "blocked") {
     return {
       ok: false,

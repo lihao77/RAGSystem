@@ -145,3 +145,74 @@ test("per-command classification semantics are unchanged", () => {
   assert.equal(categoryRisk("interpreter"), "high");
   assert.equal(categoryRisk("destructive"), "high");
 });
+
+test("single & chains are split so chained commands cannot bypass classification", () => {
+  // cmd 无条件顺序执行 / bash 后台执行：& 之后的命令必须逐段分类。
+  const destructive = validateCommand("echo harmless & del /q important.txt");
+  assert.equal(destructive.status, "approval_required");
+  assert.equal(destructive.category, "destructive");
+  assert.ok(destructive.approvalCommands.includes("del"));
+
+  // && 语义不变（回归）。
+  const andAlso = validateCommand("echo harmless && del /q important.txt");
+  assert.equal(andAlso.status, "approval_required");
+  assert.equal(andAlso.category, "destructive");
+
+  // 两侧都是只读命令时 & 串联不触发审批（不引入新的误报）。
+  const harmless = validateCommand("echo A & echo B");
+  assert.equal(harmless.status, "allowed");
+  assert.equal(harmless.category, "read_only");
+
+  // 引号内的 & 是字面量，不是链分隔符。
+  const quoted = validateCommand("grep 'a & b' file");
+  assert.equal(quoted.status, "allowed");
+
+  // fd 复制/整体重定向中的 & 属于重定向语法，不得误拆（2>&1 保持放行）。
+  const dup = validateCommand("grep pattern file 2>&1 & echo done");
+  assert.equal(dup.status, "allowed");
+  const redirectAll = validateCommand("cmd &> out.log");
+  assert.equal(redirectAll.status, "approval_required");
+  assert.ok(redirectAll.approvalCommands.includes(">"));
+});
+
+test("windows ampersand mode treats backslash-escaped and single-quoted & as separators", () => {
+  const windows = { windowsAmpersand: true };
+  // cmd 下 \ 不是转义：`\&` 仍是分隔符，del 不得逃过审批。
+  const escaped = validateCommand("echo a\\&del x", windows);
+  assert.equal(escaped.status, "approval_required");
+  assert.equal(escaped.category, "destructive");
+  assert.ok(escaped.approvalCommands.includes("del"));
+
+  // cmd 下单引号不是引号：引号内的 & 之后的破坏性命令同样拆段。
+  const singleQuoted = validateCommand("echo 'harmless & rd /s data'", windows);
+  assert.equal(singleQuoted.status, "approval_required");
+  assert.ok(singleQuoted.approvalCommands.includes("rd"));
+
+  // 双引号在 cmd 下是真实引号：字面量 & 不拆。
+  const doubleQuoted = validateCommand("echo \"a & b\"", windows);
+  assert.equal(doubleQuoted.status, "allowed");
+
+  // fd 复制豁免在 windows 模式下不变。
+  const dup = validateCommand("grep pattern file 2>&1 & echo done", windows);
+  assert.equal(dup.status, "allowed");
+
+  // POSIX 默认语义不变：`\&` 与单引号内的 & 是字面量，不拆。
+  assert.equal(validateCommand("echo a\\&del x").status, "allowed");
+  assert.equal(validateCommand("grep 'a & b' file").status, "allowed");
+});
+
+test("cmd recursive delete and Windows system commands classify correctly", () => {
+  // rd/rmdir 带 /s 是 cmd 递归删除；不带 /s 归写操作。
+  assert.equal(classifyCommand("rd", ["rd", "/s", "/q", "dist"]), "destructive");
+  assert.equal(classifyCommand("rmdir", ["rmdir", "/s", "dist"]), "destructive");
+  assert.equal(classifyCommand("rmdir", ["rmdir", "empty-dir"]), "write");
+  assert.equal(classifyCommand("rd", ["rd", "empty-dir"]), "write");
+  assert.equal(validateCommand("rd /s /q C:\\data").category, "destructive");
+
+  // Windows 系统状态/能力命令归解释器（高风险 + 审批）。
+  assert.equal(classifyCommand("reg", ["reg", "delete", "HKLM\\X"]), "interpreter");
+  assert.equal(classifyCommand("taskkill", ["taskkill", "/f", "/im", "x.exe"]), "interpreter");
+  assert.equal(classifyCommand("schtasks", ["schtasks", "/create", "/tn", "x"]), "interpreter");
+  assert.equal(validateCommand("reg delete HKLM\\Software\\X /f").status, "approval_required");
+  assert.equal(validateCommand("reg delete HKLM\\Software\\X /f").category, "interpreter");
+});

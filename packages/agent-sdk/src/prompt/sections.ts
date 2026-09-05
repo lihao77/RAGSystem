@@ -121,7 +121,10 @@ export function buildShellEnvironmentSection(env: ShellEnvironment | null | unde
     lines.push("- 当前是 Windows 上的 POSIX shell（具体见上方 Shell 条目）：POSIX 命令与 `/` 路径可用；调用 Windows 原生程序时注意它可能只接受 Windows 形式的路径参数");
   }
   if (env.shellSyntax === "windows") {
-    lines.push("- 按 Windows 语法书写命令：如 `dir` 而非 `ls`、`%VAR%` 而非 `$VAR`、`\\` 或盘符开头的路径");
+    lines.push(
+      "- 按 Windows 语法书写命令：如 `dir` 而非 `ls`、`%VAR%` 而非 `$VAR`、`\\` 或盘符开头的路径",
+      "- 命令必须写成单行：多条命令用 `&` 串联，不要换行——换行后的内容会被忽略",
+    );
   }
   return lines.join("\n");
 }

@@ -57,9 +57,8 @@ export class LocalBashToolService {
   private readonly defaultTimeoutSeconds: number;
   private readonly maxTimeoutSeconds: number;
   private readonly maxOutputChars: number;
-  private readonly bashExecutable: string | null;
-  /** 实际执行命令的 shell 种类标识（写入结果 metadata；bash 存在时恒为 "bash"）。 */
-  private readonly shellKind: "bash" | "cmd" | "sh";
+  /** 测试注入的固定 bash 路径；undefined = 每次使用时按宿主检测（含终端类型设置覆盖）现解析。 */
+  private readonly injectedBashExecutable: string | null | undefined;
   private readonly backgroundTasks: BackgroundTaskPort | null;
   private readonly clientEvents: ClientEventPublisherPort | null;
   private readonly paths: ManagedPathResolver;
@@ -81,15 +80,29 @@ export class LocalBashToolService {
     this.defaultTimeoutSeconds = positiveInt(options.defaultTimeoutSeconds, DEFAULT_TIMEOUT_SECONDS);
     this.maxTimeoutSeconds = positiveInt(options.maxTimeoutSeconds, MAX_TIMEOUT_SECONDS);
     this.maxOutputChars = positiveInt(options.maxOutputChars, DEFAULT_MAX_OUTPUT_CHARS);
-    // Windows 降级链（env 覆盖 → PATH（跳过 WSL）→ Git 固定位置）见 shell-detection；无 bash 时
-    // spawn(shell:true) 实际走 cmd.exe（Windows）/ sh（POSIX）。显式传入 bashExecutable 供测试注入。
-    const detected = detectHostShell();
-    this.bashExecutable = options.bashExecutable === undefined ? detected.bashExecutable : options.bashExecutable;
-    // 与实际 spawn 分支同源：有 bash 用 bash；否则显式置 null（测试）也按平台真实降级 shell 报告。
-    this.shellKind = this.bashExecutable ? "bash" : process.platform === "win32" ? "cmd" : "sh";
+    // shell 解析见 shell-detection（终端类型设置 > RAGSYSTEM_BASH → PATH（跳过 WSL）→ Git 固定位
+    // → cmd）。服务为容器级长生命周期，惰性解析保证设置变更即时反映到实际执行，
+    // 与提示词"运行环境"段同源。显式传入 bashExecutable（含 null）供测试注入固定行为。
+    this.injectedBashExecutable = options.bashExecutable;
     this.backgroundTasks = options.backgroundTasks ?? null;
     this.clientEvents = options.clientEvents ?? null;
     this.paths = options.pathResolver ?? new ManagedPathResolver(this.dataRoot);
+  }
+
+  private get bashExecutable(): string | null {
+    return this.injectedBashExecutable !== undefined
+      ? this.injectedBashExecutable
+      : detectHostShell().bashExecutable;
+  }
+
+  /** 实际执行命令的 shell 种类标识（写入结果 metadata；bash 存在时恒为 "bash"）。 */
+  private get shellKind(): "bash" | "cmd" | "sh" {
+    if (this.injectedBashExecutable !== undefined) {
+      return this.injectedBashExecutable
+        ? "bash"
+        : process.platform === "win32" ? "cmd" : "sh";
+    }
+    return detectHostShell().shellKind;
   }
 
   buildCommandClassification(input: BashExecutionInput, agent: AgentConfig | null): BashClassificationResult {
@@ -97,6 +110,10 @@ export class LocalBashToolService {
       defaultTimeoutSeconds: this.defaultTimeoutSeconds,
       maxTimeoutSeconds: this.maxTimeoutSeconds,
       backgroundSupported: true,
+      // cmd 经 /c 只执行首行（其余静默丢弃），多行命令在分类层即拒绝；bash -c 支持多行。
+      // cmd 语法下 \ 不是转义、' 不是引号，& 拆段须按 cmd 语义收紧。
+      multilineSupported: this.shellKind !== "cmd",
+      windowsShell: this.shellKind === "cmd",
     });
   }
 
@@ -240,6 +257,9 @@ export class LocalBashToolService {
         reject(new Error("Bash execution aborted"));
         return;
       }
+      // 单次执行内快照一次 shell：spawn、metadata 与终止路径必须用同一个 shell，
+      // 避免执行中途设置变更导致分类与实际执行不一致。
+      const bashExecutable = this.bashExecutable;
       const env = {
         ...process.env,
         ...executionPathEnvironment(this.paths.roots(context)),
@@ -248,14 +268,14 @@ export class LocalBashToolService {
       // Git Bash/MSYS children do not retain a usable Windows parent chain.
       // Capture the MSYS process-group id before running the command so abort
       // can kill the whole pipeline with the MSYS `kill` builtin.
-      const msysMarker = process.platform === "win32" && this.bashExecutable
+      const msysMarker = process.platform === "win32" && bashExecutable
         ? `__RAGSYSTEM_PGID_${randomUUID()}__=`
         : null;
       const shellCommand = msysMarker
         ? `printf '${msysMarker}%s\\n' "$$" >&2\n${plan.command}`
         : plan.command;
-      const proc = this.bashExecutable
-        ? spawn(this.bashExecutable, ["-c", shellCommand], {
+      const proc = bashExecutable
+        ? spawn(bashExecutable, ["-c", shellCommand], {
             cwd: plan.cwd,
             env,
             windowsHide: true,
@@ -299,10 +319,10 @@ export class LocalBashToolService {
       };
       const terminate = async (): Promise<void> => {
         const killOperations: Promise<void>[] = [];
-        if (this.bashExecutable && msysProcessGroupId !== null) {
+        if (bashExecutable && msysProcessGroupId !== null) {
           killOperations.push(new Promise<void>((resolve) => {
             const groupKiller = spawn(
-              this.bashExecutable!,
+              bashExecutable,
               ["-c", `kill -KILL -- -${msysProcessGroupId}`],
               { stdio: "ignore", windowsHide: true },
             );

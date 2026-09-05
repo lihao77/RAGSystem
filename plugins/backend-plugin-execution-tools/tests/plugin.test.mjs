@@ -10,16 +10,20 @@ import { createRuntime } from "@ragsystem/agent-sdk";
 import { BackendPluginManager } from "@ragsystem/backend-core/plugins/plugin-manager.js";
 import { BACKEND_HOST_RESOURCES } from "@ragsystem/backend-core/plugins/host-resources.js";
 import { provideBackendResource } from "@ragsystem/backend-core/plugins/resource-registry.js";
+import { detectHostShell } from "@ragsystem/backend-core/contracts/execution/shell-detection.js";
 import { PathApprovalService } from "@ragsystem/backend-core/services/runtime/path-approval-service.js";
 import {
   backendPluginModule,
   CodeExecutionToolService,
   createExecutionToolsPlugin,
   createLocalExecutionToolsRuntimeFactory,
+  EXECUTION_TOOLS_PLUGIN_ID,
   EXECUTION_TOOLS_RUNTIME_CAPABILITY,
   ManagedPathResolver,
+  readHostShellOverride,
 } from "../dist/index.js";
 import { LocalBashToolService } from "../dist/tools/BashTool/BashExecution.js";
+import { classifyBashCommand } from "../dist/tools/BashTool/bash-policy.js";
 import { LocalSearchToolService } from "../dist/tools/LocalSearchTools/SearchExecution.js";
 import { SaaSCodeExecutionService, SaaSSearchToolService } from "../dist/storage/saas/sandbox-execution-tools.js";
 
@@ -390,9 +394,15 @@ test("bash syntax downgrades route to approval instead of hard block", async () 
     assert.equal(substituted.plan.category, "interpreter");
     assert.ok(substituted.plan.dangerousCommands.includes("$(...)"));
 
+    // cmd 经 /c 只执行首行、其余静默丢弃：多行命令改为分类层直接拒绝并指引用 & 串联。
+    // POSIX sh（注入 null bash 在非 win32 的解析结果）原生支持多行，维持放行。
     const multiline = bash.prepareExecution({ command: "ls\npwd" }, context, null, pathPolicy);
-    assert.equal(multiline.ok, true);
-    assert.equal(multiline.plan.approvalRequired, false);
+    if (process.platform === "win32") {
+      assert.equal(multiline.ok, false);
+      assert.match(multiline.result.content, /& 串联/);
+    } else {
+      assert.equal(multiline.ok, true);
+    }
 
     const envOverride = bash.prepareExecution({ command: "PATH=/opt/bin ls" }, context, null, pathPolicy);
     assert.equal(envOverride.ok, true);
@@ -550,3 +560,111 @@ function fakeSandboxRuntime() {
     async closeAll() {},
   };
 }
+
+test("multi-line commands are rejected for cmd and allowed for bash", () => {
+  const base = { defaultTimeoutSeconds: 120, maxTimeoutSeconds: 600, backgroundSupported: true };
+  const multiline = "echo A\necho B";
+
+  const rejected = classifyBashCommand({ command: multiline }, null, { ...base, multilineSupported: false });
+  assert.equal(rejected.ok, false);
+  assert.equal(rejected.result.toolName, "execute_shell");
+  assert.match(rejected.result.content, /& 串联/, "错误信息须指引用 & 串联单行重试");
+
+  const allowed = classifyBashCommand({ command: multiline }, null, { ...base, multilineSupported: true });
+  assert.equal(allowed.ok, true);
+
+  const singleLine = classifyBashCommand({ command: "echo A & echo B" }, null, { ...base, multilineSupported: false });
+  assert.equal(singleLine.ok, true, "单行 & 串联命令不受影响");
+});
+
+test("local bash service wires the multi-line guard to the resolved shell kind", () => {
+  const multiline = { command: "echo A\necho B" };
+  const service = new LocalBashToolService({
+    dataRoot: os.tmpdir(),
+    bashExecutable: "C:\\fake\\bash.exe",
+  });
+  assert.equal(service.buildCommandClassification(multiline, null).ok, true, "bash 模式支持多行");
+
+  if (process.platform === "win32") {
+    const cmdService = new LocalBashToolService({ dataRoot: os.tmpdir(), bashExecutable: null });
+    const rejected = cmdService.buildCommandClassification(multiline, null);
+    assert.equal(rejected.ok, false, "cmd 模式（无 bash）必须拒绝多行命令");
+    assert.match(rejected.result.content, /& 串联/);
+
+    // cmd 语法（\ 非转义）下 `\&` 仍是分隔符：按 cmd 语义拆段，del 触发审批。
+    const escapedAmp = cmdService.buildCommandClassification({ command: "echo a\\&del x" }, null);
+    assert.equal(escapedAmp.ok, true);
+    assert.equal(escapedAmp.classification.approvalRequired, true);
+  }
+});
+
+test("shell type setting maps to a host shell override", () => {
+  const port = (value) => ({ getSection: (_key) => value });
+  assert.deepEqual(readHostShellOverride(port({ shell_type: "auto", bash_path: "" })), null);
+  assert.deepEqual(readHostShellOverride(port(undefined)), null);
+  assert.deepEqual(readHostShellOverride(port({ shell_type: "junk" })), null);
+  assert.deepEqual(readHostShellOverride(port(["not", "a", "record"])), null);
+  assert.deepEqual(
+    readHostShellOverride(port({ shell_type: "bash", bash_path: "C:\\Git\\bin\\bash.exe" })),
+    { type: "bash", bashPath: "C:\\Git\\bin\\bash.exe" },
+  );
+  assert.deepEqual(readHostShellOverride(port({ shell_type: "bash" })), { type: "bash" });
+  assert.deepEqual(readHostShellOverride(port({ shell_type: "bash", bash_path: "   " })), { type: "bash" });
+  assert.deepEqual(readHostShellOverride(port({ shell_type: "cmd" })), { type: "cmd" });
+});
+
+test("local runtime factory registers the shell settings group and wires the lazy override resolver", () => {
+  const factory = createLocalExecutionToolsRuntimeFactory();
+  // 工厂注册 resolver 之前取自动链基线（可能已被本进程缓存）——dispose 后应回到它。
+  const autoBaseline = process.platform === "win32" ? detectHostShell().shellKind : null;
+  let extension = null;
+  let unregistered = false;
+  let section = { shell_type: "cmd" };
+  const context = {
+    deploymentKind: "local",
+    systemConfig: {
+      getSection: (key) => (key === "execution_shell" ? section : undefined),
+      getToolsConfig: () => ({
+        bash_default_timeout: 120,
+        bash_max_timeout: 600,
+        bash_max_output: 50000,
+        code_default_timeout: 60,
+        code_max_timeout: 300,
+      }),
+      registerExtension: (id, ext) => {
+        assert.equal(id, EXECUTION_TOOLS_PLUGIN_ID);
+        extension = ext;
+        return () => { unregistered = true; };
+      },
+    },
+    dataRoot: os.tmpdir(),
+  };
+
+  const runtime = factory(context);
+  try {
+    assert.ok(runtime.bash, "enabled factory must build the bash service");
+    assert.equal(extension.groups[0].key, "execution_shell");
+    assert.equal(extension.defaults.execution_shell.shell_type, "auto");
+    const typeField = extension.groups[0].fields.find((field) => field.key === "shell_type");
+    assert.equal(typeField.type, "select");
+    assert.deepEqual(
+      typeField.options.map((option) => option.value).sort(),
+      ["auto", "bash", "cmd"],
+    );
+
+    if (process.platform === "win32") {
+      assert.equal(detectHostShell().shellKind, "cmd", "cmd 覆盖必须立即生效");
+      section = { shell_type: "auto" };
+      assert.equal(detectHostShell().shellKind, autoBaseline, "auto 应走自动检测链");
+      section = { shell_type: "cmd" };
+      assert.equal(detectHostShell().shellKind, "cmd", "设置变更是惰性读取的，无需重建");
+    }
+  } finally {
+    runtime.dispose();
+  }
+  assert.equal(unregistered, true, "dispose must unregister the settings group");
+
+  if (process.platform === "win32") {
+    assert.equal(detectHostShell().shellKind, autoBaseline, "dispose 清除覆盖后回到自动链");
+  }
+});
