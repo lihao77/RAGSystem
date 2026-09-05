@@ -66,32 +66,6 @@ export type UserMessageTransformRunner = (
   input: Omit<UserMessageTransformInput, "readAttachment" | "modelAdapter" | "systemConfig" | "clientEvents" | "pluginEvents">,
 ) => Promise<MessageContentPart[] | null>;
 
-interface UnifiedRunStartInput {
-  sessionId: string;
-  sessionIdentity: SessionIdentity;
-  userId: string;
-  requestId: string;
-  task: string;
-  executionKind: string;
-  selectedLlm: string;
-  /** 请求级思考档位（前端 thinking_level）；undefined = 跟随 agent tier 默认档位。 */
-  thinkingLevel?: ThinkingLevel;
-  agentName?: string | null;
-  modelTask?: string;
-  entrypoint?: string;
-  persistMetadata: Record<string, unknown>;
-  persistContentParts: MessageContentPart[];
-  traceMetadata?: Record<string, unknown>;
-  sessionMaintenanceToken?: string;
-  awaitFollowupCompletion?: boolean;
-  followupPolicy: "queue" | "reject";
-  onInteractionRequired?: ExecuteRequest["onInteractionRequired"];
-}
-
-type UnifiedRunStartResult =
-  | { ok: false; error: string }
-  | { ok: true; agentName: string; handle: AgentInvocationHandle };
-
 interface SendUserMessageInput {
   sessionId?: string | null;
   userId: string;
@@ -190,17 +164,6 @@ interface MailboxLaunchState {
 }
 
 type MailboxLaunchDisposition = "completed" | "deferred" | "skipped";
-
-/** 会话入口 Agent 解析结果：missing=会话不存在；not-ready=readiness 不满足。 */
-type SessionEntryPoint =
-  | { kind: "missing" }
-  | { kind: "not-ready" }
-  | {
-      kind: "ready";
-      sessionIdentity: SessionIdentity;
-      overrides: SessionRequestOverrides;
-      ready: Extract<ReadinessResolution, { ok: true }>;
-    };
 
 export const MAILBOX_CONTINUATION_REQUEST_PREFIX = "agent_result:";
 
@@ -324,30 +287,56 @@ class AgentLaunchers {
     return (await this.runtimeStorage.operations.getActiveRootRun?.(sessionId))?.runId ?? null;
   }
 
-  /** agent 默认档 + selectedLlm 覆盖的主模型解析（launchRun 与持久化前变换共用同一口径）。 */
-  private resolveRunReadiness(
-    agentName: string | null | undefined,
-    sessionIdentity: SessionIdentity,
-    selectedLlm: string,
-  ): ReadinessResolution {
+  /**
+   * 一切渠道共用的执行 Agent 解析（唯一状态判定点）：显式 agentName（请求指定 /
+   * 目标 run 记录）优先，缺省回落会话入口 Agent；selectedLlm 覆盖 default 档
+   * （null/空 = 无覆盖）。用户发送、系统渠道、mailbox 续跑共用同一口径；readiness
+   * 失败明确返回原因，不静默兜底。
+   */
+  private resolveExecutionAgent(input: {
+    agentName?: string | null;
+    teamSnapshot: SessionIdentity["teamSnapshot"];
+    selectedLlm?: string | null;
+  }): ReadinessResolution {
     return resolveReadyAgent(this.runtimeCore, {
-      agentName: agentName?.trim() || sessionIdentity.teamSnapshot.entry_agent_name,
-      teamSnapshot: sessionIdentity.teamSnapshot,
-      selectedLlm,
+      agentName: input.agentName?.trim() || input.teamSnapshot.entry_agent_name,
+      teamSnapshot: input.teamSnapshot,
+      ...(input.selectedLlm !== undefined ? { selectedLlm: input.selectedLlm } : {}),
     });
   }
 
-  private launchRun(input: UnifiedRunStartInput): UnifiedRunStartResult {
-    const ready = this.resolveRunReadiness(input.agentName, input.sessionIdentity, input.selectedLlm);
-    if (!ready.ok) {
-      return { ok: false, error: ready.reason };
-    }
-
-    const handle = this.invocationService.invoke({
+  /**
+   * 一切 root run 的唯一 invoke 组装点：用户发送（foreground + user_message 持久化）
+   * 与系统渠道（background + system 持久化 / mailbox 引用）只差参数。background
+   * 系统触发在终态后统一 scheduleAutoTrigger（可选 onFinally 先行，如释放 goal
+   * 认领）；readiness 由调用方经 resolveExecutionAgent 解析后传入。
+   */
+  private invokeRootRun(input: {
+    sessionIdentity: SessionIdentity;
+    userId: string | null;
+    requestId: string;
+    task: string;
+    executionKind: string;
+    ready: Extract<ReadinessResolution, { ok: true }>;
+    overrides: SessionRequestOverrides;
+    execution: "foreground" | "background";
+    modelTask?: string;
+    entrypoint?: string;
+    persistUserMessage?: AgentInvocationRootInput["persistUserMessage"];
+    rootMailboxMessage?: AgentInvocationRootInput["rootMailboxMessage"];
+    traceMetadata?: Record<string, unknown>;
+    onInteractionRequired?: ExecuteRequest["onInteractionRequired"];
+    sessionMaintenanceToken?: string;
+    awaitFollowupCompletion?: boolean;
+    followupPolicy?: "queue" | "reject";
+    /** 仅 background：run 终态回调（如释放 goal continuation 认领），先于 autoTrigger。 */
+    onFinally?: () => Promise<void> | void;
+  }): AgentInvocationHandle {
+    const started = this.invocationService.invoke({
       scope: "root",
       mode: "create",
-      execution: "foreground",
-      sessionId: input.sessionId,
+      execution: input.execution,
+      sessionId: input.sessionIdentity.sessionId,
       sessionIdentity: input.sessionIdentity,
       userId: input.userId,
       requestId: input.requestId,
@@ -355,38 +344,39 @@ class AgentLaunchers {
       ...(input.modelTask ? { modelTask: input.modelTask } : {}),
       executionKind: input.executionKind,
       ...(input.entrypoint ? { entrypoint: input.entrypoint } : {}),
-      agent: ready.agent,
-      provider: ready.provider,
-      modelName: ready.modelName,
-      ...(input.selectedLlm
-        ? { selectedLlm: { provider: ready.provider, modelName: ready.modelName } }
+      agent: input.ready.agent,
+      provider: input.ready.provider,
+      modelName: input.ready.modelName,
+      ...(input.overrides.selectedLlm
+        ? { selectedLlm: { provider: input.ready.provider, modelName: input.ready.modelName } }
         : {}),
-      ...(input.thinkingLevel ? { thinkingLevel: input.thinkingLevel } : {}),
-      persistUserMessage: {
-        metadata: input.persistMetadata,
-        contentParts: input.persistContentParts,
-        inputType: "user_message",
-        sourceKind: "user",
-        visibleToUser: true,
-      },
+      ...(input.overrides.thinkingLevel ? { thinkingLevel: input.overrides.thinkingLevel } : {}),
+      ...(input.persistUserMessage ? { persistUserMessage: input.persistUserMessage } : {}),
+      ...(input.rootMailboxMessage ? { rootMailboxMessage: input.rootMailboxMessage } : {}),
       ...(input.traceMetadata
         ? {
-            startStepExtra: input.traceMetadata,
-            runStartExtra: input.traceMetadata,
-            finalMetadataExtra: input.traceMetadata,
-          }
+          startStepExtra: input.traceMetadata,
+          runStartExtra: input.traceMetadata,
+          finalMetadataExtra: input.traceMetadata,
+        }
         : {}),
       ...(input.onInteractionRequired ? { onInteractionRequired: input.onInteractionRequired } : {}),
       ...(input.sessionMaintenanceToken ? { sessionMaintenanceToken: input.sessionMaintenanceToken } : {}),
       ...(input.awaitFollowupCompletion ? { awaitFollowupCompletion: true } : {}),
-      followupPolicy: input.followupPolicy,
+      followupPolicy: input.followupPolicy ?? "queue",
     });
-    return { ok: true, agentName: ready.agent.agent_name, handle };
+    if (input.execution === "background") {
+      void started.promise.finally(async () => {
+        await input.onFinally?.();
+        this.backgroundTasks?.scheduleAutoTrigger(input.sessionIdentity.sessionId);
+      }).catch(() => undefined);
+    }
+    return started;
   }
 
   private async waitForRunResult(
     sessionId: string,
-    started: Extract<UnifiedRunStartResult, { ok: true }>,
+    started: { agentName: string; handle: AgentInvocationHandle },
   ): Promise<AgentExecuteResult> {
     const outcome = await started.handle.promise;
     return this.runEngine.buildSynchronousResult({
@@ -427,7 +417,6 @@ class AgentLaunchers {
       existingSession ? readSessionRequestOverrides(existingSession.metadata) : { selectedLlm: null, thinkingLevel: null },
     );
     const effectiveSelectedLlm = overrides.selectedLlm ?? "";
-    const effectiveThinkingLevel = overrides.thinkingLevel ?? undefined;
 
     if (slashCommand) {
       const commandResult = await this.slashCommandHandler.handle({
@@ -515,57 +504,62 @@ class AgentLaunchers {
     // 持久化前变换：插件管道可在写入前改写 contentParts（如为图片附件追加视觉描述）。
     // ACK 已在此前前置（onAccepted），变换耗时不阻塞确认；单图耗时由插件自身超时约束
     // （image_tools.timeout_seconds 默认 60s）；失败回退原始 parts。
-    // 与 launchRun 同一口径提前解析主模型：多模态模型直接看原图，插件跳过冗余的视觉辅助描述
-    // （解析失败时不传标志，transformer 保持原行为）。视觉能力按模型条目 input_modalities
-    // 派生（与执行期 profile 投影同源）——原始 provider 不承载 supports_vision（水合剥离的废弃字段）。
-    const readyForTransform = this.resolveRunReadiness(input.agentName, sessionIdentity, effectiveSelectedLlm);
+    // 执行 Agent 在此解析一次、贯穿后续变换与 invoke（多模态模型直接看原图，插件跳过
+    // 冗余的视觉辅助描述；解析失败不传标志，transformer 保持原行为）。视觉能力按模型
+    // 条目 input_modalities 派生（与执行期 profile 投影同源）——原始 provider 不承载
+    // supports_vision（水合剥离的废弃字段）。
+    const ready = this.resolveExecutionAgent({
+      ...(input.agentName ? { agentName: input.agentName } : {}),
+      teamSnapshot: sessionIdentity.teamSnapshot,
+      selectedLlm: overrides.selectedLlm,
+    });
+    if (!ready.ok) {
+      return { kind: "error", sessionId, error: ready.reason };
+    }
     const persistedContentParts = this.transformUserMessage
       ? (await this.transformUserMessage({
           sessionId,
           tenantId: this.tenantId,
           contentParts,
           attachments: attachmentResolution.attachments,
-          ...(readyForTransform.ok
-            ? {
-                mainModelSupportsVision: providerModelSupportsVision(
-                  readyForTransform.provider,
-                  readyForTransform.modelName,
-                ),
-              }
-            : {}),
+          mainModelSupportsVision: providerModelSupportsVision(
+            ready.provider,
+            ready.modelName,
+          ),
         })) ?? contentParts
       : contentParts;
 
-    const started = this.launchRun({
-      sessionId,
+    const handle = this.invokeRootRun({
       sessionIdentity,
       userId: input.userId,
       requestId: input.requestId,
       task,
-      ...(slashCommand?.mode === "prompt" ? { modelTask: slashCommand.agentText } : {}),
       executionKind: input.executionKind,
-      selectedLlm: effectiveSelectedLlm,
-      ...(effectiveThinkingLevel ? { thinkingLevel: effectiveThinkingLevel } : {}),
-      ...(input.agentName ? { agentName: input.agentName } : {}),
+      ready,
+      overrides,
+      execution: "foreground",
+      ...(slashCommand?.mode === "prompt" ? { modelTask: slashCommand.agentText } : {}),
       ...(input.entrypoint ? { entrypoint: input.entrypoint } : {}),
-      persistMetadata: {
-        ...(input.messageMetadata ?? {}),
-        ...(extensions.length ? { extensions } : {}),
+      persistUserMessage: {
+        metadata: {
+          ...(input.messageMetadata ?? {}),
+          ...(extensions.length ? { extensions } : {}),
+        },
+        contentParts: persistedContentParts,
+        inputType: "user_message",
+        sourceKind: "user",
+        visibleToUser: true,
       },
-      persistContentParts: persistedContentParts,
       ...(input.traceMetadata ? { traceMetadata: input.traceMetadata } : {}),
       ...(input.sessionMaintenanceToken ? { sessionMaintenanceToken: input.sessionMaintenanceToken } : {}),
       ...(input.awaitFollowupCompletion ? { awaitFollowupCompletion: true } : {}),
       followupPolicy: input.followupPolicy,
       ...(input.onInteractionRequired ? { onInteractionRequired: input.onInteractionRequired } : {}),
     });
-    if (!started.ok) {
-      return { kind: "error", sessionId, error: started.error };
-    }
     // 覆盖记录挂在 durableStarted 之后（新会话行此刻已持久化）；写入失败静默——
     // 丢的只是恢复回显线索，不应影响发送主流程。写的是合并后的实际生效值
     // （继承时写回原值、清除时写 null），会话设定与执行口径始终一致。
-    void started.handle.durableStarted
+    void handle.durableStarted
       .then(() => this.sessions.updateSessionMetadata(sessionId, {
         [SESSION_REQUEST_OVERRIDES_METADATA_KEY]: {
           selected_llm: overrides.selectedLlm,
@@ -574,7 +568,7 @@ class AgentLaunchers {
         },
       }))
       .catch(() => undefined);
-    return { kind: "run", sessionId, agentName: started.agentName, handle: started.handle };
+    return { kind: "run", sessionId, agentName: ready.agent.agent_name, handle };
   }
 
   async startStream(
@@ -721,7 +715,6 @@ class AgentLaunchers {
       };
     }
     return this.waitForRunResult(submitted.sessionId, {
-      ok: true,
       agentName: submitted.agentName,
       handle: submitted.handle,
     });
@@ -1028,17 +1021,15 @@ class AgentLaunchers {
     if (!session) return "skipped";
     const sessionIdentity = toSessionIdentity(session);
     // 会话级设定（模型/思考档位）只作用于主智能体（替换 default 档）；子 Agent
-    // 续跑走自己的 tier 配置，与 delegation 同口径。
+    // 续跑走自己的 tier 配置，与 delegation 同口径。Agent 解析与其他渠道共用
+    // resolveExecutionAgent（agentName 来自目标 run 记录）。
     const sessionOverrides = readSessionRequestOverrides(sessionIdentity.metadata);
     const rootSelectedLlm = targetsChild ? null : sessionOverrides.selectedLlm;
-    const ready = resolveReadyAgent(
-      this.runtimeCore,
-      {
-        agentName: durableTarget.agent_name,
-        teamSnapshot: sessionIdentity.teamSnapshot,
-        selectedLlm: rootSelectedLlm,
-      },
-    );
+    const ready = this.resolveExecutionAgent({
+      agentName: durableTarget.agent_name,
+      teamSnapshot: sessionIdentity.teamSnapshot,
+      selectedLlm: rootSelectedLlm,
+    });
     if (!ready.ok) return "skipped";
     const continuationIds = mailboxContinuationIds(target);
     if (!continuationIds) return "skipped";
@@ -1284,65 +1275,6 @@ class AgentLaunchers {
     }
   }
 
-  /** 会话入口 Agent 解析结果：missing=会话不存在；not-ready=readiness 不满足。 */
-  private async resolveSessionEntryPoint(sessionId: string): Promise<SessionEntryPoint> {
-    const session = await this.sessions.getSession(sessionId);
-    if (!session) return { kind: "missing" };
-    const sessionIdentity = toSessionIdentity(session);
-    // 一切会话级系统渠道（session_followup / goal 续跑 / bg 通知）同走会话级设定
-    // （用户此前选定的模型与思考档位）。
-    const overrides = readSessionRequestOverrides(sessionIdentity.metadata);
-    const ready = resolveReadyAgent(this.runtimeCore, {
-      agentName: sessionIdentity.teamSnapshot.entry_agent_name,
-      teamSnapshot: sessionIdentity.teamSnapshot,
-      selectedLlm: overrides.selectedLlm,
-    });
-    if (!ready.ok) return { kind: "not-ready" };
-    return { kind: "ready", sessionIdentity, overrides, ready };
-  }
-
-  /**
-   * 会话级系统 run 的统一拉起（阶段 2 收口点）：会话级设定三态生效、userId 回退
-   * 会话 owner（系统触发的 root run 无请求 identity，memory 等按 user 归属的工具
-   * 依赖 ToolExecContext.userId）、终态后统一 scheduleAutoTrigger。横切关注点
-   * （新会话级设定、触发策略）此后只改这一处。
-   */
-  private invokeSessionSystemRun(input: {
-    entry: Extract<SessionEntryPoint, { kind: "ready" }>;
-    requestId: string;
-    task: string;
-    executionKind: string;
-    persistUserMessage?: AgentInvocationRootInput["persistUserMessage"];
-    rootMailboxMessage?: AgentInvocationRootInput["rootMailboxMessage"];
-    /** run 终态回调（如释放 goal continuation 认领），先于 autoTrigger。 */
-    onFinally?: () => Promise<void> | void;
-  }): AgentInvocationHandle {
-    const { entry } = input;
-    const started = this.invocationService.invoke({
-      scope: "root",
-      mode: "create",
-      execution: "background",
-      sessionId: entry.sessionIdentity.sessionId,
-      sessionIdentity: entry.sessionIdentity,
-      requestId: input.requestId,
-      task: input.task,
-      executionKind: input.executionKind,
-      userId: entry.sessionIdentity.ownerUserId,
-      agent: entry.ready.agent,
-      provider: entry.ready.provider,
-      modelName: entry.ready.modelName,
-      ...(entry.overrides.selectedLlm ? { selectedLlm: { provider: entry.ready.provider, modelName: entry.ready.modelName } } : {}),
-      ...(entry.overrides.thinkingLevel ? { thinkingLevel: entry.overrides.thinkingLevel } : {}),
-      ...(input.persistUserMessage ? { persistUserMessage: input.persistUserMessage } : {}),
-      ...(input.rootMailboxMessage ? { rootMailboxMessage: input.rootMailboxMessage } : {}),
-    });
-    void started.promise.finally(async () => {
-      await input.onFinally?.();
-      this.backgroundTasks?.scheduleAutoTrigger(entry.sessionIdentity.sessionId);
-    }).catch(() => undefined);
-    return started;
-  }
-
   private async startSessionIdleRun(sessionId: string): Promise<void> {
     let claimedGoal: Goal | null = null;
     let claimedNotifications: AgentMailboxMessage[] = [];
@@ -1382,13 +1314,27 @@ class AgentLaunchers {
       const pendingMailbox = await this.mailbox?.listPending?.({ sessionId, limit: 100 }) ?? [];
       const firstUserMessage = pendingMailbox.find((message) => message.input_type === "user_message" && message.target_thread_key === "root");
       if (firstUserMessage) {
-        const entry = await this.resolveSessionEntryPoint(sessionId);
-        if (entry.kind !== "ready") return;
-        const started = this.invokeSessionSystemRun({
-          entry,
+        const existingSession = await this.sessions.getSession(sessionId);
+        if (!existingSession) return;
+        const sessionIdentity = toSessionIdentity(existingSession);
+        // 排队用户消息的补跑同样走会话级设定：消息入队时的选择即当时落库的设定。
+        const overrides = readSessionRequestOverrides(sessionIdentity.metadata);
+        const ready = this.resolveExecutionAgent({
+          teamSnapshot: sessionIdentity.teamSnapshot,
+          selectedLlm: overrides.selectedLlm,
+        });
+        if (!ready.ok) return;
+        const started = this.invokeRootRun({
+          sessionIdentity,
+          // 系统触发的 root run 无请求 identity，回退会话 owner 作为 run 用户身份
+          //（memory 等按 user 归属的工具依赖 ToolExecContext.userId）。
+          userId: sessionIdentity.ownerUserId,
           requestId: `session_followup_${firstUserMessage.message_id}`,
           task: "处理待接收的用户消息，并继续当前任务。",
           executionKind: "session_followup",
+          ready,
+          overrides,
+          execution: "background",
           rootMailboxMessage: {
             id: firstUserMessage.message_id,
             inputType: firstUserMessage.input_type,
@@ -1413,9 +1359,16 @@ class AgentLaunchers {
         return;
       }
 
-      const entry = await this.resolveSessionEntryPoint(sessionId);
-      if (entry.kind === "missing") return;
-      if (entry.kind === "not-ready") {
+      const existingSession = await this.sessions.getSession(sessionId);
+      if (!existingSession) return;
+      const sessionIdentity = toSessionIdentity(existingSession);
+      // goal 续跑 / 后台通知拉起的主智能体同走会话级设定（用户此前选定的模型与档位）。
+      const overrides = readSessionRequestOverrides(sessionIdentity.metadata);
+      const ready = this.resolveExecutionAgent({
+        teamSnapshot: sessionIdentity.teamSnapshot,
+        selectedLlm: overrides.selectedLlm,
+      });
+      if (!ready.ok) {
         await markReason("readiness_failed");
         return;
       }
@@ -1475,11 +1428,15 @@ class AgentLaunchers {
         ...(claimedGoal ? [renderGoalContinuation(claimedGoal)] : []),
       ].filter(Boolean).join("\n\n");
       const source = claimedGoal ? "goal_continuation" : "background_notification";
-      const started = this.invokeSessionSystemRun({
-        entry,
+      const started = this.invokeRootRun({
+        sessionIdentity,
+        userId: sessionIdentity.ownerUserId,
         requestId: `${claimedGoal ? "goal_continue" : "bg_notify"}_${randomUUID()}`,
         task,
         executionKind: claimedGoal ? "system.goal_continuation" : "system.bg_notification",
+        ready,
+        overrides,
+        execution: "background",
         persistUserMessage: {
           contentParts: [{ type: "text", text: task }],
           inputType: claimedGoal ? "goal_continuation" : "system_notification",

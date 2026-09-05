@@ -240,3 +240,27 @@ goal 续跑的 claim/lease/maxContinuations 保护保留在生成侧（门控是
 - 不改协议层对外契约（WS 帧、AG-UI、REST 形状不动，前端零感知）。
 - 不引入新存储表：mailbox 已具备统一队列的全部字段
   （kind/input_type/status/target_*）。
+
+## 9. 追加收口：单一 Agent 解析点与单一 root invoke 组装点（2026-09-05，用户推动）
+
+阶段 2 留下的两个"会话级系统渠道助手"仍与用户路径并行存在三份 Agent 状态解析
+（`resolveRunReadiness`：launchRun 与变换前各一次——同一次发送解析两遍；
+`resolveSessionEntryPoint`：系统三分支；`startAgentMailboxRun` 内联）与两份 root
+invoke 组装（`launchRun` 用户/foreground、`invokeSessionSystemRun` 系统/background）。
+本轮收拢为：
+
+- **`resolveExecutionAgent`**：唯一执行 Agent 解析点（agentName 显式优先、缺省回落
+  会话入口 Agent；selectedLlm 覆盖 default 档）。用户发送（解析一次贯穿变换与
+  invoke）、session_followup、goal/bg、mailbox 续跑（agentName 来自目标 run 记录）
+  全部走它。`resolveRunReadiness`/`resolveSessionEntryPoint` 退场。
+- **`invokeRootRun`**：唯一 root invoke 组装点，foreground/background 与
+  user_message/system 持久化形状参数化；background 终态统一 autoTrigger（onFinally
+  先行）。`launchRun`/`invokeSessionSystemRun` 与 `UnifiedRunStart*` 类型退场。
+- slash 分流保持单点（本就只在 sendUserMessage），位置仍在管道最前（会话身份
+  构建之后、解析之前）。
+- **一处有意的行为改进**：readiness 解析失败改为快速失败——不再为注定失败的发送
+  执行持久化前插件变换（旧契约为变换照跑、视觉标志缺省，但变换含可能调 LLM 的
+  视觉描述，纯浪费）；`send-transform-main-model-vision.test.ts` 契约同步更新。
+
+launchers 剩余私有方法均为职责单一的操作细节（idle 扫描/通知 claim-ack-release/
+mailbox 续跑判定树/结果补投），不再承载横切口径。

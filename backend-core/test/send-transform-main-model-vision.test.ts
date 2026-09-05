@@ -128,13 +128,14 @@ describe("sendUserMessage 主模型视觉能力传递", () => {
     expect(capturedInputs[0]?.mainModelSupportsVision).toBe(false);
   });
 
-  it("主模型解析失败时不传标志（transformer 保持原行为）", async () => {
+  it("主模型解析失败时快速失败（不再为 doomed 消息跑插件变换）", async () => {
     const { launchers, capturedInputs } = createHarness({ provider: null, configurationReady: false });
 
     const result = await launchers.startStream(streamRequest, "request-3");
 
-    expect(result.started).toBe(false); // launchRun 以 readiness 失败收尾
-    expect(capturedInputs).toHaveLength(1);
-    expect(capturedInputs[0]?.mainModelSupportsVision).toBeUndefined();
+    expect(result.started).toBe(false); // resolveExecutionAgent 失败即收尾
+    // fail-fast：解析失败的发送不再进入持久化前变换（旧契约是变换照跑、标志缺省，
+    // 但变换含可能调 LLM 的视觉描述，为注定失败的消息执行纯属浪费）。
+    expect(capturedInputs).toHaveLength(0);
   });
 });
