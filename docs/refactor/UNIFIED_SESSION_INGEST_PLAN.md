@@ -265,7 +265,20 @@ invoke 组装（`launchRun` 用户/foreground、`invokeSessionSystemRun` 系统/
 launchers 剩余私有方法均为职责单一的操作细节（idle 扫描/通知 claim-ack-release/
 mailbox 续跑判定树/结果补投），不再承载横切口径。
 
-## 10. 最终架构（权威记录，2026-09-05 定稿）
+## 10. 最终架构（权威记录，2026-09-05 定稿；goal 通道 09-06 改纯生产者）
+
+### 10.0 goal 续跑 = 队列生产者（取代原"特殊直接拉起"）
+
+goal 不再有专属 invoke 路径。`SessionMailboxConsumer` 的空闲检查在预算门控
+（`GoalStore.claimContinuation`：maxContinuations/maxNoProgress/租约/generation）
+通过后，向统一队列**投递一条 goal_continuation 等待行**（确定性 id
+`goalcont_<goal_id>_<generation>`，内容为投递时渲染的 goal 快照 XML），投递成功
+即释放认领（预算已计、工作由持久行承载）。消费与其他系统消息完全同通道：
+`isIdleSystemMessage` 谓词（root 线程、无定向 run 的 system_notification /
+goal_continuation）→ claim → 与通知合并渲染 → durableStarted 后 ack。
+**循环由队列本身串行化**：行被消费才起 run，run 终态（scheduleAutoTrigger）才
+触发下一轮生产；已有排队 goal 行时跳过生产（防重复投递）。与通知合并消费的
+行为与旧设计一致（一场 run 消化全部 idle 消息）。
 
 ### 10.1 分层总图
 

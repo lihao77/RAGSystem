@@ -12,11 +12,13 @@ export type AgentMailboxMessageKind =
  * 排队语义）：
  * - 等待行：入队后驻留为 queued，等认领消费（运行中由活动 run 的 refresh、空闲/
  *   唤醒由 SessionMailboxConsumer）——排队的用户 followup、运行中到达的后台通知、
- *   agent 间消息、续跑结果；
+ *   agent 间消息、续跑结果、goal 续跑（goal 生产者在预算门控
+ *   GoalStore.claimContinuation 通过后投递，循环由队列串行化：行被消费才起 run，
+ *   run 终态才触发下一轮投递）；
  * - 过路行：startOrAppendRoot 同事务 enqueue+settle，落库即 acked，只作审计留痕
- *   与会话消息行的派生源——用户首发、通知的 idle 消费、goal 续跑。goal 的调度
- *   与重试由 GoalStore.claimContinuation 的 generation/预算/租约门控，刻意不走
- *   mailbox 重投：队列无限重投会绕过 goal 的无进展循环保护；
+ *   与会话消息行的派生源——用户首发、通知的 idle 消费（goal 的调度与重试由
+ *   GoalStore 的 generation/预算/租约门控，刻意不走 mailbox 重投：队列无限重投
+ *   会绕过 goal 的无进展循环保护）；
  * - 引用行：先作为等待行入队，后被认领为某 run 的初始输入（session_followup、
  *   mailbox 续跑），同事务 settle。
  */

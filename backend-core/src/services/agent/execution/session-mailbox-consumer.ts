@@ -495,8 +495,9 @@ export class SessionMailboxConsumer {
         this.triggerAgentMailboxRun(toMailboxWakeupTarget(firstTargeted));
         return;
       }
-      const hasNotifications = pendingMailbox.some(isIdleBackgroundNotification);
-      if (!hasNotifications && currentGoal?.status !== "active") {
+      const hasIdleMessages = pendingMailbox.some(isIdleSystemMessage);
+      const hasQueuedGoal = pendingMailbox.some((message) => message.input_type === "goal_continuation");
+      if (!hasIdleMessages && currentGoal?.status !== "active") {
         if (currentGoal) await markReason(currentGoal.status === "paused" ? "manual_paused" : "goal_not_active");
         return;
       }
@@ -529,7 +530,7 @@ export class SessionMailboxConsumer {
         await markReason("background_tasks_running");
         return;
       }
-      if (currentGoal?.status === "active" && goalStore) {
+      if (!hasQueuedGoal && currentGoal?.status === "active" && goalStore) {
         if (currentGoal.continuation_pending && currentGoal.continuation_claimed_at) {
           await markReason("continuation_pending");
         }
@@ -538,6 +539,33 @@ export class SessionMailboxConsumer {
           maxNoProgress: 3,
           leaseTimeoutMs: 120_000,
         });
+      }
+      // goal 生产者：预算门控（maxContinuations/maxNoProgress/租约）通过后向统一
+      // 队列投递一条 goal_continuation 等待行，消费与其他系统消息同通道（claim →
+      // 合并渲染 → durableStarted 后 ack）。循环由队列本身串行化：行被消费才起
+      // run，run 终态（scheduleAutoTrigger）才触发下一轮生产。预算已在 claim 时
+      // 计数，工作由持久行承载，投递成功即释放认领。
+      if (claimedGoal && mailbox) {
+        await mailbox.enqueue({
+          messageId: `goalcont_${claimedGoal.id}_${claimedGoal.continuation_generation}`,
+          tenantId: this.deps.tenantId,
+          sessionId,
+          targetThreadKey: "root",
+          kind: "request",
+          inputType: "goal_continuation",
+          sourceKind: "system",
+          visibleToUser: false,
+          sentAt: new Date().toISOString(),
+          contentParts: [{ type: "text", text: renderGoalContinuation(claimedGoal) }],
+          metadata: {
+            source: "goal_continuation",
+            goal_id: claimedGoal.id,
+            goal_generation: claimedGoal.continuation_generation,
+          },
+        });
+        releaseOwned = false;
+        await releaseClaim();
+        claimedGoal = null;
       }
 
       // Re-read durable background work after the asynchronous continuation claim. If another
@@ -553,50 +581,45 @@ export class SessionMailboxConsumer {
         await markReason("run_still_running");
         return;
       }
-      if (!hasNotifications && !claimedGoal) {
+      claimedNotifications = await this.claimIdleNotifications(sessionId);
+      if (!claimedNotifications.length) {
         const latestGoal = await goalStore?.getCurrent(sessionId) ?? null;
         if (latestGoal?.status === "active" && latestGoal.continuation_pending && goalStore?.setContinuationReason) {
           await goalStore.setContinuationReason(sessionId, latestGoal.id, "continuation_pending");
         }
         return;
       }
-
-      claimedNotifications = await this.claimIdleNotifications(sessionId);
-      if (!claimedNotifications.length && !claimedGoal) {
-        return;
-      }
-      const task = [
-        ...claimedNotifications.map((message) => renderMailboxContentParts(message.content_parts)),
-        ...(claimedGoal ? [renderGoalContinuation(claimedGoal)] : []),
-      ].filter(Boolean).join("\n\n");
-      const source = claimedGoal ? "goal_continuation" : "background_notification";
+      const task = claimedNotifications
+        .map((message) => renderMailboxContentParts(message.content_parts))
+        .filter(Boolean)
+        .join("\n\n");
+      const goalRow = claimedNotifications.find((message) => message.input_type === "goal_continuation") ?? null;
+      const source = goalRow ? "goal_continuation" : "background_notification";
       const started = this.deps.launchSystemRun({
         sessionIdentity,
         userId: sessionIdentity.ownerUserId,
-        requestId: `${claimedGoal ? "goal_continue" : "bg_notify"}_${randomUUID()}`,
+        requestId: `${goalRow ? "goal_continue" : "bg_notify"}_${randomUUID()}`,
         task,
-        executionKind: claimedGoal ? "system.goal_continuation" : "system.bg_notification",
+        executionKind: goalRow ? "system.goal_continuation" : "system.bg_notification",
         ready,
         overrides,
         persistUserMessage: {
           contentParts: [{ type: "text", text: task }],
-          inputType: claimedGoal ? "goal_continuation" : "system_notification",
+          inputType: goalRow ? "goal_continuation" : "system_notification",
           sourceKind: "system",
           visibleToUser: false,
           metadata: {
             source,
-            ...(claimedGoal ? {
-              goal_id: claimedGoal.id,
-              goal_generation: claimedGoal.continuation_generation,
+            ...(goalRow ? {
+              goal_id: goalRow.metadata.goal_id,
+              goal_generation: goalRow.metadata.goal_generation,
             } : {}),
           },
         },
-        onFinally: () => releaseClaim(),
       });
-      releaseOwned = false;
       await started.durableStarted;
-      // 通知内容已渲染进 run 初始输入并持久，ack 终结认领；失败静默——租约到期
-      // 自然回队，最坏情况是下一次 idle 重复投递一次内容一致的通知。
+      // 消息内容已渲染进 run 初始输入并持久，ack 终结认领；失败静默——租约到期
+      // 自然回队，最坏情况是下一次 idle 重复投递一次内容一致的消息。
       await this.ackNotifications(sessionId, claimedNotifications);
       claimedNotifications = [];
     } catch (error) {
@@ -612,9 +635,10 @@ export class SessionMailboxConsumer {
   }
 
   /**
-   * 认领会话级后台通知（root 线程、无定向 run 的 system_notification）。claim 的
-   * idle 谓词不按 input_type 过滤——并发到达的排队用户消息可能被一并认领，立即
-   * release 回队，留给下一次 idle 检查走 session_followup 补跑。
+   * 认领会话级系统消息（root 线程、无定向 run 的 system_notification /
+   * goal_continuation）。claim 的 idle 谓词不按 input_type 过滤——并发到达的排队
+   * 用户消息可能被一并认领，立即 release 回队，留给下一次 idle 检查走
+   * session_followup 补跑。
    */
   private async claimIdleNotifications(sessionId: string): Promise<AgentMailboxMessage[]> {
     const mailbox = this.deps.mailbox;
@@ -629,7 +653,7 @@ export class SessionMailboxConsumer {
     });
     const notifications: AgentMailboxMessage[] = [];
     for (const message of claimed) {
-      if (isIdleBackgroundNotification(message)) {
+      if (isIdleSystemMessage(message)) {
         notifications.push(message);
         continue;
       }
@@ -815,9 +839,9 @@ function isActiveRootRunConflict(error: unknown): boolean {
     && error.message.startsWith("session already has an active root run: ");
 }
 
-/** 后台完成通知在统一队列中的形状：root 线程、无定向 run 的 system_notification。 */
-function isIdleBackgroundNotification(message: AgentMailboxMessage): boolean {
-  return message.input_type === "system_notification"
+/** 会话级系统消息在统一队列中的形状：root 线程、无定向 run 的 system_notification / goal_continuation。 */
+function isIdleSystemMessage(message: AgentMailboxMessage): boolean {
+  return (message.input_type === "system_notification" || message.input_type === "goal_continuation")
     && message.target_thread_key === "root"
     && !message.target_run_id;
 }
