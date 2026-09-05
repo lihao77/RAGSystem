@@ -52,7 +52,7 @@ function createHarness(ctx: AsyncPersisterRunContext) {
     flush: vi.fn(async () => undefined),
   } as unknown as Pick<ClientEventPublisherPort, "prepare" | "deliver" | "flush">;
   const persister = new AsyncKernelEventPersister(storage, clientEvents, ctx, null);
-  return { persister, startRun, prepared };
+  return { persister, startRun, startOrAppendRoot, prepared };
 }
 
 function initialMessage(metadata: Record<string, unknown>) {
@@ -166,5 +166,45 @@ describe("AsyncKernelEventPersister 初始 agent_message 事件", () => {
     const types = prepared.map((record) => (record.envelope as { type: string }).type);
     expect(types).toContain("state_sync");
     expect(types).not.toContain("agent_message");
+  });
+
+  it("goal 续跑/后台通知的合成初始输入同样以 mailbox 行进入 startOrAppendRoot", async () => {
+    // 钉住统一入口不变量：系统合成消息（goal 续跑、bg 通知）与用户首发一样，
+    // root run 的初始输入在存储闸门处是 mailbox 消息（由 startOrAppendRoot 同事务
+    // enqueue+settle）。regression 防的是有人把 persistUserMessage 路径改回直写。
+    const ctx = baseCtx({
+      parentRunId: null,
+      childAgentId: null,
+      runId: "root-run-goal",
+      threadKey: "root",
+      rootMailboxMessage: {
+        id: "mbx-goal-1",
+        inputType: "goal_continuation",
+        sourceKind: "system",
+        visibleToUser: false,
+        sentAt: new Date(0).toISOString(),
+        contentParts: [{ type: "text", text: "<goal-continuation goal-id=\"goal-1\">推进</goal-continuation>" }],
+        metadata: { source: "goal_continuation", goal_id: "goal-1" },
+      },
+    });
+    const { persister, startRun, startOrAppendRoot } = createHarness(ctx);
+
+    await persister.startRun();
+
+    expect(startRun).not.toHaveBeenCalled();
+    expect(startOrAppendRoot).toHaveBeenCalledTimes(1);
+    expect(startOrAppendRoot).toHaveBeenCalledWith(expect.objectContaining({
+      mailboxMessage: expect.objectContaining({
+        messageId: "mbx-goal-1",
+        sessionId: "session-1",
+        targetThreadKey: "root",
+        kind: "request",
+        inputType: "goal_continuation",
+        sourceKind: "system",
+        visibleToUser: false,
+        metadata: expect.objectContaining({ source: "goal_continuation", goal_id: "goal-1" }),
+      }),
+      followupPolicy: "queue",
+    }));
   });
 });
