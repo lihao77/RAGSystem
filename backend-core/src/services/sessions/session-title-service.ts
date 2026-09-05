@@ -4,6 +4,7 @@ import type { AgentLlmConfig } from "../../contracts/agent/agent-config.js";
 import type { ModelProviderConfig } from "../../contracts/integrations/model-adapter.js";
 import type { SystemLlmConfig } from "../../contracts/runtime/system-config.js";
 import { findProviderByRef } from "../runtime/provider-lookup.js";
+import { parseSelectedLlm } from "../agent/execution/runtime-core-service.js";
 
 /** 列表 title 列与派生兜底（首条消息截 30 字符）共用同一上限，LLM 标题不突破列表展示语义。 */
 export const SESSION_TITLE_MAX_LENGTH = 30;
@@ -57,6 +58,13 @@ export interface SessionTitleServiceDeps {
   getAgentLlmTiers?: ((sessionId: string) =>
     | Promise<Record<string, AgentLlmConfig> | null>
     | Record<string, AgentLlmConfig> | null) | null;
+  /**
+   * 会话级模型选择（selected_llm 字符串，同主智能体执行的会话设定）。有值时替换
+   * 候选链的 default 档位置（fast 优先不动）；缺省/解析失败回落配置 default。
+   */
+  getSessionSelectedLlm?: ((sessionId: string) =>
+    | Promise<string | null>
+    | string | null) | null;
   llmClient?: SessionTitleLlmClient;
   logger?: { warn(message: string, meta?: Record<string, unknown>): void } | null;
 }
@@ -157,8 +165,15 @@ export class SessionTitleService {
    */
   private async resolveLlm(sessionId: string): Promise<{ ref: TitleLlmRef; provider: ModelProviderConfig } | null> {
     const tiers = await this.readAgentTiers(sessionId);
+    // 会话级设定替换 default 档（与主智能体执行口径一致）：顺位不变（fast 之后、
+    // 系统 LLM 之前）；所选解析不完整（缺 provider/model）保留配置 default 兜底。
+    const selectedRef = await this.readSelectedRef(sessionId);
     const candidates: TitleLlmRef[] = [];
     for (const tierName of AGENT_TIER_CANDIDATES) {
+      if (tierName === "default" && selectedRef) {
+        candidates.push(selectedRef);
+        continue;
+      }
       const tier = tiers?.[tierName];
       if (!tier) continue;
       const provider = String(tier.provider ?? "").trim();
@@ -189,6 +204,18 @@ export class SessionTitleService {
       return await this.deps.getAgentLlmTiers(sessionId);
     } catch {
       // 旁路任务：解析异常回落系统 LLM。
+      return null;
+    }
+  }
+
+  /** 会话级所选 → 标题候选引用；未注入/未设定/解析不完整统一返回 null（走配置档）。 */
+  private async readSelectedRef(sessionId: string): Promise<TitleLlmRef | null> {
+    if (!this.deps.getSessionSelectedLlm) return null;
+    try {
+      const parsed = parseSelectedLlm(await this.deps.getSessionSelectedLlm(sessionId));
+      if (!parsed?.provider || !parsed.model_name) return null;
+      return { provider: parsed.provider, provider_type: parsed.provider_type ?? "", model_name: parsed.model_name };
+    } catch {
       return null;
     }
   }

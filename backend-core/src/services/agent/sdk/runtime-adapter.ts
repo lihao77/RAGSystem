@@ -885,6 +885,8 @@ export async function executeRunWithSdk(
           const result = await deps.compressionService!.compressIfNeeded({
             agent: input.agent,
             sessionId: input.sessionId,
+            // 会话级模型选择同源流入：压缩预算与摘要 default 候选与 run 实际执行模型一致。
+            ...(input.selectedLlm ? { selectedLlm: input.selectedLlm } : {}),
             threadKey: input.threadKey,
             runId: input.runId,
             taskId: input.taskId,

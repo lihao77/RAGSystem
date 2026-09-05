@@ -286,6 +286,9 @@ export class SlashCommandHandler {
       const result = await this.compressionService.forceCompact({
         agent: ready.agent,
         sessionId: input.sessionId,
+        // 会话级模型选择同源流入：压缩预算与摘要 default 候选与所选模型一致（readiness
+        // 已按 selectedLlm 解析出 provider/modelName，此处仅当真有选择时携带）。
+        ...(input.selectedLlm.trim() ? { selectedLlm: { provider: ready.provider, modelName: ready.modelName } } : {}),
         systemPromptTokens,
         signal: compactAbort.signal,
         onSummarizeStart: () => {

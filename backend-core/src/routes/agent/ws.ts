@@ -369,7 +369,8 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<SessionWebSocketR
                       selected_llm: payload.selected_llm,
                       attachments: payload.attachments,
                       ui_context: payload.ui_context,
-                      thinking_level: payload.thinking_level ?? undefined,
+                      // 三态原样透传：undefined = 继承会话设定；null = 显式清除。
+                      thinking_level: payload.thinking_level,
                     },
                     requestId,
                     {

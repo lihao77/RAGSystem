@@ -532,14 +532,15 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
         afterMessageId?: string | null;
         modifyUserMessage?: string | null;
         selectedLlm?: string | null;
-        thinkingLevel?: ThinkingLevel;
+        thinkingLevel?: ThinkingLevel | null;
         attachments?: AttachmentRef[] | null;
         uiContext?: Record<string, unknown> | null;
       } = {
         sessionId: request.params.sessionId,
         userId: request.identity.userId,
         requestId: request.headers["x-request-id"]?.toString() ?? randomUUID(),
-        selectedLlm: payload.selected_llm ?? null,
+        // 三态原样透传：undefined = 继承会话设定；null = 显式清除。
+        ...(payload.selected_llm !== undefined ? { selectedLlm: payload.selected_llm } : {}),
       };
       if (payload.after_seq !== undefined) {
         retryInput.afterSeq = payload.after_seq;
@@ -550,7 +551,7 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
       if (payload.modify_user_message !== undefined) {
         retryInput.modifyUserMessage = payload.modify_user_message;
       }
-      if (payload.thinking_level) {
+      if (payload.thinking_level !== undefined) {
         retryInput.thinkingLevel = payload.thinking_level;
       }
       if (payload.attachments && payload.attachments.length) {

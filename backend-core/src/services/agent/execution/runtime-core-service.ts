@@ -281,7 +281,11 @@ function requirement(
   return item;
 }
 
-function parseSelectedLlm(selectedLlm: string | null | undefined): Omit<ResolvedLlm, "source"> | null {
+/**
+ * 解析前端 selectedLlm 字符串（"provider|provider_type|model" / "provider|model"）。
+ * 单段形态（无 model）返回 provider-only 引用，由调用方按需校验完整性。
+ */
+export function parseSelectedLlm(selectedLlm: string | null | undefined): Omit<ResolvedLlm, "source"> | null {
   const normalized = selectedLlm?.trim();
   if (!normalized) {
     return null;

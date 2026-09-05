@@ -14,6 +14,8 @@ export interface SendUplink {
     category: "task_submit";
     task: string;
     selected_llm?: string;
+    /** 请求级思考档位；缺省 = 继承会话设定（服务端 _request_overrides）。 */
+    thinking_level?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "on";
     attachments: AttachmentRef[];
     request_id?: string;
     /** 前端组件状态快照(对齐后端 events.ts task_submit 的 ui_context)。 */
@@ -87,6 +89,7 @@ export type UplinkMessage =
 export function encodeSend(sessionId: string, input: {
   task: string;
   selectedLlm?: string;
+  thinkingLevel?: SendUplink["payload"]["thinking_level"];
   attachments?: AttachmentRef[];
   requestId?: string;
   uiContext?: Record<string, unknown>;
@@ -98,6 +101,9 @@ export function encodeSend(sessionId: string, input: {
   };
   if (input.selectedLlm) {
     payload.selected_llm = input.selectedLlm;
+  }
+  if (input.thinkingLevel) {
+    payload.thinking_level = input.thinkingLevel;
   }
   if (input.requestId) {
     payload.request_id = input.requestId;

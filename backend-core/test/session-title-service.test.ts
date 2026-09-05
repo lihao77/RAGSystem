@@ -223,3 +223,61 @@ describe("SessionTitleService.notifyFirstVisibleUserMessage", () => {
     expect(retry.updateSessionListTitle).toHaveBeenCalledWith("session-1", "修复登录超时");
   });
 });
+
+describe("SessionTitleService 会话级所选替换 default 档候选", () => {
+  function buildTierDeps(tiers: Record<string, { provider: string; provider_type?: string; model_name: string }>, selected: string | null) {
+    const complete = vi.fn(async () => ({ content: "修复登录超时" }));
+    const { deps, updateSessionListTitle } = buildDeps({
+      llmClient: { complete },
+      getAgentLlmTiers: () => tiers as never,
+      ...(selected === null ? {} : { getSessionSelectedLlm: () => selected }),
+    });
+    return { deps, complete, updateSessionListTitle };
+  }
+
+  it("有所选时 default 档候选被替换（顺位不变）", async () => {
+    const { deps, complete } = buildTierDeps({
+      default: { provider: "main", provider_type: "openai", model_name: "main-default" },
+    }, "cheap|openai|cheap-selected");
+
+    await new SessionTitleService(deps).generateTitle("session-1", "登录偶尔超时");
+
+    expect(complete).toHaveBeenCalledWith(expect.objectContaining({
+      model: "cheap-selected",
+      provider: expect.objectContaining({ key: "cheap" }),
+    }));
+  });
+
+  it("fast 档仍优先于所选（所选只替换 default 位）", async () => {
+    const { deps, complete } = buildTierDeps({
+      fast: { provider: "cheap", provider_type: "openai", model_name: "cheap-fast" },
+      default: { provider: "main", provider_type: "openai", model_name: "main-default" },
+    }, "cheap|openai|cheap-selected");
+
+    await new SessionTitleService(deps).generateTitle("session-1", "登录偶尔超时");
+
+    expect(complete).toHaveBeenCalledWith(expect.objectContaining({ model: "cheap-fast" }));
+  });
+
+  it("所选解析不完整（缺 model）→ 保留配置 default 兜底", async () => {
+    const { deps, complete } = buildTierDeps({
+      default: { provider: "main", provider_type: "openai", model_name: "main-default" },
+    }, "cheap");
+
+    await new SessionTitleService(deps).generateTitle("session-1", "登录偶尔超时");
+
+    expect(complete).toHaveBeenCalledWith(expect.objectContaining({ model: "main-default" }));
+  });
+
+  it("未注入 getSessionSelectedLlm（缺省 dep）→ 行为与原先一致", async () => {
+    const complete = vi.fn(async () => ({ content: "修复登录超时" }));
+    const { deps } = buildDeps({
+      llmClient: { complete },
+      getAgentLlmTiers: () => ({ default: { provider: "main", provider_type: "openai", model_name: "main-default" } }) as never,
+    });
+
+    await new SessionTitleService(deps).generateTitle("session-1", "登录偶尔超时");
+
+    expect(complete).toHaveBeenCalledWith(expect.objectContaining({ model: "main-default" }));
+  });
+});

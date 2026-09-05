@@ -33,11 +33,21 @@ export interface SessionControlDeps {
 
 /** stopSession 中断 + collaborateSequentially 顺序多任务（复用 executeSynchronously）。 */
 export function createSessionControl(deps: SessionControlDeps): SessionControlApi {
-  const executeTask = async (taskItem: CollaborateRequest["tasks"][number], sessionId: string, userId: CollaborateRequest["userId"], requestId: string, index: number): Promise<AgentExecuteResult> => {
+  const executeTask = async (
+    taskItem: CollaborateRequest["tasks"][number],
+    sessionId: string,
+    userId: CollaborateRequest["userId"],
+    requestId: string,
+    index: number,
+    overrides: Pick<CollaborateRequest, "selected_llm" | "thinking_level">,
+  ): Promise<AgentExecuteResult> => {
     const executeRequest: ExecuteRequest = {
       task: taskItem.task,
       session_id: sessionId,
       userId,
+      // 请求级覆盖三态透传：undefined = 继承会话设定；null = 清除；有值 = 生效。
+      ...(overrides.selected_llm !== undefined ? { selected_llm: overrides.selected_llm } : {}),
+      ...(overrides.thinking_level !== undefined ? { thinking_level: overrides.thinking_level } : {}),
     };
     if (taskItem.agent !== undefined) executeRequest.agent = taskItem.agent;
     try {
@@ -49,8 +59,9 @@ export function createSessionControl(deps: SessionControlDeps): SessionControlAp
 
   const runCollaborate = async (request: CollaborateRequest, requestId: string): Promise<{ results: AgentExecuteResult[]; session_id: string; total_tasks: number }> => {
     const sessionId = request.session_id?.trim() || cryptoRandom();
+    const overrides = { selected_llm: request.selected_llm, thinking_level: request.thinking_level };
     const results = request.mode === "parallel"
-      ? await Promise.all(request.tasks.map((taskItem, index) => executeTask(taskItem, sessionId, request.userId, requestId, index)))
+      ? await Promise.all(request.tasks.map((taskItem, index) => executeTask(taskItem, sessionId, request.userId, requestId, index, overrides)))
       : await runSequential(request, sessionId, request.userId, requestId, executeTask);
     return { results, session_id: sessionId, total_tasks: request.tasks.length };
   };
@@ -88,16 +99,26 @@ export function createSessionControl(deps: SessionControlDeps): SessionControlAp
   };
 }
 
+type CollaborateExecuteTask = (
+  taskItem: CollaborateRequest["tasks"][number],
+  sessionId: string,
+  userId: CollaborateRequest["userId"],
+  requestId: string,
+  index: number,
+  overrides: Pick<CollaborateRequest, "selected_llm" | "thinking_level">,
+) => Promise<AgentExecuteResult>;
+
 async function runSequential(
   request: CollaborateRequest,
   sessionId: string,
   userId: CollaborateRequest["userId"],
   requestId: string,
-  executeTask: (taskItem: CollaborateRequest["tasks"][number], sessionId: string, userId: CollaborateRequest["userId"], requestId: string, index: number) => Promise<AgentExecuteResult>,
+  executeTask: CollaborateExecuteTask,
 ): Promise<AgentExecuteResult[]> {
   const results: AgentExecuteResult[] = [];
+  const overrides = { selected_llm: request.selected_llm, thinking_level: request.thinking_level };
   for (const [index, taskItem] of request.tasks.entries()) {
-    const result = await executeTask(taskItem, sessionId, userId, requestId, index);
+    const result = await executeTask(taskItem, sessionId, userId, requestId, index, overrides);
     results.push(result);
     if (!result.success) break;
   }

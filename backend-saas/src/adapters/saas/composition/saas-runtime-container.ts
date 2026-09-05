@@ -15,6 +15,7 @@ import type { AgentExecutionLogger } from "@ragsystem/backend-core/services/agen
 import { AsyncKernelEventPersister } from "@ragsystem/backend-core/services/agent/sdk/async-event-persister.js";
 import { SystemConfigService } from "@ragsystem/backend-core/services/config/system-config-service.js";
 import { SessionTitleService } from "@ragsystem/backend-core/services/sessions/session-title-service.js";
+import { readSessionRequestOverrides } from "@ragsystem/backend-core/services/agent/execution/session-request-overrides.js";
 // system config store is created via conversationRuntime (Postgres sole source of truth)
 import { ModelAdapterService } from "@ragsystem/backend-core/services/integrations/model-adapter-service.js";
 import { BackgroundTaskService } from "@ragsystem/backend-core/services/runtime/background-task-service.js";
@@ -124,6 +125,11 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
         teamName: session.team_snapshot.team_name,
       });
       return agent?.llm_tiers ?? null;
+    },
+    // 会话级模型选择（default 档替换）与主智能体执行口径同源。
+    getSessionSelectedLlm: async (sessionId) => {
+      const session = await conversationRepository.getSession(sessionId);
+      return readSessionRequestOverrides(session?.metadata).selectedLlm;
     },
     logger: options.logger
       ? { warn: (message, meta) => options.logger?.error({ tenantId, ...meta }, message) }

@@ -200,3 +200,62 @@ describe("compression summary request hardening", () => {
     expect(started).toBe(false);
   });
 });
+
+describe("compression 会话级所选同源（selectedLlm 替换 default 档）", () => {
+  const SELECTED_PROVIDERS: ModelProviderConfig[] = [
+    ...PROVIDERS,
+    {
+      key: "ali",
+      name: "ali",
+      provider_type: "zhipuai",
+      api_format: "anthropic",
+      api_key: "sk-test-2",
+      models: [{ name: "qwen-small-win", max_context_tokens: 50_000, max_completion_tokens: 8_192 }],
+    },
+  ];
+
+  it("摘要模型与上下文预算都切到所选模型（窗口不再按配置 default 档算）", async () => {
+    const systemConfig = await buildSystemConfig(null);
+    const requests: LlmRequest[] = [];
+    const llm: LlmClient = {
+      async complete(request) {
+        requests.push(structuredClone(request));
+        return { content: "<summary>要点</summary>" };
+      },
+    };
+    const history = buildHistoryPort();
+    const service = new AgentCompressionService(history, () => SELECTED_PROVIDERS, systemConfig, null, llm);
+
+    const result = await service.forceCompact({
+      ...COMPACT_INPUT,
+      agent: buildAgent(),
+      selectedLlm: { provider: SELECTED_PROVIDERS[1]!, modelName: "qwen-small-win" },
+    });
+
+    expect(result.status).toBe("success");
+    expect(requests).toHaveLength(1);
+    // 摘要 default 候选 = 所选模型；输出上限取所选模型条目参数。
+    expect(requests[0]!.model).toBe("qwen-small-win");
+    expect(requests[0]!.maxCompletionTokens).toBe(8_192);
+    // 预算按所选窗口（50000×0.9−100）而非配置 default 档（200000）——与 run 实际执行口径同源。
+    expect(result.budgetTokens).toBe(Math.floor(50_000 * 0.9) - 100);
+  });
+
+  it("不携带 selectedLlm → 维持按 agent 配置投影（子线程压缩等场景）", async () => {
+    const systemConfig = await buildSystemConfig(null);
+    const requests: LlmRequest[] = [];
+    const llm: LlmClient = {
+      async complete(request) {
+        requests.push(structuredClone(request));
+        return { content: "<summary>要点</summary>" };
+      },
+    };
+    const service = new AgentCompressionService(buildHistoryPort(), () => SELECTED_PROVIDERS, systemConfig, null, llm);
+
+    const result = await service.forceCompact({ ...COMPACT_INPUT, agent: buildAgent() });
+
+    expect(result.status).toBe("success");
+    expect(requests[0]!.model).toBe("glm-test");
+    expect(result.budgetTokens).toBe(Math.floor(200_000 * 0.9) - 100);
+  });
+});

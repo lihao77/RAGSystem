@@ -6,6 +6,7 @@ import { applyWorkspaceOverride } from "../delegation/helpers.js";
 import type { AgentInvocationPort } from "../../../contracts/execution/agent-invocation.js";
 import type { RuntimeExecutionConfigResolver } from "./runtime-core-service.js";
 import type { ParticipantRunLifecyclePort } from "../delegation/port.js";
+import { readSessionRequestOverrides, type SessionRequestOverrides } from "./session-request-overrides.js";
 import {
   mailboxContinuationSourceMessageId,
   type AgentMailboxContinuationCompletionInput,
@@ -16,14 +17,34 @@ export function createResumeExecutor(deps: {
   runtimeCore: RuntimeExecutionConfigResolver;
   participantRuns: ParticipantRunLifecyclePort;
   completeAgentMailboxContinuation(input: AgentMailboxContinuationCompletionInput): Promise<void>;
+  /**
+   * 读会话级请求覆盖设定（模型/思考档位）。挂起的 run 多为用户带设定发起——恢复时
+   * 从会话 metadata 读回（挂起期间发送通道被占用，设定不会漂移），保证同一 run
+   * 恢复前后执行口径一致。缺省（未注入/读取失败）按未设定处理，回落 agent tier。
+   */
+  readSessionRequestOverrides?: (sessionId: string) =>
+    Promise<SessionRequestOverrides> | SessionRequestOverrides;
 }): InteractionResumeStarter {
+  const resolveOverrides = async (sessionId: string): Promise<SessionRequestOverrides> => {
+    if (!deps.readSessionRequestOverrides) return { selectedLlm: null, thinkingLevel: null };
+    try {
+      return await deps.readSessionRequestOverrides(sessionId);
+    } catch {
+      return { selectedLlm: null, thinkingLevel: null };
+    }
+  };
   return {
     async startClaim({ sessionId, claim }) {
+      // 子 Agent 挂起恢复走自己的 tier 配置；主智能体（root）恢复走会话级设定。
+      const overrides = claim.childAgentId
+        ? { selectedLlm: null, thinkingLevel: null }
+        : await resolveOverrides(sessionId);
       const ready = resolveReadyAgent(
         deps.runtimeCore,
         {
           agentName: claim.agentName,
           teamSnapshot: claim.sessionIdentity.teamSnapshot,
+          selectedLlm: overrides.selectedLlm,
         },
       );
       if (!ready.ok) throw new Error(ready.reason);
@@ -112,6 +133,8 @@ export function createResumeExecutor(deps: {
         agent: ready.agent,
         provider: ready.provider,
         modelName: ready.modelName,
+        ...(overrides.selectedLlm ? { selectedLlm: { provider: ready.provider, modelName: ready.modelName } } : {}),
+        ...(overrides.thinkingLevel ? { thinkingLevel: overrides.thinkingLevel } : {}),
       });
     },
   };

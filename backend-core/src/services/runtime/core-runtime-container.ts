@@ -2,6 +2,7 @@ import { AgentCompressionService } from "../agent/context-compression/compressio
 import { AgentDelegationService } from "../agent/delegation/index.js";
 import { createAgentExecutionService } from "../agent/execution/index.js";
 import { createResumeExecutor } from "../agent/execution/resume-executor.js";
+import { readSessionRequestOverrides } from "../agent/execution/session-request-overrides.js";
 import { RuntimeCoreService } from "../agent/execution/runtime-core-service.js";
 import { AgentMetricsCollector } from "../agent/metrics/metrics-collector.js";
 import type {
@@ -149,6 +150,11 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
     runtimeCore,
     participantRuns: agentDelegation,
     completeAgentMailboxContinuation: agentExecution.completeAgentMailboxContinuation,
+    // 挂起恢复读会话级设定（模型/思考档位），与用户发起时的执行口径保持一致。
+    readSessionRequestOverrides: async (sessionId) => {
+      const session = await executionSessions.getSession(sessionId);
+      return readSessionRequestOverrides(session?.metadata);
+    },
   });
   interactionCoordinator.bindResumeStarter(resumeExecutor);
   agentDelegation.setInvocationService(agentExecution.invocationService);

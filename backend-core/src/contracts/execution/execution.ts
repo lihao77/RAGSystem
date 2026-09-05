@@ -37,6 +37,9 @@ export const CollaborateRequestSchema = z.object({
   tasks: z.array(CollaborateTaskSchema).min(1),
   session_id: OptionalSessionIdSchema.nullable().optional(),
   mode: z.enum(["sequential", "parallel"]).optional().default("sequential"),
+  // 会话级设定语义：缺省 = 继承会话 _request_overrides；null = 清除；有值 = 本次生效。
+  selected_llm: z.string().nullable().optional(),
+  thinking_level: z.enum(["off", "minimal", "low", "medium", "high", "xhigh", "max", "on"]).nullish(),
 }).strict();
 
 export const StreamStopRequestSchema = z.object({

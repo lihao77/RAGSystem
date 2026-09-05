@@ -62,6 +62,12 @@ export interface CompressionResult {
 export interface CompressInput {
   agent: AgentConfig;
   sessionId: string;
+  /**
+   * 会话级模型选择（readiness 已解析形态）：替换 default 档。与 run 侧投影同源——
+   * 保证摘要候选的 default 位置与上下文预算（resolveContextBudget 的窗口口径）
+   * 都对齐当前实际执行的模型；缺省 = 按 agent 配置投影（子线程压缩等场景）。
+   */
+  selectedLlm?: { provider: ModelProviderConfig; modelName: string } | null;
   /** 自动路径必填（run 内）；手动路径（/compact）无 run,可省。 */
   runId?: string;
   taskId?: string | null;
@@ -176,7 +182,11 @@ export class AgentCompressionService {
 
   private async loadHistory(input: CompressInput): Promise<LoadedHistory> {
     const threadKey = input.threadKey?.trim() || "root";
-    const profile = projectAgentProfile({ agent: input.agent, providers: this.providersProvider() });
+    const profile = projectAgentProfile({
+      agent: input.agent,
+      providers: this.providersProvider(),
+      ...(input.selectedLlm ? { selectedLlm: input.selectedLlm } : {}),
+    });
     const rawSettings = resolveContextCompressionSettings(input.agent, this.systemConfig.getConfig());
     const budgetTokens = resolveContextBudget(profile.llmTiers, input.systemPromptTokens);
     // 保留区 token 预算钳到实际历史预算:兜底小窗下默认值会让选段 missing_segment_seq、压缩永久失效。

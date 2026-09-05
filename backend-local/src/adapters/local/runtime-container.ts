@@ -12,6 +12,7 @@ import { CapabilityRegistry } from "@ragsystem/backend-core/plugins/capability-r
 import { EXECUTION_ENVIRONMENT_CAPABILITY, createLocalExecutionEnvironment } from "@ragsystem/backend-core/contracts/execution/execution-environment.js";
 import { AgentSessionApplication } from "@ragsystem/backend-core/services/sessions/index.js";
 import { SessionTitleService } from "@ragsystem/backend-core/services/sessions/session-title-service.js";
+import { readSessionRequestOverrides } from "@ragsystem/backend-core/services/agent/execution/session-request-overrides.js";
 import { createConversationStore } from "./sqlite/conversation-store/index.js";
 import { FileHistoryService } from "./files/file-history-service.js";
 import { FileIndexService } from "./files/file-index-service.js";
@@ -145,6 +146,9 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
       });
       return agent?.llm_tiers ?? null;
     },
+    // 会话级模型选择（default 档替换）与主智能体执行口径同源。
+    getSessionSelectedLlm: (sessionId) =>
+      readSessionRequestOverrides(conversationStore.getSession(sessionId)?.metadata).selectedLlm,
   });
   conversationStore.setFirstVisibleUserMessageNotifier((sessionId, text) => {
     sessionTitles.notifyFirstVisibleUserMessage(sessionId, text);
