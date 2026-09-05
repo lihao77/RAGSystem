@@ -7,6 +7,19 @@ export type AgentMailboxMessageKind =
   | "response"
   | "result";
 
+/**
+ * 队列行的三种生命周期（input_type 标记"信封内容是什么"，不代表该行必然经历
+ * 排队语义）：
+ * - 等待行：入队后驻留为 queued，等认领消费（运行中由活动 run 的 refresh、空闲/
+ *   唤醒由 SessionMailboxConsumer）——排队的用户 followup、运行中到达的后台通知、
+ *   agent 间消息、续跑结果；
+ * - 过路行：startOrAppendRoot 同事务 enqueue+settle，落库即 acked，只作审计留痕
+ *   与会话消息行的派生源——用户首发、通知的 idle 消费、goal 续跑。goal 的调度
+ *   与重试由 GoalStore.claimContinuation 的 generation/预算/租约门控，刻意不走
+ *   mailbox 重投：队列无限重投会绕过 goal 的无进展循环保护；
+ * - 引用行：先作为等待行入队，后被认领为某 run 的初始输入（session_followup、
+ *   mailbox 续跑），同事务 settle。
+ */
 export type AgentMailboxInputType =
   | "user_message"
   | "agent_message"
