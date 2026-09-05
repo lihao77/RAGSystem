@@ -10,6 +10,7 @@ import type { RuntimeContainer, SaaSRuntimeContainer } from "@ragsystem/backend-
 import type { TenantId } from "@ragsystem/backend-core/identity/types.js";
 import type { EntityLifecyclePublisher } from "@ragsystem/backend-core/contracts/runtime/entity-lifecycle-events.js";
 import { AgentConfigService } from "@ragsystem/backend-core/services/agent/config/index.js";
+import { ensureDefaultTeam } from "./default-team.js";
 import type { AgentExecutionLogger } from "@ragsystem/backend-core/services/agent/execution/index.js";
 import { AsyncKernelEventPersister } from "@ragsystem/backend-core/services/agent/sdk/async-event-persister.js";
 import { SystemConfigService } from "@ragsystem/backend-core/services/config/system-config-service.js";
@@ -84,6 +85,8 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
     lifecycle,
   );
   await agentConfig.initialize();
+  // 产品形态补齐：default team 由产品层 ensure（内核不持有出厂内容）。
+  await ensureDefaultTeam(agentConfig);
   const sessionApplication = new SaaSSessionApplication(
     tenantId,
     conversationRuntime.conversation,

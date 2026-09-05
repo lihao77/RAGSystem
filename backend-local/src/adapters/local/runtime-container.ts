@@ -3,6 +3,7 @@ import path from "node:path";
 
 import { TaskToolService } from "@ragsystem/backend-core/tools/TaskTools/TaskExecution.js";
 import { AgentConfigService } from "@ragsystem/backend-core/services/agent/config/index.js";
+import { ensureDefaultTeam } from "./composition/default-team.js";
 import { TransientSessionResourceService } from "./session-resources/transient-session-resource-service.js";
 import { FileSystemConfigStore } from "../filesystem/config/file-system-config-store.js";
 import { SystemConfigService } from "@ragsystem/backend-core/services/config/system-config-service.js";
@@ -64,6 +65,8 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
     lifecycle,
   );
   await agentConfig.initialize();
+  // 产品形态补齐：default team 由产品层 ensure（内核不持有出厂内容）。
+  await ensureDefaultTeam(agentConfig);
   const agentMailbox = new LocalAgentMailboxStoreAdapter(conversationStore);
   const fileHistory = new FileHistoryService({ dataRoot });
   // 目录服务唯一实例：工具执行、插件上下文、工作区文件读取共用同一权威。

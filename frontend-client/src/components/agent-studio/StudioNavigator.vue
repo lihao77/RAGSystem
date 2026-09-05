@@ -63,14 +63,11 @@
                   v-if="team.team_name !== core.activeTeam.value"
                   @click="teamAdmin.handleActivateTeam(team.team_name)"
                 >设为运行时默认</DropdownMenuItem>
-                <DropdownMenuItem
-                  v-if="team.team_name === 'default'"
-                  @click="teamAdmin.handleResetDefault"
-                >恢复默认配置</DropdownMenuItem>
-                <DropdownMenuSeparator v-if="team.team_name !== core.activeTeam.value || team.team_name === 'default'" />
+                <DropdownMenuSeparator v-if="team.team_name !== core.activeTeam.value" />
                 <DropdownMenuItem
                   class="wb-nav-group__menu-danger"
-                  :disabled="team.team_name === core.activeTeam.value || core.teams.value.length <= 1"
+                  :disabled="team.team_name === core.activeTeam.value || core.teams.value.length <= 1 || team.team_name === DEFAULT_TEAM"
+                  :title="team.team_name === DEFAULT_TEAM ? '出厂 team 由产品维护，删除后重启会按模板重建' : undefined"
                   @click="teamAdmin.handleDeleteTeam(team.team_name)"
                 >删除 Team</DropdownMenuItem>
               </DropdownMenuContent>
@@ -123,7 +120,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '../ui/dropdown-menu';
 import { Empty, EmptyHeader, EmptyTitle } from '../ui/empty';
 import { Spinner } from '../ui/spinner';
-import { BUILDER_TEAM } from '../../composables/agent-studio/useAgentStudioCore.js';
+import { BUILDER_TEAM, DEFAULT_TEAM } from '../../composables/agent-studio/useAgentStudioCore.js';
 
 defineProps({
   core: { type: Object, required: true },

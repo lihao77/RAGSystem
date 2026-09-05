@@ -77,15 +77,6 @@ export async function copyAgentsToTeam(teamName, sourceTeam, agentNames) {
   }
 }
 
-export async function resetDefaultTeam() {
-  try {
-    const result = await http.post(`${API_BASE}/teams/default/reset`);
-    return result.data || result;
-  } catch (error) {
-    console.error('Error resetting default team:', error);
-    throw error;
-  }
-}
 
 /**
  * 获取智能体配置

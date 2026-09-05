@@ -1089,8 +1089,25 @@ test("Builder template opts its orchestrator into Skill authoring tools explicit
 
 async function createFixture(pluginTools = [], systemConfig = null) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-builder-"));
+  // 内核不兜底出厂 team：夹具按产品层 ensure 的等价方式预置最小 default team
+  // （general_agent 供"manual Team snapshots"用例从 default 复制）。
   const agentConfig = new AgentConfigService(new MemoryTeamStore());
   await agentConfig.initialize();
+  await agentConfig.applyTeamPayload("default", {
+    orchestrator_agent: {
+      agent_name: "orchestrator_agent",
+      display_name: "Orchestrator Agent",
+      description: "入口编排 Agent。",
+      default_entry: true,
+      tools: { enabled_tools: [] },
+    },
+    general_agent: {
+      agent_name: "general_agent",
+      display_name: "General Agent",
+      description: "通用执行 Agent。",
+      tools: { enabled_tools: ["read_file"] },
+    },
+  });
   return {
     root,
     agentConfig,

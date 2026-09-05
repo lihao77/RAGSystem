@@ -1,11 +1,11 @@
 /**
- * Team 管理动作：新建（可复制）、设为运行时默认、删除、恢复默认配置。
+ * Team 管理动作：新建（可复制）、设为运行时默认、删除。
  * core 为 useAgentStudioCore 的返回值。
  */
 
 import { reactive, ref } from 'vue';
 
-import { activateTeam, createTeam, deleteTeam, resetDefaultTeam } from '../../api/agentConfig.js';
+import { activateTeam, createTeam, deleteTeam } from '../../api/agentConfig.js';
 import { BUILDER_TEAM } from './useAgentStudioCore.js';
 
 const NAME_PATTERN = /^[a-zA-Z0-9_]+$/;
@@ -78,19 +78,6 @@ export function useTeamAdmin(core, { confirm, showToast }) {
     }
   }
 
-  async function handleResetDefault() {
-    teamBusy.value = true;
-    try {
-      await resetDefaultTeam();
-      await core.loadAll(true);
-      showToast('default team 已重置为系统默认配置', 'success');
-    } catch (err) {
-      showToast(err?.message || '重置 default team 失败');
-    } finally {
-      teamBusy.value = false;
-    }
-  }
-
   /** 导航树里可选的复制源（排除系统 Builder Team）。 */
   function teamCopySources() {
     return core.teams.value.filter((t) => t.team_name !== BUILDER_TEAM);
@@ -107,7 +94,6 @@ export function useTeamAdmin(core, { confirm, showToast }) {
     handleCreateTeam,
     handleActivateTeam,
     handleDeleteTeam,
-    handleResetDefault,
     teamCopySources,
     openCreateTeamDialog,
   };

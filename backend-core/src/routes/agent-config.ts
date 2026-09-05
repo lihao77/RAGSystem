@@ -3,7 +3,6 @@ import type { FastifyPluginAsync, FastifyRequest } from "fastify";
 import { ok } from "../contracts/common.js";
 import {
   AgentConfigSchema,
-  ApplyPresetRequestSchema,
   CopyAgentsRequestSchema,
   CreateTeamRequestSchema,
   RenameTeamRequestSchema,
@@ -109,25 +108,6 @@ export const registerAgentConfigRoutes: FastifyPluginAsync<RouteOptions> = async
     return exported.content;
   });
 
-  app.post<{ Params: AgentParams }>("/configs/:agentName/preset", async (request) => {
-    const payload = ApplyPresetRequestSchema.parse(request.body);
-    try {
-      if (!Object.prototype.hasOwnProperty.call(request.container.agentConfig.listPresets(), payload.preset)) {
-        throw new HttpError(400, "invalid_request", `无效的预设名称: ${payload.preset}`);
-      }
-      const config = await request.container.agentConfig.applyPreset(request.params.agentName, payload.preset);
-      if (!config) {
-        throw new HttpError(404, "not_found", `智能体 "${request.params.agentName}" 不存在`);
-      }
-      await emitActiveTeamChange(options, request);
-      return ok(config, `智能体 "${request.params.agentName}" 已应用预设 "${payload.preset}"`);
-    } catch (error) {
-      if (error instanceof HttpError) {
-        throw error;
-      }
-      throw new HttpError(400, "invalid_request", errorMessage(error));
-    }
-  });
 
   app.post<{ Params: AgentParams; Querystring: ImportQuery }>("/configs/:agentName/import", async (request) => {
     try {
@@ -157,12 +137,6 @@ export const registerAgentConfigRoutes: FastifyPluginAsync<RouteOptions> = async
       "验证完成",
     ),
   );
-
-  app.post("/teams/default/reset", async (request) => {
-    const result = await request.container.agentConfig.resetDefaultTeam();
-    await emitAgentConfigChanged(options, request, { teamName: "default" });
-    return ok(result, "default team 已重置为系统默认配置");
-  });
 
   app.get("/teams", async (request) => ok(await request.container.agentConfig.listTeams(), "team 列表"));
 
@@ -227,13 +201,6 @@ export const registerAgentConfigRoutes: FastifyPluginAsync<RouteOptions> = async
       throw new HttpError(400, "invalid_request", errorMessage(error));
     }
   });
-
-  app.get("/presets", async (request) =>
-    ok(
-      request.container.agentConfig.listPresets(),
-      "共有 5 个预设",
-    ),
-  );
 
   app.get("/tools", async (request) => {
     const tools = [

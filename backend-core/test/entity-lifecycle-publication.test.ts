@@ -14,7 +14,29 @@ import { AgentConfigService } from "../src/services/agent/config/index.js";
 import { AgentSessionApplication } from "../src/services/sessions/index.js";
 
 class MemoryTeamStore implements IAgentConfigTeamStore {
-  async loadTeams() { return null; }
+  async loadTeams() {
+    // 内核不再兜底出厂 team：夹具预置一个最小 default team（产品层 ensure 的等价物）。
+    return {
+      activeTeam: "default",
+      teams: new Map<string, AgentConfigTeam>([
+        ["default", new Map(Object.entries({
+          orchestrator_agent: {
+            agent_name: "orchestrator_agent",
+            display_name: "Orchestrator Agent",
+            description: "入口编排 Agent。",
+            enabled: true,
+            default_entry: true,
+            llm_tiers: null,
+            tools: { enabled_tools: [] },
+            goals: { enabled: false },
+            tasks: { background: false },
+            delegation: { enabled_agents: [], parallel_children: false },
+            custom_params: {},
+          },
+        }))],
+      ]),
+    };
+  }
   async saveAll(_activeTeam: string, _teams: Map<string, AgentConfigTeam>) {}
   async saveIndex(_activeTeam: string, _teams: Map<string, AgentConfigTeam>) {}
   async removeTeam(_teamName: string) {}
@@ -121,13 +143,5 @@ describe("AgentConfigService lifecycle publication", () => {
     });
     const deletions = capture.published.filter((item) => item.event === AGENT_DELETED_EVENT);
     expect(deletions.map((item) => (item.payload as { agentName: string }).agentName)).toContain("writer");
-  });
-
-  it("publishes agent.deleted for custom agents removed by resetDefaultTeam", async () => {
-    const { service, capture } = await createService();
-    await service.createAgent({ agent_name: "scribe", display_name: "Scribe", default_entry: false });
-    await service.resetDefaultTeam();
-    const deletions = capture.published.filter((item) => item.event === AGENT_DELETED_EVENT);
-    expect(deletions.map((item) => (item.payload as { agentName: string }).agentName)).toContain("scribe");
   });
 });

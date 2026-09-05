@@ -72,8 +72,12 @@ create/update 路径复用其中的 `canonicalizeProviderConfig` / `normalizePro
   存量会话维持派生标题）。SaaS 端对应变更见
   `backend-saas/src/adapters/saas/postgres/conversation-schema.ts` v12（同语义，含触发器
   重建保留 override 的函数改写）。
-- **启动补齐**：桌面产品侧（Oceanx electron）按 ensure 语义补齐 Team 模板与
-  planning Provider，属产品组合层，不在共享树内。
+- **启动补齐（产品形态 ensure）**：default team 与 builder 保留 team 同模式——由**产品层**在启动时
+  ensure（存在即跳过、不存在则 `applyTeamPayload` 创建落盘，用户改动永不覆盖）。仓库内两端组合层
+  各持自己的产品模板（backend-local / backend-saas 的 `composition/default-team.ts`），桌面产品侧
+  （Oceanx electron）另在自己的产品层补齐 Team 模板与 planning Provider；agent-builder 插件维护其
+  保留 team（`team-template.ts`，版本化迁移、形态驱动）。core 的配置服务是纯机制（存取/校验/归一/
+  快照），不持有任何出厂 team 内容；不存在任何 team 时读路径按"不存在"报错，无内核兜底。
 
 ## SaaS 应用戳现状
 

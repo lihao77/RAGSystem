@@ -12,6 +12,8 @@ import { useDictionariesStore } from '../../stores/dictionaries.js';
 import { TAB_LABELS, useAgentPlugins } from './useAgentPlugins.js';
 
 export const BUILDER_TEAM = 'agent-builder';
+// 产品出厂 team：后端产品层启动时 ensure，删除后重启会按模板重建，前端不提供删除。
+export const DEFAULT_TEAM = 'default';
 
 export function useAgentStudioCore({ confirm, showToast }) {
   const dictStore = useDictionariesStore();

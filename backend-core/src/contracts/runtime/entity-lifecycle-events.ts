@@ -15,7 +15,7 @@
  *   配置写操作），本契约是"实体生命周期事实"，两者并存不互相替代。
  *
  * 已知限制：
- * - resetDefaultTeam 重写 default team 配置时不逐 agent 发布 agent.deleted；
+ * - applyTeamPayload 整组替换中被移除的 agent 会发布 agent.deleted（领域服务内联）；
  * - 绕过领域服务直接改存储的删除不产生事件；
  * - 进程在变更提交与扇出之间崩溃会漏发，session 范围由记忆插件的对账清扫
  *   兜底（team/agent 不清扫，防同名重建误删）。

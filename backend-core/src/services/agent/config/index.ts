@@ -11,9 +11,7 @@ import {
   type TeamSummary,
 } from "../../../contracts/agent/agent-config.js";
 import {
-  agentConfigPresets,
   buildCustomAgentConfig,
-  buildDefaultAgentConfigs,
   cloneConfig,
   cloneConfigMap,
   configToAgentInfo,
@@ -52,10 +50,15 @@ export class AgentConfigService {
   private initialized = false;
   private initializePromise: Promise<void> | null = null;
 
+  /**
+   * 纯机制服务：只负责 team/agent 配置的存取、校验、归一与快照。
+   * 不持有任何出厂 team 内容——default team 等产品形态由部署组合层（或产品端，
+   * 如 Oceanx）在启动时按 ensure 语义创建（同 agent-builder 插件维护其保留
+   * team 的模式）；不存在任何 team 时读路径按"不存在"报错，不做内核兜底。
+   */
   constructor(teamStore: IAgentConfigTeamStore, lifecycle: EntityLifecycleBinding | null = null) {
     this.teamStore = teamStore;
     this.lifecycle = lifecycle;
-    this.teams.set("default", new Map(Object.entries(buildDefaultAgentConfigs())));
   }
 
   /** Load persisted teams before the service is used for reads/writes. */
@@ -189,43 +192,6 @@ export class AgentConfigService {
       await this.publishAgentDeleted(teamName, agentName);
     }
     return deleted;
-  }
-
-  listPresets(): Record<string, { temperature: number; max_completion_tokens: number }> {
-    return structuredClone(agentConfigPresets);
-  }
-
-  async applyPreset(agentName: string, presetName: string): Promise<AgentConfig | null> {
-    await this.ensureInitialized();
-    const config = this.getActiveConfigs().get(agentName);
-    if (!config) {
-      return null;
-    }
-    const preset = agentConfigPresets[presetName as keyof typeof agentConfigPresets];
-    if (!preset) {
-      throw new Error(`未知预设 '${presetName}'`);
-    }
-
-    const updated = normalizeConfig({
-      ...cloneConfig(config),
-      // 无 tier 的 Agent（继承系统 LLM）没有可调温度的档位：预设只作用于已存在的
-      // tier，不物化出厂示例引用——那会重新制造指向不存在 provider 的失效配置。
-      llm_tiers: config.llm_tiers
-        ? Object.fromEntries(
-          Object.entries(config.llm_tiers).map(([tierName, llm]) => [
-            tierName,
-            {
-              ...llm,
-              temperature: preset.temperature,
-              max_completion_tokens: preset.max_completion_tokens,
-            },
-          ]),
-        )
-        : null,
-    });
-    this.getActiveConfigs().set(agentName, updated);
-    await this.saveAll();
-    return cloneConfig(updated);
   }
 
   exportConfig(agentName: string, format: ExportFormat): { content: string; contentType: string; fileExtension: string } | null {
@@ -447,19 +413,6 @@ export class AgentConfigService {
     };
   }
 
-  async resetDefaultTeam(): Promise<TeamSummary> {
-    await this.ensureInitialized();
-    const previousConfigs = this.teams.get("default") ?? new Map<string, AgentConfig>();
-    const nextConfigs = new Map<string, AgentConfig>(Object.entries(buildDefaultAgentConfigs()));
-    this.teams.set("default", nextConfigs);
-    if (!this.teams.has(this.activeTeam)) {
-      this.activeTeam = "default";
-    }
-    await this.saveAll();
-    await this.publishRemovedAgents("default", previousConfigs, nextConfigs);
-    return this.listTeams();
-  }
-
   listAvailableTools(): AvailableToolInfo[] {
     return listAvailableRuntimeTools();
   }
@@ -493,7 +446,7 @@ export class AgentConfigService {
     });
   }
 
-  /** 整组替换配置（applyTeamPayload/resetDefaultTeam）后被移除的 agent 同样是删除事实。 */
+  /** 整组替换配置（applyTeamPayload）后被移除的 agent 同样是删除事实。 */
   private async publishRemovedAgents(
     teamName: string,
     previous: Map<string, AgentConfig>,
@@ -566,6 +519,8 @@ export class AgentConfigService {
   private async loadTeamsFromStore(): Promise<void> {
     const loaded = await this.teamStore.loadTeams();
     if (!loaded) {
+      // 空库保持空：没有任何 team 是合法状态（组合层/产品端随后按 ensure 语义
+      // 创建自己的 team）；使用期的读路径对缺失 team 按"不存在"报错。
       return;
     }
 

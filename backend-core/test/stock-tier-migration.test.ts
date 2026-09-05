@@ -37,13 +37,14 @@ class PreloadedTeamStore implements IAgentConfigTeamStore {
 }
 
 describe("出厂示例 LLM tier 治理", () => {
-  it("内置默认 team 的系统 Agent 不再携带示例 tier", async () => {
+  it("空库不兜底任何出厂 team：读路径按不存在明确报错", async () => {
     const service = new AgentConfigService(new PreloadedTeamStore(null));
     await service.initialize();
 
-    for (const config of Object.values(service.listConfigs())) {
-      expect(config.llm_tiers).toBeNull();
-    }
+    // 内核只提供配置机制；default team 等产品形态由产品层 ensure（组合层/插件/桌面端）。
+    // 没有任何 team 是合法状态——使用期报清晰错误，而不是静默兜底一个内核编造的 team。
+    expect(() => service.listConfigs()).toThrow(/team 'default' 不存在/);
+    await expect(service.listTeams()).resolves.toHaveProperty("teams", []);
   });
 
   it("加载时剥除原样出厂的示例 tier 并一次性回写", async () => {
@@ -116,26 +117,6 @@ describe("出厂示例 LLM tier 治理", () => {
     expect(service.getConfig("tuned_agent")?.llm_tiers?.default?.temperature).toBe(0.9);
     expect(service.getConfig("multi_tier_agent")?.llm_tiers).toHaveProperty("fast");
     expect(service.getConfig("real_agent")?.llm_tiers?.default?.provider).toBe("real");
-  });
-
-  it("预设只调整已存在的 tier，不为继承系统配置的 Agent 物化示例引用", async () => {
-    const store = new PreloadedTeamStore(new Map([
-      ["default", new Map([
-        ["tierless_agent", agentWithTier(null, undefined, "tierless_agent")],
-        ["tiered_agent", agentWithTier({ ...defaultLlmTier, provider: "real", model_name: "real-model", temperature: 0.7 }, undefined, "tiered_agent")],
-      ])],
-    ]));
-    const service = new AgentConfigService(store);
-    await service.initialize();
-
-    await service.applyPreset("tierless_agent", "fast");
-    expect(service.getConfig("tierless_agent")?.llm_tiers).toBeNull();
-
-    await service.applyPreset("tiered_agent", "fast");
-    const tier = service.getConfig("tiered_agent")?.llm_tiers?.default;
-    expect(tier?.temperature).toBe(0.1);
-    expect(tier?.max_completion_tokens).toBe(2048);
-    expect(tier?.provider).toBe("real");
   });
 });
 
