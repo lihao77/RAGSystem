@@ -264,3 +264,79 @@ invoke 组装（`launchRun` 用户/foreground、`invokeSessionSystemRun` 系统/
 
 launchers 剩余私有方法均为职责单一的操作细节（idle 扫描/通知 claim-ack-release/
 mailbox 续跑判定树/结果补投），不再承载横切口径。
+
+## 10. 最终架构（权威记录，2026-09-05 定稿）
+
+### 10.1 分层总图
+
+```
+┌─ 协议适配层（纯形状转换，零业务判定）────────────────────────────┐
+│ HTTP: /stream  /execute[/:agentName]  /collaborate  /rollback-retry │
+│ WS:   user_driven_change        SSE: /api/agui（含 widget 复用）    │
+│ 插件: scheduler cron  飞书 daemon  agent-builder 试用               │
+└──────────────────────┬──────────────────────────────────────────┘
+                       ↓ 全部构造 SendUserMessageInput / ExecuteRequest
+┌─ 消息处理管道（launchers）───────────────────────────────────────┐
+│ sendUserMessage —— 用户消息唯一流水线：                           │
+│   会话定位 → slash 分流(全仓唯一点) → 设定三态合并(唯一合并点)     │
+│   → 冲突预检(followupPolicy) → onAccepted ACK → 附件解析           │
+│   → contentParts 组装 → 插件持久化前变换 → invokeRootRun           │
+│   → durableStarted 后回写实际生效设定                             │
+│ resolveExecutionAgent —— 唯一 Agent 状态解析点（§9）              │
+│ invokeRootRun —— 唯一 root invoke 组装点（§9）                    │
+└──────────────────────┬──────────────────────────────────────────┘
+                       ↓ 一切 root run：rootMailboxMessage 形状
+┌─ 统一队列（mailbox，持久）───────────────────────────────────────┐
+│ 行 = 信封：input_type(user/agent/system_notification/goal)         │
+│         × source_kind(user/agent/system) × visible_to_user         │
+│         × 寻址(target_run_id/agent_call_id/thread_key/child_id)    │
+│ 写入方：startOrAppendRoot 事务 / followup 入队 / publishCompleted  │
+│         (bgnotify_<task_id>) / agent 间消息 / 续跑结果回投         │
+└──────┬──────────────────────┬───────────────────────────────────┘
+       ↓ running             ↓ idle
+┌─ 消费者 ─────────────┐  ┌─ 会话空闲检查（优先级调度器）─────────┐
+│ 活动 run refresh：    │  │ 排队 user_message → session_followup  │
+│ 每轮按地址 claim →   │  │ 定向消息 → mailbox 续跑(收件人粒度)    │
+│ commitRunInput 落    │  │ system_notification(+goal 续跑合并)    │
+│ user 行进当轮上下文  │  │   → system.bg_notification / goal run  │
+└──────────────────────┘  └──────────────────────────────────────┘
+       ↑ 唤醒快路径（收件人粒度，不等空闲）：enqueue 即触发
+       │ triggerAgentMailboxRun → startAgentMailboxRun（续接已终止收件人，
+       │ 确定性 ID mailbox_<sha>、lineage 校验、结果回投父）
+
+┌─ 存储事务（唯一闸门：startOrAppendRoot，单事务）─────────────────┐
+│ idle：enqueue mailbox 行 + settle + 派生会话消息行 + 创建 run     │
+│ running+queue：只 enqueue（留给 refresh / 空闲检查）               │
+│ running+reject：拒绝    —— 首发与排队补跑在此以下同路径            │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+### 10.2 声明式非入口（刻意不在统一管道上）
+
+| 通道 | 性质 | 与统一口径的关系 |
+|---|---|---|
+| 挂起恢复 resume | run 生命周期操作（非新消息） | 设定读取同源（容器注入 readSessionRequestOverrides） |
+| child 委派 | agent 间机制，scope:child | 走自己的 tier 配置（会话级设定只作用于主智能体） |
+| mailbox 续跑 invoke | 定向消息的收件人重建 | Agent 解析走 resolveExecutionAgent（agentName 取目标 run 记录），初始输入同为 rootMailboxMessage |
+
+### 10.3 不变量（review 时不许再分叉的点）
+
+1. **一个队列**：mailbox，无第二载体（内存队列已删除）；
+2. **一个闸门**：root run 创建只经 startOrAppendRoot，idle/running 二分在此；
+3. **一个解析点**：resolveExecutionAgent（agentName 显式优先/缺省入口 Agent，readiness 失败明确报因）；
+4. **一个组装点**：invokeRootRun（foreground/background、user/system 持久化形状参数化，background 终态统一 autoTrigger）；
+5. **一个 slash 点**：sendUserMessage 内 parseSlashCommand，管道最前折返；
+6. **一个设定源**：readSessionRequestOverrides（读）+ mergeRequestOverrides（用户请求三态合并），回写即实际生效值；
+7. **确定性 ID**：bgnotify_<task_id>、mailbox_<sha>、session_followup_<msg_id>、goal_continue_/bg_notify_<uuid>——幂等与恢复的根基；
+8. **防重复双防线**：工具轮询 suppress = 内存集合 + 串行链 settle；idle 消费 = claim → durableStarted 后 ack → 失败 release；
+9. **触发闭环**：run 终态 / 任务完成 / 通知入队链尾 → scheduleAutoTrigger → 空闲检查，崩溃留下的已入队消息由下一次扫描自然捡起。
+
+### 10.4 实施状态
+
+- 阶段 1+2：提交 d7bdc986；阶段 3+4 收口：79328649；单一解析/组装点：8724ffc1。
+- **唯一遗留的物理收拢**（设计已定、代码搬移未做）：mailbox 消费侧（空闲检查 +
+  唤醒快路径 + 续跑判定树 + claim/ack/release + 结果回投，现散在 launchers 的
+  ~10 个私有方法与两套去重状态机）整体抽为独立的 SessionMailboxConsumer 组件
+  （公开两个触发口：onSessionIdle / onMailboxWakeup，共享守卫与同一续跑函数）。
+  拆分后 launchers 只剩用户管道 + 协议适配。两入口不可合并为一：唤醒路径须能在
+  root run 运行期间拉起子 Agent 续跑（空闲检查对此早退），可达集不同。
