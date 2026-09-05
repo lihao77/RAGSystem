@@ -333,10 +333,13 @@ mailbox 续跑判定树/结果补投），不再承载横切口径。
 
 ### 10.4 实施状态
 
-- 阶段 1+2：提交 d7bdc986；阶段 3+4 收口：79328649；单一解析/组装点：8724ffc1。
-- **唯一遗留的物理收拢**（设计已定、代码搬移未做）：mailbox 消费侧（空闲检查 +
-  唤醒快路径 + 续跑判定树 + claim/ack/release + 结果回投，现散在 launchers 的
-  ~10 个私有方法与两套去重状态机）整体抽为独立的 SessionMailboxConsumer 组件
-  （公开两个触发口：onSessionIdle / onMailboxWakeup，共享守卫与同一续跑函数）。
-  拆分后 launchers 只剩用户管道 + 协议适配。两入口不可合并为一：唤醒路径须能在
+- 阶段 1+2：提交 d7bdc986；阶段 3+4 收口：79328649；单一解析/组装点：8724ffc1；
+  架构定稿：f689c209。
+- **SessionMailboxConsumer 抽取已完成**（统一队列的唯一消费组件，
+  `execution/session-mailbox-consumer.ts`）：空闲检查（triggerBgNotificationRun）与
+  收件人唤醒（triggerAgentMailboxRun）两个触发口、续跑判定树、通知 claim/ack/release、
+  结果回投与恢复扫描全部入住；Agent 解析经 readiness.ts 的
+  resolveExecutionAgentFor（与用户发送同一口径），系统 run 经 launchSystemRun 钩子
+  回到 launchers 的唯一组装点 invokeRootRun。launchers 从 1687 行缩到 871 行，只剩
+  用户管道 + 协议适配 + 唯一解析/组装点。两触发口不可合并为一：唤醒路径须能在
   root run 运行期间拉起子 Agent 续跑（空闲检查对此早退），可达集不同。
