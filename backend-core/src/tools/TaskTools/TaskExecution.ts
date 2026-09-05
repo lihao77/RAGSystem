@@ -1,5 +1,4 @@
 import type { BackgroundTaskService } from "../../services/runtime/background-task-service.js";
-import type { SessionNotificationQueue } from "../../services/runtime/session-notification-queue.js";
 import type { ToolWaitResult as RuntimeToolWaitResult, ToolExecutionResult, ToolExecContext } from "@ragsystem/agent-sdk";
 import {
   isGoalId,
@@ -52,7 +51,6 @@ export interface TaskStopInput {
 export class TaskToolService {
   constructor(
     private readonly backgroundTasks: BackgroundTaskService,
-    private readonly notificationQueue: SessionNotificationQueue,
     private readonly goals: GoalStore,
   ) {}
 
@@ -322,7 +320,10 @@ export class TaskToolService {
         const payload = buildBackgroundNotificationPayload(snapshot, false);
         const sessionId = asString(snapshot.session_id)?.trim();
         if (sessionId) {
-          this.notificationQueue.markConsumed(sessionId, taskId);
+          // 终态结果已直接返回给调用方 run：抑制 mailbox 里（或即将落库）的完成
+          // 通知，避免同一结果二次投递。经后台服务的持久化串行链接入队，与
+          // enqueue 保持先手顺序。
+          this.backgroundTasks.suppressTaskNotification(sessionId, taskId);
         }
         return {
           success: payload.success === true,

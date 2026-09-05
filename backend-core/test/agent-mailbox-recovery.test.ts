@@ -202,7 +202,6 @@ function createRecoveryHarness(input: {
     eventPublisher: {} as never,
     runEngine: {} as never,
     invocationService: {} as never,
-    notificationQueue: {} as never,
     backgroundTasks: null,
     goalStore: null,
     runtimeStorage: { operations: {} } as never,

@@ -149,7 +149,12 @@ export interface AgentMailboxStorePort {
   listPending?(input: ListPendingAgentMailboxInput): Promise<AgentMailboxMessage[]>;
   claim(input: ClaimAgentMailboxInput): Promise<AgentMailboxMessage[]>;
   ack(input: AckAgentMailboxInput): Promise<boolean>;
-  /** Terminal recovery only: prevent a durably finalized continuation source from being retried. */
+  /**
+   * Terminal recovery only: prevent a durably finalized continuation source
+   * from being retried. Also suppresses a background notification whose
+   * result was already returned inline to a polling run (idempotent on
+   * missing rows: returns false without inserting).
+   */
   settle(input: SettleAgentMailboxInput): Promise<boolean>;
   release(input: ReleaseAgentMailboxInput): Promise<boolean>;
   expire(input?: { sessionId?: string; now?: string }): Promise<number>;

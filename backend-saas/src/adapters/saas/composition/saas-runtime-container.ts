@@ -25,7 +25,6 @@ import { DelegationPendingService } from "@ragsystem/backend-core/services/runti
 import { DurableClientEventPublisher } from "@ragsystem/backend-core/services/runtime/event-outbox/client-event-publisher.js";
 import { HostToolRegistry } from "@ragsystem/backend-core/services/runtime/host-tool-registry.js";
 import { PathApprovalService } from "@ragsystem/backend-core/services/runtime/path-approval-service.js";
-import { SessionNotificationQueue } from "@ragsystem/backend-core/services/runtime/session-notification-queue.js";
 import { TaskToolService } from "@ragsystem/backend-core/tools/TaskTools/TaskExecution.js";
 import { SaaSSessionApplication } from "../application/session/saas-session-application.js";
 import { toModelProviderConfig } from "../application/provider/provider-config-mapping.js";
@@ -138,9 +137,7 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
   conversationRepository.registerSessionTitleNotifier(tenantId, (sessionId, text) => {
     sessionTitles.notifyFirstVisibleUserMessage(sessionId, text);
   });
-  const notificationQueue = new SessionNotificationQueue();
   const backgroundTasks = new BackgroundTaskService({
-    notificationQueue,
     repository: conversationRuntime.backgroundTasks,
     tenantId,
     clientEvents,
@@ -148,7 +145,6 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
   const goalStore = conversationRuntime.createGoalStore(tenantId);
   const taskTools = new TaskToolService(
     backgroundTasks,
-    notificationQueue,
     goalStore,
   );
   const permissionPolicyStore = new SaaSPermissionPolicyStore(tenantId, conversationRuntime.conversation);
@@ -250,7 +246,6 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
     backgroundTasks,
     taskTools,
     goalStore,
-    notificationQueue,
     hostToolRegistry: new HostToolRegistry(),
     delegationPending: new DelegationPendingService(),
     eventDispatcher: outboxDispatcher,

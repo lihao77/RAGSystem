@@ -29,7 +29,6 @@ import type { LocalRuntimeContainer } from "@ragsystem/backend-core/contracts/ru
 import type { LocalRuntimeContainerOptions } from "./runtime-options.js";
 import { provideBackendResource } from "@ragsystem/backend-core/plugins/resource-registry.js";
 import { BACKEND_HOST_RESOURCES } from "@ragsystem/backend-core/plugins/host-resources.js";
-import { SessionNotificationQueue } from "@ragsystem/backend-core/services/runtime/session-notification-queue.js";
 import { createLocalExecutionStorage } from "./local-execution-storage.js";
 import { LocalGoalStore } from "./local-goal-store.js";
 import { PathApprovalService } from "@ragsystem/backend-core/services/runtime/path-approval-service.js";
@@ -156,9 +155,7 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
   const fileIndex = new FileIndexService({ dbPath: options.dbPath, dataRoot: options.dataRoot });
 
   const hostToolsEnabled = options.hostToolsEnabled !== false;
-  const notificationQueue = new SessionNotificationQueue();
   const backgroundTasks = new BackgroundTaskService({
-    notificationQueue,
     clientEvents,
     ...(options.asyncBackgroundTasks ? { repository: options.asyncBackgroundTasks, tenantId: options.tenantId } : {}),
   });
@@ -188,7 +185,6 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
   const goalStore = new LocalGoalStore(options.tenantId, conversationStore);
   const taskTools = new TaskToolService(
     backgroundTasks,
-    notificationQueue,
     goalStore,
   );
   const hostToolRegistry = new HostToolRegistry();
@@ -240,7 +236,6 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
     backgroundTasks,
     taskTools,
     goalStore,
-    notificationQueue,
     hostToolRegistry,
     delegationPending,
     eventDispatcher: outboxDispatcher,

@@ -105,6 +105,17 @@ test("local Agent mailbox is durable, FIFO, and fenced by claim id", async () =>
     assert.equal(await mailbox.settle({ sessionId: "session-mailbox", messageId: "message-1" }), true);
     assert.equal(await mailbox.settle({ sessionId: "session-mailbox", messageId: "message-1" }), true);
     assert.equal((await mailbox.get("session-mailbox", "message-1")).status, "acked");
+    // settle 对不存在的消息是幂等空转（后台通知抑制依赖此行为：suppress 先于
+    // enqueue 到达时不得留下会拦住后续入队的墓碑）。
+    assert.equal(await mailbox.settle({ sessionId: "session-mailbox", messageId: "never-enqueued" }), false);
+
+    // 会话级 idle 认领谓词：root 线程 + 无定向 run 的消息（排队用户消息与后台通知
+    // 同形状），不碰定向到具体 run 的 agent 消息。
+    await mailbox.enqueue({ messageId: "queued-user", tenantId: "tnt_test", sessionId: "session-mailbox", targetThreadKey: "root", kind: "request", inputType: "user_message", sourceKind: "user", visibleToUser: true, contentParts: [{ type: "text", text: "followup" }] });
+    await mailbox.enqueue({ messageId: "bg-notify", tenantId: "tnt_test", sessionId: "session-mailbox", targetThreadKey: "root", kind: "request", inputType: "system_notification", sourceKind: "system", contentParts: [{ type: "text", text: "notify" }] });
+    await mailbox.enqueue({ messageId: "targeted-agent", tenantId: "tnt_test", sessionId: "session-mailbox", targetRunId: "run-active", targetThreadKey: "root", kind: "request", inputType: "agent_message", contentParts: [{ type: "text", text: "direct" }] });
+    const idleClaimed = await mailbox.claim({ sessionId: "session-mailbox", targetRunId: null, targetThreadKey: "root", claimId: "claim-idle", consumerId: "idle-scan" });
+    assert.deepEqual(idleClaimed.map((message) => message.message_id), ["queued-user", "bg-notify"]);
   } finally {
     store.close();
   }

@@ -14,8 +14,12 @@ import type {
 
 import type { ClientEventPublisher } from "./event-outbox/client-event-publisher.js";
 import type { StateSyncPayload } from "../../contracts/events.js";
-import { SessionNotificationQueue } from "./session-notification-queue.js";
-import type { BackgroundTaskNotificationPayload } from "./session-notification-queue.js";
+import {
+  backgroundNotificationMessageId,
+  renderBackgroundNotification,
+  type BackgroundTaskNotificationPayload,
+} from "./background-task-notification.js";
+import type { AgentMailboxStorePort } from "../../contracts/storage/agent-mailbox-repository.js";
 import { terminateProcessTree } from "./process-tree.js";
 
 export type {
@@ -60,7 +64,15 @@ export class BackgroundTaskService {
   private readonly ownedTaskIds = new Set<string>();
   private readonly taskClientEvents = new Map<string, ClientEventPublisher>();
   private readonly retentionSeconds: number;
-  private readonly notificationQueue: SessionNotificationQueue;
+  private agentMailbox: AgentMailboxStorePort | null = null;
+  private mailboxTenantId: string | null = null;
+  /**
+   * 已被工具轮询消费（suppressTaskNotification）的任务 id。bash 完成路径的
+   * publishCompleted 在 output flush 回调里才把 enqueue 追加到持久化链——轮询
+   * 可能先于入队到达，settle 对尚不存在的消息是空转，此集合兜住该窗口：
+   * enqueueTaskNotification 入队前检查并清除。
+   */
+  private readonly suppressedNotificationTaskIds = new Set<string>();
   private readonly triggeringSessions = new Set<string>();
   private readonly pendingTriggers = new Set<ReturnType<typeof setTimeout>>();
   private readonly pendingRecoveryTaskIds = new Set<string>();
@@ -76,14 +88,12 @@ export class BackgroundTaskService {
 
   constructor(options: {
     retentionSeconds?: number | undefined;
-    notificationQueue?: SessionNotificationQueue | undefined;
     repository?: AsyncBackgroundTaskRepository | null | undefined;
     tenantId?: string | null | undefined;
     leaseSeconds?: number | undefined;
     clientEvents?: ClientEventPublisher | null | undefined;
   } = {}) {
     this.retentionSeconds = positiveInt(options.retentionSeconds, 2 * 60 * 60);
-    this.notificationQueue = options.notificationQueue ?? new SessionNotificationQueue();
     this.repository = options.repository ?? null;
     this.tenantId = normalizeString(options.tenantId);
     this.leaseSeconds = positiveInt(options.leaseSeconds, 30);
@@ -136,14 +146,40 @@ export class BackgroundTaskService {
     this.onTaskCompleted = handler;
   }
 
+  /**
+   * 绑定后台通知的持久投递目标（会话 mailbox）及其 tenant。组合层在
+   * executionStorage 就绪后回填——服务自身的 tenantId 仅在有持久化仓库时存在，
+   * 本地非持久部署的 mailbox 投递仍需容器口径的 tenant。未绑定期间完成的通知
+   * 丢弃（仅容器装配窗口，与 repository 缺席时的持久化跳过同口径）。
+   */
+  setAgentMailbox(store: AgentMailboxStorePort | null, tenantId: string | null): void {
+    this.agentMailbox = store;
+    this.mailboxTenantId = typeof tenantId === "string" && tenantId.trim() ? tenantId : null;
+    if (!this.mailboxTenantId) this.agentMailbox = null;
+  }
+
+  /**
+   * 抑制某任务的完成通知：运行中的 run 已通过工具轮询拿到终态结果时调用，防止同一
+   * 结果再经 mailbox 通知二次投递。内存集合先记（覆盖入队尚未落库的窗口），再经
+   * 持久化串行链 settle 已入队的消息（两条防线先后到达都收敛）。
+   */
+  suppressTaskNotification(sessionId: string, taskId: string): void {
+    this.suppressedNotificationTaskIds.add(taskId);
+    const mailbox = this.agentMailbox;
+    const tenantId = this.mailboxTenantId;
+    if (!mailbox || !tenantId) return;
+    this.persistence = this.persistence
+      .catch(() => undefined)
+      .then(async () => {
+        await mailbox.settle({ sessionId, messageId: backgroundNotificationMessageId(taskId) });
+      })
+      .catch(() => undefined);
+    void this.persistence.catch(() => undefined);
+  }
+
   /** Reconcile owner-lease failures into domain-specific durable results. */
   setOnTaskRecovered(handler: ((task: BackgroundTask) => Promise<void> | void) | null): void {
     this.onTaskRecovered = handler;
-  }
-
-  /** 供 run-engine 询问队列是否有待投递通知（run 结束时判定是否再触发一轮）。 */
-  hasPendingNotifications(sessionId: string): boolean {
-    return this.notificationQueue.peek(sessionId);
   }
 
   /**
@@ -448,6 +484,10 @@ export class BackgroundTaskService {
         this.taskClientEvents.delete(taskId);
       }
     }
+    // 抑制集合随任务记录过期一并修剪，防陈旧条目累积（Set 迭代中删除当前项安全）。
+    for (const taskId of this.suppressedNotificationTaskIds) {
+      if (!this.tasks.has(taskId)) this.suppressedNotificationTaskIds.delete(taskId);
+    }
   }
 
   private async executeCallableTask(
@@ -525,19 +565,71 @@ export class BackgroundTaskService {
     };
     // Successfully persisted Agent delegation results have their own durable
     // mailbox route to the exact parent invocation. Failed mailbox delivery
-    // stays visible through the generic queue so it cannot disappear silently.
+    // stays visible through the generic notification route so it cannot
+    // disappear silently.
     const routedToAgentMailbox = task.kind === "agent"
       && task.result_type === "agent_delegation_result"
       && task.status === "completed";
     if (task.session_id) {
       if (!routedToAgentMailbox) {
-        // Generic task notifications are consumed by the session-level system run.
-        this.notificationQueue.add(task.session_id, payload);
+        // Generic task notifications go straight to the durable session
+        // mailbox: consumed by an idle check run or claimed mid-run by the
+        // active root run's refresh, and survive restarts. The idle trigger
+        // hangs off the enqueue chain tail inside enqueueTaskNotification.
+        this.enqueueTaskNotification(task, payload);
+      } else {
+        // Mailbox-routed child results still need the idle trigger as a durable
+        // fallback when the in-process wakeup callback is unavailable.
+        this.scheduleAutoTrigger(task.session_id);
       }
-      // Mailbox-routed child results still need the idle trigger as a durable
-      // fallback when the in-process wakeup callback is unavailable.
-      this.scheduleAutoTrigger(task.session_id);
     }
+  }
+
+  /**
+   * 完成通知直投会话 mailbox：确定性 id（bgnotify_<task_id>，同次完成重复发布幂等）、
+   * 渲染一次随消息持久、idle 触发挂在投递落库之后（链尾），避免检查跑在通知行可见
+   * 之前空转。已被轮询消费的任务在此跳过投递。
+   */
+  private enqueueTaskNotification(task: BackgroundTask, payload: BackgroundTaskNotificationPayload): void {
+    const mailbox = this.agentMailbox;
+    const tenantId = this.mailboxTenantId;
+    if (!mailbox || !tenantId || !task.session_id) return;
+    const sessionId = task.session_id;
+    if (this.suppressedNotificationTaskIds.delete(task.task_id)) {
+      // 结果已内联返回给轮询方：不投递，仅补一轮 idle 触发（与旧内存队列口径一致）。
+      this.scheduleAutoTrigger(sessionId);
+      return;
+    }
+    const content = renderBackgroundNotification(payload);
+    if (!content.trim()) return;
+    const sentAt = new Date().toISOString();
+    this.persistence = this.persistence
+      .catch(() => undefined)
+      .then(async () => {
+        await mailbox.enqueue({
+          messageId: backgroundNotificationMessageId(task.task_id),
+          tenantId,
+          sessionId,
+          targetThreadKey: "root",
+          kind: "request",
+          inputType: "system_notification",
+          sourceKind: "system",
+          visibleToUser: false,
+          sentAt,
+          contentParts: [{ type: "text", text: content }],
+          // 只留溯源键：metadata 会随消息行落库并与消费侧字段合并，通用键名
+          // （run_id/status）会与消息行自身语义冲突；状态/退出码已在渲染正文里。
+          metadata: {
+            source: "background_notification",
+            background_task_id: task.task_id,
+          },
+        });
+      })
+      .catch(() => undefined)
+      .then(() => {
+        this.scheduleAutoTrigger(sessionId);
+      });
+    void this.persistence.catch(() => undefined);
   }
 
   private persistRunningTasks(): void {

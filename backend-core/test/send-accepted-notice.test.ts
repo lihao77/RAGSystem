@@ -23,7 +23,6 @@ describe("startStream onAccepted（send 前置确认）", () => {
       eventPublisher: {} as never,
       runEngine: {} as never,
       invocationService: {} as never,
-      notificationQueue: {} as never,
       backgroundTasks: null,
       goalStore: null,
       runtimeStorage: { operations: { getActiveRootRun: vi.fn(async () => null) } } as never,

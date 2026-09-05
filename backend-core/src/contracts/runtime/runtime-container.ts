@@ -32,7 +32,6 @@ import type { BackgroundTaskService } from "../../services/runtime/background-ta
 import type { DelegationPendingService } from "../../services/runtime/delegation-pending-service.js";
 import type { HostToolRegistry } from "../../services/runtime/host-tool-registry.js";
 import type { PermissionPolicyService } from "../../services/runtime/permission-policy-service.js";
-import type { SessionNotificationQueue } from "../../services/runtime/session-notification-queue.js";
 import type { SessionRuntimeService } from "../../services/runtime/session-runtime-service.js";
 import type { TaskToolService } from "../../tools/TaskTools/TaskExecution.js";
 import type { GoalStore } from "./goals.js";
@@ -137,7 +136,6 @@ interface CoreRuntimeDependenciesBase {
   backgroundTasks: BackgroundTaskService;
   taskTools: TaskToolService;
   goalStore: GoalStore;
-  notificationQueue: SessionNotificationQueue;
   hostToolRegistry: HostToolRegistry;
   delegationPending: DelegationPendingService;
   eventDispatcher: RuntimeEventDispatcherPort;

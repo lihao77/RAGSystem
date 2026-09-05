@@ -19,7 +19,7 @@ import {
 import { isRootUserRevisionAnchor } from "../../../contracts/session/message-visibility.js";
 import type { ExecutionSessionPort } from "../../../contracts/session/session-application.js";
 import type { RuntimeExecutionConfigResolver } from "./runtime-core-service.js";
-import { asString, renderBackgroundNotification } from "./helpers.js";
+import { asString } from "./helpers.js";
 import { resolveReadyAgent, type ReadinessResolution } from "./readiness.js";
 import type { AttachmentResolver } from "./attachment-resolver.js";
 import { createCommandRefPart, parseSlashCommand, type SlashCommandHandler } from "./slash-command-handler.js";
@@ -28,7 +28,6 @@ import type { AgentExecutionStatusTracker } from "./status-tracker.js";
 import type { AgentExecutionEventPublisher } from "./event-publisher.js";
 import type { MessageExtension } from "../context/extensions/kinds.js";
 import { providerModelSupportsVision } from "../sdk/projection.js";
-import type { SessionNotificationQueue } from "../../runtime/session-notification-queue.js";
 import type { TenantId } from "../../../identity/types.js";
 import type { BackgroundTaskService } from "../../runtime/background-task-service.js";
 import type { Goal, GoalContinuationReason, GoalStore } from "../../../contracts/runtime/goals.js";
@@ -50,6 +49,7 @@ import type {
   AgentInvocationHandle,
   AgentInvocationOutcome,
   AgentInvocationPort,
+  AgentInvocationRootInput,
 } from "../../../contracts/execution/agent-invocation.js";
 import type { ParticipantRunLifecyclePort } from "../delegation/port.js";
 import type { UserMessageTransformInput } from "../../../plugins/backend-plugin.js";
@@ -174,7 +174,6 @@ export interface LauncherDeps {
   eventPublisher: AgentExecutionEventPublisher;
   runEngine: AgentRunEngine;
   invocationService: AgentInvocationPort;
-  notificationQueue: SessionNotificationQueue;
   backgroundTasks: BackgroundTaskService | null;
   goalStore: GoalStore | null;
   runtimeStorage: RuntimeStorage;
@@ -191,6 +190,17 @@ interface MailboxLaunchState {
 }
 
 type MailboxLaunchDisposition = "completed" | "deferred" | "skipped";
+
+/** 会话入口 Agent 解析结果：missing=会话不存在；not-ready=readiness 不满足。 */
+type SessionEntryPoint =
+  | { kind: "missing" }
+  | { kind: "not-ready" }
+  | {
+      kind: "ready";
+      sessionIdentity: SessionIdentity;
+      overrides: SessionRequestOverrides;
+      ready: Extract<ReadinessResolution, { ok: true }>;
+    };
 
 export const MAILBOX_CONTINUATION_REQUEST_PREFIX = "agent_result:";
 
@@ -300,7 +310,6 @@ class AgentLaunchers {
     private readonly eventPublisher: AgentExecutionEventPublisher,
     private readonly runEngine: AgentRunEngine,
     private readonly invocationService: AgentInvocationPort,
-    private readonly notificationQueue: SessionNotificationQueue,
     private readonly backgroundTasks: BackgroundTaskService | null,
     private readonly goalStore: GoalStore | null,
     private readonly runtimeStorage: RuntimeStorage,
@@ -1275,9 +1284,68 @@ class AgentLaunchers {
     }
   }
 
+  /** 会话入口 Agent 解析结果：missing=会话不存在；not-ready=readiness 不满足。 */
+  private async resolveSessionEntryPoint(sessionId: string): Promise<SessionEntryPoint> {
+    const session = await this.sessions.getSession(sessionId);
+    if (!session) return { kind: "missing" };
+    const sessionIdentity = toSessionIdentity(session);
+    // 一切会话级系统渠道（session_followup / goal 续跑 / bg 通知）同走会话级设定
+    // （用户此前选定的模型与思考档位）。
+    const overrides = readSessionRequestOverrides(sessionIdentity.metadata);
+    const ready = resolveReadyAgent(this.runtimeCore, {
+      agentName: sessionIdentity.teamSnapshot.entry_agent_name,
+      teamSnapshot: sessionIdentity.teamSnapshot,
+      selectedLlm: overrides.selectedLlm,
+    });
+    if (!ready.ok) return { kind: "not-ready" };
+    return { kind: "ready", sessionIdentity, overrides, ready };
+  }
+
+  /**
+   * 会话级系统 run 的统一拉起（阶段 2 收口点）：会话级设定三态生效、userId 回退
+   * 会话 owner（系统触发的 root run 无请求 identity，memory 等按 user 归属的工具
+   * 依赖 ToolExecContext.userId）、终态后统一 scheduleAutoTrigger。横切关注点
+   * （新会话级设定、触发策略）此后只改这一处。
+   */
+  private invokeSessionSystemRun(input: {
+    entry: Extract<SessionEntryPoint, { kind: "ready" }>;
+    requestId: string;
+    task: string;
+    executionKind: string;
+    persistUserMessage?: AgentInvocationRootInput["persistUserMessage"];
+    rootMailboxMessage?: AgentInvocationRootInput["rootMailboxMessage"];
+    /** run 终态回调（如释放 goal continuation 认领），先于 autoTrigger。 */
+    onFinally?: () => Promise<void> | void;
+  }): AgentInvocationHandle {
+    const { entry } = input;
+    const started = this.invocationService.invoke({
+      scope: "root",
+      mode: "create",
+      execution: "background",
+      sessionId: entry.sessionIdentity.sessionId,
+      sessionIdentity: entry.sessionIdentity,
+      requestId: input.requestId,
+      task: input.task,
+      executionKind: input.executionKind,
+      userId: entry.sessionIdentity.ownerUserId,
+      agent: entry.ready.agent,
+      provider: entry.ready.provider,
+      modelName: entry.ready.modelName,
+      ...(entry.overrides.selectedLlm ? { selectedLlm: { provider: entry.ready.provider, modelName: entry.ready.modelName } } : {}),
+      ...(entry.overrides.thinkingLevel ? { thinkingLevel: entry.overrides.thinkingLevel } : {}),
+      ...(input.persistUserMessage ? { persistUserMessage: input.persistUserMessage } : {}),
+      ...(input.rootMailboxMessage ? { rootMailboxMessage: input.rootMailboxMessage } : {}),
+    });
+    void started.promise.finally(async () => {
+      await input.onFinally?.();
+      this.backgroundTasks?.scheduleAutoTrigger(entry.sessionIdentity.sessionId);
+    }).catch(() => undefined);
+    return started;
+  }
+
   private async startSessionIdleRun(sessionId: string): Promise<void> {
     let claimedGoal: Goal | null = null;
-    let payloads: Parameters<SessionNotificationQueue["add"]>[1][] = [];
+    let claimedNotifications: AgentMailboxMessage[] = [];
     let releaseOwned = true;
     const releaseClaim = async (): Promise<void> => {
       if (!claimedGoal || !this.goalStore) return;
@@ -1308,79 +1376,46 @@ class AgentLaunchers {
         await markReason("background_tasks_running");
         return;
       }
-      // Any durable Agent message may require a continuation when the in-process
-      // wakeup was lost (for example after an instance restart). Terminal results
-      // are only one mailbox kind; progress/request/response/cancel must not be
-      // stranded behind a result-only scan.
-      const pendingMailbox = await this.mailbox?.listPending?.({ sessionId, limit: 1 }) ?? [];
-      const firstMailbox = pendingMailbox[0];
-      if (firstMailbox?.input_type === "user_message" && firstMailbox.target_thread_key === "root") {
-        const existingSession = await this.sessions.getSession(sessionId);
-        if (!existingSession) return;
-        const sessionIdentity = toSessionIdentity(existingSession);
-        // 排队用户消息的补跑同样走会话级设定：消息入队时的选择即当时落库的设定。
-        const overrides = readSessionRequestOverrides(sessionIdentity.metadata);
-        const ready = resolveReadyAgent(this.runtimeCore, {
-          agentName: sessionIdentity.teamSnapshot.entry_agent_name,
-          teamSnapshot: sessionIdentity.teamSnapshot,
-          selectedLlm: overrides.selectedLlm,
-        });
-        if (!ready.ok) return;
-        const started = this.invocationService.invoke({
-          scope: "root",
-          mode: "create",
-          execution: "background",
-          sessionId,
-          sessionIdentity,
-          requestId: `session_followup_${firstMailbox.message_id}`,
+      // 统一队列按优先级消费：排队用户消息 > 定向 run 唤醒 > 后台通知（与 goal 续跑
+      // 合并）。listPending 是全类型 FIFO——scan 而非只看首条，通知排在前时不会挡住
+      // 用户消息补跑。
+      const pendingMailbox = await this.mailbox?.listPending?.({ sessionId, limit: 100 }) ?? [];
+      const firstUserMessage = pendingMailbox.find((message) => message.input_type === "user_message" && message.target_thread_key === "root");
+      if (firstUserMessage) {
+        const entry = await this.resolveSessionEntryPoint(sessionId);
+        if (entry.kind !== "ready") return;
+        const started = this.invokeSessionSystemRun({
+          entry,
+          requestId: `session_followup_${firstUserMessage.message_id}`,
           task: "处理待接收的用户消息，并继续当前任务。",
           executionKind: "session_followup",
-          // 系统触发的 root run 无请求 identity，回退会话 owner 作为 run 用户身份
-          //（memory 等按 user 归属的工具依赖 ToolExecContext.userId）。
-          userId: sessionIdentity.ownerUserId,
-          agent: ready.agent,
-          provider: ready.provider,
-          modelName: ready.modelName,
-          ...(overrides.selectedLlm ? { selectedLlm: { provider: ready.provider, modelName: ready.modelName } } : {}),
-          ...(overrides.thinkingLevel ? { thinkingLevel: overrides.thinkingLevel } : {}),
           rootMailboxMessage: {
-            id: firstMailbox.message_id,
-            inputType: firstMailbox.input_type,
+            id: firstUserMessage.message_id,
+            inputType: firstUserMessage.input_type,
             sourceKind: "user",
-            visibleToUser: firstMailbox.visible_to_user,
-            sentAt: firstMailbox.sent_at ?? firstMailbox.created_at,
-            contentParts: firstMailbox.content_parts,
-            metadata: firstMailbox.metadata,
+            visibleToUser: firstUserMessage.visible_to_user,
+            sentAt: firstUserMessage.sent_at ?? firstUserMessage.created_at,
+            contentParts: firstUserMessage.content_parts,
+            metadata: firstUserMessage.metadata,
           },
         });
-        void started.promise.finally(() => this.backgroundTasks?.scheduleAutoTrigger(sessionId)).catch(() => undefined);
         await started.durableStarted;
         return;
       }
-      if (firstMailbox?.target_run_id) {
-        this.triggerAgentMailboxRun(toMailboxWakeupTarget(firstMailbox));
+      const firstTargeted = pendingMailbox.find((message) => message.target_run_id);
+      if (firstTargeted) {
+        this.triggerAgentMailboxRun(toMailboxWakeupTarget(firstTargeted));
         return;
       }
-      const hasNotifications = this.notificationQueue.peek(sessionId);
+      const hasNotifications = pendingMailbox.some(isIdleBackgroundNotification);
       if (!hasNotifications && currentGoal?.status !== "active") {
         if (currentGoal) await markReason(currentGoal.status === "paused" ? "manual_paused" : "goal_not_active");
         return;
       }
 
-      const existingSession = await this.sessions.getSession(sessionId);
-      if (!existingSession) return;
-      const sessionIdentity = toSessionIdentity(existingSession);
-      // goal 续跑 / 后台通知拉起的主智能体同走会话级设定（用户此前选定的模型与档位）。
-      const overrides = readSessionRequestOverrides(sessionIdentity.metadata);
-      const ready = resolveReadyAgent(
-        this.runtimeCore,
-        {
-          agentName: sessionIdentity.teamSnapshot.entry_agent_name,
-          teamSnapshot: sessionIdentity.teamSnapshot,
-          selectedLlm: overrides.selectedLlm,
-        },
-      );
-      if (!ready.ok) {
+      const entry = await this.resolveSessionEntryPoint(sessionId);
+      if (entry.kind === "missing") return;
+      if (entry.kind === "not-ready") {
         await markReason("readiness_failed");
         return;
       }
@@ -1431,31 +1466,20 @@ class AgentLaunchers {
         return;
       }
 
-      payloads = this.notificationQueue.drain(sessionId);
-      if (!payloads.length && !claimedGoal) {
+      claimedNotifications = await this.claimIdleNotifications(sessionId);
+      if (!claimedNotifications.length && !claimedGoal) {
         return;
       }
       const task = [
-        ...payloads.map(renderBackgroundNotification),
+        ...claimedNotifications.map((message) => renderMailboxContentParts(message.content_parts)),
         ...(claimedGoal ? [renderGoalContinuation(claimedGoal)] : []),
       ].filter(Boolean).join("\n\n");
       const source = claimedGoal ? "goal_continuation" : "background_notification";
-      const started = this.invocationService.invoke({
-        scope: "root",
-        mode: "create",
-        execution: "background",
-        sessionId,
-        sessionIdentity,
+      const started = this.invokeSessionSystemRun({
+        entry,
         requestId: `${claimedGoal ? "goal_continue" : "bg_notify"}_${randomUUID()}`,
         task,
         executionKind: claimedGoal ? "system.goal_continuation" : "system.bg_notification",
-        agent: ready.agent,
-        provider: ready.provider,
-        modelName: ready.modelName,
-        ...(overrides.selectedLlm ? { selectedLlm: { provider: ready.provider, modelName: ready.modelName } } : {}),
-        ...(overrides.thinkingLevel ? { thinkingLevel: overrides.thinkingLevel } : {}),
-        // 同 session_followup：系统触发的 root run 回退会话 owner 作为用户身份。
-        userId: sessionIdentity.ownerUserId,
         persistUserMessage: {
           contentParts: [{ type: "text", text: task }],
           inputType: claimedGoal ? "goal_continuation" : "system_notification",
@@ -1469,15 +1493,17 @@ class AgentLaunchers {
             } : {}),
           },
         },
+        onFinally: () => releaseClaim(),
       });
       releaseOwned = false;
-      void started.promise.finally(async () => {
-        await releaseClaim();
-        this.backgroundTasks?.scheduleAutoTrigger(sessionId);
-      }).catch(() => undefined);
       await started.durableStarted;
+      // 通知内容已渲染进 run 初始输入并持久，ack 终结认领；失败静默——租约到期
+      // 自然回队，最坏情况是下一次 idle 重复投递一次内容一致的通知。
+      await this.ackNotifications(sessionId, claimedNotifications);
+      claimedNotifications = [];
     } catch (error) {
-      for (const payload of payloads) this.notificationQueue.add(sessionId, payload);
+      await this.releaseNotifications(sessionId, claimedNotifications, error);
+      claimedNotifications = [];
       if (claimedGoal && this.goalStore?.setContinuationReason) {
         await this.goalStore.setContinuationReason(sessionId, claimedGoal.id, "continuation_start_failed");
       }
@@ -1487,11 +1513,81 @@ class AgentLaunchers {
     }
   }
 
+  /**
+   * 认领会话级后台通知（root 线程、无定向 run 的 system_notification）。claim 的
+   * idle 谓词不按 input_type 过滤——并发到达的排队用户消息可能被一并认领，立即
+   * release 回队，留给下一次 idle 检查走 session_followup 补跑。
+   */
+  private async claimIdleNotifications(sessionId: string): Promise<AgentMailboxMessage[]> {
+    if (!this.mailbox) return [];
+    const claimed = await this.mailbox.claim({
+      sessionId,
+      targetRunId: null,
+      targetThreadKey: "root",
+      claimId: `bg_notify_idle_${randomUUID()}`,
+      consumerId: `bg_notify_idle:${process.pid}:${randomUUID()}`,
+      limit: 100,
+    });
+    const notifications: AgentMailboxMessage[] = [];
+    for (const message of claimed) {
+      if (isIdleBackgroundNotification(message)) {
+        notifications.push(message);
+        continue;
+      }
+      try {
+        await this.mailbox.release({
+          sessionId,
+          messageId: message.message_id,
+          claimId: message.claim_id ?? "",
+          lastError: "requeued: not a session notification",
+        });
+      } catch {
+        // 认领租约到期自动回队，无需补救。
+      }
+    }
+    return notifications;
+  }
+
+  private async ackNotifications(sessionId: string, messages: AgentMailboxMessage[]): Promise<void> {
+    if (!this.mailbox || !messages.length) return;
+    for (const message of messages) {
+      try {
+        await this.mailbox.ack({ sessionId, messageId: message.message_id, claimId: message.claim_id ?? "" });
+      } catch {
+        // 见调用点注释：租约到期回队，重复投递内容一致。
+      }
+    }
+  }
+
+  private async releaseNotifications(sessionId: string, messages: AgentMailboxMessage[], error: unknown): Promise<void> {
+    if (!this.mailbox || !messages.length) return;
+    const lastError = error instanceof Error ? error.message : String(error);
+    for (const message of messages) {
+      try {
+        await this.mailbox.release({
+          sessionId,
+          messageId: message.message_id,
+          claimId: message.claim_id ?? "",
+          ...(lastError ? { lastError } : {}),
+        });
+      } catch {
+        // 认领租约到期自动回队，无需补救。
+      }
+    }
+  }
+
 }
 
 function isActiveRootRunConflict(error: unknown): boolean {
   return error instanceof Error
     && error.message.startsWith("session already has an active root run: ");
+}
+
+/** 后台完成通知在统一队列中的形状：root 线程、无定向 run 的 system_notification。 */
+function isIdleBackgroundNotification(message: AgentMailboxMessage): boolean {
+  return message.input_type === "system_notification"
+    && message.target_thread_key === "root"
+    && !message.target_run_id;
 }
 
 function toMailboxWakeupTarget(message: AgentMailboxMessage): AgentMailboxWakeupTarget {
@@ -1571,7 +1667,6 @@ export function createLaunchers(deps: LauncherDeps): LauncherApi {
     deps.eventPublisher,
     deps.runEngine,
     deps.invocationService,
-    deps.notificationQueue,
     deps.backgroundTasks,
     deps.goalStore,
     deps.runtimeStorage,

@@ -5,7 +5,6 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { BackgroundTaskService } from "../src/services/runtime/background-task-service.js";
-import { SessionNotificationQueue } from "../src/services/runtime/session-notification-queue.js";
 
 const tempRoots: string[] = [];
 
@@ -16,24 +15,93 @@ afterEach(() => {
 });
 
 describe("background task cancellation scope", () => {
-  it("publishes callable completion after transitioning to a terminal state", async () => {
+  it("publishes callable completion into the session mailbox after reaching a terminal state", async () => {
     const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-background-notify-"));
     tempRoots.push(outputDir);
-    const queue = new SessionNotificationQueue();
-    const service = new BackgroundTaskService({ notificationQueue: queue });
+    const settle = vi.fn(async () => true);
+    const enqueued: Array<Record<string, any>> = [];
+    const service = new BackgroundTaskService();
+    service.setAgentMailbox({
+      enqueue: vi.fn(async (input: Record<string, any>) => {
+        enqueued.push(input);
+        return input;
+      }),
+      settle,
+    } as never, "tenant-1");
     const task = service.runCallable({
       outputDir,
       sessionId: "session-notify",
       run: async () => ({ success: true, content: "done" }),
     });
 
-    await waitFor(() => queue.peek("session-notify"));
-    const payload = queue.drain("session-notify")[0];
-    expect(payload).toEqual(expect.objectContaining({
-      task_id: task.task_id,
-      status: "completed",
-      success: true,
+    await waitFor(() => enqueued.length === 1);
+    expect(enqueued[0]).toEqual(expect.objectContaining({
+      messageId: `bgnotify_${task.task_id}`,
+      tenantId: "tenant-1",
+      sessionId: "session-notify",
+      targetThreadKey: "root",
+      kind: "request",
+      inputType: "system_notification",
+      sourceKind: "system",
+      visibleToUser: false,
     }));
+    const text = String(enqueued[0]?.contentParts?.[0]?.text ?? "");
+    expect(text).toContain("<task-notification>");
+    expect(text).toContain(`<task-id>${task.task_id}</task-id>`);
+    expect(text).toContain("<status>completed</status>");
+    expect(settle).not.toHaveBeenCalled();
+  });
+
+  it("suppresses the completion notification for a task whose result was already polled", async () => {
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-background-suppress-"));
+    tempRoots.push(outputDir);
+    const settle = vi.fn(async () => true);
+    const service = new BackgroundTaskService();
+    service.setAgentMailbox({
+      enqueue: vi.fn(async () => ({})),
+      settle,
+    } as never, "tenant-1");
+    const task = service.runCallable({
+      outputDir,
+      sessionId: "session-notify",
+      run: async () => ({ success: true, content: "done" }),
+    });
+
+    await waitFor(() => service.getTaskSnapshot(task.task_id)?.status === "completed");
+    service.suppressTaskNotification("session-notify", task.task_id);
+    await service.waitForPersistence();
+
+    expect(settle).toHaveBeenCalledWith({
+      sessionId: "session-notify",
+      messageId: `bgnotify_${task.task_id}`,
+    });
+  });
+
+  it("suppresses a notification claimed before the enqueue lands (bash completion race)", async () => {
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-background-suppress-early-"));
+    tempRoots.push(outputDir);
+    const enqueued: Array<Record<string, any>> = [];
+    const service = new BackgroundTaskService();
+    service.setAgentMailbox({
+      enqueue: vi.fn(async (input: Record<string, any>) => {
+        enqueued.push(input);
+        return input;
+      }),
+      // settle 先于 enqueue 到达时对不存在的消息是空转——防线只剩内存抑制集合。
+      settle: vi.fn(async () => false),
+    } as never, "tenant-1");
+    const task = service.runCallable({
+      outputDir,
+      sessionId: "session-notify",
+      run: async () => ({ success: true, content: "done" }),
+    });
+
+    // 在完成入队落库前就抑制：模拟 bash 完成路径 output flush 窗口内轮询先到。
+    service.suppressTaskNotification("session-notify", task.task_id);
+    await waitFor(() => service.getTaskSnapshot(task.task_id)?.status === "completed");
+    await service.waitForPersistence();
+
+    expect(enqueued).toEqual([]);
   });
 
   it("notifies domain recovery handlers for expired durable tasks", async () => {

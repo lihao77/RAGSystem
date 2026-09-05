@@ -44,7 +44,6 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
     backgroundTasks,
     taskTools,
     goalStore,
-    notificationQueue,
     hostToolRegistry,
     delegationPending,
     eventDispatcher,
@@ -99,7 +98,6 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
     goalStore,
     providersProvider: () => modelAdapter.listProviders(),
     backgroundTasks,
-    notificationQueue,
     sessionFiles,
     outboxDispatcher: eventDispatcher,
     clientEvents,
@@ -162,6 +160,9 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
   agentDelegation.setMailboxWakeup((target) => agentExecution.triggerAgentMailboxRun(target));
   backgroundTasks.setOnTaskRecovered((task) => agentDelegation.recoverBackgroundTask(task));
   backgroundTasks.setOnTaskCompleted((sessionId) => agentExecution.triggerBgNotificationRun(sessionId));
+  // 后台完成通知的持久投递目标：与会话 mailbox 同库（容器口径 tenant），idle 检查
+  // 与活动 run refresh 共用同一队列。
+  backgroundTasks.setAgentMailbox(dependencies.executionStorage?.agentMailbox ?? null, tenantId);
 
   let closePromise: Promise<void> | null = null;
   const close = (): Promise<void> => {

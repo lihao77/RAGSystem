@@ -7,7 +7,6 @@ import type { ModelProviderConfig } from "../../../contracts/integrations/model-
 import type { ExecutionSessionPort } from "../../../contracts/session/session-application.js";
 import { RecoverableInterrupt, type HookRegistry } from "@ragsystem/agent-sdk";
 import type { BackgroundTaskService } from "../../runtime/background-task-service.js";
-import type { SessionNotificationQueue } from "../../runtime/session-notification-queue.js";
 import { executeRunWithSdk } from "../sdk/runtime-adapter.js";
 import type { BackendToolsDeps } from "../../../tools/registry.js";
 import type { BackendToolFactory, BackendContextSourceFactory } from "../../../plugins/backend-plugin.js";
@@ -30,10 +29,7 @@ import {
 import type { ThinkingLevel } from "@ragsystem/agent-llm";
 import type { PathAccessPolicy } from "../../../contracts/runtime/path-access-policy.js";
 import { AgentExecutionEventPublisher } from "./event-publisher.js";
-import {
-  buildRunningExecutionStatus,
-  renderBackgroundNotification,
-} from "./helpers.js";
+import { buildRunningExecutionStatus } from "./helpers.js";
 import { AgentExecutionStatusTracker } from "./status-tracker.js";
 import type { SessionFileLookupPort } from "../../../contracts/session/session-file-storage.js";
 import type { ExecutionEnvironmentCapability } from "../../../contracts/execution/execution-environment.js";
@@ -60,7 +56,6 @@ export class AgentRunEngine {
    /** 已加载的 provider 列表提供者（投影层解析 tier.provider 引用用）。 */
    private readonly providersProvider: () => ModelProviderConfig[],
     private readonly backgroundTasks: BackgroundTaskService | null,
-    private readonly notificationQueue: SessionNotificationQueue,
     private readonly statusTracker: AgentExecutionStatusTracker,
     private readonly eventPublisher: AgentExecutionEventPublisher,
     private readonly permissionPolicy: PermissionPolicyService,
@@ -516,7 +511,6 @@ export class AgentRunEngine {
         ? await this.sessions.resolveWorkspaceRoot(input.sessionId)
         : null;
       const executionKind = input.executionKind ?? "agent_stream";
-      await this.enqueueBackgroundNotifications(input.sessionId, input.threadKey);
 
       const result = await executeRunWithSdk(
        {
@@ -698,30 +692,6 @@ export class AgentRunEngine {
       await new Promise<void>((resolve) => {
         const timer = setTimeout(resolve, 100);
         timer.unref?.();
-      });
-    }
-  }
-
-  private async enqueueBackgroundNotifications(sessionId: string, threadKey: string): Promise<void> {
-    const payloads = this.notificationQueue.drain(sessionId, new Set());
-    for (const payload of payloads) {
-      const content = renderBackgroundNotification(payload);
-      if (!content.trim()) {
-        continue;
-      }
-      const sentAt = new Date().toISOString();
-      await this.storage.agentMailbox.enqueue({
-        messageId: randomUUID(),
-        tenantId: this.tenantId,
-        sessionId,
-        targetThreadKey: threadKey,
-        kind: "request",
-        inputType: "system_notification",
-        sourceKind: "system",
-        visibleToUser: false,
-        sentAt,
-        contentParts: [{ type: "text", text: content }],
-        metadata: { source: "background_notification" },
       });
     }
   }

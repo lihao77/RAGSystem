@@ -47,7 +47,6 @@ describe("sendUserMessage 主模型视觉能力传递", () => {
           kind: "agent_run",
         })),
       } as never,
-      notificationQueue: {} as never,
       backgroundTasks: null,
       goalStore: null,
       runtimeStorage: { operations: { getActiveRootRun: vi.fn(async () => null) } } as never,

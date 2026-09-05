@@ -63,7 +63,6 @@ function createHarness(sessionMetadata: Record<string, unknown> | null = null) {
       eventPublisher: {} as never,
       runEngine: {} as never,
       invocationService: { invoke } as never,
-      notificationQueue: {} as never,
       backgroundTasks: null,
       goalStore: null,
       runtimeStorage: { operations: { getActiveRootRun: vi.fn(async () => null) } } as never,

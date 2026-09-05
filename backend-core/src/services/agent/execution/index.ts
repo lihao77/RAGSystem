@@ -15,7 +15,6 @@ import type { HookRegistry } from "@ragsystem/agent-sdk";
 import type { BackendToolFactory, BackendContextSourceFactory } from "../../../plugins/backend-plugin.js";
 import type { ExecutionSessionPort } from "../../../contracts/session/session-application.js";
 import type { BackgroundTaskService } from "../../runtime/background-task-service.js";
-import { SessionNotificationQueue } from "../../runtime/session-notification-queue.js";
 import type { ClientEventPublisher } from "../../runtime/event-outbox/client-event-publisher.js";
 import type { OutboxDispatcher } from "../../runtime/event-outbox/dispatcher.js";
 import type { RuntimeExecutionConfigResolver } from "./runtime-core-service.js";
@@ -100,8 +99,6 @@ export interface AgentExecutionServiceParams {
   taskTools?: TaskToolService | null;
   goalStore?: GoalStore | null;
   backgroundTasks?: BackgroundTaskService | null;
-  /** 后台通知暂存队列（单例，注入 launchers.triggerBgNotificationRun；与 backgroundTasks 共用同一实例）。 */
-  notificationQueue?: SessionNotificationQueue | null;
   sessionFiles?: SessionFileLookupPort | null;
   outboxDispatcher: Pick<OutboxDispatcher, "dispatchRows">;
   clientEvents: ClientEventPublisher;
@@ -153,7 +150,6 @@ export function createAgentExecutionService(
   const statusTracker = new AgentExecutionStatusTracker();
   const eventPublisher = new AgentExecutionEventPublisher(params.clientEvents);
   const attachmentResolver = new AttachmentResolver(params.sessionFiles ?? null);
-  const notificationQueue = params.notificationQueue ?? new SessionNotificationQueue();
   const storage = params.executionStorage;
   const slashCommandHandler = new SlashCommandHandler(
     params.tenantId,
@@ -170,11 +166,10 @@ export function createAgentExecutionService(
     params.sessions,
     storage,
     params.dataRoot,
-   params.toolsDeps ?? null,
-   params.taskTools ?? null,
-   params.providersProvider,
-   params.backgroundTasks ?? null,
-    notificationQueue,
+    params.toolsDeps ?? null,
+    params.taskTools ?? null,
+    params.providersProvider,
+    params.backgroundTasks ?? null,
     statusTracker,
     eventPublisher,
     params.permissionPolicy,
@@ -203,7 +198,6 @@ export function createAgentExecutionService(
     eventPublisher,
     runEngine,
     invocationService,
-    notificationQueue,
     backgroundTasks: params.backgroundTasks ?? null,
     goalStore: params.goalStore ?? null,
     runtimeStorage: params.runtimeStorage,

@@ -34,7 +34,6 @@ function createTestLaunchers(retryMessage: MessageInfo) {
     eventPublisher: {} as never,
     runEngine: {} as never,
     invocationService: {} as never,
-    notificationQueue: {} as never,
     backgroundTasks: null,
     goalStore: null,
     runtimeStorage: { operations: { getActiveRootRun: vi.fn(async () => null) } } as never,
@@ -61,7 +60,6 @@ function createLeaseKindLaunchers(retryMessage: MessageInfo) {
     eventPublisher: {} as never,
     runEngine: {} as never,
     invocationService: {} as never,
-    notificationQueue: {} as never,
     backgroundTasks: null,
     goalStore: null,
     runtimeStorage: {
@@ -167,7 +165,6 @@ describe("rollback 命令失败文案透传", () => {
       eventPublisher: {} as never,
       runEngine: {} as never,
       invocationService: {} as never,
-      notificationQueue: {} as never,
       backgroundTasks: null,
       goalStore: null,
       runtimeStorage: {

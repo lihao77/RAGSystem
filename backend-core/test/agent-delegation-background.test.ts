@@ -1156,7 +1156,6 @@ describe("background child-agent delegation", () => {
     await runSettled;
     await new Promise((resolve) => setTimeout(resolve, 0));
     // 取消是显式控制动作：任务不得以 failed 收尾，也不得再产生 agent 通知。
-    expect(backgroundTasks.hasPendingNotifications("session-1")).toBe(false);
     // 主动取消不投递 mailbox 终态、不唤醒父 run，避免取消后的二次推送。
     expect(enqueue).not.toHaveBeenCalled();
     expect(wakeup).not.toHaveBeenCalled();
