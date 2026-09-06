@@ -1,4 +1,9 @@
-import type { AgentMailboxStorePort, ListPendingAgentMailboxInput } from "@ragsystem/backend-core/contracts/storage/agent-mailbox-repository.js";
+import type {
+  AgentMailboxStorePort,
+  ExistsPendingAgentMailboxInput,
+  ListPendingAgentMailboxInput,
+  ListPendingMailboxSessionsInput,
+} from "@ragsystem/backend-core/contracts/storage/agent-mailbox-repository.js";
 
 import type { ConversationStore } from "./sqlite/conversation-store/index.js";
 
@@ -20,6 +25,14 @@ export class LocalAgentMailboxStoreAdapter implements AgentMailboxStorePort {
 
   listPending(input: ListPendingAgentMailboxInput) {
     return this.mailbox.listPending(input);
+  }
+
+  listPendingSessions(input?: ListPendingMailboxSessionsInput) {
+    return this.mailbox.listPendingSessions(input);
+  }
+
+  existsPending(input: ExistsPendingAgentMailboxInput) {
+    return this.mailbox.existsPending(input);
   }
 
   claim(input: Parameters<AgentMailboxStorePort["claim"]>[0]) {

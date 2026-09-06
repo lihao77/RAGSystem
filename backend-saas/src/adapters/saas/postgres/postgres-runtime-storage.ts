@@ -2,11 +2,14 @@ import { isDeepStrictEqual } from "node:util";
 import { randomUUID } from "node:crypto";
 
 import {
+  rootMailboxConversationMessage,
   rootMailboxInitialMessage,
   RuntimeInteractionUnavailableError,
   withCanonicalMessageSequence,
 } from "@ragsystem/backend-core/contracts/storage/runtime-storage.js";
 import type {
+  RuntimeAppendMailboxMessageInput,
+  RuntimeAppendMailboxMessageResult,
   RuntimeAtomicOperations,
   RuntimeAttachResumeInput,
   RuntimeAttachResumeResult,
@@ -145,6 +148,7 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
     this.operations = {
       startRun: (input) => this.startRun(input),
       startOrAppendRoot: (input) => this.startOrAppendRoot(input),
+      appendMailboxMessage: (input) => this.appendMailboxMessage(input),
       persistMessage: (input) => this.persistMessage(input),
       commitRunInput: (input) => this.commitRunInput(input),
       recordEnvelope: (input) => this.recordEnvelope(input),
@@ -158,6 +162,7 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
       renewRunLease: (input) => this.renewRunLease(input),
       recoverExpiredRunLeases: (input) => this.recoverExpiredRunLeases(input),
       getActiveRootRun: (sessionId) => this.getActiveRootRun(sessionId),
+      getLatestThreadRun: (sessionId, threadKey) => this.getLatestThreadRun(sessionId, threadKey),
       getSessionRuntimeFacts: (sessionId) => this.getSessionRuntimeFacts(sessionId),
       claimSessionMaintenance: (input) => this.claimSessionMaintenance(input),
       renewSessionMaintenance: (input) => this.renewSessionMaintenance(input),
@@ -273,6 +278,22 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
           && activeRow?.owned_by_current_instance === true,
       };
     });
+  }
+
+  /** 线程现任执行（§10.4 第七轮）：该 thread_key 最新一条 run（任意状态），线程闸门判活动/解析身份用。 */
+  private async getLatestThreadRun(sessionId: string, threadKey: string): Promise<RunInfo | null> {
+    const result = await this.executor.query<Record<string, unknown>>(
+      `SELECT run_id, session_id, tenant_id, entrypoint, status, task_summary, terminal_reason,
+              request_id, user_id, agent_name, agent_call_id, lineage_parent_call_id,
+              agent_display_name, lease_root_run_id, thread_key, parent_run_id, parent_call_id,
+              child_agent_id, final_message_id, created_at, updated_at
+       FROM saas_runs
+       WHERE tenant_id=$1 AND session_id=$2 AND thread_key=$3
+       ORDER BY created_at DESC, run_id DESC LIMIT 1`,
+      [this.tenantId, sessionId, threadKey],
+    );
+    const row = result.rows[0];
+    return row ? mapRun(row) : null;
   }
 
   private async getActiveRootRun(sessionId: string): Promise<{ runId: string | null }> {
@@ -422,9 +443,8 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
           sessionId: input.session.sessionId,
           childAgentId: input.participantRun.childAgentId,
           lastRunId: input.run.runId,
-          expectedLastRunId: input.participantRun.expectedLastRunId,
         });
-        if (!participantUpdated) throw new Error(`child Agent latest Run changed before invocation start: ${input.participantRun.childAgentId}`);
+        if (!participantUpdated) throw new Error(`child Agent not found while advancing latest Run: ${input.participantRun.childAgentId}`);
       }
       if (!existingRun && input.initialMailboxMessageId) {
         const settled = await tx.agentMailbox.settle({
@@ -541,6 +561,34 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
       });
       if (!settled) throw new Error(`initial mailbox message not found: ${mailboxMessage.message_id}`);
       return { kind: "started", run, mailboxMessage, records };
+    });
+  }
+
+  /** 无 run 的过路行闸门：同事务 enqueue + 派生会话消息行 + settle（幂等）。 */
+  private async appendMailboxMessage(input: RuntimeAppendMailboxMessageInput): Promise<RuntimeAppendMailboxMessageResult> {
+    assertSessionId(input.mailboxMessage.sessionId, input.session.sessionId, "mailbox message");
+    return this.executor.transaction(async (transactionExecutor) => {
+      await lockAdvisoryKey(transactionExecutor, `session-control:${this.tenantId}:${input.session.sessionId}`);
+      await assertTenantSession(transactionExecutor, this.tenantId, input.session.sessionId, true);
+      const tx = createTransactionFacade(this.tenantId, transactionExecutor);
+      await tx.conversation.createSession(input.session);
+      const mailboxMessage = await tx.agentMailbox.enqueue(input.mailboxMessage);
+      const message = await getOrCreateMessage(
+        transactionExecutor,
+        tx,
+        rootMailboxConversationMessage({
+          sessionId: input.session.sessionId,
+          runId: null,
+          mailboxMessage: input.mailboxMessage,
+        }),
+        "mailbox boundary message",
+      );
+      const settled = await tx.agentMailbox.settle({
+        sessionId: input.session.sessionId,
+        messageId: mailboxMessage.message_id,
+      });
+      if (!settled) throw new Error(`initial mailbox message not found: ${mailboxMessage.message_id}`);
+      return { mailboxMessage, message };
     });
   }
 

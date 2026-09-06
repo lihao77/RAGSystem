@@ -1,5 +1,6 @@
 import { asString } from "../../../utils/guards.js";
 import { randomUUID } from "node:crypto";
+import { mailboxRetryBackoffMs } from "../../../contracts/storage/agent-mailbox-repository.js";
 /**
  * Runtime 适配器—— 组装投影 + ToolRegistry + createRuntime，跑 SDK 事件循环 + 落库 + 翻译推流 + terminal。
  *
@@ -85,8 +86,6 @@ export interface SdkExecuteRunInput {
   taskId: string;
   requestId: string;
   rootCallId: string;
-  mailboxTargetRunId?: string | null;
-  mailboxTargetAgentCallId?: string | null;
   /** Run-engine-owned controller; aborted by the real-time cancel channel (statusTracker.cancelRun). */
   abortController?: AbortController;
   agent: AgentConfig;
@@ -124,7 +123,7 @@ export interface SdkExecuteRunInput {
     inputType: "user_message" | "agent_message" | "system_notification" | "goal_continuation";
     sourceKind: "user" | "agent" | "system";
     visibleToUser: boolean;
-    sentAt: string;
+    sentAt: string | null;
     contentParts: MessageContentPart[];
     metadata?: Record<string, unknown>;
   };
@@ -134,7 +133,6 @@ export interface SdkExecuteRunInput {
     contentParts: MessageContentPart[];
     metadata?: Record<string, unknown>;
   };
-  participantExpectedLastRunId?: string | null;
   initialMailboxMessageId?: string | null;
   followupPolicy?: "queue" | "reject";
   sessionMaintenanceToken?: string;
@@ -487,9 +485,6 @@ export async function executeRunWithSdk(
         childAgentId: input.childAgentId ?? null,
       },
     } : {}),
-    ...(input.participantExpectedLastRunId !== undefined ? {
-      participantExpectedLastRunId: input.participantExpectedLastRunId,
-    } : {}),
     ...(input.initialMailboxMessageId ? { initialMailboxMessageId: input.initialMailboxMessageId } : {}),
     ...(input.followupPolicy ? { followupPolicy: input.followupPolicy } : {}),
     ...(input.sessionMaintenanceToken ? { sessionMaintenanceToken: input.sessionMaintenanceToken } : {}),
@@ -662,10 +657,9 @@ export async function executeRunWithSdk(
       let mailboxMaxSeq = lastSeq;
       const mailbox = deps.storage.agentMailbox;
       if (mailbox) {
+        // 认领口径=纯分支（§10.4 第七轮）：行上的溯源 run 字段不参与匹配。
         const claimed = await mailbox.claim({
           sessionId: sid,
-          targetRunId: input.mailboxTargetRunId ?? input.runId,
-          targetAgentCallId: input.mailboxTargetAgentCallId ?? input.rootCallId,
           targetThreadKey: tk,
           ...(input.childAgentId ? { targetChildAgentId: input.childAgentId } : {}),
           claimId: `${input.runId}:mailbox:${randomUUID()}`,
@@ -778,6 +772,8 @@ export async function executeRunWithSdk(
               sessionId: sid,
               messageId: mailboxMessage.message_id,
               claimId: mailboxMessage.claim_id ?? "",
+              // 失败退避：同轮 refresh 反复失败不热循环重认领，与 claim 死信上限共同保证重投有界。
+              availableAt: new Date(Date.now() + mailboxRetryBackoffMs(mailboxMessage.attempt_count)).toISOString(),
               lastError: error instanceof Error ? error.message : String(error),
             });
             throw error;

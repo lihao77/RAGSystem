@@ -2,11 +2,14 @@ import { isDeepStrictEqual } from "node:util";
 
 import type { ConversationStore, ConversationStoreTransaction } from "./sqlite/conversation-store/index.js";
 import {
+  rootMailboxConversationMessage,
   rootMailboxInitialMessage,
   RuntimeInteractionUnavailableError,
   withCanonicalMessageSequence,
 } from "@ragsystem/backend-core/contracts/storage/runtime-storage.js";
 import type {
+  RuntimeAppendMailboxMessageInput,
+  RuntimeAppendMailboxMessageResult,
   RuntimeAtomicOperations,
   RuntimeAttachResumeInput,
   RuntimeAttachResumeResult,
@@ -76,6 +79,7 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
     this.operations = {
       startRun: (input) => this.startRun(input),
       startOrAppendRoot: (input) => this.startOrAppendRoot(input),
+      appendMailboxMessage: (input) => this.appendMailboxMessage(input),
       persistMessage: (input) => this.persistMessage(input),
       commitRunInput: (input) => this.commitRunInput(input),
       recordEnvelope: (input) => this.recordEnvelope(input),
@@ -87,12 +91,20 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
       interruptSession: (input) => this.interruptSession(input),
       recoverExpiredResumeClaims: (input) => this.recoverExpiredResumeClaims(input),
       getActiveRootRun: (sessionId) => this.getActiveRootRun(sessionId),
+      getLatestThreadRun: (sessionId, threadKey) => this.getLatestThreadRun(sessionId, threadKey),
       getSessionRuntimeFacts: (sessionId) => this.getSessionRuntimeFacts(sessionId),
       claimSessionMaintenance: (input) => this.claimSessionMaintenance(input),
       renewSessionMaintenance: (input) => this.renewSessionMaintenance(input),
       releaseSessionMaintenance: (input) => this.releaseSessionMaintenance(input),
       finalizeRun: (input) => this.finalizeRun(input),
     };
+  }
+
+  private getLatestThreadRun(
+    sessionId: string,
+    threadKey: string,
+  ): Promise<import("@ragsystem/backend-core/contracts/conversation-store/index.js").RunInfo | null> {
+    return this.serial.run(() => this.store.getLatestThreadRun(sessionId, threadKey));
   }
 
   private getActiveRootRun(sessionId: string): Promise<{ runId: string | null }> {
@@ -406,9 +418,8 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
                 sessionId: input.session.sessionId,
                 childAgentId: input.participantRun.childAgentId,
                 lastRunId: input.run.runId,
-                expectedLastRunId: input.participantRun.expectedLastRunId,
               });
-              if (!participantUpdated) throw new Error(`child Agent latest Run changed before invocation start: ${input.participantRun.childAgentId}`);
+              if (!participantUpdated) throw new Error(`child Agent not found while advancing latest Run: ${input.participantRun.childAgentId}`);
             }
             if (input.initialMailboxMessageId) {
               const settled = tx.settleAgentMailboxMessage({
@@ -491,6 +502,36 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
             canonicalInitialMessage ? withCanonicalMessageSequence(record, canonicalInitialMessage) : record,
           )),
         };
+      });
+    });
+  }
+
+  /** 无 run 的过路行闸门：同事务 enqueue + 派生会话消息行 + settle（幂等）。 */
+  private appendMailboxMessage(input: RuntimeAppendMailboxMessageInput): Promise<RuntimeAppendMailboxMessageResult> {
+    return this.serial.run(() => {
+      assertSessionId(input.mailboxMessage.sessionId, input.session.sessionId, "mailbox message");
+      return this.store.runInTransaction((tx) => {
+        const existingSession = tx.getSession(input.session.sessionId);
+        if (existingSession && existingSession.tenant_id !== this.tenantId) {
+          throw new Error(`session belongs to another tenant: ${input.session.sessionId}`);
+        }
+        tx.createSession({ tenantId: this.tenantId, ...input.session });
+        const mailboxMessage = tx.enqueueAgentMailboxMessage(input.mailboxMessage);
+        const message = resolveDeterministicMessage(
+          tx,
+          rootMailboxConversationMessage({
+            sessionId: input.session.sessionId,
+            runId: null,
+            mailboxMessage: input.mailboxMessage,
+          }),
+          "mailbox boundary message",
+        );
+        const settled = tx.settleAgentMailboxMessage({
+          sessionId: input.session.sessionId,
+          messageId: mailboxMessage.message_id,
+        });
+        if (!settled) throw new Error(`initial mailbox message not found: ${mailboxMessage.message_id}`);
+        return { mailboxMessage, message };
       });
     });
   }

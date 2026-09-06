@@ -4,10 +4,13 @@ import type {
   AgentMailboxStorePort,
   ClaimAgentMailboxInput,
   EnqueueAgentMailboxMessageInput,
+  ExistsPendingAgentMailboxInput,
   ListPendingAgentMailboxInput,
+  ListPendingMailboxSessionsInput,
   ReleaseAgentMailboxInput,
   SettleAgentMailboxInput,
 } from "@ragsystem/backend-core/contracts/storage/agent-mailbox-repository.js";
+import { AGENT_MAILBOX_MAX_DELIVERY_ATTEMPTS } from "@ragsystem/backend-core/contracts/storage/agent-mailbox-repository.js";
 import { MessageContentPartSchema } from "@ragsystem/agent-protocol";
 import type { TenantId } from "@ragsystem/backend-core/identity/types.js";
 import type { PostgresExecutor } from "./postgres-executor.js";
@@ -190,8 +193,6 @@ export class PostgresAgentMailboxRepository implements AgentMailboxStorePort {
       params.push(normalized);
       clauses.push(`${column}=$${params.length}`);
     };
-    add("target_run_id", input.targetRunId);
-    add("target_agent_call_id", input.targetAgentCallId);
     add("target_thread_key", input.targetThreadKey);
     add("target_child_agent_id", input.targetChildAgentId);
     const limit = Math.max(1, Math.min(100, Math.floor(input.limit ?? 100)));
@@ -201,6 +202,36 @@ export class PostgresAgentMailboxRepository implements AgentMailboxStorePort {
       params,
     );
     return result.rows.map(row);
+  }
+
+  async listPendingSessions(input: ListPendingMailboxSessionsInput = {}): Promise<string[]> {
+    const now = timestamp(input.now);
+    const limit = Math.max(1, Math.min(500, Math.floor(input.limit ?? 200)));
+    const result = await this.executor.query(
+      `SELECT DISTINCT session_id FROM agent_mailbox_messages
+       WHERE tenant_id=$1
+         AND (status='queued' OR (status='claimed' AND claim_expires_at IS NOT NULL AND claim_expires_at <= $2::timestamptz))
+         AND available_at <= $2::timestamptz
+         AND (expires_at IS NULL OR expires_at > $2::timestamptz)
+       ORDER BY session_id ASC LIMIT $3`,
+      [this.tenant(), now, limit],
+    );
+    return result.rows.map((value) => String(value.session_id));
+  }
+
+  async existsPending(input: ExistsPendingAgentMailboxInput): Promise<boolean> {
+    const params: unknown[] = [this.tenant(), required(input.sessionId, "sessionId")];
+    const clauses = ["tenant_id=$1", "session_id=$2", "status IN ('queued','claimed')"];
+    const add = (column: string, value: string | null | undefined): void => {
+      const normalized = value?.trim();
+      if (!normalized) return;
+      params.push(normalized);
+      clauses.push(`${column}=$${params.length}`);
+    };
+    add("input_type", input.inputType);
+    add("target_thread_key", input.targetThreadKey);
+    const result = await this.executor.query(`SELECT 1 FROM agent_mailbox_messages WHERE ${clauses.join(" AND ")} LIMIT 1`, params);
+    return result.rows.length > 0;
   }
 
   async claim(input: ClaimAgentMailboxInput): Promise<AgentMailboxMessage[]> {
@@ -216,54 +247,21 @@ export class PostgresAgentMailboxRepository implements AgentMailboxStorePort {
     return this.executor.transaction(async (tx) => {
       await tx.query(`UPDATE agent_mailbox_messages SET status='expired',claim_id=NULL,claimed_by=NULL,claim_expires_at=NULL,last_error=COALESCE(last_error,'message expired'),updated_at=$1::timestamptz WHERE tenant_id=$2 AND session_id=$3 AND status IN ('queued','claimed') AND expires_at IS NOT NULL AND expires_at <= $1::timestamptz`, [now, tenantId, sessionId]);
       await tx.query(`UPDATE agent_mailbox_messages SET status='queued',claim_id=NULL,claimed_by=NULL,claim_expires_at=NULL,updated_at=$1::timestamptz WHERE tenant_id=$2 AND session_id=$3 AND status='claimed' AND claim_expires_at IS NOT NULL AND claim_expires_at <= $1::timestamptz`, [now, tenantId, sessionId]);
+      // 重投有界：尝试耗尽的 queued 行置死信（claimed 行由持有者收尾，回队后下一轮收）。
+      await tx.query(`UPDATE agent_mailbox_messages SET status='expired',claim_id=NULL,claimed_by=NULL,claim_expires_at=NULL,last_error='max delivery attempts exceeded',updated_at=$1::timestamptz WHERE tenant_id=$2 AND session_id=$3 AND status='queued' AND attempt_count >= $4`, [now, tenantId, sessionId, AGENT_MAILBOX_MAX_DELIVERY_ATTEMPTS]);
       const existingClaim = await tx.query(
         `SELECT ${SELECT_COLUMNS} FROM agent_mailbox_messages WHERE tenant_id=$1 AND session_id=$2 AND status='claimed' AND claim_id=$3 ORDER BY seq ASC`,
         [tenantId, sessionId, claimId],
       );
       if (existingClaim.rows.length > 0) return existingClaim.rows.map(row);
+      // 认领口径=纯分支（§10.4 第七轮）：行上的溯源 run 字段不参与匹配。
       const params: unknown[] = [tenantId, sessionId, now];
-      const targetRunId = input.targetRunId?.trim() || null;
       const targetChildAgentId = input.targetChildAgentId?.trim() || null;
-      const targetAgentCallId = input.targetAgentCallId?.trim() || null;
-      let predicate: string;
-      if (targetRunId) {
-        params.push(targetRunId);
-        const activeRunParam = params.length;
-        params.push(targetThreadKey);
-        const threadParam = params.length;
-        predicate = `(target_run_id=$${activeRunParam} AND target_thread_key=$${threadParam}`;
-        if (targetAgentCallId) {
-          params.push(targetAgentCallId);
-          predicate += ` AND target_agent_call_id=$${params.length}`;
-        }
-        if (targetChildAgentId) {
-          params.push(targetChildAgentId);
-          predicate += ` AND target_child_agent_id=$${params.length}`;
-        }
-        params.push(targetThreadKey);
-        const idleThreadParam = params.length;
-        predicate += ` OR (target_run_id IS NULL AND target_thread_key=$${idleThreadParam}`;
-        if (targetAgentCallId) {
-          params.push(targetAgentCallId);
-          predicate += ` AND (target_agent_call_id IS NULL OR target_agent_call_id=$${params.length})`;
-        }
-        if (targetChildAgentId) {
-          params.push(targetChildAgentId);
-          predicate += ` AND target_child_agent_id=$${params.length}`;
-        }
-        predicate += "))";
-      } else {
-        params.push(targetThreadKey);
-        predicate = `(target_run_id IS NULL AND target_thread_key=$${params.length}`;
-        if (targetAgentCallId) {
-          params.push(targetAgentCallId);
-          predicate += ` AND (target_agent_call_id IS NULL OR target_agent_call_id=$${params.length})`;
-        }
-        if (targetChildAgentId) {
-          params.push(targetChildAgentId);
-          predicate += ` AND target_child_agent_id=$${params.length}`;
-        }
-        predicate += ")";
+      params.push(targetThreadKey);
+      let predicate = `target_thread_key=$${params.length}`;
+      if (targetChildAgentId) {
+        params.push(targetChildAgentId);
+        predicate += ` AND target_child_agent_id=$${params.length}`;
       }
       params.push(limit);
       const limitParam = params.length;

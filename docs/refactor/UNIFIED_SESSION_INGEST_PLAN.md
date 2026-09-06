@@ -184,7 +184,11 @@ goal 续跑的 claim/lease/maxContinuations 保护保留在生成侧（门控是
   vs 同步结果）与 awaitFollowupCompletion，作为 ingest 之上的返回适配器保留。
 - **挂起恢复（resume）**：非消息入口，是 run 生命周期操作；交互应答
   （approval/user_input）走 pending-interaction 通道。
-- **slash 命令分流**：留在用户侧适配层（命令不产生 run，ingest 不感知）。
+- **slash 命令分流**：留在用户侧适配层（system 命令不产生 run；prompt 命令照常
+  进 run）。system 命令的 echo 行不再旁路：经 `appendMailboxMessage` 以 mailbox
+  信封同事务派生+settle（确定性 id `slashcmd_<invocation_id>`），与其他会话边界
+  行同载体；command_result 行是命令执行的产物行，与 assistant 行同类，由执行者
+  持久化，不属输入闸门范围。
 - **rollback-and-retry 独立端点**：删消息后重发 + 维护租约语义特殊，保留端点，
   经 `delivery.maintenance` 透传进 ingest。
 - **确定性 ID 机制**（mailbox_<sha256>、bg_notify_<uuid> 等）：幂等语义保留，
@@ -273,12 +277,13 @@ goal 不再有专属 invoke 路径。`SessionMailboxConsumer` 的空闲检查在
 （`GoalStore.claimContinuation`：maxContinuations/maxNoProgress/租约/generation）
 通过后，向统一队列**投递一条 goal_continuation 等待行**（确定性 id
 `goalcont_<goal_id>_<generation>`，内容为投递时渲染的 goal 快照 XML），投递成功
-即释放认领（预算已计、工作由持久行承载）。消费与其他系统消息完全同通道：
-`isIdleSystemMessage` 谓词（root 线程、无定向 run 的 system_notification /
-goal_continuation）→ claim → 与通知合并渲染 → durableStarted 后 ack。
-**循环由队列本身串行化**：行被消费才起 run，run 终态（scheduleAutoTrigger）才
-触发下一轮生产；已有排队 goal 行时跳过生产（防重复投递）。与通知合并消费的
-行为与旧设计一致（一场 run 消化全部 idle 消息）。
+即释放认领（预算已计、工作由持久行承载）。**循环由队列本身串行化**：行被消费才
+起 run，run 终态（scheduleAutoTrigger）才触发下一轮生产；已有排队 goal 行时跳过
+生产（防重复投递）。消费侧 09-06 再收口为**一行一 run 的引用行消费**（§10.3-2）：
+idle 系统消息不再合成随机 id 的合并行，头行直接作为 run 初始消息（闸门事务内
+settle），同批伴随行经 `appendMailboxMessage` 各自物化会话消息行——goal 一次续跑
+只产生一行。消费前复核 goal 活性：行排队期间 goal 被暂停/完成则 settle 跳过，
+不对过期快照空跑。
 
 ### 10.1 分层总图
 
@@ -303,24 +308,36 @@ goal_continuation）→ claim → 与通知合并渲染 → durableStarted 后 a
 │ 行 = 信封：input_type(user/agent/system_notification/goal)         │
 │         × source_kind(user/agent/system) × visible_to_user         │
 │         × 寻址(target_run_id/agent_call_id/thread_key/child_id)    │
-│ 写入方：startOrAppendRoot 事务 / followup 入队 / publishCompleted  │
-│         (bgnotify_<task_id>) / agent 间消息 / 续跑结果回投         │
+│ 写入方：startOrAppendRoot 事务 / appendMailboxMessage(无 run 过路) │
+│         / followup 入队 / publishCompleted(bgnotify_<task_id>)     │
+│         / agent 间消息 / 续跑结果回投 / goal 生产(goalcont_)        │
+│ 重投有界：claim 死信(AGENT_MAILBOX_MAX_DELIVERY_ATTEMPTS=20)        │
+│         + 失败 release 指数退避(mailboxRetryBackoffMs)              │
 └──────┬──────────────────────┬───────────────────────────────────┘
        ↓ running             ↓ idle
-┌─ 消费者 ─────────────┐  ┌─ 会话空闲检查（优先级调度器）─────────┐
-│ 活动 run refresh：    │  │ 排队 user_message → session_followup  │
-│ 每轮按地址 claim →   │  │ 定向消息 → mailbox 续跑(收件人粒度)    │
-│ commitRunInput 落    │  │ system_notification(+goal 续跑合并)    │
-│ user 行进当轮上下文  │  │   → system.bg_notification / goal run  │
+┌─ 消费者 ─────────────┐  ┌─ 会话空闲检查（收件人交付，唯一规则）──┐
+│ 活动 run refresh：    │  │ 定向行 → 全量转发唤醒(收件人粒度)      │
+│ 每轮按地址 claim →   │  │ root 无定向行(用户/通知/goal 不分      │
+│ commitRunInput 落    │  │   种类) → 一个 run 全量消化:            │
+│ user 行进当轮上下文  │  │   头行引用+伴随行物化+内容并入task       │
+│ (批量注入当轮)       │  │ 无类别优先级、无波次——交付只看收件人    │
 └──────────────────────┘  └──────────────────────────────────────┘
        ↑ 唤醒快路径（收件人粒度，不等空闲）：enqueue 即触发
        │ triggerAgentMailboxRun → startAgentMailboxRun（续接已终止收件人，
-       │ 确定性 ID mailbox_<sha>、lineage 校验、结果回投父）
+       │ 确定性 ID mailbox_<sha>、lineage 校验、结果回投父；
+       │ root 续跑经 launchSystemRun → invokeRootRun 唯一组装点）
+       ↑ 触发闭环兜底：core-runtime-container 启动即扫 + 60s 周期扫描
+       │ listPendingSessions → triggerBgNotificationRun（崩溃后无事件源
+       │ 的滞留行最多一个扫描周期被捡起）
 
-┌─ 存储事务（唯一闸门：startOrAppendRoot，单事务）─────────────────┐
-│ idle：enqueue mailbox 行 + settle + 派生会话消息行 + 创建 run     │
-│ running+queue：只 enqueue（留给 refresh / 空闲检查）               │
-│ running+reject：拒绝    —— 首发与排队补跑在此以下同路径            │
+┌─ 存储事务（会话边界消息行唯一派生源，单事务）────────────────────┐
+│ startOrAppendRoot：enqueue + settle + 派生会话消息行 + 创建 run    │
+│   running+queue：只 enqueue（留给 refresh / 空闲检查）              │
+│   running+reject：拒绝   —— 首发与排队补跑在此以下同路径            │
+│ appendMailboxMessage：无 run 过路行——enqueue + 派生会话消息行      │
+│   + settle（slash 命令 echo 行、idle 批量消费的伴随行）             │
+│ 执行产物行（assistant/tool/command_result/压缩摘要）由执行者持久化， │
+│   非输入，不经闸门                                                    │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
@@ -328,31 +345,116 @@ goal_continuation）→ claim → 与通知合并渲染 → durableStarted 后 a
 
 | 通道 | 性质 | 与统一口径的关系 |
 |---|---|---|
-| 挂起恢复 resume | run 生命周期操作（非新消息） | 设定读取同源（容器注入 readSessionRequestOverrides） |
+| 挂起恢复 resume | run 生命周期操作（非新消息） | 设定读取同源（容器注入 readSessionRequestOverrides），解析直连底层 resolveReadyAgent（agentName 显式给定，无需入口回落） |
 | child 委派 | agent 间机制，scope:child | 走自己的 tier 配置（会话级设定只作用于主智能体） |
-| mailbox 续跑 invoke | 定向消息的收件人重建 | Agent 解析走 resolveExecutionAgent（agentName 取目标 run 记录），初始输入同为 rootMailboxMessage |
+| mailbox 续跑（child 分支） | 定向消息的收件人重建 | Agent 解析走 resolveExecutionAgentFor（agentName 取目标 run 记录），初始输入同为 mailbox 引用；root 分支已并入唯一组装点（见 §10.3-4），child invoke 是 run 树内机制 |
 
 ### 10.3 不变量（review 时不许再分叉的点）
 
 1. **一个队列**：mailbox，无第二载体（内存队列已删除）；
-2. **一个闸门**：root run 创建只经 startOrAppendRoot，idle/running 二分在此；
-3. **一个解析点**：resolveExecutionAgent（agentName 显式优先/缺省入口 Agent，readiness 失败明确报因）；
-4. **一个组装点**：invokeRootRun（foreground/background、user/system 持久化形状参数化，background 终态统一 autoTrigger）；
+2. **一个派生源**：一切会话边界输入行由 mailbox 信封在存储事务内派生——root run 创建只经
+   startOrAppendRoot（idle/running 二分在此），无 run 的边界行（slash echo、idle 伴随行）
+   经 appendMailboxMessage（同事务 enqueue+派生+settle）；执行产物行由执行者持久化，非输入；
+3. **一个解析点**：resolveExecutionAgentFor（agentName 显式优先/缺省入口 Agent，readiness
+   失败明确报因）；resume/slash-handler 直连底层 resolveReadyAgent 属机制同源（agentName 显式给定）；
+4. **一个组装点**：invokeRootRun——用户发送（foreground）、系统渠道（background）、mailbox
+   root 续跑（确定性 runId/taskId/rootCallId 与 mailboxTarget 透传）全部经它；child invoke
+   是 run 树内机制，非 root 组装；
 5. **一个 slash 点**：sendUserMessage 内 parseSlashCommand，管道最前折返；
 6. **一个设定源**：readSessionRequestOverrides（读）+ mergeRequestOverrides（用户请求三态合并），回写即实际生效值；
-7. **确定性 ID**：bgnotify_<task_id>、mailbox_<sha>、session_followup_<msg_id>、goal_continue_/bg_notify_<uuid>——幂等与恢复的根基；
-8. **防重复双防线**：工具轮询 suppress = 内存集合 + 串行链 settle；idle 消费 = claim → durableStarted 后 ack → 失败 release；
-9. **触发闭环**：run 终态 / 任务完成 / 通知入队链尾 → scheduleAutoTrigger → 空闲检查，崩溃留下的已入队消息由下一次扫描自然捡起。
+7. **确定性 ID**：`bgnotify_<task_id>`、`mailbox_<sha256>`、`session_followup_<msg_id>`、
+   `goalcont_<goal_id>_<generation>`、`slashcmd_<invocation_id>`，idle 消费的 requestId 由头行
+   id 派生（`bg_notify_` / `goal_continue_` 前缀）——幂等与恢复的根基（run 内部 requestId/runId
+   由 run-engine 生成，幂等键在 mailbox 行不在 run）；
+8. **防重复双防线 + 重投有界**：工具轮询 suppress = 内存集合 + 串行链 settle；idle 消费 =
+   claim → 引用行经闸门 settle（伴随行 appendMailboxMessage settle）→ 失败 release 指数
+   退避（mailboxRetryBackoffMs）；claim 前死信扫（attempt_count ≥
+   AGENT_MAILBOX_MAX_DELIVERY_ATTEMPTS 置 expired）封顶单行重投；
+9. **触发闭环（liveness）**：事件链（run 终态 / 任务完成 / 通知入队链尾）→ scheduleAutoTrigger
+   → 空闲检查为主路径；core-runtime-container 启动即扫 + 周期扫描 listPendingSessions 兜底
+   ——崩溃后无事件源的滞留行最多一个扫描周期被捡起，"行驻留则终被消费"由队列自身保证。
 
 ### 10.4 实施状态
 
 - 阶段 1+2：提交 d7bdc986；阶段 3+4 收口：79328649；单一解析/组装点：8724ffc1；
-  架构定稿：f689c209。
-- **SessionMailboxConsumer 抽取已完成**（统一队列的唯一消费组件，
+  架构定稿：f689c209；消费组件抽取：7998c412；goal 纯生产者：a3308bb9。
+- **SessionMailboxConsumer 抽取已完成**（统一队列的空闲/唤醒消费组件，
   `execution/session-mailbox-consumer.ts`）：空闲检查（triggerBgNotificationRun）与
-  收件人唤醒（triggerAgentMailboxRun）两个触发口、续跑判定树、通知 claim/ack/release、
+  收件人唤醒（triggerAgentMailboxRun）两个触发口、续跑判定树、通知 claim/release、
   结果回投与恢复扫描全部入住；Agent 解析经 readiness.ts 的
   resolveExecutionAgentFor（与用户发送同一口径），系统 run 经 launchSystemRun 钩子
-  回到 launchers 的唯一组装点 invokeRootRun。launchers 从 1687 行缩到 871 行，只剩
-  用户管道 + 协议适配 + 唯一解析/组装点。两触发口不可合并为一：唤醒路径须能在
-  root run 运行期间拉起子 Agent 续跑（空闲检查对此早退），可达集不同。
+  回到 launchers 的唯一组装点 invokeRootRun。launchers 缩至约 880 行，只剩
+  用户管道 + 协议适配 + 唯一解析/组装点。两触发口不可共用同一空闲谓词（唤醒路径
+  须能在 root run 运行期间拉起子 Agent 续跑，空闲检查对此早退），组件与续跑函数
+  本就共享；运行中消息的另一认领方是活动 run 的 refresh（runtime-adapter）。
+- **零例外收口（09-06 第二轮）**：slash echo 行经 appendMailboxMessage 入闸（消灭
+  最后一条旁路直写）；idle 消费改一行一 run 引用行（goal 一次续跑一行，不再合成
+  随机 id 合并行，伴随行 append 物化）；mailbox root 续跑并入 invokeRootRun（消费
+  组件内平行组装退场）；队列重投有界（claim 死信 + release 退避）；触发闭环补
+  容器级周期扫描（崩溃后无事件源不再滞留）；消费组件加 logger、idle 去重补
+  dirty 合并、忙检查收敛 checkSessionBusy 单一口径。
+- **批量消费（09-06 第三轮）**：排队用户消息一轮 run 全量补跑（头行引用 + 伴随行
+  物化 + 内容并入 task，与 refresh 的批量注入同口径，消灭一条消息一个 run 的链式
+  补跑）；空闲检查发现的定向消息全量转发唤醒（同收件人经触发去重由 drain 顺序
+  消化，不同收件人各自唤醒，消灭一轮只转投一条）。
+- **收件人交付单规则（09-06 第四轮，用户裁定）**：删除消息类别优先级与波次消费。
+  空闲检查只按收件人交付：定向行全量转发唤醒（收件人运行中由其 refresh 认领、
+  已终止由唤醒口重建）；root 线程无定向行（用户消息/通知/goal 不分种类）claim
+  后一个 run 全量消化，执行 Kind 按批内容标注（含用户消息 → session_followup，
+  含 goal → system.goal_continuation，否则 bg_notification），requestId 前缀按头行
+  类型。`claimIdleMessages` 全量认领不再释放"误领"的用户行（该竞态窗口随之消失），
+  `isIdleSystemMessage` 形状过滤与专门的 session_followup 分支删除。
+- **goal 门控语义（09-06 第五轮，用户裁定）**：goal 续跑触发条件只有两条——该
+  智能体空闲（无活动 root run；主智能体的执行形态即会话 root run）、它发起的后台
+  任务无运行中者（含其工具调用的后台子 agent 委派；子智能体自主发起的后台任务
+  不阻主智能体的 goal）。无第三条：无类别优先级、无额外会话级仲裁。对话定序与
+  goal 循环刹车由这两条封闭——idle ⇒ 该智能体线程无并发写者；idle 门控本身串行化
+  循环，GoalStore 预算上限仍是第二道闸。条件二的"发起归属"收窄已实施：
+  hasRunningTasksDurable(sessionId, "root") 只统计主智能体发起的任务
+  （session-business.ts，历史行 null 视为 root 发起）。
+- **全量寻址（09-06 第六轮，用户裁定）**：取消"定向/无定向"两类行——所有 mailbox
+  行一律带收件人地址，交付只有按收件人单一谓词。用户消息与 goal 行地址显式标为
+  主智能体（root 线程**角色**，非具体实例名——team 变更后消费时照常实时解析，
+  延迟绑定保留）；后台通知（bgnotify_&lt;task_id&gt;）路由给**发起者**，不再无脑投
+  root 线程：发起者为子智能体时按收件人交付（其 run 运行中 refresh 认领、已终止
+  走接续），发起者地址在任务 spawn 时的工具上下文捕获。原"无定向行一个 run 全量
+  消化"分支改写为"地址=主智能体的行由主智能体 run 消化"（行为不变、谓词统一）。
+  与第五轮 goal 门控闭环：主智能体发起的后台任务其完成通知同发主智能体，由同一
+  run 消化。bgnotify 已按发起者路由（background-task-notification.ts 取
+  initiator_thread_key/initiator_child_agent_id，历史行 null 回退 root）。goal 按智能体拆分归属
+  （主智能体与各子智能体各自持有目标）显式推迟，以后再改（用户 09-06 确认；
+  将来拆分粒度为智能体身份——agent 名或子智能体线程 id，非 run 实例）。
+- **消除父子分叉（09-06 第八轮，方向性裁定，暂不实施）**：内核机制不应区分主/子
+  智能体——线程是唯一机制单位，root 与 child 的差异只允许作为数据/配置存在
+  （角色、消息语义、设定作用域、舞台属性），不允许作为代码路径分叉。现存分叉
+  清单（收拢路线图）：(1) 两套闸门——root 走空闲检查（checkSessionBusy 三段 +
+  goal 生产 + 恢复扫描 + 批量消化）、child 走线程闸门（getLatestThreadRun →
+  认领 → 起续跑），触发口两个且 root 强制路由前者；(2) 认领批量 root=100 /
+  child=1（应由消息答复语义决定而非分支）；(3) 会话级模型/档位设定只作用于 root；
+  (4) 身份解析来源不同（root 每次从 team 快照解析入口，child 取线程 run 记录的
+  agent_name）；(5) child 续跑完成回投父结果、root 无回投（应为消息协议性质而非
+  分支性质）。终态：root 是"配置成入口的普通线程"——单舞台/可见性是该线程的
+  属性，goal 生产与恢复扫描等全局职责挪到线程无关的组件。演进中逐步收拢，
+  不要求一步到位。
+- **第五/六/七轮已实施（09-06）**：全量寻址、goal 门控发起者收窄、线程闸门统一全部落码并通过三包 typecheck/test 与根目录 check:backend。实施要点：认领谓词改纯分支（sqlite/postgres 同步）；新增 getLatestThreadRun 存储查询（线程现任执行）；唤醒目标改纯线程形状（AgentMailboxWakeupTarget 去 run 字段）；replacesRunId/participantExpectedLastRunId/mailboxTargetRunId 透传/findPendingMailboxTarget 全部删除；后台任务表 v2 加发起者两列（SaaS 迁移，历史行 null 视为 root）；bgnotify 路由发起者。实施中回归修复一处热循环：纯分支认领把历史带 run 段的定向行收进主分支批次后，伴随行物化重建信封丢失溯源字段（run/call/correlation/replyTo/sent_at）致同 id 重入队被判异形状——修复为信封重建逐字段精确回传（claimedMailboxEnvelope 补全、头行/伴随行 sentAt 去掉 created_at 顶替、契约链 sentAt 放宽 string|null），backend-local 回归测试钉死。
+- **线程闸门统一（09-06 第七轮，用户裁定）**：定向通道的分散检查与 run 级簿记
+  全部退役，root 线程的闸门模式推广到所有线程——交付判定收敛为每线程单一存储
+  事务：认领该线程在途行 + 查该线程有无活动执行；有则行留给运行中执行 refresh
+  取走，无则以头行为初始输入创建下一次执行。地址一律纯线程标识（第六轮的延伸）；
+  唤醒退化为直接调用闸门（无状态、可多源并发重复调用，闸门事务自身原子分出
+  胜负），去重状态机降级为性能优化而非正确性依赖；replacesRunId /
+  participantExpectedLastRunId / mailboxTargetRunId 透传、findPendingMailboxTarget
+  过期重解析等 run 级簿记随之删除。对话上下文=线程历史，追加式存放，每次执行
+  按线程键自行读取，不记录也不比较"线程当前是哪次 run"。线程→智能体身份在
+  委派时记录于线程登记处（现由 getLatestThreadRun 查该线程最新 run 记录承载；
+  独立线程登记表为演进方向——run 历史被清理/归档后现承载会丢身份）。
+- **评审修复（09-06，三区评审后）**：子分支行转发移到 busy 早退之前（root 繁忙
+  不再阻塞子分支交付——bgnotify 路由发起者后，子智能体通知在 root run 运行期
+  须由线程闸门消费，否则滞留无上界）；goal 行存在性改全量查询
+  `existsPending`（queued+claimed 计入，免 root 积压超 listPending 100 行窗口时
+  重复生产新一代 goal 行、双计预算，sqlite/postgres 同构实现）；指向无 run 历史
+  线程的滞留行认领计数后释放，走死信封顶（不再 60s 无限空转）；
+  `AgentMailboxWakeupTarget` 退役死字段 sourceMessageId/correlationId（闸门恒认领
+  FIFO 头行，字段无消费者）；completeAgentMailboxContinuation 竞写撞 id 回读
+  复用；idle followup 竞态整批放回补测试钉死；SaaS saas_runs v12 补线程现任
+  复合索引（与 local 端同构）。

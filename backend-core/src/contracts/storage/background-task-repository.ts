@@ -13,6 +13,9 @@ export interface DurableBackgroundTaskRecord {
   run_id: string | null;
   owner_task_id: string | null;
   session_id: string | null;
+  /** 发起者分支（§10.4 第六轮）：null 视为 root（历史行兼容，行为与旧口径一致）。 */
+  initiator_thread_key: string | null;
+  initiator_child_agent_id: string | null;
   completed_at: number | null;
   result_type: string | null;
   kind: string;

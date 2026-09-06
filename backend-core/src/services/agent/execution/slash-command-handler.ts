@@ -93,21 +93,31 @@ export class SlashCommandHandler {
     messageMetadata?: Record<string, unknown>;
     sessionMaintenanceToken?: string;
   }): Promise<SlashCommandDispatchResult> {
-    if (!(await this.sessions.getSession(input.sessionId))) {
-      await this.sessions.createSession({
-        tenantId: this.tenantId,
-        ...input.sessionIdentity,
-      });
-    }
+    // 系统命令 echo 行经统一闸门（appendMailboxMessage）：与用户首发同载体——
+    // mailbox 信封同事务派生会话消息行并 settle，留审计痕。行 id
+    // slashcmd_<invocation_id>，invocation_id 每次派发生成（客户端重试同一命令
+    // 产生新 echo 行，与旧行为一致）；幂等只覆盖同一 invocation 的重复派发。
+    // 会话行不存在时由闸门同事务创建。
     const commandPart = createCommandRefPart(input.command, input.originalTask);
-    const savedUserMessage = await this.sessions.addMessage({
-      sessionId: input.sessionId,
-      role: "user",
-      contentParts: [commandPart],
-      metadata: {
-        ...(input.messageMetadata ?? {}),
+    const appendResult = await this.runtimeStorage.operations.appendMailboxMessage({
+      session: input.sessionIdentity,
+      mailboxMessage: {
+        messageId: `slashcmd_${commandPart.invocation_id}`,
+        tenantId: this.tenantId,
+        sessionId: input.sessionId,
+        targetThreadKey: "root",
+        kind: "request",
+        inputType: "user_message",
+        sourceKind: "user",
+        visibleToUser: true,
+        sentAt: new Date().toISOString(),
+        contentParts: [commandPart],
+        metadata: {
+          ...(input.messageMetadata ?? {}),
+        },
       },
     });
+    const savedUserMessage = appendResult.message;
     await this.clientEvents.publish(input.sessionId, {
       type: "state_sync",
       session_id: input.sessionId,

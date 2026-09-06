@@ -35,7 +35,7 @@ export type BackgroundTaskCancelUnavailableReason =
   | "not_cancellable"
   | "not_owned";
 
-export interface PublicBackgroundTask extends Omit<BackgroundTask, "output_path" | "session_id"> {
+export interface PublicBackgroundTask extends Omit<BackgroundTask, "output_path" | "session_id" | "initiator_thread_key" | "initiator_child_agent_id"> {
   cancel_available: boolean;
   cancel_unavailable_reason: BackgroundTaskCancelUnavailableReason | null;
 }
@@ -186,14 +186,20 @@ export class BackgroundTaskService {
    * 判断会话下是否仍有未结束的后台任务。Goal continuation 只能在整个
    * Session 真正 idle 时启动，因此不能只看通知队列是否为空。
    */
-  hasRunningTasks(sessionId: string): boolean {
+  hasRunningTasks(sessionId: string): boolean;
+  /** 按发起者分支过滤（§10.4 第五轮）：initiatorThreadKey 缺省查全 会话，传 "root" 只数主智能体发起的任务（历史行 initiator 为空视为 root）。 */
+  hasRunningTasks(sessionId: string, initiatorThreadKey?: string): boolean;
+  hasRunningTasks(sessionId: string, initiatorThreadKey?: string): boolean {
     const normalizedSessionId = sessionId.trim();
     if (!normalizedSessionId) {
       return false;
     }
     this.cleanupExpiredTasks();
     return Array.from(this.tasks.values()).some(
-      (task) => task.session_id === normalizedSessionId && task.status === "running",
+      (task) => task.session_id === normalizedSessionId
+        && task.status === "running"
+        && (initiatorThreadKey === undefined
+          || (task.initiator_thread_key ?? "root") === initiatorThreadKey),
     );
   }
 
@@ -201,11 +207,11 @@ export class BackgroundTaskService {
    * Durable idle gate for Goal continuation. It reconciles expired owner leases and refreshes
    * the complete Session snapshot so another runtime instance's work cannot be missed.
    */
-  async hasRunningTasksDurable(sessionId: string): Promise<boolean> {
+  async hasRunningTasksDurable(sessionId: string, initiatorThreadKey?: string): Promise<boolean> {
     const normalizedSessionId = sessionId.trim();
     if (!normalizedSessionId) return false;
     await this.refreshSessionTasks(normalizedSessionId, true);
-    return this.hasRunningTasks(normalizedSessionId);
+    return this.hasRunningTasks(normalizedSessionId, initiatorThreadKey);
   }
 
   /** Durable Session-scoped query used by the HTTP management API. */
@@ -279,6 +285,8 @@ export class BackgroundTaskService {
       run_id: normalizeString(input.runId),
       owner_task_id: normalizeString(input.ownerTaskId),
       session_id: normalizeString(input.sessionId),
+      initiator_thread_key: normalizeString(input.initiatorThreadKey),
+      initiator_child_agent_id: normalizeString(input.initiatorChildAgentId),
       completed_at: null,
       result_type: null,
       kind: "bash",
@@ -385,6 +393,8 @@ export class BackgroundTaskService {
       run_id: normalizeString(input.runId),
       owner_task_id: normalizeString(input.ownerTaskId),
       session_id: normalizeString(input.sessionId),
+      initiator_thread_key: normalizeString(input.initiatorThreadKey),
+      initiator_child_agent_id: normalizeString(input.initiatorChildAgentId),
       completed_at: null,
       result_type: normalizeString(input.resultType) ?? "tool_execution_result",
       kind: normalizeString(input.kind) ?? "callable",
@@ -610,7 +620,9 @@ export class BackgroundTaskService {
           messageId: backgroundNotificationMessageId(task.task_id),
           tenantId,
           sessionId,
-          targetThreadKey: "root",
+          // 路由给发起者分支（§10.4 第六轮）：历史行无 initiator 落回 root，与旧口径一致。
+          targetThreadKey: task.initiator_thread_key ?? "root",
+          targetChildAgentId: task.initiator_child_agent_id ?? null,
           kind: "request",
           inputType: "system_notification",
           sourceKind: "system",
@@ -812,6 +824,8 @@ function fromDurableRecord(record: DurableBackgroundTaskRecord): BackgroundTask 
     started_at: record.started_at, status: record.status, return_code: record.return_code,
     error: record.error, expires_at: record.expires_at, run_id: record.run_id,
     owner_task_id: record.owner_task_id, session_id: record.session_id,
+    initiator_thread_key: record.initiator_thread_key ?? null,
+    initiator_child_agent_id: record.initiator_child_agent_id ?? null,
     completed_at: record.completed_at, result_type: record.result_type, kind: record.kind,
     cancel_supported: record.cancel_supported,
   };

@@ -12,7 +12,7 @@ import type {
   RuntimeStartRunInput,
 } from "../../../contracts/storage/runtime-storage.js";
 import { rootMailboxConversationMessage } from "../../../contracts/storage/runtime-storage.js";
-import type { AgentMailboxInputType, AgentMailboxSourceKind } from "../../../contracts/storage/agent-mailbox-repository.js";
+import type { AgentMailboxInputType, AgentMailboxMessageKind, AgentMailboxSourceKind } from "../../../contracts/storage/agent-mailbox-repository.js";
 import type { TenantId } from "../../../identity/types.js";
 import type { ExecutionStartDisposition } from "../../../contracts/execution/execution-storage.js";
 import type { ClientEventPublisherPort } from "../../../contracts/runtime/core-runtime-ports.js";
@@ -56,12 +56,20 @@ export interface AsyncPersisterRunContext {
     inputType: AgentMailboxInputType;
     sourceKind: AgentMailboxSourceKind;
     visibleToUser: boolean;
-    sentAt: string;
+    sentAt: string | null;
     contentParts: MessageContentPart[];
     metadata?: Record<string, unknown> | null;
+    kind?: AgentMailboxMessageKind;
+    targetThreadKey?: string;
+    targetRunId?: string | null;
+    targetAgentCallId?: string | null;
+    targetChildAgentId?: string | null;
+    sourceRunId?: string | null;
+    sourceAgentCallId?: string | null;
+    correlationId?: string | null;
+    replyToMessageId?: string | null;
   };
   initialMessage?: AddMessageInput & { messageId: string };
-  participantExpectedLastRunId?: string | null;
   initialMailboxMessageId?: string | null;
   followupPolicy?: "queue" | "reject";
   sessionMaintenanceToken?: string | null;
@@ -174,11 +182,8 @@ export class AsyncKernelEventPersister {
       ...(this.ctx.ownsRunLease ? { claimOwnLease: true } : {}),
       ...(initialRecords.length > 0 ? { initialRecords } : {}),
       ...(this.ctx.initialMessage ? { initialMessage: this.ctx.initialMessage } : {}),
-      ...(this.ctx.childAgentId && this.ctx.participantExpectedLastRunId !== undefined ? {
-        participantRun: {
-          childAgentId: this.ctx.childAgentId,
-          expectedLastRunId: this.ctx.participantExpectedLastRunId,
-        },
+      ...(this.ctx.childAgentId ? {
+        participantRun: { childAgentId: this.ctx.childAgentId },
       } : {}),
       ...(this.ctx.initialMailboxMessageId ? { initialMailboxMessageId: this.ctx.initialMailboxMessageId } : {}),
     };
@@ -189,14 +194,23 @@ export class AsyncKernelEventPersister {
             messageId: this.ctx.rootMailboxMessage.id,
             tenantId: this.ctx.tenantId,
             sessionId: this.ctx.sessionId,
-            targetThreadKey: "root",
-            kind: "request",
+            // 透传认领行完整身份：kind/寻址/关联字段缺省值与 run-engine 合成信封一致，
+            // 引用既有行时逐字段回传，保证闸门重建 enqueue 过 sameMessageIdentity。
+            targetThreadKey: this.ctx.rootMailboxMessage.targetThreadKey ?? "root",
+            kind: this.ctx.rootMailboxMessage.kind ?? "request",
             inputType: this.ctx.rootMailboxMessage.inputType,
             sourceKind: this.ctx.rootMailboxMessage.sourceKind,
             visibleToUser: this.ctx.rootMailboxMessage.visibleToUser,
             sentAt: this.ctx.rootMailboxMessage.sentAt,
             contentParts: this.ctx.rootMailboxMessage.contentParts,
             metadata: this.ctx.rootMailboxMessage.metadata ?? {},
+            targetRunId: this.ctx.rootMailboxMessage.targetRunId ?? null,
+            targetAgentCallId: this.ctx.rootMailboxMessage.targetAgentCallId ?? null,
+            targetChildAgentId: this.ctx.rootMailboxMessage.targetChildAgentId ?? null,
+            sourceRunId: this.ctx.rootMailboxMessage.sourceRunId ?? null,
+            sourceAgentCallId: this.ctx.rootMailboxMessage.sourceAgentCallId ?? null,
+            correlationId: this.ctx.rootMailboxMessage.correlationId ?? null,
+            replyToMessageId: this.ctx.rootMailboxMessage.replyToMessageId ?? null,
           },
           followupPolicy: this.ctx.followupPolicy ?? "queue",
         })
@@ -229,8 +243,8 @@ export class AsyncKernelEventPersister {
         messageId: mailbox.id,
         tenantId: this.ctx.tenantId,
         sessionId: this.ctx.sessionId,
-        targetThreadKey: "root",
-        kind: "request",
+        targetThreadKey: mailbox.targetThreadKey ?? "root",
+        kind: mailbox.kind ?? "request",
         inputType: mailbox.inputType,
         sourceKind: mailbox.sourceKind,
         visibleToUser: mailbox.visibleToUser,

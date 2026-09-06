@@ -78,7 +78,6 @@ export interface ParticipantRunRoute {
   parentRunId: string | null;
   parentCallId: string | null;
   lineageParentCallId: string | null;
-  replacesRunId?: string | null;
 }
 
 /** Keeps participant routing aligned with child Runs started outside the delegation tool call. */

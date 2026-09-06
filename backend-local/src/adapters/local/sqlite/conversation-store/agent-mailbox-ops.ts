@@ -10,10 +10,13 @@ import type {
   AgentMailboxStorePort,
   ClaimAgentMailboxInput,
   EnqueueAgentMailboxMessageInput,
+  ExistsPendingAgentMailboxInput,
   ListPendingAgentMailboxInput,
+  ListPendingMailboxSessionsInput,
   ReleaseAgentMailboxInput,
   SettleAgentMailboxInput,
 } from "@ragsystem/backend-core/contracts/storage/agent-mailbox-repository.js";
+import { AGENT_MAILBOX_MAX_DELIVERY_ATTEMPTS } from "@ragsystem/backend-core/contracts/storage/agent-mailbox-repository.js";
 import type { ConversationDb } from "./shared/db.js";
 import { runInTransaction } from "./shared/transaction.js";
 import { nowIso, normalizeNonEmptyString } from "./shared/primitives.js";
@@ -177,6 +180,32 @@ export class AgentMailboxOps implements AgentMailboxStorePort {
     return this.listPendingSync(input);
   }
 
+  async listPendingSessions(input: ListPendingMailboxSessionsInput = {}): Promise<string[]> {
+    const now = asNow(input.now);
+    const limit = Math.max(1, Math.min(500, Math.floor(input.limit ?? 200)));
+    return this.db.prepare(`
+      SELECT DISTINCT session_id FROM agent_mailbox
+      WHERE (status='queued' OR (status='claimed' AND claim_expires_at IS NOT NULL AND claim_expires_at <= ?))
+        AND available_at <= ? AND (expires_at IS NULL OR expires_at > ?)
+      ORDER BY session_id ASC LIMIT ?
+    `).all(now, now, now, limit).map((row) => (row as { session_id: string }).session_id);
+  }
+
+  async existsPending(input: ExistsPendingAgentMailboxInput): Promise<boolean> {
+    const clauses = ["session_id=?", "status IN ('queued','claimed')"];
+    const params: Array<string | number> = [required(input.sessionId, "sessionId")];
+    const add = (column: string, value: string | null | undefined): void => {
+      const normalized = value?.trim();
+      if (!normalized) return;
+      clauses.push(`${column}=?`);
+      params.push(normalized);
+    };
+    add("input_type", input.inputType);
+    add("target_thread_key", input.targetThreadKey);
+    const found = this.db.prepare(`SELECT 1 FROM agent_mailbox WHERE ${clauses.join(" AND ")} LIMIT 1`).get(...params);
+    return found != null;
+  }
+
   async ack(input: AckAgentMailboxInput): Promise<boolean> {
     return this.ackSync(input);
   }
@@ -210,6 +239,14 @@ export class AgentMailboxOps implements AgentMailboxStorePort {
     const expiresAt = input.expiresAt == null ? null : asNow(input.expiresAt);
     const sentAt = input.sentAt == null ? null : asNow(input.sentAt);
     const insert = (): void => {
+      // 同会话内同 id 异租户须显式报错：复合唯一键 (tenant_id, message_id) 允许插入
+      // 第二行，而消费侧全部按 session_id 键查询（不看租户），双行会导致确定性 id
+      // 重复投递。跨会话的同 id 异租户是合法的租户隔离，不受此检查影响。
+      const conflict = this.db.prepare("SELECT tenant_id FROM agent_mailbox WHERE message_id=? AND session_id=? AND tenant_id<>?")
+        .get(messageId, sessionId, tenantId) as { tenant_id: string } | undefined;
+      if (conflict) {
+        throw new Error(`Agent mailbox message id already belongs to tenant ${conflict.tenant_id} in this session: ${messageId}`);
+      }
       const existing = this.db.prepare(`SELECT ${SELECT_COLUMNS} FROM agent_mailbox WHERE tenant_id=? AND message_id=?`).get(tenantId, messageId) as AgentMailboxRow | undefined;
       if (existing) {
         if (!sameMessageIdentity(existing, input, availableAt, expiresAt)) {
@@ -283,8 +320,6 @@ export class AgentMailboxOps implements AgentMailboxStorePort {
       clauses.push(`${column}=?`);
       params.push(normalized);
     };
-    add("target_run_id", input.targetRunId);
-    add("target_agent_call_id", input.targetAgentCallId);
     add("target_thread_key", input.targetThreadKey);
     add("target_child_agent_id", input.targetChildAgentId);
     const limit = Math.max(1, Math.min(100, Math.floor(input.limit ?? 100)));
@@ -316,40 +351,29 @@ export class AgentMailboxOps implements AgentMailboxStorePort {
             updated_at=?
         WHERE session_id=? AND status='claimed' AND claim_expires_at IS NOT NULL AND claim_expires_at <= ?
       `).run(now, sessionId, now);
+      // 重投有界：尝试耗尽的 queued 行置死信（claimed 行由持有者收尾，回队后下一轮收）。
+      this.db.prepare(`
+        UPDATE agent_mailbox
+        SET status='expired', claim_id=NULL, claimed_by=NULL, claim_expires_at=NULL,
+            last_error='max delivery attempts exceeded', updated_at=?
+        WHERE session_id=? AND status='queued'
+          AND attempt_count >= ${AGENT_MAILBOX_MAX_DELIVERY_ATTEMPTS}
+      `).run(now, sessionId);
       const existingClaim = this.db.prepare(`
         SELECT ${SELECT_COLUMNS} FROM agent_mailbox
         WHERE session_id=? AND claim_id=? AND status='claimed'
         ORDER BY seq ASC
       `).all(sessionId, claimId) as unknown as AgentMailboxRow[];
       if (existingClaim.length > 0) return existingClaim.map(mapRow);
-      const targetRunId = input.targetRunId?.trim() || null;
+      // 认领口径=纯分支（§10.4 第七轮）：行上的溯源 run 字段不参与匹配，
+      // 历史带 run 段的行与新行同分支同认领。
       const targetChildAgentId = input.targetChildAgentId?.trim() || null;
-      const targetAgentCallId = input.targetAgentCallId?.trim() || null;
-      const activeParams: string[] = [];
-      let activeTarget = "target_run_id=? AND target_thread_key=?";
-      activeParams.push(targetRunId ?? "", targetThreadKey);
-      if (targetAgentCallId) {
-        activeTarget += " AND target_agent_call_id=?";
-        activeParams.push(targetAgentCallId);
-      }
+      const targetParams: string[] = [targetThreadKey];
+      let targetPredicate = "target_thread_key=?";
       if (targetChildAgentId) {
-        activeTarget += " AND target_child_agent_id=?";
-        activeParams.push(targetChildAgentId);
+        targetPredicate += " AND target_child_agent_id=?";
+        targetParams.push(targetChildAgentId);
       }
-      const idleParams: string[] = [targetThreadKey];
-      let idleTarget = "target_run_id IS NULL AND target_thread_key=?";
-      if (targetAgentCallId) {
-        idleTarget += " AND (target_agent_call_id IS NULL OR target_agent_call_id=?)";
-        idleParams.push(targetAgentCallId);
-      }
-      if (targetChildAgentId) {
-        idleTarget += " AND target_child_agent_id=?";
-        idleParams.push(targetChildAgentId);
-      }
-      const targetPredicate = targetRunId ? `(${activeTarget} OR ${idleTarget})` : idleTarget;
-      const targetParams: string[] = targetRunId
-        ? [...activeParams, ...idleParams]
-        : idleParams;
       this.db.prepare(`
         UPDATE agent_mailbox
         SET status='claimed', claim_id=?, claimed_by=?, claim_expires_at=?,

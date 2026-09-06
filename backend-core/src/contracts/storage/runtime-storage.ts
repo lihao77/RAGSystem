@@ -133,7 +133,6 @@ export interface RuntimeStartRunInput {
   /** Atomically advances the child participant's durable latest-Run pointer. */
   participantRun?: {
     childAgentId: string;
-    expectedLastRunId: string | null;
   };
   /** Queued mailbox seed settled in the same transaction as a newly-created Run. */
   initialMailboxMessageId?: string | null;
@@ -168,9 +167,13 @@ export function rootMailboxInitialMessage(
   });
 }
 
+/**
+ * 会话消息行由 mailbox 信封派生的唯一口径（闸门与无 run 追加共用）：runId 为 null
+ * 时不注入 run 归属键（slash 命令 echo 行、idle 批量消费的伴随行——它们不隶属任何 run）。
+ */
 export function rootMailboxConversationMessage(input: {
   sessionId: string;
-  runId: string;
+  runId: string | null;
   mailboxMessage: EnqueueAgentMailboxMessageInput;
 }): AddMessageInput & { messageId: string } {
   const message = input.mailboxMessage;
@@ -193,8 +196,7 @@ export function rootMailboxConversationMessage(input: {
       ...(message.metadata ?? {}),
       ...(message.inputType === "agent_message" ? { agent_message: true } : {}),
       mailbox_message_id: message.messageId,
-      run_id: input.runId,
-      consumed_by_run_id: input.runId,
+      ...(input.runId ? { run_id: input.runId, consumed_by_run_id: input.runId } : {}),
     },
     threadKey: "root",
     childAgentId: null,
@@ -211,6 +213,22 @@ export type RuntimeStartOrAppendRootResult =
       mailboxMessage: AgentMailboxMessage | null;
       records?: RuntimeRecordEnvelopeResult[];
     };
+
+/**
+ * 无 run 的过路行闸门：同一事务内 enqueue mailbox 信封 + 派生会话消息行 + settle。
+ * slash 命令 echo 行与 idle 批量消费的伴随行由此进入——会话边界的每一条消息行都由
+ * mailbox 信封派生，没有旁路载体。
+ */
+export interface RuntimeAppendMailboxMessageInput {
+  session: SessionIdentity;
+  mailboxMessage: EnqueueAgentMailboxMessageInput;
+}
+
+export interface RuntimeAppendMailboxMessageResult {
+  mailboxMessage: AgentMailboxMessage;
+  /** 信封派生的会话消息行（确定性 id = 信封 id，重复追加幂等）。 */
+  message: MessageInfo;
+}
 
 export interface RuntimeRecordEnvelopeInput {
   outbox: AppendOutboxInput & { eventId: string };
@@ -512,6 +530,8 @@ export interface RuntimeClaimSessionMaintenanceResult {
 export interface RuntimeAtomicOperations {
   startRun(input: RuntimeStartRunInput): Promise<RuntimeStartRunResult>;
   startOrAppendRoot(input: RuntimeStartOrAppendRootInput): Promise<RuntimeStartOrAppendRootResult>;
+  /** 无 run 的过路行：同事务 enqueue+派生会话消息行+settle（slash echo 行、批量消费伴随行）。 */
+  appendMailboxMessage(input: RuntimeAppendMailboxMessageInput): Promise<RuntimeAppendMailboxMessageResult>;
   persistMessage(input: RuntimePersistMessageInput): Promise<RuntimePersistMessageResult>;
   /** Canonical message, Run-Step boundary, outbox, and mailbox ACK commit together. */
   commitRunInput(input: RuntimeCommitRunInputInput): Promise<RuntimeCommitRunInputResult>;
@@ -531,6 +551,8 @@ export interface RuntimeAtomicOperations {
   recoverExpiredRunLeases?(input: RuntimeRecoverExpiredRunLeasesInput): Promise<RuntimeRecoverExpiredRunLeasesResult>;
   /** Durable session-level activity check used before destructive maintenance commands. */
   getActiveRootRun?(sessionId: string): Promise<RuntimeGetActiveRootRunResult>;
+  /** 线程现任执行（§10.4 第七轮）：该线程最新一条 run 记录（含状态与身份），线程闸门用它判"有无活动执行"并解析收件智能体。 */
+  getLatestThreadRun?(sessionId: string, threadKey: string): Promise<RunInfo | null>;
   /** One authoritative read model for Session lifecycle projection and initial loading. */
   getSessionRuntimeFacts(sessionId: string): Promise<RuntimeSessionFacts>;
   claimSessionMaintenance(input: RuntimeSessionMaintenanceInput): Promise<RuntimeClaimSessionMaintenanceResult>;

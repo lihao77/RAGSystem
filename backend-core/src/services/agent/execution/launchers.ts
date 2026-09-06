@@ -55,6 +55,7 @@ import {
 import {
   SessionMailboxConsumer,
   type AgentMailboxContinuationCompletionInput,
+  type SessionMailboxLogger,
   type SessionSystemRunInput,
 } from "./session-mailbox-consumer.js";
 
@@ -147,6 +148,8 @@ export interface LauncherDeps {
   runReader?: Pick<ExecutionResultReader, "getRun"> & Partial<Pick<ExecutionResultReader, "getMessageById" | "listRuns">>;
   participantRuns: ParticipantRunLifecyclePort;
   transformUserMessage?: UserMessageTransformRunner | null;
+  /** 消费组件错误日志出口（缺省 console.error）；组合层可注入自身 logger。 */
+  logger?: SessionMailboxLogger | null;
 }
 
 /**
@@ -184,24 +187,10 @@ class AgentLaunchers {
   }
 
   /**
-   * 一切渠道共用的执行 Agent 解析（唯一状态判定点）：显式 agentName（请求指定 /
-   * 目标 run 记录）优先，缺省回落会话入口 Agent；selectedLlm 覆盖 default 档
-   * （null/空 = 无覆盖）。用户发送、系统渠道、mailbox 续跑共用同一口径；readiness
-   * 失败明确返回原因，不静默兜底。
-   */
-  private resolveExecutionAgent(input: {
-    agentName?: string | null;
-    teamSnapshot: SessionIdentity["teamSnapshot"];
-    selectedLlm?: string | null;
-  }): ReadinessResolution {
-    return resolveExecutionAgentFor(this.runtimeCore, input);
-  }
-
-  /**
-   * 一切 root run 的唯一 invoke 组装点：用户发送（foreground + user_message 持久化）
-   * 与系统渠道（background + system 持久化 / mailbox 引用）只差参数。background
-   * 系统触发在终态后统一 scheduleAutoTrigger（可选 onFinally 先行，如释放 goal
-   * 认领）；readiness 由调用方经 resolveExecutionAgent 解析后传入。
+   * 一切 root run 的唯一 invoke 组装点：用户发送（foreground + user_message 持久化）、
+   * 系统渠道（background + mailbox 引用）与 mailbox root 续跑（确定性 runId/taskId/
+   * rootCallId + mailbox 目标透传）只差参数。background 系统触发在终态后统一
+   * scheduleAutoTrigger；readiness 由调用方经 resolveExecutionAgentFor 解析后传入。
    */
   private invokeRootRun(input: {
     sessionIdentity: SessionIdentity;
@@ -214,6 +203,9 @@ class AgentLaunchers {
     execution: "foreground" | "background";
     modelTask?: string;
     entrypoint?: string;
+    runId?: string;
+    taskId?: string;
+    rootCallId?: string;
     persistUserMessage?: AgentInvocationRootInput["persistUserMessage"];
     rootMailboxMessage?: AgentInvocationRootInput["rootMailboxMessage"];
     traceMetadata?: Record<string, unknown>;
@@ -221,8 +213,6 @@ class AgentLaunchers {
     sessionMaintenanceToken?: string;
     awaitFollowupCompletion?: boolean;
     followupPolicy?: "queue" | "reject";
-    /** 仅 background：run 终态回调（如释放 goal continuation 认领），先于 autoTrigger。 */
-    onFinally?: () => Promise<void> | void;
   }): AgentInvocationHandle {
     const started = this.invocationService.invoke({
       scope: "root",
@@ -236,6 +226,9 @@ class AgentLaunchers {
       ...(input.modelTask ? { modelTask: input.modelTask } : {}),
       executionKind: input.executionKind,
       ...(input.entrypoint ? { entrypoint: input.entrypoint } : {}),
+      ...(input.runId ? { runId: input.runId } : {}),
+      ...(input.taskId ? { taskId: input.taskId } : {}),
+      ...(input.rootCallId ? { rootCallId: input.rootCallId } : {}),
       agent: input.ready.agent,
       provider: input.ready.provider,
       modelName: input.ready.modelName,
@@ -258,8 +251,7 @@ class AgentLaunchers {
       followupPolicy: input.followupPolicy ?? "queue",
     });
     if (input.execution === "background") {
-      void started.promise.finally(async () => {
-        await input.onFinally?.();
+      void started.promise.finally(() => {
         this.backgroundTasks?.scheduleAutoTrigger(input.sessionIdentity.sessionId);
       }).catch(() => undefined);
     }
@@ -400,7 +392,7 @@ class AgentLaunchers {
     // 冗余的视觉辅助描述；解析失败不传标志，transformer 保持原行为）。视觉能力按模型
     // 条目 input_modalities 派生（与执行期 profile 投影同源）——原始 provider 不承载
     // supports_vision（水合剥离的废弃字段）。
-    const ready = this.resolveExecutionAgent({
+    const ready = resolveExecutionAgentFor(this.runtimeCore, {
       ...(input.agentName ? { agentName: input.agentName } : {}),
       teamSnapshot: sessionIdentity.teamSnapshot,
       selectedLlm: overrides.selectedLlm,
@@ -863,6 +855,7 @@ export function createLaunchers(deps: LauncherDeps): LauncherApi {
     runReader: deps.runReader ?? null,
     participantRuns: deps.participantRuns,
     launchSystemRun: (input) => impl.launchSystemRun(input),
+    logger: deps.logger ?? null,
   });
   return {
     startStream: impl.startStream.bind(impl),

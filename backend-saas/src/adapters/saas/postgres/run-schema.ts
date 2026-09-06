@@ -284,6 +284,16 @@ export const POSTGRES_RUN_MIGRATIONS: readonly PostgresRunMigration[] = [
       ALTER TABLE saas_runs DROP COLUMN IF EXISTS next_step_order;
     `,
   },
+  {
+    version: 12,
+    name: "thread-current-run-index",
+    // 线程闸门高频查询 getLatestThreadRun（tenant+session+thread_key 取最新 run）
+    // 此前只能走 saas_runs_session_created_idx 前缀再过滤，最坏扫会话全部 runs。
+    sql: `
+      CREATE INDEX IF NOT EXISTS saas_runs_session_thread_created_idx
+        ON saas_runs(tenant_id, session_id, thread_key, created_at DESC, run_id DESC);
+    `,
+  },
 ];
 
 export function getPendingPostgresRunMigrations(appliedVersion: number): readonly PostgresRunMigration[] {

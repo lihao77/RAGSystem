@@ -80,8 +80,6 @@ export class AgentRunEngine {
     runId?: string | undefined;
     taskId?: string | undefined;
      rootCallId?: string | undefined;
-     mailboxTargetRunId?: string | null | undefined;
-     mailboxTargetAgentCallId?: string | null | undefined;
     resume?: boolean | undefined;
     userId?: string | null;
     requestId: string;
@@ -112,7 +110,7 @@ export class AgentRunEngine {
       inputType: "user_message" | "agent_message" | "system_notification" | "goal_continuation";
       sourceKind: "user" | "agent" | "system";
       visibleToUser: boolean;
-      sentAt: string;
+      sentAt: string | null;
       contentParts: MessageContentPart[];
       metadata?: Record<string, unknown>;
     } | undefined;
@@ -155,7 +153,7 @@ export class AgentRunEngine {
       inputType: "user_message" | "agent_message" | "system_notification" | "goal_continuation";
       sourceKind: "user" | "agent" | "system";
       visibleToUser: boolean;
-      sentAt: string;
+      sentAt: string | null;
       contentParts: MessageContentPart[];
       metadata?: Record<string, unknown>;
     } | undefined = input.resume ? undefined : input.rootMailboxMessage;
@@ -254,8 +252,6 @@ export class AgentRunEngine {
       ...(input.thinkingLevel ? { thinkingLevel: input.thinkingLevel } : {}),
       threadKey: "root",
        rootRunId: runId,
-       ...(input.mailboxTargetRunId ? { mailboxTargetRunId: input.mailboxTargetRunId } : {}),
-          ...(input.mailboxTargetAgentCallId ? { mailboxTargetAgentCallId: input.mailboxTargetAgentCallId } : {}),
       parentRunId: null,
       childAgentId: null,
       ...(input.userId !== undefined ? { userId: input.userId } : {}),
@@ -406,8 +402,6 @@ export class AgentRunEngine {
     runId: string;
     taskId: string;
     rootCallId: string;
-    mailboxTargetRunId?: string | null;
-    mailboxTargetAgentCallId?: string | null;
     requestId: string;
     task: string;
     startedAt: Date;
@@ -440,7 +434,6 @@ export class AgentRunEngine {
       contentParts: MessageContentPart[];
       metadata?: Record<string, unknown>;
     };
-    participantExpectedLastRunId?: string | null;
     initialMailboxMessageId?: string | null;
     ownsRunLease?: boolean;
     userId?: string | null;
@@ -449,7 +442,7 @@ export class AgentRunEngine {
       inputType: "user_message" | "agent_message" | "system_notification" | "goal_continuation";
       sourceKind: "user" | "agent" | "system";
       visibleToUser: boolean;
-      sentAt: string;
+      sentAt: string | null;
       contentParts: MessageContentPart[];
       metadata?: Record<string, unknown>;
     };
@@ -543,8 +536,6 @@ export class AgentRunEngine {
           taskId: input.taskId,
           requestId: input.requestId,
            rootCallId: input.rootCallId,
-           ...(input.mailboxTargetRunId ? { mailboxTargetRunId: input.mailboxTargetRunId } : {}),
-           ...(input.mailboxTargetAgentCallId ? { mailboxTargetAgentCallId: input.mailboxTargetAgentCallId } : {}),
           agent: input.agent,
           provider: input.provider,
           modelName: input.modelName,
@@ -561,9 +552,6 @@ export class AgentRunEngine {
           ...(input.userId !== undefined ? { userId: input.userId } : {}),
           ...(input.rootMailboxMessage ? { rootMailboxMessage: input.rootMailboxMessage } : {}),
           ...(input.initialMessage ? { initialMessage: input.initialMessage } : {}),
-          ...(input.participantExpectedLastRunId !== undefined ? {
-            participantExpectedLastRunId: input.participantExpectedLastRunId,
-          } : {}),
           ...(input.initialMailboxMessageId ? { initialMailboxMessageId: input.initialMailboxMessageId } : {}),
           ...(input.followupPolicy ? { followupPolicy: input.followupPolicy } : {}),
           ...(input.sessionMaintenanceToken ? { sessionMaintenanceToken: input.sessionMaintenanceToken } : {}),

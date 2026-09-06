@@ -41,20 +41,39 @@ describe("slash command content semantics", () => {
   });
 
   it("stores a system command_ref and its correlated command_result", async () => {
-    const added: Array<Record<string, unknown>> = [];
+    const appended: Array<Record<string, any>> = [];
+    const resultMessages: Array<Record<string, unknown>> = [];
     const sessions = {
       getSession: vi.fn(async () => ({ session_id: "session-1" })),
       addMessage: vi.fn(async (input: Record<string, unknown>) => {
         const message = {
-          id: `message-${added.length + 1}`,
+          id: `result-${resultMessages.length + 1}`,
           ...input,
           content_parts: input.contentParts,
         };
-        added.push(message);
+        resultMessages.push(message);
         return message;
       }),
     } as unknown as ExecutionSessionPort;
     const clientEvents = { publish: vi.fn(async () => undefined) } as unknown as ClientEventPublisher;
+    const runtimeStorage = {
+      operations: {
+        // echo 行经统一闸门 appendMailboxMessage：mailbox 信封同事务派生会话消息行并 settle。
+        appendMailboxMessage: vi.fn(async (input: { mailboxMessage: Record<string, any> }) => {
+          appended.push(input.mailboxMessage);
+          return {
+            mailboxMessage: input.mailboxMessage,
+            message: {
+              id: String(input.mailboxMessage.messageId),
+              seq: appended.length,
+              role: "user",
+              content_parts: input.mailboxMessage.contentParts,
+              metadata: input.mailboxMessage.metadata,
+            },
+          };
+        }),
+      },
+    } as unknown as RuntimeStorage;
     const handler = new SlashCommandHandler(
       "tenant-1" as TenantId,
       sessions,
@@ -63,7 +82,7 @@ describe("slash command content semantics", () => {
       () => [],
       null,
       clientEvents,
-      { operations: {} } as RuntimeStorage,
+      runtimeStorage,
     );
 
     const command = parseSlashCommand("/help")!;
@@ -95,22 +114,37 @@ describe("slash command content semantics", () => {
       success: true,
       text: expect.any(String),
     })]);
-    expect(added).toHaveLength(2);
-    expect(added[0]?.contentParts).toEqual([expect.objectContaining({
+    // echo 行一次过路（appendMailboxMessage）、command_result 行一次落库（执行产物）。
+    expect(runtimeStorage.operations.appendMailboxMessage).toHaveBeenCalledTimes(1);
+    expect(resultMessages).toHaveLength(1);
+    const envelope = appended[0]!;
+    expect(envelope).toEqual(expect.objectContaining({
+      tenantId: "tenant-1",
+      sessionId: "session-1",
+      targetThreadKey: "root",
+      kind: "request",
+      inputType: "user_message",
+      sourceKind: "user",
+      visibleToUser: true,
+      metadata: {},
+    }));
+    expect(String(envelope.messageId)).toMatch(/^slashcmd_cmd_/);
+    const commandRef = (envelope.contentParts as Array<{ invocation_id: string }>)[0]!;
+    expect(envelope.contentParts).toEqual([expect.objectContaining({
       type: "command_ref",
       name: "help",
       raw_text: "/help",
       resolution: { kind: "system" },
     })]);
-    const commandRef = (added[0]?.contentParts as Array<{ invocation_id: string }>)[0]!;
-    expect(added[1]?.contentParts).toEqual([expect.objectContaining({
+    // 确定性 id 关联：command_result 的 invocation_id 即 echo 信封 id 的后缀。
+    expect(`slashcmd_${commandRef.invocation_id}`).toBe(envelope.messageId);
+    expect(resultMessages[0]?.contentParts).toEqual([expect.objectContaining({
       type: "command_result",
       invocation_id: commandRef.invocation_id,
       name: "help",
       success: true,
     })]);
-    expect(added[0]?.metadata).toEqual({});
-    expect(added[1]?.metadata).toEqual({});
+    expect(resultMessages[0]?.metadata).toEqual({});
     expect(clientEvents.publish).toHaveBeenCalledTimes(2);
     expect(clientEvents.publish).toHaveBeenNthCalledWith(
       1,
@@ -201,6 +235,16 @@ describe("compact compression progress frames", () => {
         claimSessionMaintenance: vi.fn(async () => ({ claimed: true })),
         renewSessionMaintenance: vi.fn(async () => true),
         releaseSessionMaintenance: vi.fn(async () => undefined),
+        appendMailboxMessage: vi.fn(async (input: { mailboxMessage: Record<string, any> }) => ({
+          mailboxMessage: input.mailboxMessage,
+          message: {
+            id: String(input.mailboxMessage.messageId),
+            seq: 1,
+            role: "user",
+            content_parts: input.mailboxMessage.contentParts,
+            metadata: input.mailboxMessage.metadata,
+          },
+        })),
       },
     } as unknown as RuntimeStorage;
     // 两条通道按调用时间记录 compression 帧：断言依赖帧序（started 在 summary 前），

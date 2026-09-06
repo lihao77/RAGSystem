@@ -220,6 +220,9 @@ export class LocalBashToolService {
       sessionId,
       runId: normalizeString(context.runId),
       ownerTaskId: normalizeString(context.taskId),
+      // 发起者分支（§10.4 第六轮）：完成通知路由给发起命令的线程。
+      initiatorThreadKey: normalizeString(context.threadKey) ?? "root",
+      initiatorChildAgentId: normalizeString(context.currentChildAgentId),
     });
     const displayPath = this.paths.toDisplayPath(task.output_path);
     return successResult(

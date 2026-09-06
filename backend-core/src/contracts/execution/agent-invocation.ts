@@ -7,6 +7,10 @@ import type { ModelProviderConfig } from "../integrations/model-adapter.js";
 import type { InteractionRequiredNotice } from "../runtime/pending-interactions.js";
 import type { SessionIdentity } from "../session/session.js";
 import type { ExecutionStartDisposition } from "./execution-storage.js";
+import type {
+  AgentMailboxMessageKind,
+  AgentMailboxSourceKind,
+} from "../storage/agent-mailbox-repository.js";
 
 export type AgentInvocationMode = "create" | "resume";
 
@@ -23,9 +27,6 @@ interface AgentInvocationBase {
   selectedLlm?: { provider: ModelProviderConfig; modelName: string } | null;
   /** 请求级思考档位（前端 thinking_level）；undefined = 跟随 agent tier 默认档位。 */
   thinkingLevel?: ThinkingLevel;
-  /** Existing run/call used to claim durable agent messages during an idle continuation. */
-  mailboxTargetRunId?: string | null;
-  mailboxTargetAgentCallId?: string | null;
   /** Abort this invocation after the requested wall-clock duration. */
   timeoutMs?: number | null;
 }
@@ -52,9 +53,20 @@ export interface AgentInvocationRootInput extends AgentInvocationBase {
     inputType: "user_message" | "agent_message" | "system_notification" | "goal_continuation";
     sourceKind: "user" | "agent" | "system";
     visibleToUser: boolean;
-    sentAt: string;
+    /** 精确回传认领行的 sent_at（可为 null）：闸门重建 enqueue 靠它过同一性比对。 */
+    sentAt: string | null;
     contentParts: MessageContentPart[];
     metadata?: Record<string, unknown>;
+    /** 认领行完整身份（定向行必带，否则闸门重建 enqueue 过不了 sameMessageIdentity）。 */
+    kind?: AgentMailboxMessageKind;
+    targetThreadKey?: string;
+    targetRunId?: string | null;
+    targetAgentCallId?: string | null;
+    targetChildAgentId?: string | null;
+    sourceRunId?: string | null;
+    sourceAgentCallId?: string | null;
+    correlationId?: string | null;
+    replyToMessageId?: string | null;
   };
   followupPolicy?: "queue" | "reject";
   sessionMaintenanceToken?: string;
@@ -87,8 +99,6 @@ export interface AgentInvocationChildInput extends AgentInvocationBase {
     contentParts: MessageContentPart[];
     metadata?: Record<string, unknown>;
   };
-  /** Expected durable participant pointer replaced by this newly-created Run. */
-  participantExpectedLastRunId?: string | null;
   initialMailboxMessageId?: string | null;
   ownsRunLease?: boolean;
   userId?: string | null;

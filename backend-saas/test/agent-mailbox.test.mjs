@@ -60,20 +60,20 @@ class FakeExecutor {
       const tenantId = params[0];
       const sessionId = params[1];
       const now = params[2];
-      const target = sql.match(/target_run_id=\$(\d+) AND target_thread_key=\$(\d+)(?: AND target_agent_call_id=\$(\d+))?(?: AND target_child_agent_id=\$(\d+))?/);
+      const target = sql.match(/target_thread_key=\$(\d+)(?: AND target_child_agent_id=\$(\d+))?/);
       const picked = this.rows
         .filter((row) => {
           if (row.tenant_id !== tenantId || row.session_id !== sessionId || row.status !== "queued" || row.available_at > now) return false;
+          // 与真实 SQL 一致：过期行不可认领（expires_at IS NULL OR > now）。
+          if (row.expires_at != null && row.expires_at <= now) return false;
           if (!target) return true;
-          const runId = params[Number(target[1]) - 1];
-          const threadKey = params[Number(target[2]) - 1];
-          const callId = target[3] ? params[Number(target[3]) - 1] : null;
-          const childId = target[4] ? params[Number(target[4]) - 1] : null;
-          return row.target_run_id === runId && row.target_thread_key === threadKey
-            && (!callId || row.target_agent_call_id === callId)
+          const threadKey = params[Number(target[1]) - 1];
+          const childId = target[2] ? params[Number(target[2]) - 1] : null;
+          return row.target_thread_key === threadKey
             && (!childId || row.target_child_agent_id === childId);
         })
-        .sort((left, right) => left.seq - right.seq)
+        // 与真实 SQL 一致：COALESCE(sent_at, created_at) 优先，seq 决胜。
+        .sort((left, right) => String(left.sent_at ?? left.created_at).localeCompare(String(right.sent_at ?? right.created_at)) || left.seq - right.seq)
         .slice(0, limit);
       for (const row of picked) {
         row.status = "claimed";
@@ -83,6 +83,36 @@ class FakeExecutor {
         row.attempt_count += 1;
       }
       return { rows: picked };
+    }
+    if (sql.includes("status='expired'") && sql.includes("max delivery attempts")) {
+      const maxAttempts = Number(params[3]);
+      const dead = this.rows.filter((row) => row.tenant_id === params[1] && row.session_id === params[2] && row.status === "queued" && row.attempt_count >= maxAttempts);
+      for (const row of dead) {
+        row.status = "expired";
+        row.last_error = "max delivery attempts exceeded";
+      }
+      return { rows: [], rowCount: dead.length };
+    }
+    if (sql.startsWith("SELECT 1 FROM agent_mailbox_messages")) {
+      const useInputType = sql.includes("input_type=$");
+      const useThreadKey = sql.includes("target_thread_key=$");
+      const inputType = useInputType ? params[2] : null;
+      const threadKey = useThreadKey ? params[useInputType ? 3 : 2] : null;
+      const matched = this.rows.filter((row) =>
+        row.tenant_id === params[0] && row.session_id === params[1]
+        && ["queued", "claimed"].includes(row.status)
+        && (inputType == null || row.input_type === inputType)
+        && (threadKey == null || row.target_thread_key === threadKey));
+      return { rows: matched.length > 0 ? [{ "?column?": 1 }] : [] };
+    }
+    if (sql.includes("SELECT DISTINCT session_id FROM agent_mailbox_messages")) {
+      const [tenantId, now, limit] = params;
+      const ids = [...new Set(this.rows
+        .filter((row) => row.tenant_id === tenantId
+          && (row.status === "queued" || (row.status === "claimed" && row.claim_expires_at != null && row.claim_expires_at <= now))
+          && row.available_at <= now && (row.expires_at == null || row.expires_at > now))
+        .map((row) => row.session_id))];
+      return { rows: ids.slice(0, limit).map((session_id) => ({ session_id })), rowCount: ids.length };
     }
     if (sql.includes("status='expired'")) return { rows: [], rowCount: 0 };
     if (sql.includes("status='queued'")) return { rows: [], rowCount: 0 };
@@ -152,19 +182,19 @@ test("SaaS Agent mailbox fences tenant, target tuple, and claim retry", async ()
   await assert.rejects(() => mailbox.enqueue(messageInput({ sessionId: "session-2" })), /conflict/);
 
   const wrongTarget = await mailbox.claim({
-    sessionId: "session-1", targetRunId: "target-run", targetAgentCallId: "target-call",
+    sessionId: "session-1",
     targetThreadKey: "other-thread", targetChildAgentId: "child-1",
     claimId: "claim-wrong", consumerId: "worker-wrong", now: "2026-01-01T00:00:00.000Z",
   });
   assert.deepEqual(wrongTarget, []);
   const claimed = await mailbox.claim({
-    sessionId: "session-1", targetRunId: "target-run", targetAgentCallId: "target-call",
+    sessionId: "session-1",
     targetThreadKey: "child:worker", targetChildAgentId: "child-1",
     claimId: "claim-1", consumerId: "worker-1", now: "2026-01-01T00:00:00.000Z",
   });
   assert.deepEqual(claimed.map((item) => item.message_id), ["message-1"]);
   const retry = await mailbox.claim({
-    sessionId: "session-1", targetRunId: "different-run", targetAgentCallId: "different-call",
+    sessionId: "session-1",
     targetThreadKey: "different-thread", targetChildAgentId: "different-child",
     claimId: "claim-1", consumerId: "worker-1-retry", now: "2026-01-01T00:00:00.000Z",
   });
@@ -208,4 +238,98 @@ test("PostgreSQL Agent mailbox v3 migrates pending user messages", () => {
   assert.equal(migration?.name, "migrate_pending_user_messages");
   assert.match(migration?.sql ?? "", /ON CONFLICT \(tenant_id, message_id\) DO NOTHING/);
   assert.match(migration?.sql ?? "", /followup_pending/);
+});
+
+test("SaaS Agent mailbox dead-letters queued rows that exhausted delivery attempts", async () => {
+  const executor = new FakeExecutor();
+  const mailbox = new PostgresAgentMailboxRepository("tenant-1", executor);
+  await mailbox.enqueue(messageInput({
+    targetRunId: null,
+    targetAgentCallId: null,
+    targetChildAgentId: null,
+    targetThreadKey: "root",
+  }));
+  executor.rows[0].attempt_count = 20;
+  const claimed = await mailbox.claim({
+    sessionId: "session-1",
+    targetThreadKey: "root",
+    claimId: "claim-dead",
+    consumerId: "worker",
+    now: "2026-01-01T00:00:00.000Z",
+  });
+  assert.deepEqual(claimed, []);
+  assert.equal(executor.rows[0].status, "expired");
+  assert.equal(executor.rows[0].last_error, "max delivery attempts exceeded");
+  const deadLetterSql = executor.queries.find((query) => query.sql.includes("max delivery attempts"))?.sql;
+  assert.match(deadLetterSql ?? "", /attempt_count >= \$4/);
+  // 死信行不再进入滞留会话扫描。
+  assert.deepEqual(await mailbox.listPendingSessions({ now: "2026-01-01T00:00:00.000Z" }), []);
+});
+
+test("SaaS Agent mailbox lists sessions with claimable queued rows", async () => {
+  const executor = new FakeExecutor();
+  const mailbox = new PostgresAgentMailboxRepository("tenant-1", executor);
+  await mailbox.enqueue(messageInput({
+    targetRunId: null,
+    targetAgentCallId: null,
+    targetChildAgentId: null,
+    targetThreadKey: "root",
+  }));
+  await mailbox.enqueue(messageInput({
+    messageId: "message-2",
+    sessionId: "session-2",
+    targetRunId: null,
+    targetAgentCallId: null,
+    targetChildAgentId: null,
+    targetThreadKey: "root",
+  }));
+  assert.deepEqual(await mailbox.listPendingSessions({ now: "2026-01-01T00:00:00.000Z" }), ["session-1", "session-2"]);
+  await mailbox.settle({ sessionId: "session-1", messageId: "message-1" });
+  assert.deepEqual(await mailbox.listPendingSessions({ now: "2026-01-01T00:00:00.000Z" }), ["session-2"]);
+});
+
+test("SaaS Agent mailbox existsPending counts queued and claimed rows without an availability window", async () => {
+  const executor = new FakeExecutor();
+  const mailbox = new PostgresAgentMailboxRepository("tenant-1", executor);
+  await mailbox.enqueue(messageInput({
+    messageId: "goalcont-1",
+    inputType: "goal_continuation",
+    sourceKind: "system",
+    visibleToUser: false,
+    targetRunId: null,
+    targetAgentCallId: null,
+    targetChildAgentId: null,
+    targetThreadKey: "root",
+  }));
+  await mailbox.enqueue(messageInput({
+    messageId: "note-1",
+    inputType: "system_notification",
+    sourceKind: "system",
+    visibleToUser: false,
+    targetRunId: null,
+    targetAgentCallId: null,
+    targetChildAgentId: null,
+    targetThreadKey: "root",
+  }));
+
+  assert.equal(await mailbox.existsPending({ sessionId: "session-1", inputType: "goal_continuation", targetThreadKey: "root" }), true);
+  assert.equal(await mailbox.existsPending({ sessionId: "session-1", inputType: "system_notification" }), true);
+  assert.equal(await mailbox.existsPending({ sessionId: "session-1", inputType: "user_message" }), false);
+  // claimed 行计入（正在消费不生产新一代）。
+  await mailbox.claim({
+    sessionId: "session-1",
+    targetThreadKey: "root",
+    claimId: "claim-g",
+    consumerId: "worker",
+    now: "2026-01-01T00:00:00.000Z",
+  });
+  assert.equal(await mailbox.existsPending({ sessionId: "session-1", inputType: "goal_continuation", targetThreadKey: "root" }), true);
+  // settle 后不再计入。
+  await mailbox.settle({ sessionId: "session-1", messageId: "goalcont-1" });
+  assert.equal(await mailbox.existsPending({ sessionId: "session-1", inputType: "goal_continuation", targetThreadKey: "root" }), false);
+  assert.equal(await mailbox.existsPending({ sessionId: "session-1" }), true);
+  // 谓词不带 available_at 窗口（退避中的行也是待交付工作）。
+  const existsSql = executor.queries.filter((query) => query.sql.startsWith("SELECT 1 FROM agent_mailbox_messages")).at(-1)?.sql ?? "";
+  assert.match(existsSql, /status IN \('queued','claimed'\)/);
+  assert.doesNotMatch(existsSql, /available_at/);
 });

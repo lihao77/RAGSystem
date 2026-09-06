@@ -267,9 +267,8 @@ describe("background child-agent delegation", () => {
       expiresAt: expect.any(String),
     }));
     expect(wakeup).toHaveBeenCalledWith(expect.objectContaining({
-      targetRunId: "parent-run",
-      targetAgentCallId: "parent-call",
       targetThreadKey: "root",
+      targetChildAgentId: null,
     }));
   });
 
@@ -434,8 +433,6 @@ describe("background child-agent delegation", () => {
       }),
     }));
     expect(wakeup).toHaveBeenCalledWith(expect.objectContaining({
-      targetRunId: "child-run",
-      targetAgentCallId: "child-call",
       targetThreadKey: child.thread_key,
       targetChildAgentId: child.child_agent_id,
     }));
@@ -596,6 +593,8 @@ describe("background child-agent delegation", () => {
       parentCallId: "parent-tool-call",
       lineageParentCallId: "parent-call",
     });
+    // 槽位语义（§10.4 第七轮）：旧 run 收尾释放槽位后，续跑才登记。
+    service.releaseParticipantRun({ childAgentId: child.child_agent_id, runId: "completed-child-run" });
     const registration = service.registerParticipantRun({
       sessionId: "session-1",
       childAgentId: child.child_agent_id,
@@ -605,7 +604,6 @@ describe("background child-agent delegation", () => {
       parentRunId: "parent-run",
       parentCallId: "parent-tool-call",
       lineageParentCallId: "parent-call",
-      replacesRunId: "completed-child-run",
     });
     await waitFor(() => (service as any).activeChildRuns.get(child.child_agent_id)?.runId === "mailbox-continuation-run");
 
@@ -664,13 +662,11 @@ describe("background child-agent delegation", () => {
         ...route,
         runId: "continuation-a",
         rootRunId: "continuation-a",
-        replacesRunId: "completed-child-run",
       }),
       second.registerParticipantRun({
         ...route,
         runId: "continuation-b",
         rootRunId: "continuation-b",
-        replacesRunId: "completed-child-run",
       }),
     ]);
 
@@ -740,9 +736,14 @@ describe("background child-agent delegation", () => {
       input: { agentName: "worker", task: "do work", callId: "parent-call" },
     }, context(new AbortController().signal));
 
-    expect(invoke).toHaveBeenCalledWith(expect.objectContaining({
-      participantExpectedLastRunId: null,
-    }));
+    // §10.4 第七轮：participantExpectedLastRunId 退役，委派创建不再携带 run 级预期值。
+    const childInvocations = (invoke.mock.calls as unknown as Array<[Record<string, unknown>]>)
+      .map((call) => call[0])
+      .filter((input) => input.scope === "child");
+    expect(childInvocations.length).toBeGreaterThan(0);
+    for (const input of childInvocations) {
+      expect(input).not.toHaveProperty("participantExpectedLastRunId");
+    }
   });
 
   it("does not fork a suspended child when sending a follow-up", async () => {
@@ -1053,16 +1054,12 @@ describe("background child-agent delegation", () => {
     }));
     expect(wakeup).toHaveBeenCalledWith(expect.objectContaining({
       sessionId: "session-1",
-      targetRunId: "parent-run",
-      targetAgentCallId: "parent-agent-call",
       targetThreadKey: "root",
-      targetAgentName: "parent",
+      targetChildAgentId: null,
     }));
     expect(wakeup).toHaveBeenCalledWith(expect.objectContaining({
+      targetThreadKey: child.thread_key,
       targetChildAgentId: child.child_agent_id,
-      targetAgentName: child.agent_name,
-      sourceMessageId: "queued-child-request",
-      correlationId: "corr-stop",
     }));
   });
 
@@ -1282,6 +1279,8 @@ describe("background child-agent delegation", () => {
       result_type: "agent_delegation_result",
       kind: "agent",
       cancel_supported: true,
+      initiator_thread_key: null,
+      initiator_child_agent_id: null,
     });
 
     expect(delegationStore.updateRunStatus).toHaveBeenCalledWith(
@@ -1298,7 +1297,7 @@ describe("background child-agent delegation", () => {
       kind: "result",
       metadata: expect.objectContaining({ recovered: true, status: "interrupted" }),
     }));
-    expect(wakeup).toHaveBeenCalledWith(expect.objectContaining({ targetRunId: "parent-run" }));
+    expect(wakeup).toHaveBeenCalledWith(expect.objectContaining({ targetThreadKey: "root", targetChildAgentId: null }));
   });
 
   it("preserves a completed child and reuses an already persisted terminal mailbox result during recovery", async () => {
@@ -1362,13 +1361,15 @@ describe("background child-agent delegation", () => {
       result_type: "agent_delegation_result",
       kind: "agent",
       cancel_supported: true,
+      initiator_thread_key: null,
+      initiator_child_agent_id: null,
     });
 
     expect(get).toHaveBeenCalledWith("session-1", "child-run:terminal_result");
     expect(enqueue).not.toHaveBeenCalled();
     expect(wakeup).toHaveBeenCalledWith(expect.objectContaining({
-      targetRunId: "parent-run",
-      targetAgentCallId: "parent-agent-call",
+      targetThreadKey: "root",
+      targetChildAgentId: null,
     }));
   });
 

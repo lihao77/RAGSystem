@@ -12,7 +12,9 @@ import type {
   AgentMailboxMessage,
   AgentMailboxStorePort,
   AgentMailboxWakeupTarget,
+  EnqueueAgentMailboxMessageInput,
 } from "../../../contracts/storage/agent-mailbox-repository.js";
+import { mailboxRetryBackoffMs } from "../../../contracts/storage/agent-mailbox-repository.js";
 import type { ExecutionResultReader } from "../../../contracts/execution/execution-storage.js";
 import type { ExecutionSessionPort } from "../../../contracts/session/session-application.js";
 import type { BackgroundTaskService } from "../../runtime/background-task-service.js";
@@ -25,54 +27,107 @@ import { resolveExecutionAgentFor, type ReadinessResolution } from "./readiness.
 import { readSessionRequestOverrides, type SessionRequestOverrides } from "./session-request-overrides.js";
 import type { RuntimeExecutionConfigResolver } from "./runtime-core-service.js";
 import type { AgentExecutionStatusTracker } from "./status-tracker.js";
-import type { RunInfo } from "../../../contracts/conversation-store/index.js";
 import type { TenantId } from "../../../identity/types.js";
-import { asString } from "./helpers.js";
+import { checkSessionBusy } from "./session-business.js";
+
+/** 消费组件错误日志出口（与 AgentDelegationLogger 同形）；缺省落 console.error，不静默。 */
+export interface SessionMailboxLogger {
+  error(bindings: Record<string, unknown>, message: string): void;
+}
+
+const consoleMailboxLogger: SessionMailboxLogger = {
+  error: (bindings, message) => {
+    const detail = Object.entries(bindings)
+      .map(([key, value]) => `${key}=${value instanceof Error ? value.message : String(value)}`)
+      .join(" ");
+    console.error(`[session-mailbox-consumer] ${message}${detail ? ` ${detail}` : ""}`);
+  },
+};
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 
 /**
- * 统一队列的唯一消费组件（§10 最终架构）：会话空闲检查（onSessionIdle /
- * triggerBgNotificationRun）与收件人唤醒快路径（onMailboxWakeup /
- * triggerAgentMailboxRun）两个触发口，共享同一套守卫、同一个续跑函数与同一个
- * Agent 解析点。两触发口不可合一：唤醒路径须能在 root run 运行期间拉起子 Agent
- * 续跑，空闲检查遇到运行中会话早退，可达集不同。运行中消息的另一认领方是活动
- * run 的 refresh（runtime-adapter），那是"running 情况"的本体，不在此组件内。
+ * 统一队列的消费组件（§10.4 第五/六/七轮定稿）：交付只有按收件分支一个谓词。
+ *
+ * - 主分支（root）：会话空闲检查（onSessionIdle / triggerBgNotificationRun）为闸门——
+ *   认领 root 分支在途行，空闲则一个 run 全量消化（头行引用、伴随行物化）；
+ *   运行中由活动 run 的 refresh 认领（runtime-adapter，不在此组件内）。
+ * - 子分支（child:<id>）：收件人唤醒（triggerAgentMailboxRun）为闸门——查该线程
+ *   现任执行（getLatestThreadRun），无活动执行则认领头行起接续 run。唤醒是
+ *   无状态敲门：触发可多源并发重复，认领互斥天然分出胜负，本地 Map 仅作性能
+ *   合并，不承担正确性。
+ * - run 级簿记（replacesRunId / participantExpectedLastRunId / mailboxTargetRunId
+ *   透传 / findPendingMailboxTarget 过期重解析）已全部退役：对话上下文=线程历史，
+ *   每次执行自行读取。
+ * - 触发闭环兜底：core-runtime-container 周期扫描有排队行的会话补触发
+ *   （listPendingSessions），事件链崩溃后行不滞留。
  */
 export class SessionMailboxConsumer {
-  private readonly idleLaunches = new Set<string>();
+  private readonly idleLaunches = new Map<string, IdleLaunchState>();
   private readonly mailboxLaunches = new Map<string, MailboxLaunchState>();
 
   constructor(private readonly deps: SessionMailboxConsumerDeps) {}
 
+  private logError(bindings: Record<string, unknown>, message: string): void {
+    (this.deps.logger ?? consoleMailboxLogger).error(bindings, message);
+  }
+
   /**
-   * BackgroundTaskService 的单一 session-level trigger 消费者。本地 Set 合并同一进程的
-   * 重复 idle 事件，GoalStore.claimContinuation 再用持久化 generation/pending 防止多实例
-   * 重复续跑。只有 root run、后台任务和待消费通知都空闲时，active Goal 才会续跑。
+   * BackgroundTaskService 的单一 session-level trigger 消费者。本地 Map 合并同一进程的
+   * 重复 idle 事件（处理中到达的触发合并为一次补跑），GoalStore.claimContinuation 再用
+   * 持久化 generation/pending 防止多实例重复续跑。主智能体空闲（无活动 root run、
+   * 无它自己发起的后台任务）时，active Goal 才会续跑（§10.4 第五轮）。
    */
   triggerBgNotificationRun(sessionId: string): void {
     const normalizedSessionId = sessionId.trim();
-    if (!normalizedSessionId || this.idleLaunches.has(normalizedSessionId)) return;
-    this.idleLaunches.add(normalizedSessionId);
-    void this.startSessionIdleRun(normalizedSessionId)
-      .catch(() => undefined)
-      .finally(() => this.idleLaunches.delete(normalizedSessionId));
-  }
-
-  /** Wake one exact participant target for queued Agent communication. */
-  triggerAgentMailboxRun(target: AgentMailboxWakeupTarget): void {
-    const sessionId = target.sessionId.trim();
-    const targetRunId = target.targetRunId.trim();
-    if (!sessionId || !targetRunId) return;
-    const key = `${sessionId}:${targetRunId}:${target.targetAgentCallId ?? ""}`;
-    const existing = this.mailboxLaunches.get(key);
+    if (!normalizedSessionId) return;
+    const existing = this.idleLaunches.get(normalizedSessionId);
     if (existing) {
-      existing.target = target;
       existing.dirty = true;
       return;
     }
-    const state: MailboxLaunchState = { target, dirty: false };
+    const state: IdleLaunchState = { dirty: false };
+    this.idleLaunches.set(normalizedSessionId, state);
+    void this.startSessionIdleRun(normalizedSessionId)
+      .catch((error) => {
+        this.logError({ sessionId: normalizedSessionId, error: errorMessage(error) }, "session idle run failed");
+      })
+      .finally(() => {
+        if (this.idleLaunches.get(normalizedSessionId) !== state) return;
+        this.idleLaunches.delete(normalizedSessionId);
+        if (state.dirty) this.triggerBgNotificationRun(normalizedSessionId);
+      });
+  }
+
+  /**
+   * 收件人唤醒（纯线程寻址）：无状态调用该线程的闸门。并发重复触发由认领互斥分出
+   * 胜负；本地 Map 只合并同进程在飞的触发（性能优化，非正确性依赖）。
+   */
+  triggerAgentMailboxRun(target: AgentMailboxWakeupTarget): void {
+    // ?? 兜底：目标形状由多方构造，缺字段时按空串短路而非抛 TypeError（曾致
+    // 测试桩噪音），正确调用方不受影响。
+    const sessionId = (target.sessionId ?? "").trim();
+    const threadKey = (target.targetThreadKey ?? "").trim();
+    if (!sessionId || !threadKey) return;
+    // root 分支的唯一闸门是空闲检查（批量消化/单舞台），不走线程闸门。
+    if (threadKey === "root") {
+      this.triggerBgNotificationRun(sessionId);
+      return;
+    }
+    const key = `${sessionId}:${threadKey}`;
+    const existing = this.mailboxLaunches.get(key);
+    if (existing) {
+      existing.dirty = true;
+      return;
+    }
+    const state: MailboxLaunchState = { target: { ...target, sessionId, targetThreadKey: threadKey }, dirty: false };
     this.mailboxLaunches.set(key, state);
-    void this.drainAgentMailboxTarget(state)
-      .catch(() => undefined)
+    void this.drainThreadMailbox(state)
+      .catch((error) => {
+        this.logError({ sessionId, threadKey, error: errorMessage(error) }, "agent mailbox drain failed");
+      })
       .finally(() => {
         if (this.mailboxLaunches.get(key) !== state) return;
         this.mailboxLaunches.delete(key);
@@ -85,273 +140,245 @@ export class SessionMailboxConsumer {
     if (!mailbox || !runReader || !input.parentRunId) return;
     const parent = await runReader.getRun(input.sessionId, input.parentRunId);
     if (!parent) return;
+    // 完成路径与恢复扫描可能竞写同一确定性 id：先查复用，消灭同 id 异形状的
+    // 第二写方（已存在的排队行只需唤醒，认领中的行正在被消费）。
+    const resultMessageId = `${input.sourceRunId}:terminal_result`;
+    const existing = await mailbox.get(input.sessionId, resultMessageId);
+    if (existing) {
+      if (existing.status === "queued") this.wakeRowRecipient(existing);
+      return;
+    }
     const repliedMessage = input.replyToMessageId && !input.correlationId
       ? await mailbox.get(input.sessionId, input.replyToMessageId)
       : null;
     const content = input.outcome.content.trim()
       || (input.outcome.success ? "子 Agent 已完成消息处理" : "子 Agent 消息处理失败");
-    const queued = await mailbox.enqueue({
-      messageId: `${input.sourceRunId}:terminal_result`,
-      tenantId: this.deps.tenantId,
-      sessionId: input.sessionId,
-      sourceRunId: input.sourceRunId,
-      sourceAgentCallId: input.sourceAgentCallId,
-      targetRunId: parent.run_id,
-      targetAgentCallId: parent.agent_call_id,
-      targetThreadKey: parent.thread_key,
-      targetChildAgentId: parent.child_agent_id,
-      kind: "result",
-      correlationId: input.correlationId
-        ?? repliedMessage?.correlation_id
-        ?? input.replyToMessageId
-        ?? input.sourceAgentCallId,
-      replyToMessageId: input.replyToMessageId ?? null,
-      contentParts: input.outcome.contentParts?.length
-        ? input.outcome.contentParts
-        : [{ type: "text", text: content }],
-      metadata: {
-        source: "agent_message_continuation_result",
-        direction: "child_to_parent",
-        source_agent_name: input.sourceAgentName,
-        source_child_agent_id: input.sourceChildAgentId,
-        child_agent_id: input.sourceChildAgentId,
-        child_run_id: input.sourceRunId,
-        child_agent_call_id: input.sourceAgentCallId,
-        target_agent_name: parent.agent_name,
-        target_child_agent_id: parent.child_agent_id,
-        target_thread_key: parent.thread_key,
-        target_root_run_id: parent.lease_root_run_id,
-        target_parent_run_id: parent.parent_run_id,
-        target_parent_call_id: parent.parent_call_id,
-        target_parent_agent_call_id: parent.lineage_parent_call_id,
-        target_lineage_parent_call_id: parent.lineage_parent_call_id,
-        status: input.outcome.success ? "completed" : "failed",
-        success: input.outcome.success,
-        visible_to_user: false,
-      },
-    });
+    let queued: AgentMailboxMessage;
+    try {
+      queued = await mailbox.enqueue({
+        messageId: resultMessageId,
+        tenantId: this.deps.tenantId,
+        sessionId: input.sessionId,
+        sourceRunId: input.sourceRunId,
+        sourceAgentCallId: input.sourceAgentCallId,
+        // 地址=纯分支（§10.4 第七轮）：run 引用仅作溯源审计留在 metadata。
+        targetThreadKey: parent.thread_key,
+        targetChildAgentId: parent.child_agent_id,
+        kind: "result",
+        correlationId: input.correlationId
+          ?? repliedMessage?.correlation_id
+          ?? input.replyToMessageId
+          ?? input.sourceAgentCallId,
+        replyToMessageId: input.replyToMessageId ?? null,
+        contentParts: input.outcome.contentParts?.length
+          ? input.outcome.contentParts
+          : [{ type: "text", text: content }],
+        metadata: {
+          source: "agent_message_continuation_result",
+          direction: "child_to_parent",
+          source_agent_name: input.sourceAgentName,
+          source_child_agent_id: input.sourceChildAgentId,
+          child_agent_id: input.sourceChildAgentId,
+          child_run_id: input.sourceRunId,
+          child_agent_call_id: input.sourceAgentCallId,
+          target_agent_name: parent.agent_name,
+          target_child_agent_id: parent.child_agent_id,
+          target_thread_key: parent.thread_key,
+          target_run_id: parent.run_id,
+          target_agent_call_id: parent.agent_call_id,
+          target_root_run_id: parent.lease_root_run_id,
+          target_parent_run_id: parent.parent_run_id,
+          target_parent_call_id: parent.parent_call_id,
+          target_parent_agent_call_id: parent.lineage_parent_call_id,
+          target_lineage_parent_call_id: parent.lineage_parent_call_id,
+          status: input.outcome.success ? "completed" : "failed",
+          success: input.outcome.success,
+          visible_to_user: false,
+        },
+      });
+    } catch (error) {
+      // 先查复用消灭了大部分同 id 竞写，但两次 outcome 内容不同时存储层仍按
+      // identity 冲突拒绝插入——回读既有行复用（先到者胜），不上抛。
+      const raced = await mailbox.get(input.sessionId, resultMessageId).catch(() => null);
+      if (!raced) throw error;
+      queued = raced;
+    }
+    this.wakeRowRecipient(queued);
+  }
+
+  /** 行→收件线程唤醒：root 分支走空闲检查闸门，子分支走线程闸门。 */
+  private wakeRowRecipient(row: AgentMailboxMessage): void {
+    if (row.target_thread_key === "root") {
+      this.triggerBgNotificationRun(row.session_id);
+      return;
+    }
     this.triggerAgentMailboxRun({
-      sessionId: input.sessionId,
-      targetRunId: parent.run_id,
-      targetAgentCallId: parent.agent_call_id,
-      targetThreadKey: parent.thread_key,
-      targetChildAgentId: parent.child_agent_id,
-      targetAgentName: parent.agent_name,
-      targetRootRunId: parent.lease_root_run_id,
-      targetParentRunId: parent.parent_run_id,
-      targetParentCallId: parent.parent_call_id,
-      targetLineageParentCallId: parent.lineage_parent_call_id,
-      sourceMessageId: queued.message_id,
-      correlationId: queued.correlation_id,
+      sessionId: row.session_id,
+      targetThreadKey: row.target_thread_key,
+      targetChildAgentId: row.target_child_agent_id,
     });
   }
 
-  private async durableActiveRunId(sessionId: string): Promise<string | null> {
-    return (await this.deps.runtimeStorage.operations.getActiveRootRun?.(sessionId))?.runId ?? null;
-  }
-
-  private resolveExecutionAgent(input: {
-    agentName?: string | null;
-    teamSnapshot: SessionIdentity["teamSnapshot"];
-    selectedLlm?: string | null;
-  }): ReadinessResolution {
-    return resolveExecutionAgentFor(this.deps.runtimeCore, input);
-  }
-
-  private async drainAgentMailboxTarget(state: MailboxLaunchState): Promise<void> {
+  private async drainThreadMailbox(state: MailboxLaunchState): Promise<void> {
     for (;;) {
       state.dirty = false;
-      const disposition = await this.startAgentMailboxRun(state.target);
+      const disposition = await this.startThreadRun(state.target);
       if (disposition === "deferred") {
         if (state.dirty) continue;
         return;
       }
       if (disposition !== "completed") return;
-      const next = await this.findStablePendingMailboxTarget(state);
+      const pending = await this.deps.mailbox?.listPending?.({
+        sessionId: state.target.sessionId,
+        targetThreadKey: state.target.targetThreadKey,
+        targetChildAgentId: state.target.targetChildAgentId,
+        limit: 1,
+      }) ?? [];
+      const next = pending[0];
       if (!next) return;
-      state.target = next;
+      state.target = {
+        sessionId: state.target.sessionId,
+        targetThreadKey: state.target.targetThreadKey,
+        targetChildAgentId: next.target_child_agent_id ?? state.target.targetChildAgentId,
+      };
     }
   }
 
-  private async findStablePendingMailboxTarget(
-    state: MailboxLaunchState,
-  ): Promise<AgentMailboxWakeupTarget | null> {
-    state.dirty = false;
-    const pending = await this.findPendingMailboxTarget(state.target);
-    if (pending) return pending;
-    return state.dirty ? state.target : null;
-  }
-
-  private async findPendingMailboxTarget(
-    target: AgentMailboxWakeupTarget,
-  ): Promise<AgentMailboxWakeupTarget | null> {
-    const pending = await this.deps.mailbox?.listPending?.({
-      sessionId: target.sessionId,
-      targetRunId: target.targetRunId,
-      targetAgentCallId: target.targetAgentCallId,
-      targetThreadKey: target.targetThreadKey,
-      targetChildAgentId: target.targetChildAgentId,
-      limit: 1,
-    }) ?? [];
-    const first = pending[0];
-    return first?.target_run_id ? toMailboxWakeupTarget(first) : null;
-  }
-
-  private async startAgentMailboxRun(target: AgentMailboxWakeupTarget): Promise<MailboxLaunchDisposition> {
-    const { backgroundTasks, mailbox, runReader, sessions, invocationService, participantRuns, statusTracker } = this.deps;
-    const targetsChild = Boolean(target.targetChildAgentId);
-    if (!targetsChild) {
-      const currentStatus = statusTracker.getStatusBySession(target.sessionId)?.status;
-      if (currentStatus === "running" || currentStatus === "suspended") return "deferred";
-      if (await this.durableActiveRunId(target.sessionId)) return "deferred";
-      if (await backgroundTasks?.hasRunningTasksDurable(target.sessionId)) return "deferred";
-    }
+  /**
+   * 子线程闸门（§10.4 第七轮）：一次决策只做三件事——查线程现任执行、认领在途
+   * 头行、无活动执行则以该行为初始输入起接续 run。不携带也不比较任何 run 级
+   * 预期值；并发触发由认领互斥分出胜负，现任执行运行中则交给其 refresh。
+   */
+  private async startThreadRun(target: AgentMailboxWakeupTarget): Promise<MailboxLaunchDisposition> {
+    const { backgroundTasks, mailbox, runReader, sessions, invocationService, participantRuns } = this.deps;
     if (!mailbox || !runReader) return "skipped";
-    const durableTarget = await runReader.getRun(target.sessionId, target.targetRunId);
-    if (!durableTarget) return "skipped";
-    if (!mailboxTargetMatchesRun(target, durableTarget)) return "skipped";
-    if (durableTarget.status === "running" || durableTarget.status === "suspended") return "deferred";
-    if (!target.sourceMessageId) {
-      const pendingTarget = await this.findPendingMailboxTarget(target);
-      if (!pendingTarget) return "skipped";
-      target = pendingTarget;
+    const getLatestThreadRun = this.deps.runtimeStorage.operations.getLatestThreadRun;
+    if (!getLatestThreadRun) return "skipped";
+    const latest = await getLatestThreadRun.call(this.deps.runtimeStorage.operations, target.sessionId, target.targetThreadKey);
+    if (!latest) {
+      // 线程无执行历史：正常数据流不可达（委派先建 run、bgnotify 发起者取自运行
+      // 线程），多为手工写库/损坏数据。认领计一次 attempt 后释放，让队列死信
+      // 机制封顶空转，而不是 60s 扫描无限重敲。
+      const orphans = await mailbox.claim({
+        sessionId: target.sessionId,
+        targetThreadKey: target.targetThreadKey,
+        ...(target.targetChildAgentId ? { targetChildAgentId: target.targetChildAgentId } : {}),
+        claimId: `thread_gate_${randomUUID()}`,
+        consumerId: `thread_gate:${process.pid}:${randomUUID()}`,
+        limit: 1,
+      });
+      if (orphans[0]) {
+        await this.releaseNotifications(target.sessionId, [orphans[0]], new Error("thread has no run history"));
+      }
+      return "skipped";
     }
-    const sourceMessage = target.sourceMessageId
-      ? await mailbox.get(target.sessionId, target.sourceMessageId)
-      : null;
-    if (!sourceMessage || sourceMessage.status !== "queued") return "skipped";
-    const durableSourceTarget = toMailboxWakeupTarget(sourceMessage);
-    if (!mailboxTargetMatchesRun(durableSourceTarget, durableTarget)) return "skipped";
-    target = durableSourceTarget;
-    const session = await sessions.getSession(target.sessionId);
-    if (!session) return "skipped";
-    const sessionIdentity = toSessionIdentity(session);
-    // 会话级设定（模型/思考档位）只作用于主智能体（替换 default 档）；子 Agent
-    // 续跑走自己的 tier 配置，与 delegation 同口径。Agent 解析与其他渠道共用
-    // resolveExecutionAgent（agentName 来自目标 run 记录）。
-    const sessionOverrides = readSessionRequestOverrides(sessionIdentity.metadata);
-    const rootSelectedLlm = targetsChild ? null : sessionOverrides.selectedLlm;
-    const ready = this.resolveExecutionAgent({
-      agentName: durableTarget.agent_name,
-      teamSnapshot: sessionIdentity.teamSnapshot,
-      selectedLlm: rootSelectedLlm,
-    });
-    if (!ready.ok) return "skipped";
-    const continuationIds = mailboxContinuationIds(target);
-    if (!continuationIds) return "skipped";
-    const { runId, taskId, rootCallId } = continuationIds;
-    const task = "处理来自 Agent 的消息，并继续当前任务。";
-    const base = {
-      mode: "create" as const,
-      execution: "background" as const,
+    if (latest.status === "running" || latest.status === "suspended") return "deferred";
+    const claimed = await mailbox.claim({
       sessionId: target.sessionId,
-      sessionIdentity,
-      runId,
-      taskId,
-      rootCallId,
-      requestId: `${MAILBOX_CONTINUATION_REQUEST_PREFIX}${target.sourceMessageId}`,
-      task,
-      // mailbox 续接无父工具上下文可继承，回退会话 owner 作为 run 用户身份。
-      userId: sessionIdentity.ownerUserId,
-      executionKind: "system.agent_message",
-      agent: ready.agent,
-      provider: ready.provider,
-      modelName: ready.modelName,
-      mailboxTargetRunId: target.targetRunId,
-      mailboxTargetAgentCallId: target.targetAgentCallId,
-    };
+      targetThreadKey: target.targetThreadKey,
+      ...(target.targetChildAgentId ? { targetChildAgentId: target.targetChildAgentId } : {}),
+      claimId: `thread_gate_${randomUUID()}`,
+      consumerId: `thread_gate:${process.pid}:${randomUUID()}`,
+      limit: 1,
+    });
+    const source = claimed[0];
+    if (!source) return "skipped";
+    let claimedRows: AgentMailboxMessage[] = [source];
+    const session = await sessions.getSession(target.sessionId);
+    if (!session) {
+      await this.releaseNotifications(target.sessionId, claimedRows, new Error("session not found"));
+      return "skipped";
+    }
+    const sessionIdentity = toSessionIdentity(session);
+    // 子 Agent 续走自己的 tier 配置（会话级设定只作用于主智能体）；Agent 解析与
+    // 其他渠道共用 resolveExecutionAgentFor（agentName 来自线程现任 run 记录）。
+    const ready = resolveExecutionAgentFor(this.deps.runtimeCore, {
+      agentName: latest.agent_name,
+      teamSnapshot: sessionIdentity.teamSnapshot,
+      selectedLlm: null,
+    });
+    if (!ready.ok) {
+      await this.releaseNotifications(target.sessionId, claimedRows, new Error("readiness failed"));
+      return "skipped";
+    }
+    const childAgentId = target.targetChildAgentId ?? latest.child_agent_id ?? undefined;
+    const { runId, taskId, rootCallId } = mailboxContinuationIds({
+      sessionId: target.sessionId,
+      threadKey: target.targetThreadKey,
+      childAgentId: childAgentId ?? null,
+      sourceMessageId: source.message_id,
+    });
+    const task = "处理来自 Agent 的消息，并继续当前任务。";
     let participantRegistered = false;
-    let completedChildTarget: AgentMailboxWakeupTarget | null = null;
     try {
-      if (target.targetChildAgentId) {
+      if (childAgentId) {
         await participantRuns.registerParticipantRun({
           sessionId: target.sessionId,
-          childAgentId: target.targetChildAgentId,
+          childAgentId,
           runId,
           agentCallId: rootCallId,
           rootRunId: runId,
-          parentRunId: target.targetParentRunId,
-          parentCallId: target.targetParentCallId,
-          lineageParentCallId: target.targetLineageParentCallId,
-          replacesRunId: target.targetRunId,
+          parentRunId: latest.parent_run_id,
+          parentCallId: latest.parent_call_id,
+          lineageParentCallId: latest.lineage_parent_call_id,
         });
         participantRegistered = true;
       }
-      const started = target.targetChildAgentId
-        ? invocationService.invoke({
-            ...base,
-            scope: "child",
-            startedAt: new Date(),
-            threadKey: target.targetThreadKey,
-            rootRunId: runId,
-            interactionRootCallId: target.targetAgentCallId ?? rootCallId,
-            parentRunId: target.targetParentRunId,
-            parentCallId: target.targetParentCallId,
-            lineageParentCallId: target.targetLineageParentCallId,
-            childAgentId: target.targetChildAgentId,
-            initialMessage: mailboxContinuationInitialMessage(sourceMessage, runId),
-            participantExpectedLastRunId: target.targetRunId,
-            initialMailboxMessageId: sourceMessage.message_id,
-            ownsRunLease: true,
-          })
-        : invocationService.invoke({
-            ...base,
-            scope: "root",
-            rootCallId,
-            ...(rootSelectedLlm ? { selectedLlm: { provider: ready.provider, modelName: ready.modelName } } : {}),
-            ...(sessionOverrides.thinkingLevel ? { thinkingLevel: sessionOverrides.thinkingLevel } : {}),
-            rootMailboxMessage: {
-              id: sourceMessage.message_id,
-              inputType: sourceMessage.input_type,
-              sourceKind: sourceMessage.source_kind,
-              visibleToUser: sourceMessage.visible_to_user,
-              sentAt: sourceMessage.sent_at ?? sourceMessage.created_at,
-              contentParts: sourceMessage.content_parts,
-              metadata: sourceMessage.metadata,
-            },
-          });
-      try {
-        await started.durableStarted;
-      } catch (error) {
-        if (!targetsChild && isActiveRootRunConflict(error)) return "deferred";
-        throw error;
-      }
+      const started = invocationService.invoke({
+        mode: "create",
+        execution: "background",
+        sessionId: target.sessionId,
+        sessionIdentity,
+        runId,
+        taskId,
+        rootCallId,
+        requestId: `${MAILBOX_CONTINUATION_REQUEST_PREFIX}${source.message_id}`,
+        task,
+        // 线程续接无父工具上下文可继承，回退会话 owner 作为 run 用户身份。
+        userId: sessionIdentity.ownerUserId,
+        executionKind: "system.agent_message",
+        agent: ready.agent,
+        provider: ready.provider,
+        modelName: ready.modelName,
+        scope: "child",
+        startedAt: new Date(),
+        threadKey: target.targetThreadKey,
+        rootRunId: runId,
+        interactionRootCallId: rootCallId,
+        parentRunId: latest.parent_run_id,
+        parentCallId: latest.parent_call_id,
+        lineageParentCallId: latest.lineage_parent_call_id,
+        childAgentId: childAgentId ?? null,
+        initialMessage: mailboxContinuationInitialMessage(source, runId),
+        initialMailboxMessageId: source.message_id,
+        ownsRunLease: true,
+      });
+      await started.durableStarted;
+      claimedRows = [];
       const outcome = await started.promise;
-      if (targetsChild && !outcome.suspended) {
-        completedChildTarget = {
-          ...target,
-          targetRunId: runId,
-          targetAgentCallId: rootCallId,
-          targetRootRunId: runId,
-        };
+      if (childAgentId && !outcome.suspended) {
         await this.completeAgentMailboxContinuation({
           sessionId: target.sessionId,
           sourceRunId: runId,
           sourceAgentCallId: rootCallId,
-          sourceAgentName: target.targetAgentName ?? ready.agent.agent_name,
-          sourceChildAgentId: target.targetChildAgentId!,
-          parentRunId: target.targetParentRunId,
-          correlationId: target.correlationId ?? null,
-          replyToMessageId: target.sourceMessageId ?? null,
+          sourceAgentName: latest.agent_name ?? ready.agent.agent_name,
+          sourceChildAgentId: childAgentId,
+          parentRunId: latest.parent_run_id,
+          correlationId: source.correlation_id,
+          replyToMessageId: source.reply_to_message_id ?? source.message_id,
           outcome,
         });
       }
       return outcome.suspended ? "skipped" : "completed";
+    } catch (error) {
+      await this.releaseNotifications(target.sessionId, claimedRows, error);
+      claimedRows = [];
+      throw error;
     } finally {
-      if (participantRegistered && target.targetChildAgentId) {
-        participantRuns.releaseParticipantRun({
-          childAgentId: target.targetChildAgentId,
-          runId,
-        });
+      if (participantRegistered && childAgentId) {
+        participantRuns.releaseParticipantRun({ childAgentId, runId });
       }
-      try {
-        if (completedChildTarget) {
-          const pending = await this.findPendingMailboxTarget(completedChildTarget);
-          if (pending) this.triggerAgentMailboxRun(pending);
-        }
-      } finally {
-        backgroundTasks?.scheduleAutoTrigger(target.sessionId);
-      }
+      backgroundTasks?.scheduleAutoTrigger(target.sessionId);
     }
   }
 
@@ -364,6 +391,7 @@ export class SessionMailboxConsumer {
       for (const run of runs.items) {
         if (
           run.entrypoint !== "system.agent_message"
+          || !run.run_id.startsWith("mailbox_")
           || !run.child_agent_id
           || !run.parent_run_id
           || !["completed", "failed", "interrupted"].includes(run.status)
@@ -381,9 +409,7 @@ export class SessionMailboxConsumer {
         }
         const existingResult = await mailbox.get(sessionId, `${run.run_id}:terminal_result`);
         if (existingResult) {
-          if (existingResult.status === "queued" && existingResult.target_run_id) {
-            this.triggerAgentMailboxRun(toMailboxWakeupTarget(existingResult));
-          }
+          if (existingResult.status === "queued") this.wakeRowRecipient(existingResult);
           continue;
         }
         const finalMessage = run.final_message_id
@@ -404,7 +430,7 @@ export class SessionMailboxConsumer {
           sourceChildAgentId: run.child_agent_id,
           parentRunId: run.parent_run_id,
           correlationId: sourceMessage.correlation_id,
-          replyToMessageId: sourceMessageId,
+          replyToMessageId: sourceMessage.reply_to_message_id ?? sourceMessageId,
           outcome: {
             content: finalMessage ? partsToPlainText(finalMessage.content_parts) : fallbackContent,
             contentParts: finalMessage?.content_parts ?? [{ type: "text", text: fallbackContent }],
@@ -420,7 +446,7 @@ export class SessionMailboxConsumer {
   private async startSessionIdleRun(sessionId: string): Promise<void> {
     const { backgroundTasks, goalStore, mailbox, sessions, statusTracker } = this.deps;
     let claimedGoal: Goal | null = null;
-    let claimedNotifications: AgentMailboxMessage[] = [];
+    let claimedMessages: AgentMailboxMessage[] = [];
     let releaseOwned = true;
     const releaseClaim = async (): Promise<void> => {
       if (!claimedGoal || !goalStore) return;
@@ -439,64 +465,27 @@ export class SessionMailboxConsumer {
           await goalStore.setContinuationReason(sessionId, currentGoal.id, reason);
         }
       };
-      const status = statusTracker.getStatusBySession(sessionId)?.status;
-      if (
-        status === "running"
-        || status === "suspended"
-      ) {
-        await markReason("run_still_running");
-        return;
-      }
-      if (await backgroundTasks?.hasRunningTasksDurable(sessionId)) {
-        await markReason("background_tasks_running");
-        return;
-      }
-      // 统一队列按优先级消费：排队用户消息 > 定向 run 唤醒 > 后台通知（与 goal 续跑
-      // 合并）。listPending 是全类型 FIFO——scan 而非只看首条，通知排在前时不会挡住
-      // 用户消息补跑。
+      // 交付只看收件分支（§10.4 第六/七轮）：子分支行转发线程闸门——运行中由其
+      // refresh 认领，已终止由闸门起接续。转发先于 busy 早退：主分支 run 运行期间
+      // 子分支行仍须有消费者（bgnotify 路由发起者后，root 繁忙不能阻塞子分支的
+      // 通知交付，否则滞留无上界）；root 分支行留给下方主智能体闸门消化。
       const pendingMailbox = await mailbox?.listPending?.({ sessionId, limit: 100 }) ?? [];
-      const firstUserMessage = pendingMailbox.find((message) => message.input_type === "user_message" && message.target_thread_key === "root");
-      if (firstUserMessage) {
-        const existingSession = await sessions.getSession(sessionId);
-        if (!existingSession) return;
-        const sessionIdentity = toSessionIdentity(existingSession);
-        // 排队用户消息的补跑同样走会话级设定：消息入队时的选择即当时落库的设定。
-        const overrides = readSessionRequestOverrides(sessionIdentity.metadata);
-        const ready = this.resolveExecutionAgent({
-          teamSnapshot: sessionIdentity.teamSnapshot,
-          selectedLlm: overrides.selectedLlm,
-        });
-        if (!ready.ok) return;
-        const started = this.deps.launchSystemRun({
-          sessionIdentity,
-          // 系统触发的 root run 无请求 identity，回退会话 owner 作为 run 用户身份
-          //（memory 等按 user 归属的工具依赖 ToolExecContext.userId）。
-          userId: sessionIdentity.ownerUserId,
-          requestId: `session_followup_${firstUserMessage.message_id}`,
-          task: "处理待接收的用户消息，并继续当前任务。",
-          executionKind: "session_followup",
-          ready,
-          overrides,
-          rootMailboxMessage: {
-            id: firstUserMessage.message_id,
-            inputType: firstUserMessage.input_type,
-            sourceKind: "user",
-            visibleToUser: firstUserMessage.visible_to_user,
-            sentAt: firstUserMessage.sent_at ?? firstUserMessage.created_at,
-            contentParts: firstUserMessage.content_parts,
-            metadata: firstUserMessage.metadata,
-          },
-        });
-        await started.durableStarted;
+      for (const message of pendingMailbox) {
+        if (message.target_thread_key !== "root") this.wakeRowRecipient(message);
+      }
+      const busyEarly = await checkSessionBusy(
+        { statusTracker, runtimeStorage: this.deps.runtimeStorage, backgroundTasks },
+        sessionId,
+      );
+      if (busyEarly) {
+        await markReason(busyEarly.reason === "run" ? "run_still_running" : "background_tasks_running");
         return;
       }
-      const firstTargeted = pendingMailbox.find((message) => message.target_run_id);
-      if (firstTargeted) {
-        this.triggerAgentMailboxRun(toMailboxWakeupTarget(firstTargeted));
-        return;
-      }
-      const hasIdleMessages = pendingMailbox.some(isIdleSystemMessage);
-      const hasQueuedGoal = pendingMailbox.some((message) => message.input_type === "goal_continuation");
+      const hasIdleMessages = pendingMailbox.some((message) => message.target_thread_key === "root");
+      // goal 行存在性走全量查询：listPending 只有 FIFO 头 100 条，root 积压超窗时
+      // 最新投递的 goal 行不可见，按窗口判断会重复生产新一代行、双计预算。
+      const hasQueuedGoal = await mailbox?.existsPending?.({ sessionId, inputType: "goal_continuation", targetThreadKey: "root" })
+        ?? pendingMailbox.some((message) => message.input_type === "goal_continuation");
       if (!hasIdleMessages && currentGoal?.status !== "active") {
         if (currentGoal) await markReason(currentGoal.status === "paused" ? "manual_paused" : "goal_not_active");
         return;
@@ -505,9 +494,9 @@ export class SessionMailboxConsumer {
       const existingSession = await sessions.getSession(sessionId);
       if (!existingSession) return;
       const sessionIdentity = toSessionIdentity(existingSession);
-      // goal 续跑 / 后台通知拉起的主智能体同走会话级设定（用户此前选定的模型与档位）。
+      // 主智能体的一切拉起渠道（用户补跑/通知/goal）同走会话级设定（用户此前选定的模型与档位）。
       const overrides = readSessionRequestOverrides(sessionIdentity.metadata);
-      const ready = this.resolveExecutionAgent({
+      const ready = resolveExecutionAgentFor(this.deps.runtimeCore, {
         teamSnapshot: sessionIdentity.teamSnapshot,
         selectedLlm: overrides.selectedLlm,
       });
@@ -518,16 +507,12 @@ export class SessionMailboxConsumer {
 
       // Session/agent readiness may require SaaS I/O. Claim only after those checks pass so a
       // configuration failure or an intervening user run does not consume a continuation attempt.
-      const readyStatus = statusTracker.getStatusBySession(sessionId)?.status;
-      if (
-        readyStatus === "running"
-        || readyStatus === "suspended"
-      ) {
-        await markReason("run_still_running");
-        return;
-      }
-      if (await backgroundTasks?.hasRunningTasksDurable(sessionId)) {
-        await markReason("background_tasks_running");
+      const busyAfterReady = await checkSessionBusy(
+        { statusTracker, runtimeStorage: this.deps.runtimeStorage, backgroundTasks },
+        sessionId,
+      );
+      if (busyAfterReady) {
+        await markReason(busyAfterReady.reason === "run" ? "run_still_running" : "background_tasks_running");
         return;
       }
       if (!hasQueuedGoal && currentGoal?.status === "active" && goalStore) {
@@ -541,10 +526,10 @@ export class SessionMailboxConsumer {
         });
       }
       // goal 生产者：预算门控（maxContinuations/maxNoProgress/租约）通过后向统一
-      // 队列投递一条 goal_continuation 等待行，消费与其他系统消息同通道（claim →
-      // 合并渲染 → durableStarted 后 ack）。循环由队列本身串行化：行被消费才起
-      // run，run 终态（scheduleAutoTrigger）才触发下一轮生产。预算已在 claim 时
-      // 计数，工作由持久行承载，投递成功即释放认领。
+      // 队列投递一条 goal_continuation 等待行（地址=主分支，§10.4 第六轮），
+      // 消费与其他系统消息同通道（claim → 合并渲染 → durableStarted 后 ack）。
+      // 循环由队列本身串行化：行被消费才起 run，run 终态（scheduleAutoTrigger）
+      // 才触发下一轮生产。预算已在 claim 时计数，工作由持久行承载，投递成功即释放认领。
       if (claimedGoal && mailbox) {
         await mailbox.enqueue({
           messageId: `goalcont_${claimedGoal.id}_${claimedGoal.continuation_generation}`,
@@ -570,61 +555,97 @@ export class SessionMailboxConsumer {
 
       // Re-read durable background work after the asynchronous continuation claim. If another
       // instance started work meanwhile, finally releases this claim for a later idle attempt.
-      if (await backgroundTasks?.hasRunningTasksDurable(sessionId)) {
-        await markReason("background_tasks_running");
+      const busyAfterClaim = await checkSessionBusy(
+        { statusTracker, runtimeStorage: this.deps.runtimeStorage, backgroundTasks },
+        sessionId,
+      );
+      if (busyAfterClaim) {
+        await markReason(busyAfterClaim.reason === "run" ? "run_still_running" : "background_tasks_running");
         return;
       }
-      // The durable gate above yields. Re-read local status after it resolves, then keep the
-      // remaining path synchronous through startRun so a same-process user run cannot interleave.
-      const latestStatus = statusTracker.getStatusBySession(sessionId)?.status;
-      if (latestStatus === "running" || latestStatus === "suspended") {
-        await markReason("run_still_running");
-        return;
+      claimedMessages = await this.claimIdleMessages(sessionId);
+      // goal 行消费前复核：生产后用户可能暂停/完成 goal，失效行 settle 跳过，
+      // 不对着过期快照多跑一轮。
+      if (claimedMessages.some((message) => message.input_type === "goal_continuation")) {
+        const latestGoal = await goalStore?.getCurrent(sessionId) ?? null;
+        if (latestGoal && latestGoal.status !== "active") {
+          for (const message of claimedMessages.filter((row) => row.input_type === "goal_continuation")) {
+            try {
+              await mailbox?.settle({ sessionId, messageId: message.message_id });
+            } catch {
+              // settle 失败由租约到期兜底回队。
+            }
+          }
+          claimedMessages = claimedMessages.filter((row) => row.input_type !== "goal_continuation");
+          if (goalStore?.setContinuationReason) {
+            await goalStore.setContinuationReason(
+              sessionId,
+              latestGoal.id,
+              latestGoal.status === "paused" ? "manual_paused" : "goal_not_active",
+            );
+          }
+        }
       }
-      claimedNotifications = await this.claimIdleNotifications(sessionId);
-      if (!claimedNotifications.length) {
+      if (!claimedMessages.length) {
         const latestGoal = await goalStore?.getCurrent(sessionId) ?? null;
         if (latestGoal?.status === "active" && latestGoal.continuation_pending && goalStore?.setContinuationReason) {
           await goalStore.setContinuationReason(sessionId, latestGoal.id, "continuation_pending");
         }
         return;
       }
-      const task = claimedNotifications
+      // 交付给主智能体：一个 run 消化整批信件——头行直接作为初始消息（闸门事务内
+      // settle，不合成第二条随机 id 行），同批其余行内容并入 task 并经
+      // appendMailboxMessage 物化各自的会话消息行——所有行同载体，历史不缺内容。
+      const head = claimedMessages[0];
+      if (!head) return;
+      const hasUserRows = claimedMessages.some((message) => message.input_type === "user_message");
+      const goalRow = claimedMessages.find((message) => message.input_type === "goal_continuation") ?? null;
+      const task = claimedMessages
         .map((message) => renderMailboxContentParts(message.content_parts))
         .filter(Boolean)
-        .join("\n\n");
-      const goalRow = claimedNotifications.find((message) => message.input_type === "goal_continuation") ?? null;
-      const source = goalRow ? "goal_continuation" : "background_notification";
+        .join("\n\n") || "处理待接收的用户消息，并继续当前任务。";
+      const requestIdPrefix = head.input_type === "user_message"
+        ? "session_followup_"
+        : head.input_type === "goal_continuation"
+          ? "goal_continue_"
+          : "bg_notify_";
       const started = this.deps.launchSystemRun({
         sessionIdentity,
+        // 系统触发的 root run 无请求 identity，回退会话 owner 作为 run 用户身份
+        //（memory 等按 user 归属的工具依赖 ToolExecContext.userId）。
         userId: sessionIdentity.ownerUserId,
-        requestId: `${goalRow ? "goal_continue" : "bg_notify"}_${randomUUID()}`,
+        requestId: `${requestIdPrefix}${head.message_id}`,
         task,
-        executionKind: goalRow ? "system.goal_continuation" : "system.bg_notification",
+        executionKind: hasUserRows
+          ? "session_followup"
+          : goalRow
+            ? "system.goal_continuation"
+            : "system.bg_notification",
         ready,
         overrides,
-        persistUserMessage: {
-          contentParts: [{ type: "text", text: task }],
-          inputType: goalRow ? "goal_continuation" : "system_notification",
-          sourceKind: "system",
-          visibleToUser: false,
-          metadata: {
-            source,
-            ...(goalRow ? {
-              goal_id: goalRow.metadata.goal_id,
-              goal_generation: goalRow.metadata.goal_generation,
-            } : {}),
-          },
-        },
+        rootMailboxMessage: mailboxReferenceMessage(head),
       });
-      await started.durableStarted;
-      // 消息内容已渲染进 run 初始输入并持久，ack 终结认领；失败静默——租约到期
-      // 自然回队，最坏情况是下一次 idle 重复投递一次内容一致的消息。
-      await this.ackNotifications(sessionId, claimedNotifications);
-      claimedNotifications = [];
+      const disposition = await started.durableStarted;
+      if (disposition && typeof disposition === "object" && disposition.kind === "followup") {
+        // 用户 run 抢先登台：整批行立即放回（无退避），由活动 run 的 refresh 按分支
+        // 认领，不等认领租约过期（曾致该消息最多延迟 ~30s 注入）。
+        await this.releaseNotifications(sessionId, claimedMessages, null, { immediate: true });
+        claimedMessages = [];
+        return;
+      }
+      // 头行已由闸门 settle；伴随行逐个物化（失败则回退认领态由 catch 释放退避回队）。
+      const companions = claimedMessages.slice(1);
+      claimedMessages = companions;
+      for (const message of companions) {
+        await this.deps.runtimeStorage.operations.appendMailboxMessage({
+          session: sessionIdentity,
+          mailboxMessage: claimedMailboxEnvelope(message),
+        });
+      }
+      claimedMessages = [];
     } catch (error) {
-      await this.releaseNotifications(sessionId, claimedNotifications, error);
-      claimedNotifications = [];
+      await this.releaseNotifications(sessionId, claimedMessages, error);
+      claimedMessages = [];
       if (claimedGoal && goalStore?.setContinuationReason) {
         await goalStore.setContinuationReason(sessionId, claimedGoal.id, "continuation_start_failed");
       }
@@ -635,68 +656,51 @@ export class SessionMailboxConsumer {
   }
 
   /**
-   * 认领会话级系统消息（root 线程、无定向 run 的 system_notification /
-   * goal_continuation）。claim 的 idle 谓词不按 input_type 过滤——并发到达的排队
-   * 用户消息可能被一并认领，立即 release 回队，留给下一次 idle 检查走
-   * session_followup 补跑。
+   * 认领主智能体的全部信件（root 分支的用户消息/系统通知/goal 行）。认领口径=
+   * 纯分支，不做类型筛选——交付只看收件人，不看消息种类。
    */
-  private async claimIdleNotifications(sessionId: string): Promise<AgentMailboxMessage[]> {
+  private async claimIdleMessages(sessionId: string): Promise<AgentMailboxMessage[]> {
     const mailbox = this.deps.mailbox;
     if (!mailbox) return [];
-    const claimed = await mailbox.claim({
+    return mailbox.claim({
       sessionId,
-      targetRunId: null,
       targetThreadKey: "root",
-      claimId: `bg_notify_idle_${randomUUID()}`,
-      consumerId: `bg_notify_idle:${process.pid}:${randomUUID()}`,
+      claimId: `idle_deliver_${randomUUID()}`,
+      consumerId: `idle_deliver:${process.pid}:${randomUUID()}`,
       limit: 100,
     });
-    const notifications: AgentMailboxMessage[] = [];
-    for (const message of claimed) {
-      if (isIdleSystemMessage(message)) {
-        notifications.push(message);
-        continue;
-      }
-      try {
-        await mailbox.release({
-          sessionId,
-          messageId: message.message_id,
-          claimId: message.claim_id ?? "",
-          lastError: "requeued: not a session notification",
-        });
-      } catch {
-        // 认领租约到期自动回队，无需补救。
-      }
-    }
-    return notifications;
   }
 
-  private async ackNotifications(sessionId: string, messages: AgentMailboxMessage[]): Promise<void> {
+  /**
+   * 消费失败释放：按已尝试次数指数退避（mailboxRetryBackoffMs）重排 available_at，
+   * 与 claim 死信上限共同保证重投有界；租约到期兜底，释放失败无需补救。
+   */
+  private async releaseNotifications(
+    sessionId: string,
+    messages: AgentMailboxMessage[],
+    error: unknown,
+    options: { immediate?: boolean } = {},
+  ): Promise<void> {
     const mailbox = this.deps.mailbox;
     if (!mailbox || !messages.length) return;
-    for (const message of messages) {
-      try {
-        await mailbox.ack({ sessionId, messageId: message.message_id, claimId: message.claim_id ?? "" });
-      } catch {
-        // 见调用点注释：租约到期回队，重复投递内容一致。
-      }
-    }
-  }
-
-  private async releaseNotifications(sessionId: string, messages: AgentMailboxMessage[], error: unknown): Promise<void> {
-    const mailbox = this.deps.mailbox;
-    if (!mailbox || !messages.length) return;
-    const lastError = error instanceof Error ? error.message : String(error);
+    // immediate 放回（followup 竞态）不带错误语义；String(null) 会产生字面量 "null"。
+    const lastError = error == null ? "" : error instanceof Error ? error.message : String(error);
     for (const message of messages) {
       try {
         await mailbox.release({
           sessionId,
           messageId: message.message_id,
           claimId: message.claim_id ?? "",
+          availableAt: options.immediate
+            ? new Date().toISOString()
+            : new Date(Date.now() + mailboxRetryBackoffMs(message.attempt_count)).toISOString(),
           ...(lastError ? { lastError } : {}),
         });
-      } catch {
-        // 认领租约到期自动回队，无需补救。
+      } catch (releaseError) {
+        this.logError(
+          { sessionId, messageId: message.message_id, error: errorMessage(releaseError) },
+          "mailbox release failed",
+        );
       }
     }
   }
@@ -716,9 +720,14 @@ export interface SessionMailboxConsumerDeps {
   participantRuns: ParticipantRunLifecyclePort;
   /** 会话级系统 run 拉起钩子：launchers 经唯一组装点 invokeRootRun 以 background 执行。 */
   launchSystemRun: (input: SessionSystemRunInput) => AgentInvocationHandle;
+  /** 错误日志出口；缺省 console.error，触发口异常不静默。 */
+  logger?: SessionMailboxLogger | null;
 }
 
-/** 消费组件发起的会话级系统 run 输入（经 launchSystemRun 钩子进入唯一组装点）。 */
+/**
+ * 消费组件发起的会话级系统 run 输入（经 launchSystemRun 钩子进入唯一组装点）。
+ * 确定性 runId/taskId/rootCallId 由输入形状携带——幂等键在输入里，不在组装点外平行拼装。
+ */
 export interface SessionSystemRunInput {
   sessionIdentity: SessionIdentity;
   userId: string | null;
@@ -727,10 +736,12 @@ export interface SessionSystemRunInput {
   executionKind: string;
   ready: Extract<ReadinessResolution, { ok: true }>;
   overrides: SessionRequestOverrides;
+  /** 确定性幂等身份；缺省由 run-engine 生成。 */
+  runId?: string;
+  taskId?: string;
+  rootCallId?: string;
   persistUserMessage?: AgentInvocationRootInput["persistUserMessage"];
   rootMailboxMessage?: AgentInvocationRootInput["rootMailboxMessage"];
-  /** run 终态回调（如释放 goal continuation 认领），先于 autoTrigger。 */
-  onFinally?: () => Promise<void> | void;
 }
 
 export interface AgentMailboxContinuationCompletionInput {
@@ -750,6 +761,10 @@ interface MailboxLaunchState {
   dirty: boolean;
 }
 
+interface IdleLaunchState {
+  dirty: boolean;
+}
+
 type MailboxLaunchDisposition = "completed" | "deferred" | "skipped";
 
 export const MAILBOX_CONTINUATION_REQUEST_PREFIX = "agent_result:";
@@ -760,15 +775,67 @@ export function mailboxContinuationSourceMessageId(requestId: string | null | un
   return normalized.slice(MAILBOX_CONTINUATION_REQUEST_PREFIX.length).trim() || null;
 }
 
-function mailboxContinuationIds(target: AgentMailboxWakeupTarget): {
+/** 排队/认领行 → root run 初始消息引用（followup/idle 消费共用）。携带行完整身份：
+ * 闸门重建 enqueue 逐字段回传，定向行（kind/correlation 非空）也能过
+ * sameMessageIdentity，不会撞 "id already belongs to another message"。 */
+function mailboxReferenceMessage(message: AgentMailboxMessage): NonNullable<AgentInvocationRootInput["rootMailboxMessage"]> {
+  return {
+    id: message.message_id,
+    inputType: message.input_type,
+    sourceKind: message.source_kind,
+    visibleToUser: message.visible_to_user,
+    sentAt: message.sent_at,
+    contentParts: message.content_parts,
+    metadata: message.metadata,
+    kind: message.kind,
+    targetThreadKey: message.target_thread_key,
+    targetRunId: message.target_run_id,
+    targetAgentCallId: message.target_agent_call_id,
+    targetChildAgentId: message.target_child_agent_id,
+    sourceRunId: message.source_run_id,
+    sourceAgentCallId: message.source_agent_call_id,
+    correlationId: message.correlation_id,
+    replyToMessageId: message.reply_to_message_id,
+  };
+}
+
+/** 认领行 → 追加闸门信封（appendMailboxMessage 物化伴随行；字段逐项回传保证幂等命中）。 */
+function claimedMailboxEnvelope(message: AgentMailboxMessage): EnqueueAgentMailboxMessageInput {
+  return {
+    messageId: message.message_id,
+    tenantId: message.tenant_id,
+    sessionId: message.session_id,
+    sourceRunId: message.source_run_id,
+    sourceAgentCallId: message.source_agent_call_id,
+    targetRunId: message.target_run_id,
+    targetAgentCallId: message.target_agent_call_id,
+    targetThreadKey: message.target_thread_key,
+    targetChildAgentId: message.target_child_agent_id,
+    kind: message.kind,
+    inputType: message.input_type,
+    sourceKind: message.source_kind,
+    visibleToUser: message.visible_to_user,
+    sentAt: message.sent_at,
+    correlationId: message.correlation_id,
+    replyToMessageId: message.reply_to_message_id,
+    contentParts: message.content_parts,
+    metadata: message.metadata,
+  };
+}
+
+/** 线程续跑的确定性幂等身份：同一线程同一头行崩溃重试得到同一 runId（§10.4 第七轮）。 */
+function mailboxContinuationIds(target: {
+  sessionId: string;
+  threadKey: string;
+  childAgentId: string | null;
+  sourceMessageId: string;
+}): {
   runId: string;
   taskId: string;
   rootCallId: string;
-} | null {
-  const sourceMessageId = target.sourceMessageId?.trim();
-  if (!sourceMessageId) return null;
+} {
   const digest = createHash("sha256")
-    .update(`${target.sessionId}\0${target.targetRunId}\0${target.targetAgentCallId ?? ""}\0${sourceMessageId}`)
+    .update(`${target.sessionId}\0${target.threadKey}\0${target.childAgentId ?? ""}\0${target.sourceMessageId}`)
     .digest("hex")
     .slice(0, 32);
   return {
@@ -818,50 +885,6 @@ function mailboxContinuationInitialMessage(
       visible_to_user: message.visible_to_user,
       sent_at: message.sent_at,
     },
-  };
-}
-
-function mailboxTargetMatchesRun(target: AgentMailboxWakeupTarget, run: RunInfo): boolean {
-  return run.session_id === target.sessionId
-    && run.run_id === target.targetRunId
-    && run.agent_call_id === target.targetAgentCallId
-    && run.thread_key === target.targetThreadKey
-    && run.child_agent_id === target.targetChildAgentId
-    && run.agent_name === target.targetAgentName
-    && run.lease_root_run_id === target.targetRootRunId
-    && run.parent_run_id === target.targetParentRunId
-    && run.parent_call_id === target.targetParentCallId
-    && run.lineage_parent_call_id === target.targetLineageParentCallId;
-}
-
-function isActiveRootRunConflict(error: unknown): boolean {
-  return error instanceof Error
-    && error.message.startsWith("session already has an active root run: ");
-}
-
-/** 会话级系统消息在统一队列中的形状：root 线程、无定向 run 的 system_notification / goal_continuation。 */
-function isIdleSystemMessage(message: AgentMailboxMessage): boolean {
-  return (message.input_type === "system_notification" || message.input_type === "goal_continuation")
-    && message.target_thread_key === "root"
-    && !message.target_run_id;
-}
-
-function toMailboxWakeupTarget(message: AgentMailboxMessage): AgentMailboxWakeupTarget {
-  const metadata = message.metadata;
-  const read = (key: string): string | null => asString(metadata[key]);
-  return {
-    sessionId: message.session_id,
-    targetRunId: message.target_run_id ?? "",
-    targetAgentCallId: message.target_agent_call_id,
-    targetThreadKey: message.target_thread_key,
-    targetChildAgentId: message.target_child_agent_id,
-    targetAgentName: read("target_agent_name"),
-    targetRootRunId: read("target_root_run_id"),
-    targetParentRunId: read("target_parent_run_id"),
-    targetParentCallId: read("target_parent_call_id"),
-    targetLineageParentCallId: read("target_lineage_parent_call_id"),
-    sourceMessageId: message.message_id,
-    correlationId: message.correlation_id,
   };
 }
 

@@ -12,19 +12,22 @@ export class PostgresBackgroundTaskRepository implements AsyncBackgroundTaskRepo
       `INSERT INTO saas_background_tasks (
         tenant_id, task_id, description, output_path, started_at, status, return_code, error,
         expires_at, run_id, owner_task_id, session_id, completed_at, result_type, kind,
-        cancel_supported, owner_instance_id, lease_expires_at
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+        cancel_supported, owner_instance_id, lease_expires_at,
+        initiator_thread_key, initiator_child_agent_id
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
       ON CONFLICT (tenant_id, task_id) DO UPDATE SET
         description = EXCLUDED.description, output_path = EXCLUDED.output_path,
         status = EXCLUDED.status, return_code = EXCLUDED.return_code, error = EXCLUDED.error,
         expires_at = EXCLUDED.expires_at, completed_at = EXCLUDED.completed_at,
         result_type = EXCLUDED.result_type, cancel_supported = EXCLUDED.cancel_supported,
         owner_instance_id = EXCLUDED.owner_instance_id, lease_expires_at = EXCLUDED.lease_expires_at,
+        initiator_thread_key = EXCLUDED.initiator_thread_key,
+        initiator_child_agent_id = EXCLUDED.initiator_child_agent_id,
         updated_at = CURRENT_TIMESTAMP`,
       [task.tenant_id, task.task_id, task.description, task.output_path, task.started_at, task.status,
         task.return_code, task.error, task.expires_at, task.run_id, task.owner_task_id, task.session_id,
         task.completed_at, task.result_type, task.kind, task.cancel_supported, task.owner_instance_id,
-        task.lease_expires_at],
+        task.lease_expires_at, task.initiator_thread_key ?? null, task.initiator_child_agent_id ?? null],
     );
   }
 
@@ -84,5 +87,7 @@ function toRecord(row: Record<string, unknown>): DurableBackgroundTaskRecord {
     completed_at: nullableNumber(row.completed_at), result_type: nullableString(row.result_type), kind: String(row.kind),
     cancel_supported: Boolean(row.cancel_supported), owner_instance_id: nullableString(row.owner_instance_id),
     lease_expires_at: nullableNumber(row.lease_expires_at),
+    initiator_thread_key: nullableString(row.initiator_thread_key),
+    initiator_child_agent_id: nullableString(row.initiator_child_agent_id),
   };
 }

@@ -14,6 +14,9 @@ export interface BackgroundTask {
   run_id: string | null;
   owner_task_id: string | null;
   session_id: string | null;
+  /** 发起者分支（§10.4 第六轮）：完成通知的路由目标；null 视为 root（历史行兼容）。 */
+  initiator_thread_key: string | null;
+  initiator_child_agent_id: string | null;
   completed_at: number | null;
   result_type: string | null;
   kind: string;
@@ -32,6 +35,9 @@ export interface SpawnBashInput {
   sessionId?: string | null | undefined;
   runId?: string | null | undefined;
   ownerTaskId?: string | null | undefined;
+  /** 发起者分支（§10.4 第六轮）：完成通知路由给发起工具调用的线程。 */
+  initiatorThreadKey?: string | null | undefined;
+  initiatorChildAgentId?: string | null | undefined;
 }
 
 export interface BackgroundTaskExecutionContext {
@@ -47,6 +53,9 @@ export interface RunCallableInput {
   sessionId?: string | null | undefined;
   runId?: string | null | undefined;
   ownerTaskId?: string | null | undefined;
+  /** 发起者分支（§10.4 第六轮）：完成通知路由给发起工具调用的线程。 */
+  initiatorThreadKey?: string | null | undefined;
+  initiatorChildAgentId?: string | null | undefined;
   kind?: string | null | undefined;
   resultType?: string | null | undefined;
   cancel?: (() => void) | null | undefined;

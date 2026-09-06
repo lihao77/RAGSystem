@@ -18,11 +18,13 @@ describe("Agent mailbox continuation result recovery", () => {
 
     expect(harness.enqueue).toHaveBeenCalledTimes(1);
     expect(harness.enqueue).toHaveBeenCalledWith(expect.objectContaining({
-      messageId: "continuation-run:terminal_result",
-      targetRunId: "parent-run",
+      messageId: "mailbox_continuation_run:terminal_result",
+      // 地址=纯分支（§10.4 第七轮）：run 引用只留 metadata 溯源。
+      targetThreadKey: "root",
       replyToMessageId: "source-request",
       correlationId: "corr-1",
       contentParts: [{ type: "text", text: "recovered result" }],
+      metadata: expect.objectContaining({ target_run_id: "parent-run" }),
     }));
   });
 
@@ -81,7 +83,7 @@ describe("Agent mailbox continuation result recovery", () => {
 
       expect(harness.getMessageById).not.toHaveBeenCalled();
       expect(harness.enqueue).toHaveBeenCalledWith(expect.objectContaining({
-        messageId: "continuation-run:terminal_result",
+        messageId: "mailbox_continuation_run:terminal_result",
         contentParts: [{ type: "text", text: expectedContent }],
         metadata: expect.objectContaining({ status: "failed", success: false }),
       }));
@@ -125,7 +127,7 @@ function createRecoveryHarness(input: {
     updated_at: new Date(0).toISOString(),
   };
   const continuationRun = {
-    run_id: "continuation-run",
+    run_id: "mailbox_continuation_run",
     session_id: "session-1",
     tenant_id: "tenant-1",
     entrypoint: "system.agent_message",
@@ -138,7 +140,7 @@ function createRecoveryHarness(input: {
     agent_call_id: "continuation-call",
     lineage_parent_call_id: "parent-call",
     agent_display_name: "Worker",
-    lease_root_run_id: "continuation-run",
+    lease_root_run_id: "mailbox_continuation_run",
     thread_key: "child:child-1",
     parent_run_id: "parent-run",
     parent_call_id: "parent-tool-call",

@@ -723,8 +723,6 @@ describe("executeRunWithSdk terminal convergence", () => {
     expect(mailbox.release).not.toHaveBeenCalled();
     const retried = await mailbox.claim({
       sessionId: "session-1",
-      targetRunId: "run-1",
-      targetAgentCallId: "call-1",
       targetThreadKey: "child-thread",
       targetChildAgentId: "child-1",
       claimId: "claim-retry-2",

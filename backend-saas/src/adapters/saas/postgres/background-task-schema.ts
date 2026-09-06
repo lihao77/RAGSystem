@@ -32,4 +32,11 @@ export const POSTGRES_BACKGROUND_TASK_MIGRATIONS: readonly PostgresBackgroundTas
       ON saas_background_tasks (tenant_id, status, lease_expires_at)
       WHERE status = 'running';
   `,
+}, {
+  version: 2,
+  name: "background-task-initiator-thread",
+  sql: `
+    ALTER TABLE saas_background_tasks ADD COLUMN IF NOT EXISTS initiator_thread_key TEXT;
+    ALTER TABLE saas_background_tasks ADD COLUMN IF NOT EXISTS initiator_child_agent_id TEXT;
+  `,
 }];

@@ -533,6 +533,9 @@ export class SkillToolService {
       sessionId,
       runId: normalizeString(context.runId),
       ownerTaskId: normalizeString(context.taskId),
+      // 发起者分支（§10.4 第六轮）：完成通知路由给发起脚本的线程。
+      initiatorThreadKey: normalizeString(context.threadKey) ?? "root",
+      initiatorChildAgentId: normalizeString(context.currentChildAgentId),
       kind: "callable",
       resultType: "tool_execution_result",
       clientEvents: this.clientEvents,

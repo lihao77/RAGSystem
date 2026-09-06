@@ -164,10 +164,29 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
   // 与活动 run refresh 共用同一队列。
   backgroundTasks.setAgentMailbox(dependencies.executionStorage?.agentMailbox ?? null, tenantId);
 
+  // 统一队列触发闭环兜底：事件链（run 终态/任务完成/用户操作）仍是主路径，本扫描
+  // 覆盖崩溃恢复后无事件源的滞留行——有 queued 行的会话最多一个扫描周期内被捡起，
+  // "行驻留则终被消费"由队列自身保证，不再依赖外部事件碰巧发生。
+  const sweepPendingMailboxSessions = async (): Promise<void> => {
+    const mailbox = dependencies.executionStorage?.agentMailbox ?? null;
+    if (!mailbox?.listPendingSessions) return;
+    for (const sessionId of await mailbox.listPendingSessions({ limit: 200 })) {
+      agentExecution.triggerBgNotificationRun(sessionId);
+    }
+  };
+  void sweepPendingMailboxSessions().catch(() => undefined);
+  const mailboxSweepTimer = setInterval(() => {
+    void sweepPendingMailboxSessions().catch(() => undefined);
+  }, 60_000);
+  mailboxSweepTimer.unref?.();
+
   let closePromise: Promise<void> | null = null;
   const close = (): Promise<void> => {
     if (closePromise) return closePromise;
-    closePromise = Promise.resolve().then(() => dependencies.closeInfrastructure());
+    closePromise = Promise.resolve().then(() => {
+      clearInterval(mailboxSweepTimer);
+      return dependencies.closeInfrastructure();
+    });
     return closePromise;
   };
 

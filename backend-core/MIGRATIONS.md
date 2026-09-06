@@ -72,6 +72,19 @@ create/update 路径复用其中的 `canonicalizeProviderConfig` / `normalizePro
   存量会话维持派生标题）。SaaS 端对应变更见
   `backend-saas/src/adapters/saas/postgres/conversation-schema.ts` v12（同语义，含触发器
   重建保留 override 的函数改写）。
+- **SaaS 后台任务表**：`backend-saas/src/adapters/saas/postgres/background-task-schema.ts`
+  版本表 `ragsystem_background_task_schema_migrations`（编号迁移）。v2 为
+  `saas_background_tasks` 增加发起者分支两列（`initiator_thread_key` /
+  `initiator_child_agent_id`，nullable，`ADD COLUMN IF NOT EXISTS` 幂等）：完成通知
+  按发起者分支路由、goal 门控按发起者归属收窄（§10.4 第五/六轮）。历史行为 null，
+  读取侧视为 root 发起（与旧"无脑投 root/会话级忙检查"口径一致），无数据回填。
+- **SaaS run 表**：`backend-saas/src/adapters/saas/postgres/run-schema.ts` 编号迁移
+  （版本表 `ragsystem_run_schema_migrations`，advisory lock + 事务）。v12
+  `thread-current-run-index` 为 `saas_runs` 补
+  `(tenant_id, session_id, thread_key, created_at DESC, run_id DESC)` 复合索引——
+  线程闸门高频查询 `getLatestThreadRun`（§10.4 第七轮）此前只能走 session 前缀
+  索引过滤 thread_key，最坏扫会话全部 runs；与 local 端既有的
+  `idx_runs_session_thread_created` 对齐。纯索引新增，无数据变更。
 - **启动补齐（产品形态 ensure）**：default team 与 builder 保留 team 同模式——由**产品层**在启动时
   ensure（存在即跳过、不存在则 `applyTeamPayload` 创建落盘，用户改动永不覆盖）。仓库内两端组合层
   各持自己的产品模板（backend-local / backend-saas 的 `composition/default-team.ts`），桌面产品侧

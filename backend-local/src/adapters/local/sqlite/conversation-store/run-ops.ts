@@ -138,6 +138,21 @@ export class RunOps {
     return { items: rows.map(rowToRun), total: totalRow.cnt };
   }
 
+  /** 线程现任执行（§10.4 第七轮）：该 thread_key 最新一条 run（任意状态），线程闸门判活动/解析身份用。 */
+  getLatestThreadRun(sessionId: string, threadKey: string): RunInfo | null {
+    const row = this.db.prepare(`
+            SELECT run_id, session_id, tenant_id, entrypoint, status, task_summary, terminal_reason,
+             request_id, user_id, agent_name, agent_call_id, lineage_parent_call_id,
+             agent_display_name, lease_root_run_id, thread_key, parent_run_id, parent_call_id,
+             child_agent_id, final_message_id, created_at, updated_at
+      FROM runs
+      WHERE session_id=? AND thread_key=?
+      ORDER BY created_at DESC, run_id DESC
+      LIMIT 1
+    `).get(sessionId, threadKey) as unknown as RunRow | undefined;
+    return row ? rowToRun(row) : null;
+  }
+
   listActiveRootRuns(sessionId: string, limit = 2): RunInfo[] {
     const rows = this.db.prepare(`
       SELECT run_id, session_id, tenant_id, entrypoint, status, task_summary, terminal_reason,

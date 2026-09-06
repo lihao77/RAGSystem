@@ -48,13 +48,12 @@ export interface ExecutionRunPersistenceContext {
     inputType: "user_message" | "agent_message" | "system_notification" | "goal_continuation";
     sourceKind: "user" | "agent" | "system";
     visibleToUser: boolean;
-    sentAt: string;
+    sentAt: string | null;
     contentParts: MessageContentPart[];
     metadata?: Record<string, unknown> | null;
   };
   /** Canonical input message for a newly-created root or child Run. */
   initialMessage?: AddMessageInput & { messageId: string };
-  participantExpectedLastRunId?: string | null;
   initialMailboxMessageId?: string | null;
   followupPolicy?: "queue" | "reject";
   sessionMaintenanceToken?: string | null;

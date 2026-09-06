@@ -57,6 +57,7 @@ export function createConversationStore(options: ConversationStoreOptions) {
     listRuns: runs.listRuns.bind(runs),
     listParticipantRuns: runs.listParticipantRuns.bind(runs),
     listActiveRootRuns: runs.listActiveRootRuns.bind(runs),
+    getLatestThreadRun: runs.getLatestThreadRun.bind(runs),
     getLatestTerminalRootRun: runs.getLatestTerminalRootRun.bind(runs),
     updateRunStatus: runs.updateRunStatus.bind(runs),
     suspendPendingInteractions: pendingInteractions.suspendPendingInteractions.bind(pendingInteractions),
@@ -133,6 +134,7 @@ export function createConversationStore(options: ConversationStoreOptions) {
     listRuns: runs.listRuns.bind(runs),
     listParticipantRuns: runs.listParticipantRuns.bind(runs),
     listActiveRootRuns: runs.listActiveRootRuns.bind(runs),
+    getLatestThreadRun: runs.getLatestThreadRun.bind(runs),
     getLatestTerminalRootRun: runs.getLatestTerminalRootRun.bind(runs),
 
     // child_agents

@@ -204,7 +204,7 @@ export class AgentDelegationService implements DelegationPort, ParticipantRunLif
     const child = await this.store.getChildAgent(route.sessionId, route.childAgentId);
     if (!child) throw new Error(`child Agent not found: ${route.childAgentId}`);
     const existing = this.activeChildRuns.get(route.childAgentId);
-    if (existing && existing.runId !== route.runId && existing.runId !== route.replacesRunId) {
+    if (existing && existing.runId !== route.runId) {
       throw new Error(`child Agent already has an active Run: ${route.childAgentId}`);
     }
     const activeRoute: ActiveChildRunRoute = {
@@ -375,15 +375,8 @@ export class AgentDelegationService implements DelegationPort, ParticipantRunLif
       });
       this.notifyMailboxWakeup({
         sessionId: task.session_id,
-        targetRunId: parent.run_id,
-        targetAgentCallId: parent.agent_call_id,
         targetThreadKey: parent.thread_key,
         targetChildAgentId: parent.child_agent_id,
-        targetAgentName: parent.agent_name ?? null,
-        targetRootRunId: parent.lease_root_run_id,
-        targetParentRunId: parent.parent_run_id,
-        targetParentCallId: parent.parent_call_id,
-        targetLineageParentCallId: parent.lineage_parent_call_id,
       });
       this.logger?.error({
         session_id: task.session_id,
@@ -824,17 +817,8 @@ export class AgentDelegationService implements DelegationPort, ParticipantRunLif
       });
       this.notifyMailboxWakeup({
         sessionId,
-        targetRunId: runningChildRoute.runId,
-        targetAgentCallId,
         targetThreadKey: child.thread_key,
         targetChildAgentId: childAgentId,
-        targetAgentName: child.agent_name,
-        targetRootRunId: runningChildRoute.rootRunId ?? runningChildRoute.runId,
-        targetParentRunId: runningChildRoute.parentRunId ?? normalizeString(ctx.runId),
-        targetParentCallId: runningChildRoute.parentCallId ?? parentCallId,
-        targetLineageParentCallId: runningChildRoute.lineageParentCallId ?? normalizeString(ctx.parentCallId),
-        sourceMessageId: queued.message_id,
-        correlationId: queued.correlation_id,
       });
       return successResult({
         message_id: queued.message_id,
@@ -984,17 +968,8 @@ export class AgentDelegationService implements DelegationPort, ParticipantRunLif
     });
     this.notifyMailboxWakeup({
       sessionId,
-      targetRunId: parent.run_id,
-      targetAgentCallId: parent.agent_call_id,
       targetThreadKey: parent.thread_key ?? "root",
       targetChildAgentId: parent.child_agent_id ?? null,
-      targetAgentName: parent.agent_name ?? null,
-      targetRootRunId: parent.lease_root_run_id ?? parent.run_id,
-      targetParentRunId: parent.parent_run_id ?? null,
-      targetParentCallId: parent.parent_call_id ?? null,
-      targetLineageParentCallId: parent.lineage_parent_call_id ?? null,
-      sourceMessageId: queued.message_id,
-      correlationId: queued.correlation_id,
     });
     return successResult({
       message_id: queued.message_id,
@@ -1138,6 +1113,9 @@ export class AgentDelegationService implements DelegationPort, ParticipantRunLif
           sessionId: runInput.sessionId,
           runId: childRunId,
           ownerTaskId: normalizeString(ctx.taskId),
+          // 发起者分支（§10.4 第六轮）：完成通知路由给发起委派的线程。
+          initiatorThreadKey: normalizeString(ctx.threadKey) ?? "root",
+          initiatorChildAgentId: normalizeString(ctx.currentChildAgentId),
           kind: "agent",
           resultType: this.mailbox ? "agent_delegation_result" : "agent_delegation_fallback",
           clientEvents: this.clientEvents,
@@ -1324,7 +1302,6 @@ export class AgentDelegationService implements DelegationPort, ParticipantRunLif
       parentRunId: input.parentRunId,
       childAgentId: input.childAgent.child_agent_id,
       ...(initialMessage ? { initialMessage } : {}),
-      ...(!input.resumeRunId ? { participantExpectedLastRunId: input.childAgent.last_run_id } : {}),
       ...(input.ownsRunLease ? { ownsRunLease: true } : {}),
       ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}),
       executionKind: input.executionKind,
@@ -1432,17 +1409,8 @@ export class AgentDelegationService implements DelegationPort, ParticipantRunLif
       });
       this.notifyMailboxWakeup({
         sessionId: input.sessionId,
-        targetRunId: parent.run_id,
-        targetAgentCallId: parent.agent_call_id,
         targetThreadKey: parent.thread_key,
         targetChildAgentId: parent.child_agent_id,
-        targetAgentName: parent.agent_name ?? input.parentAgentName,
-        targetRootRunId: input.parentRootRunId,
-        targetParentRunId: input.parentParentRunId,
-        targetParentCallId: input.parentParentCallId,
-        targetLineageParentCallId: input.parentLineageParentCallId,
-        sourceMessageId: queued.message_id,
-        correlationId: queued.correlation_id,
       });
       return {
         ...result,
@@ -1470,28 +1438,15 @@ export class AgentDelegationService implements DelegationPort, ParticipantRunLif
     try {
       const pending = await this.mailbox.listPending({
         sessionId: input.sessionId,
-        targetRunId: input.childRunId,
-        targetAgentCallId: input.rootCallId,
         targetThreadKey: input.childAgent.thread_key,
         targetChildAgentId: input.childAgent.child_agent_id,
         limit: 100,
       });
       for (const message of pending) {
-        const metadata = message.metadata ?? {};
         this.notifyMailboxWakeup({
           sessionId: input.sessionId,
-          targetRunId: input.childRunId,
-          targetAgentCallId: input.rootCallId,
           targetThreadKey: input.childAgent.thread_key,
           targetChildAgentId: input.childAgent.child_agent_id,
-          targetAgentName: input.childAgent.agent_name,
-          targetRootRunId: input.childRunId,
-          targetParentRunId: input.parentRunId,
-          targetParentCallId: input.runParentCallId,
-          targetLineageParentCallId: normalizeString(metadata.target_lineage_parent_call_id)
-            ?? input.lineageParentCallId,
-          sourceMessageId: message.message_id,
-          correlationId: message.correlation_id,
         });
       }
     } catch (error) {
@@ -1509,8 +1464,7 @@ export class AgentDelegationService implements DelegationPort, ParticipantRunLif
     } catch (error) {
       this.logger?.error({
         session_id: target.sessionId,
-        target_run_id: target.targetRunId,
-        target_agent_call_id: target.targetAgentCallId,
+        target_thread_key: target.targetThreadKey,
         error: error instanceof Error ? error.message : String(error),
       }, "failed to wake Agent mailbox target");
     }
