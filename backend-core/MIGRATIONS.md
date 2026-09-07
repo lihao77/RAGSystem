@@ -57,6 +57,7 @@ create/update 路径复用其中的 `canonicalizeProviderConfig` / `normalizePro
 | `provider_api_format_alias_canonicalize` | provider_type trim/小写 + api_format 旧别名归一（openai_compatible_chat/openai_proxy → openai_chat 等） |
 | `provider_legacy_field_strip` | 剥离已下沉到模型条目的 provider 级废弃字段（model/model_map/temperature 等） |
 | `provider_thinking_kind_normalize` | thinking_kind 非法值剔除（回落格式默认思考形状） |
+| `provider_llm_engine_normalize` | llm_engine 非法值剔除（仅 pi-ai 合法，缺省/非法回落原生适配器） |
 | `provider_model_entries_normalize` | models 归一为对象条目数组（非法条目丢弃、去重） |
 
 ## 其他持久化机制（不在本清单管辖，列出以免混淆）

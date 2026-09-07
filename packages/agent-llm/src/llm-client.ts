@@ -10,12 +10,14 @@ import { AnthropicAdapter } from "./providers/anthropic.js";
 import { GeminiAdapter } from "./providers/gemini.js";
 import { OpenAiChatAdapter } from "./providers/openai-chat.js";
 import { OpenAiResponsesAdapter } from "./providers/openai-responses.js";
+import { isPiAiEngine, PiAiAdapter } from "./providers/pi-ai.js";
 import { providerTypeSpec } from "./provider-registry.js";
 
 const anthropic = new AnthropicAdapter();
 const gemini = new GeminiAdapter();
 const openAiChat = new OpenAiChatAdapter();
 const openAiResponses = new OpenAiResponsesAdapter();
+const piAi = new PiAiAdapter();
 
 export class LlmProviderClient implements LlmClient {
   complete(request: LlmRequest): Promise<LlmResult> {
@@ -28,6 +30,8 @@ export class LlmProviderClient implements LlmClient {
 }
 
 function resolveAdapter(request: LlmRequest): LlmProviderAdapter {
+  // pi-ai 委托引擎：provider 显式声明时接管（协议实现外包，缺省走原生适配器）。
+  if (isPiAiEngine(request.provider)) return piAi;
   const providerType = request.provider.provider_type;
   const chatKind = providerTypeSpec(providerType)?.chatKind ?? null;
   if (chatKind === "openai_responses") return openAiResponses;

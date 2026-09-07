@@ -42,6 +42,7 @@ const UPDATE_FIELDS = [
   "provider_type",
   "api_format",
   "thinking_kind",
+  "llm_engine",
   "api_key",
   "timeout",
   "retry_attempts",
@@ -606,6 +607,14 @@ function assignProviderField(config: ModelProviderConfig, field: (typeof UPDATE_
       break;
     case "thinking_kind":
       config.thinking_kind = String(value ?? "").trim().toLowerCase();
+      break;
+    case "llm_engine":
+      // pi-ai=委托引擎；空/其他值删除回落原生适配器（与 hydration 归一同构）
+      if (String(value ?? "").trim().toLowerCase() === "pi-ai") {
+        config.llm_engine = "pi-ai";
+      } else {
+        delete config.llm_engine;
+      }
       break;
     case "api_key":
       if (value === undefined) {

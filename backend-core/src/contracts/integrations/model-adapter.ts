@@ -150,6 +150,14 @@ export interface ModelProviderConfig {
    * 真 Anthropic 上游勿用 effort（output_config 未知字段会被拒），无子集 toggle 折叠 budget。
    */
   thinking_kind?: string;
+  /**
+   * LLM 委托引擎声明（可选，缺省 = 原生适配器）：pi-ai = 协议实现外包给
+   * @earendil-works/pi-ai（dsh 同款姿势——自有契约不动，厂商兼容补丁吃上游生态）。
+   * agent-llm 按 provider.llm_engine 命中即走 PiAiAdapter；投影层 spread 透传。
+   * 思考档位/工具/usage 语义与原生路径对齐（usage 还原 inclusive 口径）；toggle
+   * 形状（无 effort 子集）与 extra_params 的 anthropic 透传不支持（详见适配器头注释）。
+   */
+  llm_engine?: string;
   key?: string;
   api_key?: string;
   api_key_configured?: boolean;

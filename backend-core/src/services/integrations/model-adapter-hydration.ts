@@ -27,6 +27,11 @@ export const PROVIDER_FORM_NORMALIZATION_STEPS: readonly HydrationStep<ModelProv
     run: normalizeThinkingKindStep,
   },
   {
+    id: "provider_llm_engine_normalize",
+    note: "llm_engine 非法值剔除（仅 pi-ai 合法，缺省/非法回落原生适配器）",
+    run: normalizeLlmEngineStep,
+  },
+  {
     id: "provider_model_entries_normalize",
     note: "models 归一为对象条目数组（旧字符串条目/字符串模型名丢弃，只保留合法条目并去重）",
     run: normalizeModelEntriesStep,
@@ -55,6 +60,9 @@ const LEGACY_PROVIDER_FIELDS = [
 
 /** 厂商思考形状合法值（透传 agent-llm describeThinking 覆盖）。 */
 const THINKING_KINDS = new Set(["effort", "budget", "toggle", "none"]);
+
+/** LLM 委托引擎合法值（agent-llm 侧路由声明；缺省 = 原生适配器）。 */
+const LLM_ENGINES = new Set(["pi-ai"]);
 
 export function canonicalizeProviderConfig(config: ProviderPayload): ProviderPayload {
   const normalized: ProviderPayload = { ...config };
@@ -137,6 +145,17 @@ function normalizeThinkingKindStep(config: ModelProviderConfig): boolean {
     delete config.thinking_kind;
   }
   return before !== config.thinking_kind;
+}
+
+function normalizeLlmEngineStep(config: ModelProviderConfig): boolean {
+  const before = config.llm_engine;
+  const engine = String(before ?? "").trim().toLowerCase();
+  if (engine && LLM_ENGINES.has(engine)) {
+    config.llm_engine = engine;
+  } else {
+    delete config.llm_engine;
+  }
+  return before !== config.llm_engine;
 }
 
 function normalizeModelEntriesStep(config: ModelProviderConfig): boolean {
