@@ -374,6 +374,13 @@ describe("ModelsDevCatalog", () => {
         npm: "@ai-sdk/google",
         models: { "gemini-3-pro": { id: "gemini-3-pro", name: "Gemini 3 Pro", reasoning_options: [{ type: "toggle" }] } },
       },
+      anthropic: {
+        id: "anthropic",
+        name: "Anthropic",
+        npm: "@ai-sdk/anthropic",
+        // 全 toggle-only 模型：旧规则投票会声明 toggle，anthropic 线上无落点后不再推导
+        models: { "claude-x": { id: "claude-x", name: "Claude X", reasoning_options: [{ type: "toggle" }] } },
+      },
       "amazon-bedrock": {
         id: "amazon-bedrock",
         name: "Amazon Bedrock",
@@ -391,6 +398,9 @@ describe("ModelsDevCatalog", () => {
     const providers = await catalog.listProviders();
     expect(providers.providers).toEqual([
       { id: "amazon-bedrock", name: "Amazon Bedrock", api_base_url: null, api_format: null, thinking_kind: null, model_count: 1 },
+      // anthropic 线上只有 budget_tokens 一个思考参数通道（agent-llm 侧已把形状折叠为 budget），
+      // 厂商级 toggle 声明无落点，即使投票赢出也不推导 thinking_kind。
+      { id: "anthropic", name: "Anthropic", api_base_url: null, api_format: "anthropic", thinking_kind: null, model_count: 1 },
       // gemini 格式当前无思考参数通道，即使模型带 toggle 选项也不推导 thinking_kind。
       { id: "google", name: "Google", api_base_url: null, api_format: "gemini", thinking_kind: null, model_count: 1 },
     ]);

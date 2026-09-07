@@ -360,10 +360,12 @@ function deriveApiFormat(providerRaw: RawCatalogProvider, apiBaseUrl: string | n
  * 思考形状推导：对厂商全部模型的 reasoning_options 投票——「有 toggle 无 effort」
  * 的模型多于「有 effort 无 toggle」→ 声明 toggle（qwen 系启停开关型）；effort/budget
  * 形状即格式默认值，不显式声明。toggle+effort 同模型（deepseek）不计票 → effort
- * 默认，与其顶层 reasoning_effort 的实测用法一致。非思考参数格式恒 null。
+ * 默认，与其顶层 reasoning_effort 的实测用法一致。非思考参数格式恒 null；anthropic
+ * 线上只有 budget_tokens 一个参数通道（agent-llm 侧已把形状折叠为 budget），厂商级
+ * toggle 声明在该格式无落点，不投票不声明。
  */
 function deriveThinkingKind(apiFormat: string | null, modelsRaw: Record<string, unknown>): string | null {
-  if (apiFormat !== "openai_chat" && apiFormat !== "openai_resp" && apiFormat !== "anthropic") {
+  if (apiFormat !== "openai_chat" && apiFormat !== "openai_resp") {
     return null;
   }
   let toggleOnly = 0;

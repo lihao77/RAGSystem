@@ -143,6 +143,11 @@ export interface ModelProviderConfig {
   /**
    * 厂商思考形状声明（effort / budget / toggle / none，透传 agent-llm describeThinking 覆盖）：
    * 如 qwen 系厂商声明 toggle（enable_thinking）；嵌套思考 map 等静态参数走 extra_params。
+   * anthropic 格式：默认折叠为 budget（原生线上只有 budget_tokens 一个思考参数通道）；
+   * 例外是 effort——显式声明，或 toggle + 模型 effort 子集自动升级（openai 原生厂商挂
+   * anthropic 端点必是兼容层：智谱/Kimi/阿里/火山等 /v1/messages 网关，budget_tokens
+   * 被无视、档位只认 output_config.effort），发 thinking{enabled}+output_config.effort；
+   * 真 Anthropic 上游勿用 effort（output_config 未知字段会被拒），无子集 toggle 折叠 budget。
    */
   thinking_kind?: string;
   key?: string;

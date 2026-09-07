@@ -184,7 +184,9 @@ function redactProviderSecrets<T extends Record<string, unknown>>(provider: T): 
   };
 }
 
-/** 注入思考能力 descriptor（agent-llm 注册表按 API 格式分发 + provider thinking_kind 覆盖），前端选择器据此渲染。 */
+/** 注入思考能力 descriptor（agent-llm 注册表按 API 格式分发 + provider thinking_kind 覆盖），前端选择器据此渲染。
+ * 刻意不带模型子集：provider 级只描述形状默认；toggle+子集的运行时升级/子集收缩由前端镜像按模型条目合成，
+ * kind 在此与运行时可能不同（如 anthropic+toggle 此处 budget、运行时按子集升级 effort），levels 始终一致。 */
 function withThinkingDescriptor<T extends Record<string, unknown>>(provider: T): T & { thinking: { kind: string; levels: string[] } } {
   const capability = describeThinking(
     String(provider.api_format ?? ""),

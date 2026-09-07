@@ -19,10 +19,6 @@
             @pick="onCatalogModelPick"
           />
           <p v-if="catalogMetaText" class="provider-model-catalog__meta">{{ catalogMetaText }}</p>
-          <p v-if="thinkingLevelsText" class="provider-model-catalog__meta">
-            思考档位子集 {{ thinkingLevelsText }}（目录 effort 值域；带子集即按 effort 分级，off 恒可用）
-            <button type="button" class="provider-model-catalog__clear" @click="clearThinkingLevels">移除</button>
-          </p>
           <FieldError v-if="formErrors.name">{{ formErrors.name }}</FieldError>
         </Field>
 
@@ -72,6 +68,22 @@
           <FieldError v-if="formErrors.output_modalities">{{ formErrors.output_modalities }}</FieldError>
         </div>
 
+        <div class="modality-field">
+          <div class="modality-field__head">思考档位（模型值域子集）</div>
+          <div class="modality-chips" role="group" aria-label="思考档位">
+            <button
+              v-for="option in thinkingLevelOptions"
+              :key="`level-${option.value}`"
+              type="button"
+              class="modality-chip"
+              :class="{ 'modality-chip--on': hasThinkingLevel(option.value) }"
+              :aria-pressed="hasThinkingLevel(option.value)"
+              @click="toggleThinkingLevel(option.value)"
+            ><span class="modality-check" aria-hidden="true"><Check :size="11" :stroke-width="3" /></span>{{ option.label }}</button>
+          </div>
+          <p class="model-dialog-advanced__hint">目录选择模型时自动带入其真实值域（如 low/high/max）；空 = 不限，按 API 格式默认档位。toggle 厂商带子集自动升档；anthropic 格式无声明时折叠为预算，兼容端点需在 Provider 上把思考形状显式设为 effort。</p>
+        </div>
+
         <Field orientation="horizontal">
           <FieldLabel>
             <Switch v-model:checked="form.supports_function_calling" />
@@ -118,6 +130,7 @@ import {
 import { Input } from '../ui/input';
 import { Switch } from '../ui/switch';
 import { MODALITY_OPTIONS, describeCatalogModel, matchCatalogModel } from '../../utils/modelCatalog.js';
+import { THINKING_LEVEL_OPTIONS, THINKING_STRENGTH_LEVELS, normalizeThinkingLevels } from '../../utils/thinkingLevels.js';
 
 const props = defineProps({
   dialog: { type: Object, required: true },
@@ -142,16 +155,21 @@ const catalogMetaText = computed(() => {
   return matched ? describeCatalogModel(matched) : '';
 });
 
-// 已落盘的模型级思考档位子集（目录选中时自动带入；可移除回落格式默认档位）。
-const thinkingLevelsText = computed(() => (
-  Array.isArray(props.form.thinking_levels) && props.form.thinking_levels.length
-    ? props.form.thinking_levels.join('/')
-    : ''
-));
+// 思考档位子集编辑：全集取 THINKING_STRENGTH_LEVELS（目录 effort 值域是它的子集），选中即模型真实值域。
+const thinkingLevelOptions = THINKING_STRENGTH_LEVELS
+  .map((value) => THINKING_LEVEL_OPTIONS.find((option) => option.value === value))
+  .filter(Boolean);
 
-function clearThinkingLevels() {
+function hasThinkingLevel(token) {
+  return normalizeThinkingLevels(props.form.thinking_levels).includes(token);
+}
+
+function toggleThinkingLevel(token) {
+  const current = normalizeThinkingLevels(props.form.thinking_levels);
   // eslint-disable-next-line vue/no-mutating-props -- modelForm 为视图持有的表单模型，弹窗内改写属有意架构（同模板顶部声明）
-  props.form.thinking_levels = [];
+  props.form.thinking_levels = current.includes(token)
+    ? current.filter((item) => item !== token)
+    : normalizeThinkingLevels([...current, token]);
 }
 
 function onCatalogModelPick(option) {

@@ -392,6 +392,18 @@
                   <p v-if="fieldErrors.api_format" class="pd-field__error">{{ fieldErrors.api_format }}</p>
                 </div>
                 <div class="pd-field">
+                  <label class="pd-field__label" for="detail-thinking-kind">思考形状</label>
+                  <CustomSelect
+                    trigger-id="detail-thinking-kind"
+                    :model-value="detailForm.thinking_kind || ''"
+                    :options="THINKING_KIND_OPTIONS"
+                    :disabled="savingFields.has('thinking_kind')"
+                    @update:model-value="onDetailThinkingKindChange"
+                  />
+                  <p v-if="fieldErrors.thinking_kind" class="pd-field__error">{{ fieldErrors.thinking_kind }}</p>
+                  <p class="pd-field__hint">目录厂商带入的形状声明可在此覆盖；空 = 跟随 API 格式默认。</p>
+                </div>
+                <div class="pd-field">
                   <label class="pd-field__label" for="detail-api-key">API Key</label>
                   <div class="pd-key-wrap">
                     <Input
@@ -649,7 +661,7 @@ import {
   CORE_API_FORMATS, applyCatalogModel, catalogVendorProfile,
   isCatalogVendorConnectable, modelCapabilityTitle, modelModalityMarks, normalizeModalities,
 } from '../utils/modelCatalog.js';
-import { normalizeThinkingLevels } from '../utils/thinkingLevels.js';
+import { normalizeThinkingLevels, THINKING_KIND_OPTIONS } from '../utils/thinkingLevels.js';
 
 defineProps({
   embedded: { type: Boolean, default: false },
@@ -779,6 +791,7 @@ function buildDetailForm(provider) {
     provider_type: provider.provider_type || '',
     api_endpoint: provider.api_endpoint || '',
     api_format: provider.api_format || '',
+    thinking_kind: provider.thinking_kind || '',
     api_key: '',
   };
   for (const field of getProviderConfigFields(provider.api_format)) {
@@ -826,6 +839,8 @@ async function saveDetailField(field, value) {
   try {
     await updateProvider(getProviderKey(provider), { [field]: value });
     provider[field] = value;
+    // 思考形状变化须刷新列表：/providers 响应注入的 thinking descriptor 随 thinking_kind 派生
+    if (field === 'thinking_kind') await fetchProviders();
     if (['api_key', 'api_endpoint', 'api_format'].includes(field)) loadProviderAvailability(providers.value);
   } catch (e) {
     setFieldError(field, e?.message || '保存失败');
@@ -910,6 +925,11 @@ async function persistDetailVendor(payload) {
   } finally {
     markSaving('provider_type', false);
   }
+}
+/** 思考形状手动覆盖：单字段即存；变更后由 saveDetailField 刷新列表更新思考 descriptor。 */
+function onDetailThinkingKindChange(value) {
+  detailForm.value.thinking_kind = value;
+  saveDetailField('thinking_kind', value);
 }
 /** API 格式切换：级联新格式扩展字段默认值，连同格式一起保存。 */
 async function onDetailFormatChange(apiFormat) {

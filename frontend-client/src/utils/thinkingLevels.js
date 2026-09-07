@@ -19,6 +19,15 @@ export const THINKING_LEVEL_OPTIONS = [
 /** effort 系强度档位全集（模型级 thinking_levels 子集的合法值域）；off 是通用开关不入子集。 */
 export const THINKING_STRENGTH_LEVELS = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 
+/** provider 思考形状（thinking_kind）手动声明选项；空 = 跟随 API 格式默认（openai 系 effort、anthropic 折叠 budget）。 */
+export const THINKING_KIND_OPTIONS = [
+  { value: '', label: '默认（跟随 API 格式）' },
+  { value: 'effort', label: 'effort · 推理档位' },
+  { value: 'budget', label: 'budget · token 预算' },
+  { value: 'toggle', label: 'toggle · 仅开关' },
+  { value: 'none', label: 'none · 不支持思考' },
+];
+
 /** 思考档位子集归一：小写 trim、只留已知强度档位、按全集顺序输出；非数组/过滤后为空 → []。 */
 export function normalizeThinkingLevels(value) {
   if (!Array.isArray(value)) return [];
@@ -34,20 +43,23 @@ export function normalizeThinkingLevels(value) {
  * provider 思考 descriptor + 模型条目子集 → 可选档位：
  * 模型声明子集（目录 effort 值域）时强度档位以子集（厂商真实枚举）为准，off 恒可用；
  * toggle 形状（厂商投票的多数默认）下带子集的模型升级为 effort 分级（如智谱 glm-5.3）；
- * budget 形状直接用 descriptor 档位（agent-llm describeThinking 同源规则）。
+ * budget 形状（anthropic 线，descriptor 已由后端折叠）菜单同样随子集收缩
+ * （agent-llm describeThinking 同源规则）。注意 descriptor 是 provider 级（后端注入时
+ * 不看模型子集），kind 与运行时可能不同（anthropic+toggle 此处 budget、运行时按子集
+ * 升级 effort）——levels 三方恒一致，kind 仅用于选择器显隐，勿按其分支业务逻辑。
  */
 export function thinkingCapabilityFor(provider, modelName) {
   const thinking = provider && provider.thinking && typeof provider.thinking === 'object' ? provider.thinking : null;
   if (!thinking || thinking.kind === 'none') return { kind: 'none', levels: [] };
   let levels = Array.isArray(thinking.levels) ? [...thinking.levels] : [];
   let kind = thinking.kind;
-  if ((kind === 'effort' || kind === 'toggle') && modelName) {
+  if ((kind === 'effort' || kind === 'toggle' || kind === 'budget') && modelName) {
     const entry = Array.isArray(provider.models)
       ? provider.models.find((item) => String(item?.name || '') === modelName)
       : null;
     const subset = normalizeThinkingLevels(entry?.thinking_levels);
     if (subset.length) {
-      kind = 'effort';
+      if (kind === 'toggle') kind = 'effort';
       levels = ['off', ...subset];
     }
   }

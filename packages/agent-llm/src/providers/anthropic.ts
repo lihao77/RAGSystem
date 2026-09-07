@@ -17,7 +17,7 @@ import type { AttemptGuard } from "../transport.js";
 import { StreamingBlocks } from "./internal/stream-blocks.js";
 import { extractText, toAnthropicContent } from "../content-parts.js";
 import { compactRecord } from "../record-utils.js";
-import { effectiveThinkingBudget } from "../thinking.js";
+import { effectiveReasoningEffort, effectiveThinkingBudget } from "../thinking.js";
 import { isRecord } from "../internal/records.js";
 import { extractAnthropicUsage } from "../internal/usage.js";
 import {
@@ -104,17 +104,25 @@ export function buildAnthropicBody(request: LlmRequest, stream = false): Record<
   if (cacheEnabled && tools?.length) tools[tools.length - 1]!.cache_control = { type: "ephemeral" };
 
   const budget = effectiveThinkingBudget(request.provider, request.thinkingLevel);
-  const thinking = typeof budget === "number" && Number.isFinite(budget) && budget > 0
-    ? { type: "enabled", budget_tokens: Math.floor(budget) }
+  // effort 型 anthropic 兼容端点（provider 显式声明 thinking_kind: effort，智谱/Kimi/
+  // 阿里/火山等 /v1/messages 网关）：budget_tokens 被无视，档位唯一落点是 output_config.effort；
+  // thinking.enabled 作通用开信号（adaptive 仅部分端点认）。off 与无档位不发字段——多数
+  // 该类模型思考强制开启，关闭语义无处落点，降级为模型默认。
+  const effort = effectiveReasoningEffort(request.provider, request.thinkingLevel);
+  const effortLevel = effort !== undefined && effort !== "none" ? effort : undefined;
+  const budgetTokens = typeof budget === "number" && Number.isFinite(budget) && budget > 0
+    ? Math.floor(budget)
     : undefined;
+  const thinkingOn = effortLevel !== undefined || budgetTokens !== undefined;
   const configuredMaxTokens = request.maxCompletionTokens ?? request.provider.max_completion_tokens ?? request.provider.max_tokens;
   let maxTokens = configuredMaxTokens ?? 4096;
-  if (thinking) {
+  let thinkingBudget = budgetTokens;
+  if (thinkingBudget != null) {
     if (configuredMaxTokens == null) {
       // Anthropic 要求 budget_tokens 严格小于 max_tokens：默认上限不足以容纳档位预算时抬高。
-      maxTokens = Math.max(maxTokens, thinking.budget_tokens + 1024);
+      maxTokens = Math.max(maxTokens, thinkingBudget + 1024);
     } else {
-      thinking.budget_tokens = Math.min(thinking.budget_tokens, maxTokens - 1);
+      thinkingBudget = Math.min(thinkingBudget, maxTokens - 1);
     }
   }
   return {
@@ -122,11 +130,14 @@ export function buildAnthropicBody(request: LlmRequest, stream = false): Record<
     model: request.model,
     messages,
     system: system.length ? system : undefined,
-    temperature: thinking ? undefined : (request.temperature ?? undefined),
+    temperature: thinkingOn ? undefined : (request.temperature ?? undefined),
     max_tokens: maxTokens,
     tools,
     tool_choice: request.tools?.length ? mapAnthropicToolChoice(request.toolChoice) : undefined,
-    ...(thinking ? { thinking } : {}),
+    ...(thinkingOn
+      ? { thinking: thinkingBudget != null ? { type: "enabled", budget_tokens: thinkingBudget } : { type: "enabled" } }
+      : {}),
+    ...(effortLevel ? { output_config: { effort: effortLevel } } : {}),
     stream: stream ? true : undefined,
   };
 }

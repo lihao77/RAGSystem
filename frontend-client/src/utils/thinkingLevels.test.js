@@ -45,9 +45,14 @@ test('thinkingCapabilityFor: descriptor 档位直通；模型级子集替换强�
     thinkingCapabilityFor(provider({ kind: 'toggle', levels: ['off', 'on'] }, [{ name: 'glm-5' }]), 'glm-5'),
     { kind: 'toggle', levels: ['off', 'on'] },
   );
-  // budget / none：子集（effort 语义）不影响
+  // budget（anthropic 线折叠形状）+ 模型子集 → 菜单随子集收缩（与后端同源）
   assert.deepEqual(
     thinkingCapabilityFor(provider({ kind: 'budget', levels: ['off', 'low', 'medium', 'high'] }, [{ name: 'claude', thinking_levels: ['low'] }]), 'claude'),
+    { kind: 'budget', levels: ['off', 'low'] },
+  );
+  // budget 无子集 → 维持 descriptor 档位
+  assert.deepEqual(
+    thinkingCapabilityFor(provider({ kind: 'budget', levels: ['off', 'low', 'medium', 'high'] }, [{ name: 'claude' }]), 'claude'),
     { kind: 'budget', levels: ['off', 'low', 'medium', 'high'] },
   );
   assert.deepEqual(thinkingCapabilityFor(provider(null, []), 'm'), { kind: 'none', levels: [] });
