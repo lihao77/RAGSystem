@@ -126,6 +126,15 @@ export interface ProviderConfig {
   max_completion_tokens?: number | null;
   max_tokens?: number | null;
   temperature?: number | null;
+  /**
+   * 自定义 HTTP 请求头（该 provider 全部 LLM 请求原样附带）：网关侧会话路由/缓存
+   * 亲和头（opencode Console Go 的 x-opencode-session、sub2api 的 session_id——
+   * 上游 prompt cache 绑定网关侧账号/路由桶，缺稳定会话头会被硬拒或缓存冷启动），
+   * 或网关私有标记头。值支持 {session_id} 占位符：调用期解析为本次会话的稳定路由键
+   * （= LlmRequest.promptCacheKey），无会话上下文的辅助调用回落 provider 级稳定值——
+   * 保证占位符头恒在场，硬性网关（如 Console Go）的辅助调用不被 400。
+   */
+  headers?: Record<string, string> | null;
   /** 厂商扩展参数（extra_params 等）原样透传给请求 body。 */
   [extra: string]: unknown;
 }

@@ -188,6 +188,56 @@ describe("provider form normalization hydration", () => {
     expect(service.getProvider("runtime_alias")?.api_format).toBe("openai_chat");
   });
 
+  it("headers 归一：键 trim/空白键剥、非字符串值与非法字符条目丢弃、空表剥键、占位符原样保留", () => {
+    const config = {
+      key: "k",
+      name: "Headers Gateway",
+      provider_type: "opencode",
+      api_format: "openai_chat",
+      api_key: "sk",
+      headers: {
+        "  x-opencode-session  ": "{session_id}",
+        "": "dropped",
+        "x-static": "tag",
+        "x-number": 123,
+        "x-null": null,
+        // 非法字符（undici 请求构造期才抛错，归一层提前剔除防"每次调用失败"）
+        "x-session id": "space-in-name",
+        "x-crlf": "a\r\nb",
+        "x-zh-value": "中文值",
+      },
+      models: [{ name: "glm-5.3", thinking_kind: "effort" }],
+    } as unknown as ModelProviderConfig;
+    runProviderFormNormalization(config);
+    // 占位符调用期由 agent-llm 解析，归一层原样保留；非法名字/值条目丢弃
+    expect(config.headers).toEqual({ "x-opencode-session": "{session_id}", "x-static": "tag" });
+
+    const emptyHeaders = {
+      key: "k2",
+      name: "Empty",
+      provider_type: "opencode",
+      api_format: "openai_chat",
+      api_key: "sk",
+      headers: { "  ": "v", x: 1 },
+      models: [],
+    } as unknown as ModelProviderConfig;
+    runProviderFormNormalization(emptyHeaders);
+    expect(emptyHeaders).not.toHaveProperty("headers");
+
+    // 非对象形状（手工编辑半迁移态）按空表收敛
+    const malformed = {
+      key: "k3",
+      name: "Malformed",
+      provider_type: "opencode",
+      api_format: "openai_chat",
+      api_key: "sk",
+      headers: "x-opencode-session: abc",
+      models: [],
+    } as unknown as ModelProviderConfig;
+    runProviderFormNormalization(malformed);
+    expect(malformed).not.toHaveProperty("headers");
+  });
+
   function loadFromYaml(yaml: string): ModelAdapterService {
     const dir = mkdtempSync(path.join(tmpdir(), "provider-hydration-"));
     tempDirs.push(dir);

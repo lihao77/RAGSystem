@@ -1,6 +1,6 @@
 import type { ModelProviderConfig, ProviderPayload } from "../../contracts/integrations/model-adapter.js";
 import { MODEL_MODALITIES, THINKING_STRENGTH_LEVELS, type ModelModality, type ThinkingStrengthLevel } from "../../contracts/integrations/model-adapter.js";
-import { THINKING_KINDS_BY_FORMAT } from "@ragsystem/agent-llm";
+import { THINKING_KINDS_BY_FORMAT, isValidHeaderName, isValidHeaderValue } from "@ragsystem/agent-llm";
 import { isRecord } from "../../utils/guards.js";
 import type { HydrationStep } from "../config/hydration.js";
 
@@ -26,6 +26,11 @@ export const PROVIDER_FORM_NORMALIZATION_STEPS: readonly HydrationStep<ModelProv
     id: "provider_llm_engine_normalize",
     note: "llm_engine 非法值剔除（仅 pi-ai 合法，缺省/非法回落原生适配器）",
     run: normalizeLlmEngineStep,
+  },
+  {
+    id: "provider_headers_normalize",
+    note: "headers 归一为 Record<string,string>（键 trim 非空、非字符串值丢弃；空表剥键），占位符原样保留（调用期由 agent-llm 解析）",
+    run: normalizeProviderHeadersStep,
   },
   {
     id: "provider_model_entries_normalize",
@@ -125,6 +130,7 @@ export function normalizeProviderRuntimeConfig(config: ModelProviderConfig): voi
   if (Object.prototype.hasOwnProperty.call(config, "thinking_kind")) {
     delete (config as Record<string, unknown>).thinking_kind;
   }
+  normalizeProviderHeadersStep(config);
   normalizeModelEntriesStep(config);
 }
 
@@ -234,6 +240,36 @@ function normalizeModelEntriesStep(config: ModelProviderConfig): boolean {
   const before = JSON.stringify(config.models);
   config.models = normalizeModels(config.models);
   return before !== JSON.stringify(config.models);
+}
+
+/**
+ * 自定义请求头归一（加载链与 create/update 写入面共用）：键 trim 非空、值必须是
+ * 字符串、名字值须 HTTP 头合法（非法字符条目丢弃——undici 在 fetch 构造期才拦截，
+ * 留到请求期会让该 provider 每次 LLM 调用都失败且报错被 SDK 包装成连接错误）。
+ * {session_id} 占位符原样保留——调用期由 agent-llm resolveProviderHeaders 解析。
+ * 归一后空表剥键。非对象形状不报错、按空表处理（半迁移/手工编辑收敛）；
+ * create/update 的严格形状校验（非字符串值/非法字符 400）在 service
+ * ensureProviderRequestShape。
+ */
+export function normalizeProviderHeaders(value: unknown): Record<string, string> | undefined {
+  if (!isRecord(value)) return undefined;
+  const headers: Record<string, string> = {};
+  for (const [name, headerValue] of Object.entries(value)) {
+    const headerName = name.trim();
+    if (!headerName || typeof headerValue !== "string") continue;
+    if (!isValidHeaderName(headerName) || !isValidHeaderValue(headerValue)) continue;
+    headers[headerName] = headerValue;
+  }
+  return Object.keys(headers).length > 0 ? headers : undefined;
+}
+
+function normalizeProviderHeadersStep(config: ModelProviderConfig): boolean {
+  if (!Object.prototype.hasOwnProperty.call(config, "headers")) return false;
+  const before = JSON.stringify(config.headers ?? null);
+  const normalized = normalizeProviderHeaders(config.headers);
+  if (normalized) config.headers = normalized;
+  else delete config.headers;
+  return before !== JSON.stringify(config.headers ?? null);
 }
 
 /** 模型条目数组归一：只保留已知键，name trim 非空去重，数值/布尔/模态非法值丢弃；非数组 → []。 */

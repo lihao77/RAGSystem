@@ -3,7 +3,7 @@
  * 逐条原样回传）是本方言的核心语义，由 buildResponsesBody（请求侧）持有。
  */
 import OpenAI from "openai";
-import type { ChatMessage, ChatToolCall, LlmRequest, LlmResult, LlmStreamHandler, ProviderConfig, ProviderContinuationState, TokenUsage } from "../types.js";
+import type { ChatMessage, ChatToolCall, LlmRequest, LlmResult, LlmStreamHandler, ProviderContinuationState, TokenUsage } from "../types.js";
 import type { LlmProviderAdapter } from "./adapter.js";
 import type { AttemptGuard } from "../transport.js";
 import { StreamingBlocks } from "./internal/stream-blocks.js";
@@ -12,6 +12,7 @@ import { compactRecord } from "../record-utils.js";
 import { effectiveReasoningEffort } from "../thinking.js";
 import { isRecord } from "../internal/records.js";
 import { extractOpenAiUsage } from "../internal/usage.js";
+import { resolveProviderHeaders } from "../provider-headers.js";
 import {
   consumeProviderStream,
   resolveSdkFetch,
@@ -27,7 +28,7 @@ export class OpenAiResponsesAdapter implements LlmProviderAdapter {
     return executeProviderOperation(request, ({ signal }) =>
       withProviderGuards(request, signal, async (guard) => {
         const response = await guard.total(
-          createResponsesClient(request.provider).responses.create(
+          createResponsesClient(request).responses.create(
             buildResponsesBody(request) as unknown as OpenAI.Responses.ResponseCreateParamsNonStreaming,
             guard.requestOptions(),
           ),
@@ -41,7 +42,7 @@ export class OpenAiResponsesAdapter implements LlmProviderAdapter {
     return executeProviderOperation(request, ({ signal }) =>
       withProviderGuards(request, signal, async (guard) => {
         const stream = await guard.total(
-          createResponsesClient(request.provider).responses.create(
+          createResponsesClient(request).responses.create(
             buildResponsesBody(request, true) as unknown as OpenAI.Responses.ResponseCreateParamsStreaming,
             guard.requestOptions(),
           ),
@@ -52,12 +53,15 @@ export class OpenAiResponsesAdapter implements LlmProviderAdapter {
   }
 }
 
-function createResponsesClient(provider: ProviderConfig): OpenAI {
+function createResponsesClient(request: LlmRequest): OpenAI {
+  const provider = request.provider;
   const fetch = resolveSdkFetch(provider);
+  const headers = resolveProviderHeaders(provider, request.promptCacheKey);
   return new OpenAI({
     apiKey: requireApiKey(provider),
     baseURL: openAiBaseURL(provider, "/responses"),
     maxRetries: 0,
+    ...(headers ? { defaultHeaders: headers } : {}),
     ...(fetch ? { fetch } : {}),
   });
 }

@@ -168,6 +168,55 @@ describe("ModelAdapterService provider configuration (provider_type=厂商, api_
     expect(untouched.config.models).toEqual([{ name: "gpt-4.1", thinking_kind: "effort" }]);
   });
 
+  it("provider 级自定义请求头：create/update 往返、键 trim、占位符原样落盘、非法形状 400、空表/null 清空", () => {
+    const service = new ModelAdapterService();
+    const created = service.buildCreateProvider({
+      name: "OpenCode Go",
+      provider_type: "opencode",
+      api_format: "openai_chat",
+      api_key: "sk",
+      api_endpoint: "https://opencode.ai/zen/go/v1",
+      headers: { "x-opencode-session": "{session_id}", "  session_id  ": "static" },
+      models: [{ name: "glm-5.3", thinking_kind: "effort" }],
+    });
+    // {session_id} 占位符调用期由 agent-llm 解析，配置层原样保留；键 trim 归一。
+    expect(created.config.headers).toEqual({ "x-opencode-session": "{session_id}", session_id: "static" });
+
+    // update 未提供 headers 时保留原值；提供则整体替换
+    const untouched = service.buildUpdateProvider("stable-provider-key", existing, { timeout: 60 });
+    expect(untouched.config.headers).toBeUndefined();
+    const withHeaders = { ...existing, headers: { "x-a": "1" } };
+    const updated = service.buildUpdateProvider("stable-provider-key", withHeaders, {
+      headers: { "x-opencode-session": "{session_id}" },
+    });
+    expect(updated.config.headers).toEqual({ "x-opencode-session": "{session_id}" });
+
+    // 写入面严格形状（400 不静默丢弃）：非字符串值 / 非对象
+    const malformedError = new ModelAdapterServiceError("自定义请求头必须是字符串键值表（headers: Record<string, string>）", 400);
+    expect(() => service.buildUpdateProvider("stable-provider-key", existing, { headers: { "x-a": 1 } }))
+      .toThrowError(malformedError);
+    expect(() => service.buildCreateProvider({
+      name: "X", provider_type: "x", api_format: "openai_chat", api_key: "sk",
+      headers: "x-a: 1", models: [{ name: "m", thinking_kind: "effort" }],
+    })).toThrowError(malformedError);
+    // 非法字符（名字含空格/CRLF、值含换行或非 latin1）同样 400——undici 在请求构造期
+    // 才拦截，配置期拦下防"每次 LLM 调用失败且报错像连接错误"
+    expect(() => service.buildUpdateProvider("stable-provider-key", existing, { headers: { "x-session id": "v" } }))
+      .toThrowError(new ModelAdapterServiceError('自定义请求头 "x-session id" 含非法字符（名字须 RFC 7230 token、值须可打印字符，不含换行）', 400));
+    expect(() => service.buildUpdateProvider("stable-provider-key", existing, { headers: { "x-a": "a\r\nb" } }))
+      .toThrowError(new ModelAdapterServiceError('自定义请求头 "x-a" 含非法字符（名字须 RFC 7230 token、值须可打印字符，不含换行）', 400));
+    expect(() => service.buildCreateProvider({
+      name: "X", provider_type: "x", api_format: "openai_chat", api_key: "sk",
+      headers: { "x-zh": "中文值" }, models: [{ name: "m", thinking_kind: "effort" }],
+    })).toThrowError(new ModelAdapterServiceError('自定义请求头 "x-zh" 含非法字符（名字须 RFC 7230 token、值须可打印字符，不含换行）', 400));
+
+    // null / 空表 = 清空入口（归一后剥键，不落空对象）
+    const cleared = service.buildUpdateProvider("stable-provider-key", withHeaders, { headers: null });
+    expect(cleared.config).not.toHaveProperty("headers");
+    const emptied = service.buildUpdateProvider("stable-provider-key", withHeaders, { headers: {} });
+    expect(emptied.config).not.toHaveProperty("headers");
+  });
+
   it("availability 以 api_format + models 判定", () => {
     const service = new ModelAdapterService();
     service.createProvider({

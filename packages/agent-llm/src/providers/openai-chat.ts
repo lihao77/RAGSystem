@@ -3,7 +3,7 @@
  * 厂商差异（思考字段、缓存键）由 provider 配置声明，透传字段靠 SDK 原样序列化。
  */
 import OpenAI from "openai";
-import type { LlmRequest, LlmResult, LlmStreamHandler, ProviderConfig, ProviderContinuationState, TokenUsage } from "../types.js";
+import type { LlmRequest, LlmResult, LlmStreamHandler, ProviderContinuationState, TokenUsage } from "../types.js";
 import type { LlmProviderAdapter } from "./adapter.js";
 import type { AttemptGuard } from "../transport.js";
 import { StreamingBlocks } from "./internal/stream-blocks.js";
@@ -12,6 +12,7 @@ import { buildThinkingParams, thinkingSideEffectsActive } from "../thinking.js";
 import { isRecord } from "../internal/records.js";
 import { extractOpenAiUsage } from "../internal/usage.js";
 import { providerTypeSpec } from "../provider-registry.js";
+import { resolveProviderHeaders } from "../provider-headers.js";
 import {
   consumeProviderStream,
   resolveSdkFetch,
@@ -40,7 +41,7 @@ export class OpenAiChatAdapter implements LlmProviderAdapter {
     return executeProviderOperation(request, ({ signal }) =>
       withProviderGuards(request, signal, async (guard) => {
         const completion = await guard.total(
-          createChatClient(request.provider).chat.completions.create(
+          createChatClient(request).chat.completions.create(
             buildChatBody(request) as unknown as OpenAI.Chat.ChatCompletionCreateParamsNonStreaming,
             guard.requestOptions(),
           ),
@@ -54,7 +55,7 @@ export class OpenAiChatAdapter implements LlmProviderAdapter {
     return executeProviderOperation(request, ({ signal }) =>
       withProviderGuards(request, signal, async (guard) => {
         const stream = await guard.total(
-          createChatClient(request.provider).chat.completions.create(
+          createChatClient(request).chat.completions.create(
             buildChatBody(request, true) as unknown as OpenAI.Chat.ChatCompletionCreateParamsStreaming,
             guard.requestOptions(),
           ),
@@ -66,12 +67,15 @@ export class OpenAiChatAdapter implements LlmProviderAdapter {
 }
 
 /** 按请求构造（构造时解析 fetch，测试 stub globalThis.fetch 依赖这一点）；重试/超时归策略层。 */
-function createChatClient(provider: ProviderConfig): OpenAI {
+function createChatClient(request: LlmRequest): OpenAI {
+  const provider = request.provider;
   const fetch = resolveSdkFetch(provider);
+  const headers = resolveProviderHeaders(provider, request.promptCacheKey);
   return new OpenAI({
     apiKey: requireApiKey(provider),
     baseURL: openAiBaseURL(provider, "/chat/completions"),
     maxRetries: 0,
+    ...(headers ? { defaultHeaders: headers } : {}),
     ...(fetch ? { fetch } : {}),
   });
 }

@@ -11,7 +11,6 @@ import type {
   LlmRequest,
   LlmResult,
   LlmStreamHandler,
-  ProviderConfig,
   ProviderContinuationState,
 } from "../types.js";
 import type { LlmProviderAdapter } from "./adapter.js";
@@ -20,6 +19,7 @@ import { extractText, parseDataUrl, toContentParts } from "../content-parts.js";
 import { isRecord } from "../internal/records.js";
 import { extractGeminiUsage } from "../internal/usage.js";
 import { compactRecord } from "../record-utils.js";
+import { resolveProviderHeaders } from "../provider-headers.js";
 import {
   consumeProviderStream,
   executeProviderOperation,
@@ -48,7 +48,7 @@ export class GeminiAdapter implements LlmProviderAdapter {
     return executeProviderOperation(request, ({ signal }) =>
       withProviderGuards(request, signal, async (guard) => {
         const response = await guard.total(
-          createGeminiClient(request.provider).models.generateContent(generateContentParameters(request, guard)),
+          createGeminiClient(request).models.generateContent(generateContentParameters(request, guard)),
         );
         return parseGeminiResponse(response as unknown as Record<string, unknown>);
       }),
@@ -59,7 +59,7 @@ export class GeminiAdapter implements LlmProviderAdapter {
     return executeProviderOperation(request, ({ signal }) =>
       withProviderGuards(request, signal, async (guard) => {
         const generator = await guard.total(
-          createGeminiClient(request.provider).models.generateContentStream(generateContentParameters(request, guard)),
+          createGeminiClient(request).models.generateContentStream(generateContentParameters(request, guard)),
         );
         return consumeProviderStream(onChunk, (emit) => consumeGeminiStream(generator, request, guard, emit));
       }),
@@ -67,15 +67,18 @@ export class GeminiAdapter implements LlmProviderAdapter {
   }
 }
 
-/** 按请求构造；baseUrl 含版本段 + apiVersion:""（pi-ai 同款姿势，防版本段翻倍）。 */
-function createGeminiClient(provider: ProviderConfig): GoogleGenAI {
+/** 按请求构造；baseUrl 含版本段 + apiVersion:""（pi-ai 同款姿势，防版本段翻倍）。
+ * headers 走客户端级 httpOptions——genai 的 patchHttpOptions 与请求级 extraBody 逐键合并不互覆。 */
+function createGeminiClient(request: LlmRequest): GoogleGenAI {
+  const provider = request.provider;
   if (provider.transport?.type === "ipc_socket") {
     // @google/genai 无 fetch 注入口，本地组网传输不适用于本方言（openai/anthropic 支持）。
     throw new Error(`Provider '${provider.name}' does not support the ipc_socket transport`);
   }
+  const headers = resolveProviderHeaders(provider, request.promptCacheKey);
   return new GoogleGenAI({
     apiKey: requireApiKey(provider),
-    httpOptions: { baseUrl: geminiBaseURL(provider), apiVersion: "" },
+    httpOptions: { baseUrl: geminiBaseURL(provider), apiVersion: "", ...(headers ? { headers } : {}) },
   });
 }
 

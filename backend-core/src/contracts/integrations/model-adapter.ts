@@ -177,6 +177,18 @@ export interface ModelProviderConfig {
   supports_prompt_caching?: boolean;
   /** provider KV cache 有效期(秒);注入上下文快照的 sliding 失效阈值。 */
   cache_ttl_seconds?: number;
+  /**
+   * 自定义 HTTP 请求头（该 provider 全部 LLM 请求原样附带）：网关侧会话路由/缓存
+   * 亲和头（opencode Console Go 的 x-opencode-session、sub2api 的 session_id——
+   * 上游 prompt cache 绑定网关侧路由桶，缺稳定会话头会被硬拒或缓存冷启动）或
+   * 网关私有标记头。值支持 {session_id} 占位符：agent-llm 调用期解析为该次会话的
+   * 稳定路由键（promptCacheKey），无会话上下文的辅助调用（标题/压缩/testProvider）
+   * 回落 provider 级稳定值。形态：键 trim 非空、值必须字符串、名字值须 HTTP 头合法
+   * （RFC 7230 token / 可打印值，写入面 400、加载面非法条目丢弃）；空表/全非法 → 剥键。
+   * 注意：自定义头优先于 SDK 默认头（含 Authorization 鉴权）——接管网关私有鉴权时
+   * 有意为之，一般场景勿配置保留头名。
+   */
+  headers?: Record<string, string>;
   is_loaded?: boolean;
   is_available?: boolean;
   [key: string]: unknown;

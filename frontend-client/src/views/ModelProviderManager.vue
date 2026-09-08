@@ -318,6 +318,31 @@
                 </div>
               </section>
 
+              <section class="provider-detail__section" aria-label="自定义请求头">
+                <div class="provider-detail__section-head">
+                  <h3 class="provider-detail__section-title">自定义请求头</h3>
+                </div>
+                <p class="pd-field__hint provider-headers__hint">
+                  随该 Provider 全部 LLM 请求发送；值支持 {session_id} 占位符（调用时解析为会话稳定标识，供网关做路由与缓存亲和，如 opencode Go 的 x-opencode-session、sub2api 的 session_id）。
+                </p>
+                <div class="provider-header-rows">
+                  <div v-for="(row, idx) in form.headers" :key="`create-header-${idx}`" class="provider-header-row">
+                    <Input v-model="row.name" placeholder="Header 名，如 x-opencode-session" class="provider-header-row__name" />
+                    <Input v-model="row.value" placeholder="值，如 {session_id}" />
+                    <Button variant="ghost" size="icon" aria-label="删除请求头" title="删除" @click="form.headers.splice(idx, 1)">
+                      <IconClose />
+                    </Button>
+                  </div>
+                  <Button variant="outline" size="sm" class="provider-header-add" @click="form.headers.push({ name: '', value: '' })">
+                    <IconPlus data-icon="inline-start" />
+                    添加请求头
+                  </Button>
+                  <p v-if="formHeaderDuplicates.size > 0 || formErrors.headers" class="pd-field__error">
+                    {{ formHeaderDuplicates.size > 0 ? `请求头名称重复：${Array.from(formHeaderDuplicates).join('、')}（同名后者会覆盖前者）` : formErrors.headers }}
+                  </p>
+                </div>
+              </section>
+
               <p v-if="dialog.error" class="pd-field__error">{{ dialog.error }}</p>
 
               <div class="provider-create-footer">
@@ -587,6 +612,32 @@
                   </div>
                 </div>
               </section>
+
+              <section class="provider-detail__section" aria-label="自定义请求头">
+                <div class="provider-detail__section-head">
+                  <h3 class="provider-detail__section-title">自定义请求头</h3>
+                </div>
+                <p class="pd-field__hint provider-headers__hint">
+                  随该 Provider 全部 LLM 请求发送；值支持 {session_id} 占位符（调用时解析为会话稳定标识，供网关做路由与缓存亲和）。失焦保存，删除全部行 = 清空。
+                </p>
+                <div class="provider-header-rows">
+                  <div v-for="(row, idx) in detailForm.headerRows" :key="`detail-header-${idx}`" class="provider-header-row">
+                    <Input v-model="row.name" placeholder="Header 名，如 x-opencode-session" class="provider-header-row__name" @change="saveDetailHeaders()" />
+                    <Input v-model="row.value" placeholder="值，如 {session_id}" @change="saveDetailHeaders()" />
+                    <Button variant="ghost" size="icon" aria-label="删除请求头" title="删除" :disabled="savingFields.has('headers')" @click="removeDetailHeaderRow(idx)">
+                      <IconClose />
+                    </Button>
+                  </div>
+                  <Button variant="outline" size="sm" class="provider-header-add" :disabled="savingFields.has('headers')" @click="addDetailHeaderRow()">
+                    <IconPlus data-icon="inline-start" />
+                    添加请求头
+                  </Button>
+                  <p v-if="detailHeaderDuplicates.size > 0" class="pd-field__error">
+                    请求头名称重复：{{ Array.from(detailHeaderDuplicates).join('、') }}（同名后者会覆盖前者，修正后失焦保存）
+                  </p>
+                  <p v-if="fieldErrors.headers" class="pd-field__error">{{ fieldErrors.headers }}</p>
+                </div>
+              </section>
             </div>
           </template>
 
@@ -664,6 +715,7 @@ import {
   isCatalogVendorConnectable, modelCapabilityTitle, modelModalityMarks, normalizeModalities,
 } from '../utils/modelCatalog.js';
 import { normalizeThinkingLevels } from '../utils/thinkingLevels.js';
+import { headerObjectFromRows, headerRowsFromObject } from '../utils/providerHeaders.js';
 
 defineProps({
   embedded: { type: Boolean, default: false },
@@ -794,6 +846,7 @@ function buildDetailForm(provider) {
     api_endpoint: provider.api_endpoint || '',
     api_format: provider.api_format || '',
     api_key: '',
+    headerRows: headerRowsFromObject(provider.headers),
   };
   for (const field of getProviderConfigFields(provider.api_format)) {
     next[field.key] = provider[field.key] ?? field.default ?? '';
@@ -870,6 +923,68 @@ async function saveDetailApiKey() {
 function saveDetailSwitch(field, checked) {
   detailForm.value[field.key] = checked;
   saveDetailField(field.key, checked);
+}
+
+/** 行数组内 trim 后重名的头名集合：同名行落盘会被后者覆盖，创建提交/详情保存都要拦截。 */
+function duplicateHeaderNames(rows) {
+  const seen = new Set();
+  const duplicates = new Set();
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const name = String(row?.name ?? '').trim();
+    if (!name) continue;
+    if (seen.has(name)) duplicates.add(name);
+    seen.add(name);
+  }
+  return duplicates;
+}
+const detailHeaderDuplicates = computed(() => duplicateHeaderNames(detailForm.value?.headerRows));
+const formHeaderDuplicates = computed(() => duplicateHeaderNames(form.value?.headers));
+
+/* 自定义请求头（headers）行内编辑：增删行即时生效草稿，改名/改值失焦保存整体对象。
+   in-flight 窗口内到达的编辑记 pending，保存落定后重放一次——否则"填完 name 立刻填
+   value"的标准输入流会被早退静默丢弃（原生 change 不再补发，慢网络下必丢）。 */
+let headersSavePending = false;
+function addDetailHeaderRow() {
+  detailForm.value.headerRows.push({ name: '', value: '' });
+}
+function removeDetailHeaderRow(index) {
+  detailForm.value.headerRows.splice(index, 1);
+  saveDetailHeaders();
+}
+async function saveDetailHeaders() {
+  const provider = selectedProvider.value;
+  if (!provider) return;
+  if (savingFields.value.has('headers')) {
+    headersSavePending = true;
+    return;
+  }
+  // 同名行后端只落一条（后者覆盖前者），保存前拦截并让行内提示接手
+  if (duplicateHeaderNames(detailForm.value.headerRows).size > 0) {
+    setFieldError('headers', '');
+    return;
+  }
+  const headers = headerObjectFromRows(detailForm.value.headerRows);
+  const previous = provider.headers ? JSON.stringify(provider.headers) : '';
+  const next = headers ? JSON.stringify(headers) : '';
+  if (next === previous) return;
+  markSaving('headers', true);
+  setFieldError('headers', '');
+  try {
+    // 空表 → 显式 null 走后端清空入口（update 白名单剥键）
+    await updateProvider(getProviderKey(provider), { headers: headers ?? null });
+    if (headers) provider.headers = headers;
+    else delete provider.headers;
+  } catch (e) {
+    setFieldError('headers', e?.message || '保存失败');
+    toast.error(e?.message || '保存失败');
+    detailForm.value = buildDetailForm(provider);
+  } finally {
+    markSaving('headers', false);
+    if (headersSavePending) {
+      headersSavePending = false;
+      saveDetailHeaders();
+    }
+  }
 }
 
 /* 厂商（provider_type）内联编辑：键入只改草稿，失焦保存手输值；
@@ -1400,7 +1515,7 @@ const providerKeyPreview = computed(() => {
 });
 
 function buildFormDefaults() {
-  return { name: '', provider_type: '', api_key: '', api_endpoint: '', api_format: '' };
+  return { name: '', provider_type: '', api_key: '', api_endpoint: '', api_format: '', headers: [] };
 }
 function buildModelDefaults() {
   return {
@@ -1534,6 +1649,9 @@ function normalizeProviderPayload(payload) {
   for (const field of getProviderConfigFields(payload.api_format)) {
     if (payload[field.key] === '' || payload[field.key] === null || payload[field.key] === undefined) delete payload[field.key];
   }
+  const headers = headerObjectFromRows(payload.headers);
+  if (headers) payload.headers = headers;
+  else delete payload.headers;
   return payload;
 }
 
@@ -1548,6 +1666,9 @@ function validateProviderForm() {
   const endpoint = String(form.value.api_endpoint || '').trim();
   if (endpoint && !endpoint.includes('${')) {
     try { new URL(endpoint); } catch { errors.api_endpoint = '请输入完整的 http:// 或 https:// 地址'; }
+  }
+  if (duplicateHeaderNames(form.value.headers).size > 0) {
+    errors.headers = '请求头名称重复：同名后者会覆盖前者，请先修正';
   }
   if (modelEntries.value.length === 0) errors.models = '至少配置一个模型';
   return errors;
@@ -1713,6 +1834,13 @@ onBeforeUnmount(() => {
 .provider-model-line__actions { display: inline-flex; flex-shrink: 0; gap: 2px; }
 .provider-detail-models__empty { margin: 0; color: var(--color-text-muted); font-size: 12px; }
 .provider-model-add { align-self: flex-start; border-style: dashed; }
+
+/* 自定义请求头行（创建面板与详情面板共用） */
+.provider-headers__hint { margin: 0 0 8px; }
+.provider-header-rows { display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
+.provider-header-row { display: grid; grid-template-columns: minmax(140px, 1fr) minmax(160px, 1.4fr) auto; gap: 6px; align-items: center; }
+.provider-header-row__name { font-family: var(--font-mono, monospace); }
+.provider-header-add { align-self: flex-start; border-style: dashed; }
 
 /* 内联添加供应商面板 */
 .provider-create-intro { margin: 0; font-size: 13px; color: var(--color-text-secondary); }

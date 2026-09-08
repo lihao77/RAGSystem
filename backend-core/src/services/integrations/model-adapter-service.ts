@@ -21,6 +21,7 @@ import {
   canonicalizeProviderType,
   isChatProviderConfig,
   normalizeModels,
+  normalizeProviderHeaders,
   normalizeProviderRuntimeConfig,
   providerThinkingKindError,
   runProviderFormNormalization,
@@ -31,6 +32,8 @@ import {
   DEFAULT_PROVIDER_RETRY_DELAY_SECONDS,
   DEFAULT_PROVIDER_TIMEOUT_SECONDS,
   externalCallPolicy,
+  isValidHeaderName,
+  isValidHeaderValue,
   LlmProviderClient,
   type ExternalCallMetrics,
   type ProviderConfig,
@@ -52,6 +55,7 @@ const UPDATE_FIELDS = [
   "cache_ttl_seconds",
   "models",
   "api_endpoint",
+  "headers",
 ] as const;
 
 export class ModelAdapterServiceError extends Error {
@@ -439,6 +443,27 @@ export class ModelAdapterService {
 
   private ensureProviderRequestShape(data: ProviderPayload, options: { requireModels: boolean }): void {
     const normalized = canonicalizeProviderConfig(data);
+    // headers 严格形状（写入面 400，不静默丢弃）：null = 清空入口放行，其余必须是
+    // 字符串键值表且名字值 HTTP 头合法（undici 在请求构造期才拦截非法字符，配置期
+    // 拦下防"每次调用都失败但报错像连接错误"）；trim/空表收敛由归一层负责。
+    if (normalized.headers !== undefined && normalized.headers !== null) {
+      const headers = normalized.headers;
+      if (!isRecord(headers)) {
+        throw new ModelAdapterServiceError("自定义请求头必须是字符串键值表（headers: Record<string, string>）", 400);
+      }
+      for (const [name, value] of Object.entries(headers)) {
+        const headerName = name.trim();
+        if (typeof value !== "string") {
+          throw new ModelAdapterServiceError("自定义请求头必须是字符串键值表（headers: Record<string, string>）", 400);
+        }
+        if (!headerName || !isValidHeaderName(headerName) || !isValidHeaderValue(value)) {
+          throw new ModelAdapterServiceError(
+            `自定义请求头 "${name}" 含非法字符（名字须 RFC 7230 token、值须可打印字符，不含换行）`,
+            400,
+          );
+        }
+      }
+    }
     const models = normalized.models;
     if (models !== undefined && !Array.isArray(models)) {
       throw new ModelAdapterServiceError("models 必须是数组", 400);
@@ -685,6 +710,13 @@ function assignProviderField(config: ModelProviderConfig, field: (typeof UPDATE_
         config.api_endpoint = String(value ?? "");
       }
       break;
+    case "headers": {
+      // 归一后空表剥键（清空入口）；值级形状已在 ensureProviderRequestShape 严格 400。
+      const headers = normalizeProviderHeaders(value);
+      if (headers) config.headers = headers;
+      else delete config.headers;
+      break;
+    }
   }
 }
 

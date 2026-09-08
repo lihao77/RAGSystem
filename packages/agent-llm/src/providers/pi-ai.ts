@@ -39,6 +39,7 @@ import {
   withProviderGuards,
   type AttemptGuard,
 } from "../transport.js";
+import { resolveProviderHeaders } from "../provider-headers.js";
 import { isRetryableHttpStatus, RetryableHttpError } from "../external-call-policy.js";
 
 /** pi-ai 引擎声明值（provider.llm_engine）；其余值/缺省 = 原生适配器。 */
@@ -282,10 +283,12 @@ async function buildPiContext(request: LlmRequest, piProviderId: string, apiId: 
 
 function buildPiOptions(request: LlmRequest, runtime: PiRuntime, signal: AbortSignal): Record<string, unknown> {
   const fetchImpl = resolveSdkFetch(request.provider);
+  const headers = resolveProviderHeaders(request.provider, request.promptCacheKey);
   const level = request.thinkingLevel;
   return {
     apiKey: requireApiKey(request.provider),
     signal,
+    ...(headers ? { headers } : {}),
     ...(level && level !== "off" ? { reasoning: level } : {}),
     ...(request.temperature != null ? { temperature: request.temperature } : {}),
     maxTokens: request.maxCompletionTokens ?? request.provider.max_completion_tokens ?? request.provider.max_tokens ?? (runtime.model.maxTokens as number),

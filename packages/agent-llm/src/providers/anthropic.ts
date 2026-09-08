@@ -9,7 +9,6 @@ import type {
   LlmRequest,
   LlmResult,
   LlmStreamHandler,
-  ProviderConfig,
   ReasoningBlock,
 } from "../types.js";
 import type { LlmProviderAdapter } from "./adapter.js";
@@ -20,6 +19,7 @@ import { compactRecord } from "../record-utils.js";
 import { effectiveReasoningEffort, effectiveThinkingBudget } from "../thinking.js";
 import { isRecord } from "../internal/records.js";
 import { extractAnthropicUsage } from "../internal/usage.js";
+import { resolveProviderHeaders } from "../provider-headers.js";
 import {
   anthropicBaseURL,
   consumeProviderStream,
@@ -44,7 +44,7 @@ export class AnthropicAdapter implements LlmProviderAdapter {
     return executeProviderOperation(request, ({ signal }) =>
       withProviderGuards(request, signal, async (guard) => {
         const message = await guard.total(
-          createMessagesClient(request.provider).messages.create(
+          createMessagesClient(request).messages.create(
             buildAnthropicBody(request) as unknown as Anthropic.MessageCreateParamsNonStreaming,
             guard.requestOptions(),
           ),
@@ -58,7 +58,7 @@ export class AnthropicAdapter implements LlmProviderAdapter {
     return executeProviderOperation(request, ({ signal }) =>
       withProviderGuards(request, signal, async (guard) => {
         const stream = await guard.total(
-          createMessagesClient(request.provider).messages.create(
+          createMessagesClient(request).messages.create(
             buildAnthropicBody(request, true) as unknown as Anthropic.MessageCreateParamsStreaming,
             guard.requestOptions(),
           ),
@@ -70,12 +70,15 @@ export class AnthropicAdapter implements LlmProviderAdapter {
 }
 
 /** 按请求构造（pi-ai 同款 createClient 模式）；重试/超时归策略层。 */
-function createMessagesClient(provider: ProviderConfig): Anthropic {
+function createMessagesClient(request: LlmRequest): Anthropic {
+  const provider = request.provider;
   const fetch = resolveSdkFetch(provider);
+  const headers = resolveProviderHeaders(provider, request.promptCacheKey);
   return new Anthropic({
     apiKey: requireApiKey(provider),
     baseURL: anthropicBaseURL(provider),
     maxRetries: 0,
+    ...(headers ? { defaultHeaders: headers } : {}),
     ...(fetch ? { fetch } : {}),
   });
 }

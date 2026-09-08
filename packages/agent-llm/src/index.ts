@@ -12,6 +12,12 @@ export { compactRecord } from "./record-utils.js";
 export * from "./content-parts.js";
 export * from "./external-call-policy.js";
 export * from "./provider-continuation.js";
+export {
+  SESSION_ID_PLACEHOLDER,
+  isValidHeaderName,
+  isValidHeaderValue,
+  resolveProviderHeaders,
+} from "./provider-headers.js";
 export { LlmProviderClient, OpenAiCompatibleClient } from "./llm-client.js";
 export {
   configureWireCapture,
