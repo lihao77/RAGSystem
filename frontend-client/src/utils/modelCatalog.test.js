@@ -30,17 +30,16 @@ test('CORE_API_FORMATS: 格式清单封闭为 4 种纯协议（openai_proxy 已�
 });
 
 test('catalogVendorProfile: 档案 = 后端目录摘要的推导字段（无前端硬编码厂商表）', () => {
-  // qwen 系（alibaba）：openai_chat + 后端从 reasoning_options 推导的 toggle 声明
+  // 思考形状已下沉到模型条目（目录模型各自带推荐值），厂商档案只剩 API 格式
   assert.deepEqual(
-    catalogVendorProfile({ id: 'alibaba', api_format: 'openai_chat', thinking_kind: 'toggle' }),
-    { api_format: 'openai_chat', thinking_kind: 'toggle' },
+    catalogVendorProfile({ id: 'alibaba', api_format: 'openai_chat' }),
+    { api_format: 'openai_chat' },
   );
-  // 格式默认思考形状（openai 系 effort）不带 thinking_kind
-  assert.deepEqual(catalogVendorProfile({ id: 'openai', api_format: 'openai_chat', thinking_kind: null }), { api_format: 'openai_chat' });
+  assert.deepEqual(catalogVendorProfile({ id: 'openai', api_format: 'openai_chat' }), { api_format: 'openai_chat' });
   // 专用 SDK 厂商（bedrock/mistral 等）：无推导格式 → null 不可直连
-  assert.equal(catalogVendorProfile({ id: 'mistral', api_format: null, thinking_kind: null }), null);
+  assert.equal(catalogVendorProfile({ id: 'mistral', api_format: null }), null);
   assert.equal(catalogVendorProfile(null), null);
-  assert.equal(isCatalogVendorConnectable({ api_format: 'openai_chat', thinking_kind: null }), true);
+  assert.equal(isCatalogVendorConnectable({ api_format: 'openai_chat' }), true);
   assert.equal(isCatalogVendorConnectable({ api_format: null }), false);
 });
 
@@ -59,6 +58,7 @@ test('applyCatalogModel: 目录字段填充表单，缺失字段保留当前值'
     supports_function_calling: false,
     input_modalities: ['text'],
     output_modalities: ['text'],
+    thinking_kind: '',
   };
   const next = applyCatalogModel(form, {
     id: 'gpt-4o',
@@ -77,6 +77,7 @@ test('applyCatalogModel: 目录字段填充表单，缺失字段保留当前值'
     supports_function_calling: true,
     input_modalities: ['text', 'image'],
     output_modalities: ['text'],
+    thinking_kind: '',
   });
 
   // 目录缺 limit/模态时不覆盖手填值
@@ -92,6 +93,22 @@ test('applyCatalogModel: 目录字段填充表单，缺失字段保留当前值'
   assert.equal(fcKept.supports_function_calling, true);
 
   assert.equal(applyCatalogModel(form, null), form);
+});
+
+test('applyCatalogModel: 目录推荐思考形状预填（★推荐值，用户可改）；无形状信息保留当前选择', () => {
+  const form = { name: '', thinking_kind: '', thinking_levels: [] };
+  // 推荐形状直出（目录 reasoning_options 推导：effort 值域优先）
+  const effort = applyCatalogModel({ ...form }, { id: 'deepseek-v4', reasoning: true, recommended_thinking_kind: 'effort', accepted_thinking_kinds: ['effort', 'toggle'] });
+  assert.equal(effort.thinking_kind, 'effort');
+  // qwen 系：toggle+budget 可接受、推荐 toggle
+  const toggle = applyCatalogModel({ ...form }, { id: 'qwen3-max', reasoning: true, recommended_thinking_kind: 'toggle', accepted_thinking_kinds: ['toggle', 'budget'] });
+  assert.equal(toggle.thinking_kind, 'toggle');
+  // reasoning:false → none
+  const none = applyCatalogModel({ ...form, thinking_kind: 'effort' }, { id: 'gpt-4o', reasoning: false, recommended_thinking_kind: 'none', accepted_thinking_kinds: [] });
+  assert.equal(none.thinking_kind, 'none');
+  // 无形状信息（null）：保留用户当前选择
+  const kept = applyCatalogModel({ ...form, thinking_kind: 'toggle' }, { id: 'mystery', reasoning: true, recommended_thinking_kind: null, accepted_thinking_kinds: [] });
+  assert.equal(kept.thinking_kind, 'toggle');
 });
 
 test('applyCatalogModel: 目录 effort 值域写入思考档位子集；目录明确非思考模型清空残留', () => {

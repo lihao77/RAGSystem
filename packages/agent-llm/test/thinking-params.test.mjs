@@ -5,11 +5,18 @@ import { buildThinkingParams, describeThinking, effectiveReasoningEffort, effect
 import { buildAnthropicBody } from "../dist/providers/anthropic.js";
 import { buildChatBody } from "../dist/providers/openai-chat.js";
 
+/**
+ * 形状显式必达：夹具默认按格式给合法声明（模拟迁移后的模型条目投影——
+ * thinking_kind 由模型条目携带，投影层合并进 provider），个案用 extra 覆盖。
+ */
+const DEFAULT_KIND = { anthropic: "budget", openai_chat: "effort", openai_resp: "effort", gemini: "none" };
+
 const provider = (providerType, extra = {}) => ({
   key: "test",
   name: "test",
   provider_type: providerType,
   api_key: "k",
+  thinking_kind: DEFAULT_KIND[providerType] ?? "none",
   ...extra,
 });
 
@@ -21,17 +28,34 @@ const request = (providerConfig, thinkingLevel, extra = {}) => ({
   ...extra,
 });
 
-test("档位集合按 API 格式返回（describeThinking）；thinking_kind 覆盖形状（厂商层适配）", () => {
-  assert.deepEqual(describeThinking("openai_chat").levels, ["off", "minimal", "low", "medium", "high"]);
-  assert.deepEqual(describeThinking("openai_chat").levels, ["off", "minimal", "low", "medium", "high"]);
-  assert.deepEqual(describeThinking("openai_resp").levels, ["off", "minimal", "low", "medium", "high"]);
-  assert.deepEqual(describeThinking("anthropic").levels, ["off", "low", "medium", "high"]);
-  assert.deepEqual(describeThinking("gemini").levels, []);
-  // 厂商差异经 provider 的 thinking_kind 声明（如 qwen 系 enable_thinking），本包不认识厂商
+test("形状按格式能力矩阵显式声明（describeThinking）；档位集合按形状返回", () => {
+  assert.deepEqual(describeThinking("openai_chat", "effort").levels, ["off", "minimal", "low", "medium", "high"]);
+  assert.deepEqual(describeThinking("openai_resp", "effort").levels, ["off", "minimal", "low", "medium", "high"]);
+  assert.deepEqual(describeThinking("anthropic", "budget").levels, ["off", "low", "medium", "high"]);
+  assert.equal(describeThinking("gemini", "none").kind, "none");
+  assert.deepEqual(describeThinking("gemini", "none").levels, []);
+  // 厂商差异经模型条目 thinking_kind 声明（如 qwen 系 enable_thinking），本包不认识厂商
   assert.equal(describeThinking("openai_chat", "toggle").kind, "toggle");
   assert.deepEqual(describeThinking("openai_chat", "toggle").levels, ["off", "on"]);
   assert.equal(describeThinking("openai_chat", "none").kind, "none");
   assert.deepEqual(describeThinking("openai_chat", "none").levels, []);
+  // effort 形状无论格式都走 effort 阶梯（anthropic effort 型兼容端点同样有 minimal 档）
+  assert.deepEqual(describeThinking("anthropic", "effort").levels, ["off", "minimal", "low", "medium", "high"]);
+});
+
+test("形状缺失/非法/格式失配直接抛错（改坏了报错，不静默兜底）", () => {
+  // 缺失：不再回落格式默认表（推断已退役，hydration 下沉保证条目必达）
+  assert.throws(() => describeThinking("openai_chat"), /thinking_kind is missing/);
+  assert.throws(() => describeThinking("anthropic"), /thinking_kind is missing/);
+  // 非法值（缺失与非法分开口径，带原文便于排障）
+  assert.throws(() => describeThinking("openai_chat", "bogus"), /thinking_kind "bogus" is invalid/);
+  // 格式失配：anthropic 线无 toggle 通道、openai 线无 budget 通道、gemini 恒 none
+  assert.throws(() => describeThinking("anthropic", "toggle"), /not expressible on "anthropic" wire/);
+  assert.throws(() => describeThinking("openai_chat", "budget"), /not expressible on "openai_chat" wire/);
+  assert.throws(() => describeThinking("openai_resp", "budget"), /not expressible on "openai_resp" wire/);
+  assert.throws(() => describeThinking("gemini", "effort"), /not expressible on "gemini" wire/);
+  // 未知 API 格式维持旧口径返回 none（4 格式封闭清单在上游校验）
+  assert.deepEqual(describeThinking("vertex", "effort"), { kind: "none", levels: [] });
 });
 
 test("effort 档位顶层 reasoning_effort 直通（off 显式 none）", () => {
@@ -44,12 +68,11 @@ test("effort 档位顶层 reasoning_effort 直通（off 显式 none）", () => {
 test("无档位一律返回 null（档位只来自请求级/tier 配置，provider 不定义思考）", () => {
   assert.equal(buildThinkingParams(provider("openai_chat")), null);
   assert.equal(buildThinkingParams(provider("openai_chat", { reasoning_effort: "high" })), null);
-  assert.equal(buildThinkingParams(provider("openai_chat")), null);
   assert.equal(buildThinkingParams(provider("openai_chat", { thinking_kind: "toggle" })), null);
   assert.equal(buildThinkingParams(provider("anthropic"), "high"), null);
 });
 
-test("toggle 形状（厂商 thinking_kind 声明）：on 开启 / off 关闭", () => {
+test("toggle 形状（模型条目 thinking_kind 声明）：on 开启 / off 关闭", () => {
   assert.deepEqual(buildThinkingParams(provider("openai_chat", { thinking_kind: "toggle" }), "on"), { enable_thinking: true });
   assert.deepEqual(buildThinkingParams(provider("openai_chat", { thinking_kind: "toggle" }), "off"), { enable_thinking: false });
   assert.equal(buildThinkingParams(provider("openai_chat", { thinking_kind: "toggle" })), null);
@@ -71,49 +94,41 @@ test("超出声明子集的档位拒绝，不静默下发", () => {
 test("模型级 thinking_levels 子集替换强度档位（目录厂商枚举为准；off 恒可用）", () => {
   // deepseek 风格：low/high/max
   const ds = provider("openai_chat", { thinking_levels: ["low", "high", "max"] });
-  assert.deepEqual(describeThinking("openai_chat", undefined, ["low", "high", "max"]).levels, ["off", "low", "high", "max"]);
+  assert.deepEqual(describeThinking("openai_chat", "effort", ["low", "high", "max"]).levels, ["off", "low", "high", "max"]);
   assert.deepEqual(buildThinkingParams(ds, "max"), { reasoning_effort: "max" });
   assert.deepEqual(buildThinkingParams(ds, "off"), { reasoning_effort: "none" });
   assert.throws(() => buildThinkingParams(ds, "medium"), /not supported/);
   assert.throws(() => buildThinkingParams(ds, "minimal"), /not supported/);
   // 子集是模型真实值域，可含格式默认集没有的档位（max 不在 openai_chat 默认菜单）
-  assert.deepEqual(describeThinking("openai_chat", undefined, ["high", "max"]).levels, ["off", "high", "max"]);
+  assert.deepEqual(describeThinking("openai_chat", "effort", ["high", "max"]).levels, ["off", "high", "max"]);
 });
 
-test("toggle 厂商下模型级 effort 值域升级为 effort 分级（厂商投票只描述多数默认）", () => {
-  // 智谱场景：厂商 thinking_kind=toggle（多数 GLM 是纯开关），glm-5.3 自带 low/high/max
+test("toggle 形状不吃子集（升级推断已退役；存量 toggle+子集由 hydration 下沉迁移写平为 effort）", () => {
+  // 智谱场景的存量形态（厂商 toggle + glm 分级子集）：迁移后 glm 条目显式 effort；
+  // 若数据仍呈 toggle+子集（手改坏），运行时不再推断——保持开关形状，分级档位拒绝。
   const glm = provider("openai_chat", { thinking_kind: "toggle", thinking_levels: ["low", "high", "max"] });
   assert.deepEqual(describeThinking("openai_chat", "toggle", ["low", "high", "max"]), {
-    kind: "effort",
-    levels: ["off", "low", "high", "max"],
+    kind: "toggle",
+    levels: ["off", "on"],
   });
-  assert.deepEqual(buildThinkingParams(glm, "high"), { reasoning_effort: "high" });
-  assert.deepEqual(buildThinkingParams(glm, "off"), { reasoning_effort: "none" });
-  // 升级后 on 不再是合法档位（陈旧配置不得静默下发）
-  assert.throws(() => buildThinkingParams(glm, "on"), /not supported/);
-  // 无子集/空子集/全非法子集 → 维持开关形状
+  assert.deepEqual(buildThinkingParams(glm, "on"), { enable_thinking: true });
+  assert.throws(() => buildThinkingParams(glm, "high"), /not supported/);
+  // 空子集/全非法子集 → 维持开关形状
   assert.deepEqual(describeThinking("openai_chat", "toggle", undefined).levels, ["off", "on"]);
   assert.deepEqual(describeThinking("openai_chat", "toggle", []).levels, ["off", "on"]);
   assert.deepEqual(describeThinking("openai_chat", "toggle", ["bogus"]).levels, ["off", "on"]);
-  assert.deepEqual(buildThinkingParams(provider("openai_chat", { thinking_kind: "toggle" }), "on"), { enable_thinking: true });
 });
 
-test("budget 形状菜单随模型子集收缩（子集是模型事实；空/坏子集 = 格式默认集）", () => {
+test("budget 形状菜单随模型子集收缩（子集是模型事实；空/坏子集 = 形状默认集）", () => {
   // budget：模型子集（effort 值域）收缩档位菜单，档位按预算阶梯映射
-  assert.deepEqual(describeThinking("anthropic", undefined, ["low"]).levels, ["off", "low"]);
+  assert.deepEqual(describeThinking("anthropic", "budget", ["low"]).levels, ["off", "low"]);
   assert.equal(effectiveThinkingBudget(provider("anthropic", { thinking_levels: ["low"] }), "low"), 4096);
   assert.throws(() => effectiveThinkingBudget(provider("anthropic", { thinking_levels: ["low"] }), "high"), /not supported/);
-  assert.deepEqual(describeThinking("openai_chat", undefined, []).levels, ["off", "minimal", "low", "medium", "high"]);
-  assert.deepEqual(describeThinking("openai_chat", undefined, "low").levels, ["off", "minimal", "low", "medium", "high"]);
-  // 非法值过滤；全非法 → 回退格式默认集
-  assert.deepEqual(describeThinking("openai_chat", undefined, ["high", "bogus"]).levels, ["off", "high"]);
-  assert.deepEqual(describeThinking("openai_chat", undefined, ["bogus"]).levels, ["off", "minimal", "low", "medium", "high"]);
-});
-
-test("budget 形状覆盖到 openai 系格式时默认菜单同预设集，子集收缩与 anthropic 同型", () => {
-  assert.deepEqual(describeThinking("openai_chat", "budget").levels, ["off", "low", "medium", "high"]);
-  // 子集（effort 值域）是模型事实，budget 菜单同样收缩
-  assert.deepEqual(describeThinking("openai_chat", "budget", ["low"]).levels, ["off", "low"]);
+  assert.deepEqual(describeThinking("openai_chat", "effort", []).levels, ["off", "minimal", "low", "medium", "high"]);
+  assert.deepEqual(describeThinking("openai_chat", "effort", "low").levels, ["off", "minimal", "low", "medium", "high"]);
+  // 非法值过滤；全非法 → 回退形状默认集
+  assert.deepEqual(describeThinking("openai_chat", "effort", ["high", "bogus"]).levels, ["off", "high"]);
+  assert.deepEqual(describeThinking("openai_chat", "effort", ["bogus"]).levels, ["off", "minimal", "low", "medium", "high"]);
 });
 
 test("anthropic 不出 thinking 参数（budget 由 anthropic 适配器专用路径消费）", () => {
@@ -122,36 +137,8 @@ test("anthropic 不出 thinking 参数（budget 由 anthropic 适配器专用路
   assert.throws(() => effectiveThinkingBudget(provider("anthropic"), "max"), /not supported/);
 });
 
-test("anthropic toggle+模型 effort 子集自动升级 effort（openai 原生厂商挂 anthropic 兼容端点）", () => {
-  // pqy 形状（厂商投票 toggle + glm 分级子集）：toggle 只可能来自 openai 原生厂商的目录投票，
-  // 该类厂商挂 anthropic 端点必是兼容层（budget_tokens 被无视、档位制）——与 openai 升级同型；
-  // 原事故（升级后无人消费静默失效）已由 anthropic 适配器的 output_config.effort 通道修复。
-  const pqy = provider("anthropic", { thinking_kind: "toggle", thinking_levels: ["low", "high", "max"] });
-  assert.deepEqual(describeThinking("anthropic", "toggle", ["low", "high", "max"]), { kind: "effort", levels: ["off", "low", "high", "max"] });
-  assert.equal(effectiveReasoningEffort(pqy, "max"), "max");
-  assert.equal(effectiveReasoningEffort(pqy, "high"), "high");
-  assert.equal(effectiveReasoningEffort(pqy, "low"), "low");
-  assert.equal(effectiveReasoningEffort(pqy, "off"), "none");
-  assert.equal(effectiveThinkingBudget(pqy, "max"), undefined);
-  assert.deepEqual(buildThinkingParams(pqy, "max"), { reasoning_effort: "max" });
-});
-
-test("anthropic 其余形状折叠 budget（默认/无子集 toggle/未知端点保护真 Anthropic）", () => {
-  // 无声明 + 子集（ds-anthropic/kimi yaml 形态）：折叠 budget，max 可选——原 not-supported 抛错
-  assert.equal(effectiveThinkingBudget(provider("anthropic", { thinking_levels: ["low", "high", "max"] }), "max"), 65536);
-  // 阶梯全覆盖：minimal/xhigh 档位有预算落点
-  assert.equal(effectiveThinkingBudget(provider("anthropic", { thinking_levels: ["minimal", "xhigh"] }), "minimal"), 2048);
-  assert.equal(effectiveThinkingBudget(provider("anthropic", { thinking_levels: ["minimal", "xhigh"] }), "xhigh"), 49152);
-  // toggle 无子集（openai 原生厂商的 toggle-only 模型，无 effort 值域可升级）：折叠 budget 默认菜单
-  assert.deepEqual(describeThinking("anthropic", "toggle"), { kind: "budget", levels: ["off", "low", "medium", "high"] });
-  assert.equal(effectiveThinkingBudget(provider("anthropic", { thinking_kind: "toggle" }), "high"), 32768);
-  // 显式 none 保留：无菜单无参数
-  assert.deepEqual(describeThinking("anthropic", "none"), { kind: "none", levels: [] });
-  assert.equal(buildThinkingParams(provider("anthropic", { thinking_kind: "none" }), "high"), null);
-});
-
-test("anthropic 折叠后档位预算端到端下发（buildAnthropicBody）", () => {
-  // 无声明 + 子集（ds-anthropic/kimi yaml 形态）：budget 折叠，档位按预算阶梯映射
+test("anthropic 档位预算端到端下发（budget 声明 + 子集；buildAnthropicBody）", () => {
+  // ds-anthropic/kimi 迁移后形态（显式 budget + 子集）：档位按预算阶梯映射
   const budgeted = provider("anthropic", { thinking_levels: ["low", "high", "max"] });
   const body = buildAnthropicBody(request(budgeted, "max", { maxCompletionTokens: 131072 }));
   assert.deepEqual(body.thinking, { type: "enabled", budget_tokens: 65536 });
@@ -160,10 +147,19 @@ test("anthropic 折叠后档位预算端到端下发（buildAnthropicBody）", (
   const clamped = buildAnthropicBody(request(budgeted, "max", { maxCompletionTokens: 8192 }));
   assert.deepEqual(clamped.thinking, { type: "enabled", budget_tokens: 8191 });
   assert.equal(clamped.max_tokens, 8192);
+  // 阶梯全覆盖：minimal/xhigh 档位有预算落点
+  assert.equal(effectiveThinkingBudget(provider("anthropic", { thinking_levels: ["minimal", "xhigh"] }), "minimal"), 2048);
+  assert.equal(effectiveThinkingBudget(provider("anthropic", { thinking_levels: ["minimal", "xhigh"] }), "xhigh"), 49152);
+  // 显式 none 保留：无菜单无参数
+  assert.deepEqual(describeThinking("anthropic", "none"), { kind: "none", levels: [] });
+  assert.equal(buildThinkingParams(provider("anthropic", { thinking_kind: "none" }), "high"), null);
 });
 
-test("anthropic toggle+子集升级后档位端到端下发（pqy 形状：output_config.effort 通道）", () => {
-  const pqy = provider("anthropic", { thinking_kind: "toggle", thinking_levels: ["low", "high", "max"] });
+test("anthropic effort 声明端到端下发（pqy 形状：output_config.effort 通道）", () => {
+  const pqy = provider("anthropic", { thinking_kind: "effort", thinking_levels: ["low", "high", "max"] });
+  assert.deepEqual(describeThinking("anthropic", "effort", ["low", "high", "max"]), { kind: "effort", levels: ["off", "low", "high", "max"] });
+  assert.equal(effectiveReasoningEffort(pqy, "max"), "max");
+  assert.equal(effectiveThinkingBudget(pqy, "max"), undefined);
   const body = buildAnthropicBody(request(pqy, "max", { maxCompletionTokens: 131072 }));
   assert.deepEqual(body.thinking, { type: "enabled" });
   assert.deepEqual(body.output_config, { effort: "max" });
@@ -175,7 +171,6 @@ test("anthropic toggle+子集升级后档位端到端下发（pqy 形状：outpu
 test("anthropic 显式 effort 声明保形：effort 型兼容端点档位落 output_config.effort（端到端）", () => {
   // 智谱/Kimi/阿里/火山等 /v1/messages 网关：budget_tokens 被无视，档位唯一落点 output_config.effort
   const pqy = provider("anthropic", { thinking_kind: "effort", thinking_levels: ["low", "high", "max"] });
-  assert.deepEqual(describeThinking("anthropic", "effort", ["low", "high", "max"]), { kind: "effort", levels: ["off", "low", "high", "max"] });
   // 无子集：effort 形状默认阶梯（与 API 格式无关）
   assert.deepEqual(describeThinking("anthropic", "effort"), { kind: "effort", levels: ["off", "minimal", "low", "medium", "high"] });
   assert.equal(effectiveReasoningEffort(pqy, "max"), "max");

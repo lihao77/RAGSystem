@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { LlmProviderClient } from "../dist/index.js";
-import { PiAiAdapter, piUsageToTokenUsage } from "../dist/providers/pi-ai.js";
+import { PiAiAdapter, piStreamFailureToError, piUsageToTokenUsage } from "../dist/providers/pi-ai.js";
+import { isRetryableExternalError, RetryableHttpError } from "../dist/external-call-policy.js";
 
 /** SSE 事件序列 → Response body（anthropic wire 形态，与 pi-ai 手写解码器对齐）。 */
 const sseBody = (events) => events.map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event.data)}\n\n`).join("");
@@ -178,4 +179,62 @@ test("pi usage（disjoint）→ TokenUsage（inclusive）纯映射", () => {
     { inputTokens: 12, outputTokens: 2, totalTokens: 14 },
   );
   assert.deepEqual(piUsageToTokenUsage(undefined), { inputTokens: 0, outputTokens: 0, totalTokens: 0 });
+});
+
+test("pi 流失败按形态重建可重试分类（pi 吞掉 SDK 错误实例只留字符串，对齐原生路径语义）", () => {
+  const classify = (errorMessage, stopReason = "error") => piStreamFailureToError({ stopReason, errorMessage });
+  // anthropic/openai SDK 连接层默认文本（用户实测间歇 "Connection error."）→ TypeError 可重试
+  const conn = classify("Connection error.");
+  assert.ok(conn instanceof TypeError);
+  assert.ok(isRetryableExternalError(conn));
+  assert.match(conn.message, /^pi-ai stream failed \(error\): Connection error\.$/);
+  for (const msg of [
+    "fetch failed",
+    "Request timed out. Node.js fetch timed out waiting for response headers; see https://github.com/openai/openai-node",
+    "terminated",
+    "read ECONNRESET",
+    "socket hang up",
+  ]) {
+    assert.ok(isRetryableExternalError(classify(msg)), `应判定可重试: ${msg}`);
+  }
+  // SDK HTTP 错误消息 "${status} ${body}" → RetryableHttpError（状态白名单内）
+  const rateLimit = classify('429 {"type":"error","error":{"type":"rate_limit_error"}}');
+  assert.ok(rateLimit instanceof RetryableHttpError);
+  assert.equal(rateLimit.status, 429);
+  const server = classify("500 status code (no body)");
+  assert.ok(server instanceof RetryableHttpError);
+  assert.equal(server.status, 500);
+  // pi 的 SSE error 事件把 overloaded JSON 原样抛出（无状态码前缀）→ 529 可重试
+  const overloaded = classify('{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}');
+  assert.ok(overloaded instanceof RetryableHttpError);
+  assert.equal(overloaded.status, 529);
+  // 不可重试：4xx / 模型侧拒答 / abort / 未知形态保持普通 Error
+  for (const msg of ['400 {"type":"error","error":{"type":"invalid_request_error"}}', "The model refused to complete the request"]) {
+    const err = classify(msg);
+    assert.equal(err.constructor, Error, `应为普通 Error: ${msg}`);
+    assert.ok(!isRetryableExternalError(err), `不应可重试: ${msg}`);
+  }
+  assert.ok(!isRetryableExternalError(classify("This operation was aborted", "aborted")));
+});
+
+test("pi 路径瞬时连接失败由策略层重试吸收（先败后成；pi 侧 SDK maxRetries=0 不自行重试）", async () => {
+  const original = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls += 1;
+    if (calls === 1) throw new TypeError("fetch failed");
+    return new Response(textOnlySse, { headers: { "content-type": "text/event-stream" } });
+  };
+  try {
+    const adapter = new PiAiAdapter();
+    const result = await adapter.complete({
+      provider: effortProvider,
+      model: "glm-test",
+      messages: [{ role: "user", content: "hi" }],
+    });
+    assert.equal(result.content, "ok");
+    assert.equal(calls, 2);
+  } finally {
+    globalThis.fetch = original;
+  }
 });

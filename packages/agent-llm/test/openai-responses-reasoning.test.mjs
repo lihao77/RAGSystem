@@ -21,7 +21,7 @@ test("OpenAI Responses 流式 reasoning summary delta 随 chunk 透传", async (
     const adapter = new OpenAiResponsesAdapter();
     const result = await adapter.stream(
       {
-        provider: { key: "test", name: "test", provider_type: "openai_resp", api_key: "k" },
+        provider: { key: "test", name: "test", provider_type: "openai_resp", api_key: "k", thinking_kind: "effort" },
         model: "gpt-test",
         messages: [{ role: "user", content: "hi" }],
       },

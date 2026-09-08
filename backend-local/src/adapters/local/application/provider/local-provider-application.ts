@@ -7,6 +7,7 @@ export class LocalProviderApplication implements ProviderApplication {
 
   async listApiFormats() { return this.service.listApiFormats(); }
   async listProviders() { return this.service.listProviders(); }
+  async listProviderLoadErrors() { return this.service.listProviderLoadErrors(); }
   async createProvider(payload: ProviderPayload) { return this.service.createProvider(payload); }
   async reorderProviders(providerKeys: string[]) { return this.service.reorderProviders({ provider_keys: providerKeys }); }
   async updateProvider(providerKey: string, payload: ProviderPayload) { return this.service.updateProvider(providerKey, payload); }

@@ -123,7 +123,6 @@ export class ModelsDevCatalog {
           name: catalogProviderId,
           api_base_url: null,
           api_format: null,
-          thinking_kind: null,
           model_count: 0,
         },
         models: [],
@@ -221,7 +220,8 @@ export class ModelsDevCatalog {
 
   /**
    * 厂商摘要 + 接入档案推导（provider 表单默认值，用户可改）：API 格式来自
-   * npm SDK 家族或兼容端点；思考形状来自模型 reasoning_options 投票。
+   * npm SDK 家族或兼容端点；思考形状已下沉到每模型条目（推荐值/可接受集），
+   * 厂商级不再投票。
    */
   private providerSummary(id: string, providerRaw: RawCatalogProvider): CatalogProviderSummary {
     const models: Record<string, unknown> = isRecord(providerRaw.models) ? providerRaw.models : {};
@@ -232,7 +232,6 @@ export class ModelsDevCatalog {
       name: String(providerRaw.name ?? "") || id,
       api_base_url: apiBaseUrl,
       api_format: apiFormat,
-      thinking_kind: deriveThinkingKind(apiFormat, models),
       model_count: Object.keys(models).length,
     };
   }
@@ -314,11 +313,48 @@ function normalizeCatalogModel(raw: RawCatalogModel): CatalogModelEntry | null {
     output_limit: asPositiveInt(limit.output),
     tool_call: typeof raw.tool_call === "boolean" ? raw.tool_call : null,
     reasoning: typeof raw.reasoning === "boolean" ? raw.reasoning : null,
+    accepted_thinking_kinds: collectAcceptedThinkingKinds(raw.reasoning_options),
+    recommended_thinking_kind: deriveRecommendedThinkingKind(raw),
     reasoning_efforts: collectReasoningEfforts(raw.reasoning_options),
     interleaved: raw.interleaved === true || isRecord(raw.interleaved),
     interleaved_field: asInterleavedField(raw.interleaved),
     cost: cost ? { input: asNonNegativeNumber(cost.input), output: asNonNegativeNumber(cost.output) } : null,
   };
+}
+
+/**
+ * reasoning_options type → 我方思考形状词表（effort/toggle/budget）：目录声明的
+ * 可接受形状集，前端与 API 格式能力矩阵取交集后供用户选择。空 = 目录无形状信息。
+ */
+function collectAcceptedThinkingKinds(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const kinds = new Set<string>();
+  for (const option of value) {
+    if (!isRecord(option) || typeof option.type !== "string") {
+      continue;
+    }
+    if (option.type === "effort") kinds.add("effort");
+    else if (option.type === "toggle") kinds.add("toggle");
+    else if (option.type === "budget_tokens") kinds.add("budget");
+  }
+  return ["effort", "toggle", "budget"].filter((kind) => kinds.has(kind));
+}
+
+/**
+ * 每模型推荐思考形状（预填默认，用户可改）：effort 值域优先（分级最细），
+ * 否则跟随厂商风格（toggle → budget），无思考 → "none"，无形状信息 → null。
+ */
+function deriveRecommendedThinkingKind(raw: RawCatalogModel): string | null {
+  if (raw.reasoning === false) {
+    return "none";
+  }
+  const accepted = collectAcceptedThinkingKinds(raw.reasoning_options);
+  if (accepted.includes("effort")) return "effort";
+  if (accepted.includes("toggle")) return "toggle";
+  if (accepted.includes("budget")) return "budget";
+  return null;
 }
 
 /**
@@ -354,39 +390,6 @@ function deriveApiFormat(providerRaw: RawCatalogProvider, apiBaseUrl: string | n
   const npm = typeof providerRaw.npm === "string" ? providerRaw.npm.trim() : "";
   const nativeFormat = NATIVE_FORMAT_BY_NPM[npm];
   return nativeFormat ?? (apiBaseUrl ? "openai_chat" : null);
-}
-
-/**
- * 思考形状推导：对厂商全部模型的 reasoning_options 投票——「有 toggle 无 effort」
- * 的模型多于「有 effort 无 toggle」→ 声明 toggle（qwen 系启停开关型）；effort/budget
- * 形状即格式默认值，不显式声明。toggle+effort 同模型（deepseek）不计票 → effort
- * 默认，与其顶层 reasoning_effort 的实测用法一致。非思考参数格式恒 null；anthropic
- * 线上只有 budget_tokens 一个参数通道（agent-llm 侧已把形状折叠为 budget），厂商级
- * toggle 声明在该格式无落点，不投票不声明。
- */
-function deriveThinkingKind(apiFormat: string | null, modelsRaw: Record<string, unknown>): string | null {
-  if (apiFormat !== "openai_chat" && apiFormat !== "openai_resp") {
-    return null;
-  }
-  let toggleOnly = 0;
-  let effortOnly = 0;
-  for (const value of Object.values(modelsRaw)) {
-    if (!isRecord(value) || !Array.isArray(value.reasoning_options)) {
-      continue;
-    }
-    const types = new Set<string>();
-    for (const option of value.reasoning_options) {
-      if (isRecord(option) && typeof option.type === "string") {
-        types.add(option.type);
-      }
-    }
-    if (types.has("toggle") && !types.has("effort")) {
-      toggleOnly += 1;
-    } else if (types.has("effort") && !types.has("toggle")) {
-      effortOnly += 1;
-    }
-  }
-  return toggleOnly > effortOnly ? "toggle" : null;
 }
 
 function normalizeModalities(value: unknown): ModelModality[] {

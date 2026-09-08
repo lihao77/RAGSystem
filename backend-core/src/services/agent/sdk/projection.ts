@@ -198,10 +198,21 @@ export function providerModelSupportsVision(provider: ModelProviderConfig, model
 }
 
 /**
+ * 原始 provider + 模型名 → 合并了模型条目（参数/能力位/thinking_kind/thinking_levels）
+ * 的调用形状：任何绕过 agent 投影直连 llmClient 的调用点（会话标题生成等）必须经此
+ * 桥接——思考形状在模型条目上，原始 provider 不带，直连会在档位请求时抛
+ * "thinking_kind is missing"。条目缺失时返回原样（后续请求面报错）。
+ */
+export function providerWithModelEntry(provider: ModelProviderConfig, modelName: string): ModelProviderConfig {
+  return mergeModelEntryIntoProvider(provider, findModelEntry(provider, modelName)) as unknown as ModelProviderConfig;
+}
+
+/**
  * 模型条目的参数/能力位显式写入内联 provider 副本；条目未配置的键置 null，
  * 避免 provider 透传字段里的残留旧值在模型切换后继续生效。
  * supports_vision 是派生位：输入模态含 image 即具备图片输入能力（agent-llm 消费点零感知）。
- * thinking_levels 是模型级思考强度子集（目录 effort 值域），agent-llm 据此收缩可选档位。
+ * thinking_kind / thinking_levels 是模型级思考声明（形状 + 强度子集），agent-llm
+ * describeThinking 据此显式定形（无推断，缺失即报错——条目缺失时置 null 让请求面报错）。
  * provider_type（厂商）→ api_format：agent-llm 按 API 格式分发协议，厂商不是分发键。
  */
 function mergeModelEntryIntoProvider(provider: ModelProviderConfig, entry: ProviderModelEntry | null): ProviderConfig {
@@ -212,6 +223,7 @@ function mergeModelEntryIntoProvider(provider: ModelProviderConfig, entry: Provi
   merged.max_context_tokens = entry?.max_context_tokens ?? null;
   merged.supports_function_calling = entry?.supports_function_calling ?? null;
   merged.supports_vision = entry?.input_modalities?.includes("image") ?? null;
+  merged.thinking_kind = entry?.thinking_kind ?? null;
   merged.thinking_levels = entry?.thinking_levels ?? null;
   merged.reasoning_field = entry?.reasoning_field ?? null;
   return merged as unknown as ProviderConfig;

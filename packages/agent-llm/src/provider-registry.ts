@@ -1,6 +1,6 @@
 /**
  * Provider API 格式单一信源（纯协议方言，封闭 4 种；厂商适配不在此层——
- * 思考形状经 provider 的 thinking_kind 声明、静态厂商参数经 extra_params 进请求体）。
+ * 思考形状经模型条目 thinking_kind 声明（投影层合并进 provider）、静态厂商参数经 extra_params 进请求体）。
  * OpenAI 兼容网关与官方端点共用 openai_chat：官方专属差异（prompt_cache_key 等）由
  * 端点/能力位守卫（supportsOpenAiPromptCacheKey、supports_prompt_caching）决定，不在格式层分档。
  *

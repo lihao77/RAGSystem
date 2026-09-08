@@ -4,6 +4,7 @@ import type { AgentLlmConfig } from "../../contracts/agent/agent-config.js";
 import type { ModelProviderConfig } from "../../contracts/integrations/model-adapter.js";
 import type { SystemLlmConfig } from "../../contracts/runtime/system-config.js";
 import { findProviderByRef } from "../runtime/provider-lookup.js";
+import { providerWithModelEntry } from "../agent/sdk/projection.js";
 import { parseSelectedLlm } from "../agent/execution/runtime-core-service.js";
 
 /** 列表 title 列与派生兜底（首条消息截 30 字符）共用同一上限，LLM 标题不突破列表展示语义。 */
@@ -142,9 +143,10 @@ export class SessionTitleService {
         { role: "user", content: text },
       ],
       model: resolved.ref.model_name,
-      // agent-llm 按 API 格式分发：与 testProvider 相同的桥接替换（ModelProviderConfig.key
-      // 可选，桥接后形状经 cast 对齐 ProviderConfig）。
-      provider: { ...resolved.provider, provider_type: resolved.provider.api_format ?? resolved.provider.provider_type } as unknown as ProviderConfig,
+      // agent-llm 按 API 格式分发：与 testProvider 相同的桥接替换；思考形状在模型条目上，
+      //须经投影合并（providerWithModelEntry）后调用——原始 provider 不带 thinking_kind，
+      //thinkingLevel:"off" 直连会抛 "thinking_kind is missing"。
+      provider: providerWithModelEntry(resolved.provider, resolved.ref.model_name) as unknown as ProviderConfig,
       // 温度与产出上限不取档位值：标题要的是确定性短输出，档位参数为对话调优。
       // 思考必须显式关闭——fast 档常是默认开思考的轻量模型（如 glm flash），
       // 小预算下思考块会耗尽 max_completion_tokens 导致正文为空。

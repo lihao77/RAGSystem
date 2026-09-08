@@ -50,15 +50,18 @@ plugin-manager 注册描述符时聚合进 `tool-name-aliases` 注册表，core 
 
 链目标：单条 provider 条目；`loadProvidersFromDisk`（磁盘水合）与
 `replaceRuntimeProviders`（运行时快照，纯内存、无持久层、无戳）共用同一组步骤，
-create/update 路径复用其中的 `canonicalizeProviderConfig` / `normalizeProviderRuntimeConfig`。
+create/update 路径复用其中的 `canonicalizeProviderConfig` / `normalizeProviderRuntimeConfig`
+（写入面不含下沉迁移——形状缺失/失配走 400 报错，不静默填充；加载面迁移后仍损坏
+的条目拒载并记录 load_errors）。
 
 | id | 归一内容 |
 | --- | --- |
 | `provider_api_format_alias_canonicalize` | provider_type trim/小写 + api_format 旧别名归一（openai_compatible_chat/openai_proxy → openai_chat 等） |
 | `provider_legacy_field_strip` | 剥离已下沉到模型条目的 provider 级废弃字段（model/model_map/temperature 等） |
-| `provider_thinking_kind_normalize` | thinking_kind 非法值剔除（回落格式默认思考形状） |
+| `provider_thinking_kind_normalize` | 【已退役】原"thinking_kind 非法值剔除（回落格式默认）"——思考形状下沉到模型条目（显式必达）后由 `provider_thinking_kind_sink` 取代 |
 | `provider_llm_engine_normalize` | llm_engine 非法值剔除（仅 pi-ai 合法，缺省/非法回落原生适配器） |
-| `provider_model_entries_normalize` | models 归一为对象条目数组（非法条目丢弃、去重） |
+| `provider_model_entries_normalize` | models 归一为对象条目数组（非法条目丢弃、去重；条目 thinking_kind 合法值归一） |
+| `provider_thinking_kind_sink` | 厂商级 thinking_kind 下沉迁移：按旧运行时推断语义等价固化进每条模型条目（toggle+子集→effort、anthropic+toggle 无子集→budget、格式默认 anthropic→budget/openai→effort、openai+budget→none、gemini→none），随后剥离厂商字段；迁移后条目仍缺失/失配 = 数据损坏，加载面拒载报错 |
 
 ## 其他持久化机制（不在本清单管辖，列出以免混淆）
 

@@ -22,6 +22,7 @@ import {
   isChatProviderConfig,
   normalizeModels,
   normalizeProviderRuntimeConfig,
+  providerThinkingKindError,
   runProviderFormNormalization,
 } from "./model-adapter-hydration.js";
 import {
@@ -41,7 +42,6 @@ const PROVIDERS_CONFIG_RELATIVE_PATH = path.join("config", "model_adapter", "pro
 const UPDATE_FIELDS = [
   "provider_type",
   "api_format",
-  "thinking_kind",
   "llm_engine",
   "api_key",
   "timeout",
@@ -66,6 +66,8 @@ export class ModelAdapterServiceError extends Error {
 
 export class ModelAdapterService {
   private readonly providers = new Map<string, ModelProviderConfig>();
+  /** 加载面被拒载的 provider（配置损坏：条目思考形状缺失/失配等），随列表接口暴露。 */
+  private providerLoadErrors: { key: string; message: string }[] = [];
   private readonly providersConfigPath: string | null;
   private readonly catalog: ModelsDevCatalog;
 
@@ -116,6 +118,7 @@ export class ModelAdapterService {
   /** Replace the in-memory provider snapshot supplied by a deployment runtime. */
   replaceRuntimeProviders(providers: readonly ModelProviderConfig[]): void {
     const next = new Map<string, ModelProviderConfig>();
+    this.providerLoadErrors = [];
     for (const value of providers) {
       const config = cloneProviderConfig(value);
       config.name = String(config.name ?? "").trim();
@@ -132,10 +135,22 @@ export class ModelAdapterService {
       if (!isChatProviderConfig(config, (format) => this.isKnownApiFormat(format))) {
         continue;
       }
+      // 配置损坏（条目思考形状缺失/失配）拒载并记录：不静默兜底也不炸整个租户快照，
+      // 错误随列表接口暴露（load_errors），修复走 create/update 的 400 校验口径。
+      const thinkingError = providerThinkingKindError(config);
+      if (thinkingError) {
+        this.providerLoadErrors.push({ key: providerKey, message: thinkingError });
+        continue;
+      }
       next.set(providerKey, config);
     }
     this.providers.clear();
     for (const [providerKey, config] of next) this.providers.set(providerKey, config);
+  }
+
+  /** 加载面拒载记录（损坏配置的报错通道；随 /providers 列表下发）。 */
+  listProviderLoadErrors(): { key: string; message: string }[] {
+    return this.providerLoadErrors.map((item) => ({ ...item }));
   }
 
   hasProvider(providerKey: string): boolean {
@@ -207,6 +222,11 @@ export class ModelAdapterService {
     config.api_format = canonicalizeProviderType(config.api_format, undefined);
     if (!this.isKnownApiFormat(config.api_format)) {
       throw new ModelAdapterServiceError(`不支持的 API 格式: ${config.api_format || "(空)"}`, 400);
+    }
+    // 终局校验（覆盖跨字段场景：api_format 变更使既有条目形状失配）；写入面不填充。
+    const thinkingError = providerThinkingKindError(config);
+    if (thinkingError) {
+      throw new ModelAdapterServiceError(thinkingError, 400);
     }
     return { key: providerKey, config };
   }
@@ -409,6 +429,11 @@ export class ModelAdapterService {
     config.name = String(config.name);
     config.provider_type = String(config.provider_type).trim().toLowerCase();
     normalizeProviderRuntimeConfig(config);
+    // 写入面不做形状填充（用户必须显式选择）：缺失/非法/格式失配直接 400。
+    const thinkingError = providerThinkingKindError(config);
+    if (thinkingError) {
+      throw new ModelAdapterServiceError(thinkingError, 400);
+    }
     return cloneProviderConfig(config);
   }
 
@@ -463,6 +488,7 @@ export class ModelAdapterService {
     }
 
     this.providers.clear();
+    this.providerLoadErrors = [];
     for (const [providerKey, value] of Object.entries(parsed)) {
       if (!isRecord(value)) {
         continue;
@@ -473,6 +499,13 @@ export class ModelAdapterService {
       // 归一不可观察——过滤在链后判定），保证磁盘加载与运行时快照同一水合口径。
       runProviderFormNormalization(config);
       if (!config.name || !isChatProviderConfig(config, (format) => this.isKnownApiFormat(format))) {
+        continue;
+      }
+      // 配置损坏（迁移后条目思考形状仍缺失/失配 = 数据被改坏）拒载并记录，
+      // 随 /providers 列表暴露 load_errors；create/update 写入面同口径 400。
+      const thinkingError = providerThinkingKindError(config);
+      if (thinkingError) {
+        this.providerLoadErrors.push({ key: providerKey, message: thinkingError });
         continue;
       }
       this.providers.set(providerKey, cloneProviderConfig(config));
@@ -604,9 +637,6 @@ function assignProviderField(config: ModelProviderConfig, field: (typeof UPDATE_
       break;
     case "api_format":
       config.api_format = canonicalizeProviderType(value, undefined);
-      break;
-    case "thinking_kind":
-      config.thinking_kind = String(value ?? "").trim().toLowerCase();
       break;
     case "llm_engine":
       // pi-ai=委托引擎；空/其他值删除回落原生适配器（与 hydration 归一同构）

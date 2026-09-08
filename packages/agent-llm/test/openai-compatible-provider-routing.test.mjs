@@ -32,7 +32,7 @@ test("OpenAI Compatible routes to the provider-declared endpoint; vendor adaptat
       expectedThinking: { enable_thinking: true },
     },
     {
-      provider: { key: "deepseek", name: "deepseek", provider_type: "openai_chat", api_key: "secret", api_endpoint: "https://api.deepseek.com/v1" },
+      provider: { key: "deepseek", name: "deepseek", provider_type: "openai_chat", api_key: "secret", api_endpoint: "https://api.deepseek.com/v1", thinking_kind: "effort" },
       endpoint: "https://api.deepseek.com/v1/chat/completions",
       thinkingLevel: "high",
       expectedThinking: { reasoning_effort: "high" },

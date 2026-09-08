@@ -20,7 +20,7 @@ const multiRoundMessages = (round1, round2) => [
 
 test("Anthropic 工具循环内每条 assistant 的 thinking 块都随自己的 tool_use 回传", () => {
   const body = buildAnthropicBody({
-    provider: { key: "test", name: "test", provider_type: "anthropic", api_key: "k" },
+    provider: { key: "test", name: "test", provider_type: "anthropic", api_key: "k", thinking_kind: "budget" },
     model: "test-model",
     messages: multiRoundMessages(
       { reasoning_blocks: [thinking("round one", "sig-1"), { type: "redacted_thinking", data: "redacted-1" }] },
@@ -36,7 +36,7 @@ test("Anthropic 工具循环内每条 assistant 的 thinking 块都随自己的 
 
 test("Anthropic 恢复的 provider_continuation 同样注入对应 assistant 消息", () => {
   const body = buildAnthropicBody({
-    provider: { key: "test", name: "test", provider_type: "anthropic", api_key: "k" },
+    provider: { key: "test", name: "test", provider_type: "anthropic", api_key: "k", thinking_kind: "budget" },
     model: "test-model",
     messages: multiRoundMessages(
       { provider_continuation: { protocol: "anthropic_messages", toolCallIds: ["call-1"], blocks: [thinking("restored one", "sig-r1")] } },
@@ -51,7 +51,7 @@ test("Anthropic 恢复的 provider_continuation 同样注入对应 assistant 消
 
 test("Anthropic 无思考数据的 assistant 消息不注入任何块", () => {
   const body = buildAnthropicBody({
-    provider: { key: "test", name: "test", provider_type: "anthropic", api_key: "k" },
+    provider: { key: "test", name: "test", provider_type: "anthropic", api_key: "k", thinking_kind: "budget" },
     model: "test-model",
     messages: [
       { role: "user", content: "old question" },
@@ -68,7 +68,7 @@ test("Anthropic 无思考数据的 assistant 消息不注入任何块", () => {
 
 test("Anthropic 跨 run：provider_continuation 注入事务外的纯文字轮（pi 全历史语义）", () => {
   const body = buildAnthropicBody({
-    provider: { key: "test", name: "test", provider_type: "anthropic", api_key: "k" },
+    provider: { key: "test", name: "test", provider_type: "anthropic", api_key: "k", thinking_kind: "budget" },
     model: "test-model",
     messages: [
       { role: "user", content: "old question" },
@@ -92,7 +92,7 @@ test("Anthropic 跨 run：provider_continuation 注入事务外的纯文字轮�
 
 test("Anthropic 缺签名的 thinking 块降级为 <think> 包裹的 text 块而非丢弃", () => {
   const body = buildAnthropicBody({
-    provider: { key: "test", name: "test", provider_type: "anthropic", api_key: "k" },
+    provider: { key: "test", name: "test", provider_type: "anthropic", api_key: "k", thinking_kind: "budget" },
     model: "test-model",
     messages: [
       { role: "user", content: "go" },
@@ -112,7 +112,7 @@ test("Anthropic 缺签名的 thinking 块降级为 <think> 包裹的 text 块而
 
 test("思考模式 + tools：缺 reasoning_content 的 assistant 轮（含纯文字轮）补空串", () => {
   const body = buildChatBody({
-    provider: { key: "ds", name: "DeepSeek", provider_type: "openai_chat", api_key: "k" },
+    provider: { key: "ds", name: "DeepSeek", provider_type: "openai_chat", api_key: "k", thinking_kind: "effort" },
     model: "deepseek-v4-pro",
     thinkingLevel: "low",
     messages: [
@@ -136,7 +136,7 @@ test("思考模式 + tools：缺 reasoning_content 的 assistant 轮（含纯文
 test("reasoning_field 声明（目录 interleaved.field）：补齐字段跟随方言，已带思考字段的轮不重复补", () => {
   const body = buildChatBody({
     // openrouter 部分模型为 reasoning_details 方言（目录模型级声明，投影进 provider）
-    provider: { key: "or", name: "OpenRouter", provider_type: "openai_chat", api_key: "k", reasoning_field: "reasoning_details" },
+    provider: { key: "or", name: "OpenRouter", provider_type: "openai_chat", api_key: "k", reasoning_field: "reasoning_details", thinking_kind: "effort" },
     model: "grok-4",
     thinkingLevel: "high",
     messages: [
@@ -162,7 +162,7 @@ test("reasoning_field 声明（目录 interleaved.field）：补齐字段跟随�
 
 test("思考补齐：轮内已有任一思考线字段（如 reasoning 字符串方言）则不注入", () => {
   const body = buildChatBody({
-    provider: { key: "gw", name: "Gateway", provider_type: "openai_chat", api_key: "k" },
+    provider: { key: "gw", name: "Gateway", provider_type: "openai_chat", api_key: "k", thinking_kind: "effort" },
     model: "some-model",
     thinkingLevel: "low",
     messages: [
@@ -177,7 +177,7 @@ test("思考补齐：轮内已有任一思考线字段（如 reasoning 字符串
   assert.equal(assistant.reasoning_content, undefined);
 });
 
-test("思考补齐激活绑定形状实际生效：kind=none / budget 覆盖 + 陈旧档位不注入任何字段", () => {
+test("思考补齐激活绑定形状实际生效：kind=none + 陈旧档位不注入任何字段；openai 线 budget 失配报错", () => {
   const messages = [
     { role: "user", content: "go" },
     { role: "assistant", content: "old answer" },
@@ -191,15 +191,17 @@ test("思考补齐激活绑定形状实际生效：kind=none / budget 覆盖 + �
   });
   assert.equal(noneKind.messages[1].reasoning_content, undefined);
   assert.equal(noneKind.messages[1].reasoning_details, undefined);
-  // budget 覆盖到 openai 系：请求体无思考参数（budget 由 anthropic 适配器消费），同样不补
-  const budgetKind = buildChatBody({
-    provider: { key: "t", name: "T", provider_type: "openai_chat", api_key: "k", thinking_kind: "budget" },
-    model: "m",
-    thinkingLevel: "high",
-    messages,
-  });
-  assert.equal(budgetKind.messages[1].reasoning_content, undefined);
-  assert.equal(budgetKind.reasoning_effort, undefined);
+  assert.equal(noneKind.reasoning_effort, undefined);
+  // budget 覆盖到 openai 系是格式失配（openai 线无预算通道）：报错不静默（迁移把存量映射为 none）
+  assert.throws(
+    () => buildChatBody({
+      provider: { key: "t", name: "T", provider_type: "openai_chat", api_key: "k", thinking_kind: "budget" },
+      model: "m",
+      thinkingLevel: "high",
+      messages,
+    }),
+    /not expressible on "openai_chat" wire/,
+  );
 });
 
 test("思考模式补齐与厂商无关：兼容厂商同样补空串，未开思考不注入", () => {
@@ -227,7 +229,7 @@ test("思考模式补齐与厂商无关：兼容厂商同样补空串，未开�
 
 test("OpenAI Responses 开启思考时请求 encrypted reasoning 内容", () => {
   const body = buildResponsesBody({
-    provider: { key: "test", name: "test", provider_type: "openai_resp", api_key: "k" },
+    provider: { key: "test", name: "test", provider_type: "openai_resp", api_key: "k", thinking_kind: "effort" },
     model: "gpt-test",
     thinkingLevel: "low",
     messages: [{ role: "user", content: "hi" }],
@@ -246,7 +248,7 @@ const responsesContinuation = (callId, items) => ({
 
 test("OpenAI Responses 每轮 reasoning items 紧挨自己轮次的 function_call 注入", () => {
   const body = buildResponsesBody({
-    provider: { key: "test", name: "test", provider_type: "openai_resp", api_key: "k" },
+    provider: { key: "test", name: "test", provider_type: "openai_resp", api_key: "k", thinking_kind: "effort" },
     model: "gpt-test",
     messages: multiRoundMessages(
       { provider_continuation: responsesContinuation("call-1", [{ type: "reasoning", id: "rs-1" }]) },
@@ -281,7 +283,7 @@ test("OpenAI Responses continuation 只携带本轮 items，不再与历史轮�
 
   try {
     const result = await new OpenAiResponsesAdapter().complete({
-      provider: { key: "test", name: "test", provider_type: "openai_resp", api_key: "k" },
+      provider: { key: "test", name: "test", provider_type: "openai_resp", api_key: "k", thinking_kind: "effort" },
       model: "gpt-test",
       messages: multiRoundMessages(
         { provider_continuation: responsesContinuation("call-1", [{ type: "reasoning", id: "rs-1" }]) },

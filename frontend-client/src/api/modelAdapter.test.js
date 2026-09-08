@@ -7,10 +7,10 @@ const providers = [
   {
     key: 'ali_alibaba',
     name: 'ali',
-    thinking: { kind: 'toggle', levels: ['off', 'on'] },
+    // 思考 descriptor 按模型条目注入（后端 describeThinking 显式定形，无前端推断）
     models: [
-      { name: 'deepseek-v4-flash', thinking_levels: ['high', 'max'] },
-      { name: 'glm-5.2', thinking_levels: ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'] },
+      { name: 'deepseek-v4-flash', thinking: { kind: 'effort', levels: ['off', 'high', 'max'] } },
+      { name: 'glm-5.2', thinking: { kind: 'effort', levels: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] } },
       {}, // 无名条目：不得被 "provider|" 两段值误命中
     ],
   },
@@ -23,7 +23,7 @@ test('无记录返回 null（存量会话不动全局默认）', () => {
   assert.equal(resolveRestorableOverrides({ _request_overrides: 'corrupt' }, providers), null);
 });
 
-test('有效记录恢复模型与档位（toggle+子集升级为 effort 分级）', () => {
+test('有效记录恢复模型与档位（条目 descriptor 档位校验）', () => {
   assert.deepEqual(
     resolveRestorableOverrides(
       { _request_overrides: { selected_llm: 'ali|alibaba|deepseek-v4-flash', thinking_level: 'high' } },

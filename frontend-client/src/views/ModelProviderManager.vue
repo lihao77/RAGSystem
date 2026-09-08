@@ -26,6 +26,18 @@
     </template>
 
     <Card class="provider-workbench">
+      <!-- 拒载告警：后端加载面拒载的 provider（配置损坏：条目思考形状非法/格式失配等），
+           该 provider 不在列表中——报错通道 load_errors 在此展示，避免无声消失。 -->
+      <div v-if="providerLoadErrors.length" class="provider-load-errors" role="alert">
+        <IconWarning :size="14" />
+        <div>
+          <p v-for="item in providerLoadErrors" :key="item.key" class="provider-load-errors__item">
+            <span class="font-mono">{{ item.key }}</span>：{{ item.message }}
+          </p>
+          <p class="provider-load-errors__hint">以上供应商因配置损坏被拒载；修复后（编辑模型条目的思考形状）即可恢复。</p>
+        </div>
+      </div>
+
       <!-- 加载 / 错误 / 空态 -->
       <div v-if="loading && providers.length === 0" class="provider-workbench__state g-skeleton-rows" aria-busy="true" aria-live="polite">
         <span class="sr-only">加载中...</span>
@@ -390,18 +402,7 @@
                     @update:model-value="onDetailFormatChange"
                   />
                   <p v-if="fieldErrors.api_format" class="pd-field__error">{{ fieldErrors.api_format }}</p>
-                </div>
-                <div class="pd-field">
-                  <label class="pd-field__label" for="detail-thinking-kind">思考形状</label>
-                  <CustomSelect
-                    trigger-id="detail-thinking-kind"
-                    :model-value="detailForm.thinking_kind || ''"
-                    :options="THINKING_KIND_OPTIONS"
-                    :disabled="savingFields.has('thinking_kind')"
-                    @update:model-value="onDetailThinkingKindChange"
-                  />
-                  <p v-if="fieldErrors.thinking_kind" class="pd-field__error">{{ fieldErrors.thinking_kind }}</p>
-                  <p class="pd-field__hint">目录厂商带入的形状声明可在此覆盖；空 = 跟随 API 格式默认。</p>
+                  <p class="pd-field__hint">思考形状在下方每个模型条目上声明（目录模型预填推荐值，可改）。</p>
                 </div>
                 <div class="pd-field">
                   <label class="pd-field__label" for="detail-api-key">API Key</label>
@@ -601,6 +602,7 @@
       :dialog="modelDialog"
       :form="modelForm"
       :form-errors="modelFormErrors"
+      :api-format="modelDialogApiFormat"
       :catalog-models="modelDialogModels"
       :catalog-models-loading="modelDialogModelsLoading"
       @close="closeModelDialog"
@@ -655,13 +657,13 @@ import { useDictionariesStore } from '../stores/dictionaries.js';
 import {
   getApiFormats, createProvider, updateProvider,
   checkProviderAvailability, deleteProvider, getProviderUsages, reorderProviders, testProvider,
-  getCatalogProviders, getCatalogProviderModels,
+  getCatalogProviders, getCatalogProviderModels, getProviderLoadErrors,
 } from '../api/modelAdapter.js';
 import {
   CORE_API_FORMATS, applyCatalogModel, catalogVendorProfile,
   isCatalogVendorConnectable, modelCapabilityTitle, modelModalityMarks, normalizeModalities,
 } from '../utils/modelCatalog.js';
-import { normalizeThinkingLevels, THINKING_KIND_OPTIONS } from '../utils/thinkingLevels.js';
+import { normalizeThinkingLevels } from '../utils/thinkingLevels.js';
 
 defineProps({
   embedded: { type: Boolean, default: false },
@@ -791,7 +793,6 @@ function buildDetailForm(provider) {
     provider_type: provider.provider_type || '',
     api_endpoint: provider.api_endpoint || '',
     api_format: provider.api_format || '',
-    thinking_kind: provider.thinking_kind || '',
     api_key: '',
   };
   for (const field of getProviderConfigFields(provider.api_format)) {
@@ -839,8 +840,6 @@ async function saveDetailField(field, value) {
   try {
     await updateProvider(getProviderKey(provider), { [field]: value });
     provider[field] = value;
-    // 思考形状变化须刷新列表：/providers 响应注入的 thinking descriptor 随 thinking_kind 派生
-    if (field === 'thinking_kind') await fetchProviders();
     if (['api_key', 'api_endpoint', 'api_format'].includes(field)) loadProviderAvailability(providers.value);
   } catch (e) {
     setFieldError(field, e?.message || '保存失败');
@@ -903,7 +902,6 @@ async function onDetailVendorPick(option) {
         if (!prevFields.some((item) => item.key === field.key)) payload[field.key] = field.default ?? '';
       }
     }
-    payload.thinking_kind = profile.thinking_kind || '';
     if (summary?.api_base_url) payload.api_endpoint = summary.api_base_url;
   }
   await persistDetailVendor(payload);
@@ -925,11 +923,6 @@ async function persistDetailVendor(payload) {
   } finally {
     markSaving('provider_type', false);
   }
-}
-/** 思考形状手动覆盖：单字段即存；变更后由 saveDetailField 刷新列表更新思考 descriptor。 */
-function onDetailThinkingKindChange(value) {
-  detailForm.value.thinking_kind = value;
-  saveDetailField('thinking_kind', value);
 }
 /** API 格式切换：级联新格式扩展字段默认值，连同格式一起保存。 */
 async function onDetailFormatChange(apiFormat) {
@@ -983,10 +976,17 @@ async function loadProviderAvailability(items) {
   availabilityLoadingKeys.value = new Set();
 }
 
+/** 拒载记录（load_errors）：与列表同刷，展示损坏 provider 的报错（不在列表中的原因）。 */
+const providerLoadErrors = ref([]);
+
 async function loadProviders() {
-  const items = await fetchProviders();
-  if (items) await loadProviderAvailability(items);
-  return items;
+  const [, loadErrors] = await Promise.all([
+    fetchProviders(),
+    getProviderLoadErrors(),
+  ]);
+  providerLoadErrors.value = loadErrors;
+  await loadProviderAvailability(providers.value);
+  return providers.value;
 }
 
 /* ── 优先级排序：整行拖拽（6px 阈值区分点击与拖拽）+ 聚焦后方向键 ── */
@@ -1260,6 +1260,8 @@ function buildEntryFromModelForm() {
     supports_function_calling: modelForm.value.supports_function_calling === true,
     input_modalities: toFormModalities(modelForm.value.input_modalities),
     output_modalities: toFormModalities(modelForm.value.output_modalities),
+    // 思考形状：模型级显式声明（必选），落盘后由加载/写入面校验格式可达性
+    thinking_kind: String(modelForm.value.thinking_kind || '').trim(),
   };
   // 目录 effort 值域（如 deepseek 的 low/high/max）：存在即随条目落盘，运行时据此收缩可选档位
   const thinkingLevels = normalizeThinkingLevels(modelForm.value.thinking_levels);
@@ -1357,16 +1359,14 @@ function openModelCatalogWith(vendorId) {
 function handleCatalogModelSelect(catalogModel) {
   modelForm.value = applyCatalogModel(modelForm.value, catalogModel);
 }
-/** 厂商组合框键入：更新厂商文本（自建标识等自由输入）；目录带入的思考形状声明随厂商
- * 离开而失效故清空（重新从目录选中会再带出），API 格式与端点不动。 */
+/** 厂商组合框键入：更新厂商文本（自建标识等自由输入）；API 格式与端点不动。 */
 function handleVendorInput(vendorId) {
   form.value.provider_type = String(vendorId || '').trim();
-  form.value.thinking_kind = '';
   formErrors.value = { ...formErrors.value, provider_type: '' };
 }
 /**
- * 厂商组合框从目录选中：按接入档案带出 API 格式与思考形状声明
- * （如 qwen 系 toggle），并预填兼容 Endpoint。
+ * 厂商组合框从目录选中：按接入档案带出 API 格式并预填兼容 Endpoint
+ * （思考形状在模型条目上，由目录模型选择各自预填推荐值）。
  */
 function handleCatalogVendorPick(vendorId) {
   handleVendorInput(vendorId);
@@ -1376,7 +1376,6 @@ function handleCatalogVendorPick(vendorId) {
   if (profile.api_format && form.value.api_format !== profile.api_format) {
     handleApiFormatChange(profile.api_format);
   }
-  form.value.thinking_kind = profile.thinking_kind || '';
   if (summary?.api_base_url) {
     form.value.api_endpoint = summary.api_base_url;
     formErrors.value = { ...formErrors.value, api_endpoint: '' };
@@ -1401,7 +1400,7 @@ const providerKeyPreview = computed(() => {
 });
 
 function buildFormDefaults() {
-  return { name: '', provider_type: '', api_key: '', api_endpoint: '', api_format: '', thinking_kind: '' };
+  return { name: '', provider_type: '', api_key: '', api_endpoint: '', api_format: '' };
 }
 function buildModelDefaults() {
   return {
@@ -1412,6 +1411,7 @@ function buildModelDefaults() {
     supports_function_calling: false,
     input_modalities: ['text'],
     output_modalities: ['text'],
+    thinking_kind: '',
     thinking_levels: [],
   };
 }
@@ -1453,9 +1453,21 @@ function modelDialogDefaultVendor() {
   const known = (catalogProviders.value?.providers || []).some((item) => item.id === vendor);
   return known ? vendor : '';
 }
+/** 模型弹窗的形状选项按目标 Provider 的 API 格式过滤（详情面板取选中项，新建弹窗取草稿）。 */
+const modelDialogApiFormat = computed(() => (
+  modelDialog.value.target === 'detail'
+    ? String(selectedProvider.value?.api_format || '')
+    : String(form.value.api_format || '')
+));
 function openModelCreate() {
   // 新建供应商面板内触发 → 挂其内嵌列表（弹窗内编辑）；否则挂详情面板（保存即 PUT）。
+  // 守卫读 modelDialogApiFormat（依赖 target），须先落 target 再守卫；早退时 visible
+  // 恒 false，残留赋值无观察面。
   modelDialog.value.target = createOpen.value ? 'form' : 'detail';
+  if (!modelDialogTargetApiFormat()) {
+    toast.error('请先选择 API 格式：思考形状选项按格式过滤');
+    return;
+  }
   modelForm.value = buildModelDefaults();
   modelFormErrors.value = {};
   modelDialog.value = { ...modelDialog.value, visible: true, mode: 'create', index: -1, error: '' };
@@ -1463,6 +1475,10 @@ function openModelCreate() {
 }
 function openModelEdit(index) {
   modelDialog.value.target = createOpen.value ? 'form' : 'detail';
+  if (!modelDialogTargetApiFormat()) {
+    toast.error('请先选择 API 格式：思考形状选项按格式过滤');
+    return;
+  }
   const entry = modelDialog.value.target === 'form' ? modelEntries.value[index] : selectedModels.value[index];
   modelForm.value = {
     ...entry,
@@ -1473,6 +1489,10 @@ function openModelEdit(index) {
   modelDialog.value = { ...modelDialog.value, visible: true, mode: 'edit', index, error: '' };
   openModelCatalogWith(modelDialogDefaultVendor());
 }
+/** 模型弹窗目标 Provider 的 API 格式（形状选项前置条件；缺格式时不开弹窗）。 */
+function modelDialogTargetApiFormat() {
+  return String(modelDialogApiFormat.value || '').trim();
+}
 function closeModelDialog() { modelDialog.value.visible = false; modelFormErrors.value = {}; }
 function handleModelSubmit() {
   const name = String(modelForm.value.name || '').trim();
@@ -1482,6 +1502,7 @@ function handleModelSubmit() {
     : selectedModels.value.map((entry) => entry.name);
   if (!name) errors.name = '请填写模型名';
   else if (existingNames.some((entryName, idx) => idx !== modelDialog.value.index && entryName === name)) errors.name = '模型名已存在';
+  if (!modelForm.value.thinking_kind) errors.thinking_kind = '请选择思考形状（目录模型有推荐值）';
   const inputModalities = toFormModalities(modelForm.value.input_modalities);
   const outputModalities = toFormModalities(modelForm.value.output_modalities);
   if (!inputModalities.includes('text')) errors.input_modalities = '输入模态需包含文本';
@@ -1608,6 +1629,12 @@ onBeforeUnmount(() => {
 .provider-workbench { display: flex; flex-direction: column; flex: 0 1 auto; max-height: 100%; min-height: 0; overflow: hidden; padding: 0; }
 .provider-workbench__state { flex: 1; display: flex; flex-direction: column; justify-content: center; padding: 24px; }
 .provider-workbench__body { display: grid; flex: 1; grid-template-columns: 240px minmax(0, 1fr); min-height: 0; }
+
+/* 拒载告警条：损坏 provider 的报错（load_errors 通道），说明其不在列表中的原因 */
+.provider-load-errors { display: flex; gap: 10px; align-items: flex-start; margin: 10px 12px 0; padding: 10px 12px; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg-secondary); color: var(--color-text-secondary); }
+.provider-load-errors__item { margin: 0; font-size: 12px; line-height: 1.6; color: var(--color-text-primary); }
+.provider-load-errors__item .font-mono { font-weight: 600; }
+.provider-load-errors__hint { margin: 4px 0 0; font-size: 11px; line-height: 1.5; color: var(--color-text-muted); }
 
 /* ══ 左栏：供应商列表 ══ */
 .provider-side { display: flex; flex-direction: column; min-width: 0; min-height: 0; border-right: 1px solid var(--color-border); background: var(--color-bg-secondary); }

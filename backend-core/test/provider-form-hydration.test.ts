@@ -40,6 +40,7 @@ describe("provider form normalization hydration", () => {
       "  models:",
       "    - name: glm-model",
       "      max_context_tokens: 128000",
+      "      thinking_kind: effort",
     ].join("\n");
     const service = loadFromYaml(yaml);
 
@@ -57,7 +58,7 @@ describe("provider form normalization hydration", () => {
 
     expect(service.getProvider("valid_entry")).toMatchObject({
       api_format: "openai_chat",
-      models: [{ name: "glm-model", max_context_tokens: 128000 }],
+      models: [{ name: "glm-model", max_context_tokens: 128000, thinking_kind: "effort" }],
     });
   });
 
@@ -68,13 +69,108 @@ describe("provider form normalization hydration", () => {
       provider_type: "zhipuai",
       api_format: "openai_chat",
       api_key: "sk",
-      models: [{ name: "glm-model", max_context_tokens: 128000 }],
-      thinking_kind: "toggle",
+      models: [{ name: "glm-model", max_context_tokens: 128000, thinking_kind: "effort" }],
     };
     const snapshot = JSON.stringify(config);
     runProviderFormNormalization(config);
     runProviderFormNormalization(config);
     expect(JSON.stringify(config)).toBe(snapshot);
+  });
+
+  it("厂商级 thinking_kind 下沉迁移：按旧运行时推断语义等价固化进条目并剥离厂商字段", () => {
+    const config = (legacyKind: string | undefined, models: Array<Record<string, unknown>>, apiFormat = "openai_chat") => ({
+      key: "k",
+      name: "Legacy",
+      provider_type: "vendor",
+      api_format: apiFormat,
+      api_key: "sk",
+      ...(legacyKind !== undefined ? { thinking_kind: legacyKind } : {}),
+      models,
+    }) as unknown as ModelProviderConfig;
+
+    // toggle + 条目 effort 子集 → effort（旧升级规则：子集是模型事实）
+    expectKinds(config("toggle", [{ name: "m", thinking_levels: ["low", "high"] }]), ["effort"]);
+    // anthropic + toggle 无子集 → budget（旧折叠：保护真 Anthropic/未知端点）
+    expectKinds(config("toggle", [{ name: "m" }], "anthropic"), ["budget"]);
+    // anthropic + toggle + 子集 → effort（旧折叠例外：openai 原生厂商挂 anthropic 兼容层）
+    expectKinds(config("toggle", [{ name: "m", thinking_levels: ["high"] }], "anthropic"), ["effort"]);
+    // 厂商值直通：effort/none/budget（合法格式内）
+    expectKinds(config("effort", [{ name: "m" }]), ["effort"]);
+    expectKinds(config("none", [{ name: "m" }]), ["none"]);
+    expectKinds(config("budget", [{ name: "m" }], "anthropic"), ["budget"]);
+    // 厂商缺省 → 旧格式默认（openai → effort；anthropic → budget）
+    expectKinds(config(undefined, [{ name: "m" }]), ["effort"]);
+    expectKinds(config(undefined, [{ name: "m" }], "anthropic"), ["budget"]);
+    // openai + budget 覆盖 → none（旧 openai 线无预算通道，本就不发参数——惰性等价）
+    expectKinds(config("budget", [{ name: "m" }]), ["none"]);
+    // gemini → none（思考走 thinkingConfig，kind 通道恒空）
+    expectKinds(config("effort", [{ name: "m" }], "gemini"), ["none"]);
+    // 非法厂商值 → 按缺省下沉（openai → effort）
+    expectKinds(config("bogus", [{ name: "m" }]), ["effort"]);
+    // 条目已有显式声明不覆盖；仅缺失条目吃下沉值
+    const mixed = config("toggle", [{ name: "declared", thinking_kind: "none" }, { name: "missing" }]) as ModelProviderConfig;
+    runProviderFormNormalization(mixed);
+    expect(mixed.models.map((entry) => entry.thinking_kind)).toEqual(["none", "toggle"]);
+    // 厂商字段剥离（全场景）
+    expect(mixed).not.toHaveProperty("thinking_kind");
+
+    function expectKinds(input: ModelProviderConfig, expected: string[]): void {
+      runProviderFormNormalization(input);
+      expect(input.models.map((entry) => entry.thinking_kind)).toEqual(expected);
+      expect(input).not.toHaveProperty("thinking_kind");
+    }
+  });
+
+  it("迁移后条目形状损坏 → 拒载并记录 load_errors（不静默兜底）；缺失=迁移信号仍收敛", () => {
+    const yaml = [
+      "good:",
+      "  name: Good",
+      "  provider_type: zhipuai",
+      "  api_format: openai_chat",
+      "  api_key: sk",
+      "  models:",
+      "    - name: glm",
+      "      thinking_kind: effort",
+      "legacy_absent:",
+      "  name: Legacy Absent",
+      "  provider_type: moonshot",
+      "  api_format: openai_chat",
+      "  api_key: sk",
+      "  models:",
+      "    - name: kimi-k3",
+      "broken_invalid:",
+      "  name: Broken Invalid",
+      "  provider_type: zhipuai",
+      "  api_format: openai_chat",
+      "  api_key: sk",
+      "  models:",
+      "    - name: glm",
+      "      thinking_kind: efort",
+      "broken_mismatch:",
+      "  name: Broken Mismatch",
+      "  provider_type: anthropic-gw",
+      "  api_format: anthropic",
+      "  api_key: sk",
+      "  models:",
+      "    - name: m",
+      "      thinking_kind: toggle",
+    ].join("\n");
+    const service = loadFromYaml(yaml);
+
+    expect(service.getProvider("good")?.models[0]?.thinking_kind).toBe("effort");
+    // 无任何声明的老数据（kimi/ds 形态）：缺失 = 迁移信号，按旧格式默认收敛（可退役迁移，
+    // 宣布最低支持版本后 sink 移除、缺失转为报错）
+    expect(service.getProvider("legacy_absent")?.models[0]?.thinking_kind).toBe("effort");
+    // 非法值（拼写错误）与格式失配（anthropic 无 toggle 通道）= 配置损坏：拒载报错
+    expect(service.getProvider("broken_invalid")).toBeNull();
+    expect(service.getProvider("broken_mismatch")).toBeNull();
+    const loadErrors = service.listProviderLoadErrors();
+    expect(loadErrors).toHaveLength(2);
+    expect(loadErrors[0]).toMatchObject({ key: "broken_invalid" });
+    expect(loadErrors[0]?.message).toContain("efort");
+    expect(loadErrors[1]).toMatchObject({ key: "broken_mismatch" });
+    expect(loadErrors[1]?.message).toContain("toggle");
+    expect(loadErrors[1]?.message).toContain("anthropic");
   });
 
   it("运行时快照水合与磁盘水合同口径（replaceRuntimeProviders 复用同一组步骤）", () => {

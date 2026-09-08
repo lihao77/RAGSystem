@@ -68,22 +68,6 @@
           <FieldError v-if="formErrors.output_modalities">{{ formErrors.output_modalities }}</FieldError>
         </div>
 
-        <div class="modality-field">
-          <div class="modality-field__head">思考档位（模型值域子集）</div>
-          <div class="modality-chips" role="group" aria-label="思考档位">
-            <button
-              v-for="option in thinkingLevelOptions"
-              :key="`level-${option.value}`"
-              type="button"
-              class="modality-chip"
-              :class="{ 'modality-chip--on': hasThinkingLevel(option.value) }"
-              :aria-pressed="hasThinkingLevel(option.value)"
-              @click="toggleThinkingLevel(option.value)"
-            ><span class="modality-check" aria-hidden="true"><Check :size="11" :stroke-width="3" /></span>{{ option.label }}</button>
-          </div>
-          <p class="model-dialog-advanced__hint">目录选择模型时自动带入其真实值域（如 low/high/max）；空 = 不限，按 API 格式默认档位。toggle 厂商带子集自动升档；anthropic 格式无声明时折叠为预算，兼容端点需在 Provider 上把思考形状显式设为 effort。</p>
-        </div>
-
         <Field orientation="horizontal">
           <FieldLabel>
             <Switch v-model:checked="form.supports_function_calling" />
@@ -91,16 +75,36 @@
           </FieldLabel>
         </Field>
 
-        <details class="model-dialog-advanced">
+        <details class="model-dialog-advanced" :open="advancedOpen || !!formErrors.thinking_kind" @toggle="onAdvancedToggle">
           <summary>
             <ChevronDown class="model-dialog-advanced__chev" :size="14" />
             高级设置
           </summary>
           <div class="model-dialog-advanced__body">
+            <Field :data-invalid="!!formErrors.thinking_kind">
+              <FieldLabel>思考形状 <span class="required">*</span></FieldLabel>
+              <CustomSelect :model-value="form.thinking_kind || ''" :options="kindOptions" :placeholder="kindOptions.length ? '-- 请选择 --' : '-- 请先选择 Provider 的 API 格式 --'" @update:model-value="onKindChange" />
+              <FieldError v-if="formErrors.thinking_kind">{{ formErrors.thinking_kind }}</FieldError>
+            </Field>
+
+            <div v-if="thinkingKindUsesLevels" class="modality-field">
+              <div class="modality-field__head">思考档位（模型值域子集）</div>
+              <div class="modality-chips" role="group" aria-label="思考档位">
+                <button
+                  v-for="option in thinkingLevelOptions"
+                  :key="`level-${option.value}`"
+                  type="button"
+                  class="modality-chip"
+                  :class="{ 'modality-chip--on': hasThinkingLevel(option.value) }"
+                  :aria-pressed="hasThinkingLevel(option.value)"
+                  @click="toggleThinkingLevel(option.value)"
+                ><span class="modality-check" aria-hidden="true"><Check :size="11" :stroke-width="3" /></span>{{ option.label }}</button>
+              </div>
+            </div>
+
             <Field>
               <FieldLabel for="provider-model-temperature">温度</FieldLabel>
               <Input id="provider-model-temperature" v-model.number="form.temperature" type="number" step="0.1" min="0" max="2" placeholder="0.7" />
-              <p class="model-dialog-advanced__hint">采样温度；留空或默认 0.7 时按服务端默认值调用。</p>
             </Field>
           </div>
         </details>
@@ -118,9 +122,10 @@
 <script setup>
 // 模型条目弹窗：模型名 = 可输入 + 目录建议的组合框（目录模型按 Provider 厂商带出，
 // 选中即自动填充参数/模态），下方为运行参数与输入/输出类型（能力位挂在模型上）。
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { Check, ChevronDown, Lock } from 'lucide-vue-next';
 import ComboBox from '../ui/ComboBox.vue';
+import CustomSelect from '../ui/CustomSelect.vue';
 import { Button } from '../ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
 import {
@@ -130,12 +135,16 @@ import {
 import { Input } from '../ui/input';
 import { Switch } from '../ui/switch';
 import { MODALITY_OPTIONS, describeCatalogModel, matchCatalogModel } from '../../utils/modelCatalog.js';
-import { THINKING_LEVEL_OPTIONS, THINKING_STRENGTH_LEVELS, normalizeThinkingLevels } from '../../utils/thinkingLevels.js';
+import {
+  THINKING_LEVEL_OPTIONS, THINKING_STRENGTH_LEVELS, normalizeThinkingLevels, thinkingKindOptions,
+} from '../../utils/thinkingLevels.js';
 
 const props = defineProps({
   dialog: { type: Object, required: true },
   form: { type: Object, required: true },
   formErrors: { type: Object, default: () => ({}) },
+  /** Provider 的 API 格式：形状选项按格式能力矩阵过滤（anthropic/openai 系可选形状不同）。 */
+  apiFormat: { type: String, default: '' },
   catalogModels: { type: Array, default: () => [] },
   catalogModelsLoading: { type: Boolean, default: false },
 });
@@ -154,6 +163,34 @@ const catalogMetaText = computed(() => {
   const matched = matchCatalogModel(props.catalogModels, props.form.name);
   return matched ? describeCatalogModel(matched) : '';
 });
+
+// 思考形状选项：格式能力矩阵 ×（目录命中模型的可接受集/推荐形状——★ 标记，可改选）。
+const kindOptions = computed(() => {
+  const matched = matchCatalogModel(props.catalogModels, props.form.name);
+  return thinkingKindOptions(
+    props.apiFormat,
+    matched?.accepted_thinking_kinds ?? [],
+    matched?.recommended_thinking_kind ?? null,
+  );
+});
+
+// 档位子集只对分级形状（effort/budget）有意义；toggle/none 切换时清空残留值域。
+const thinkingKindUsesLevels = computed(() => props.form.thinking_kind === 'effort' || props.form.thinking_kind === 'budget');
+
+// 高级设置折叠态：默认收起；必填校验失败（思考形状缺失）时强制展开，错误不藏在折叠里。
+const advancedOpen = ref(false);
+function onAdvancedToggle(event) {
+  advancedOpen.value = event.target.open;
+}
+
+function onKindChange(value) {
+  // eslint-disable-next-line vue/no-mutating-props -- modelForm 为视图持有的表单模型，弹窗内改写属有意架构（同模板顶部声明）
+  props.form.thinking_kind = value;
+  if (value !== 'effort' && value !== 'budget') {
+    // eslint-disable-next-line vue/no-mutating-props -- 同上
+    props.form.thinking_levels = [];
+  }
+}
 
 // 思考档位子集编辑：全集取 THINKING_STRENGTH_LEVELS（目录 effort 值域是它的子集），选中即模型真实值域。
 const thinkingLevelOptions = THINKING_STRENGTH_LEVELS
@@ -196,15 +233,13 @@ function toggleModality(field, token) {
 .model-dialog-field { display: flex; flex-direction: column; gap: 6px; }
 /* 文本 chip 恒选锁定：右侧锁形标记 */
 .modality-lock { flex-shrink: 0; color: var(--color-text-muted); }
-/* 高级设置折叠（温度等低频参数） */
-.model-dialog-advanced { border: 1px solid var(--color-border); border-radius: var(--radius-md); }
-.model-dialog-advanced summary { display: flex; align-items: center; gap: 6px; padding: 9px 12px; cursor: pointer; list-style: none; font-size: 13px; font-weight: 500; color: var(--color-text-primary); user-select: none; }
+/* 高级设置折叠：与上方内容以横线分隔（不框边），收起/展开 */
+.model-dialog-advanced { border-top: 1px solid var(--color-border); }
+.model-dialog-advanced summary { display: flex; align-items: center; gap: 6px; padding: 12px 2px 10px; cursor: pointer; list-style: none; font-size: 13px; font-weight: 500; color: var(--color-text-primary); user-select: none; }
 .model-dialog-advanced summary::-webkit-details-marker { display: none; }
-.model-dialog-advanced summary:hover { background: var(--color-hover-overlay); border-radius: var(--radius-md); }
 .model-dialog-advanced__chev { flex-shrink: 0; color: var(--color-text-secondary); transition: transform 0.2s; }
 .model-dialog-advanced[open] > summary .model-dialog-advanced__chev { transform: rotate(180deg); }
-.model-dialog-advanced__body { padding: 4px 12px 12px; }
-.model-dialog-advanced__hint { margin: 6px 0 0; font-size: 11px; line-height: 1.5; color: var(--color-text-muted); }
+.model-dialog-advanced__body { display: flex; flex-direction: column; gap: 14px; padding: 2px 2px 12px; }
 @media (max-width: 640px) {
   .model-dialog-form { gap: 14px; }
 }

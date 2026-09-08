@@ -2,17 +2,12 @@
  * 思考等级（thinking level）单一信源。
  *
  * 统一 UI 档位（off/minimal/low/medium/high/xhigh/max/on）→ 协议参数的映射。
- * 本包只认识通用形状（effort / budget / toggle / none），按 API 格式给默认值；
- * 厂商适配在 provider 层声明——thinking_kind 覆盖形状（如 qwen 系 enable_thinking），
- * 静态厂商参数经 extra_params 进请求体（如嵌套 thinking map）。档位只来自请求级
- * thinkingLevel / agent tier 默认档位，provider 自身不定义思考强度；模型条目可带
- * thinking_levels 强度子集（目录 reasoning_options 的 effort 值域）收缩可选档位，
- * 子集在场即模型事实——toggle 厂商（如智谱多数 GLM）下带值域的模型按 effort 分级。
- * anthropic 格式默认折叠为 budget（原生线上只有 budget_tokens 一个参数）；显式
- * thinking_kind: effort 例外保留——它是 effort 型兼容端点（智谱/Kimi/阿里/火山等
- * /v1/messages 网关：预算被无视、只认 output_config.effort 档位）的 opt-in；
- * toggle + 模型 effort 子集同样升级 effort（openai 原生厂商挂 anthropic 端点必是
- * 兼容层，档位制），由 anthropic 适配器发档位字段（见 buildAnthropicBody）。
+ * 本包只认识通用形状（effort / budget / toggle / none）。思考形状是模型级显式声明：
+ * 投影层把选中模型条目的 thinking_kind 合并进 provider（缺省回落厂商值——迁移后厂商
+ * 级字段已退役，条目必达），本模块不做任何推断（格式默认表 / anthropic 折叠 /
+ * toggle+子集升级均已退役）：缺失或与格式能力失配直接抛错（改坏了报错，不静默兜底）。
+ * 档位只来自请求级 thinkingLevel / agent tier 默认档位；模型条目可带 thinking_levels
+ * 强度子集（目录 reasoning_options 的 effort 值域）收缩可选档位。
  * 显示文案/i18n 归前端，本模块只输出机器值。
  */
 
@@ -33,7 +28,7 @@ export const ALL_THINKING_LEVELS: readonly ThinkingLevel[] = ["off", "minimal", 
  * effort — 推理强度枚举（openai 系顶层 reasoning_effort；anthropic 兼容端点落
  *   output_config.effort，由 anthropic 适配器消费）；厂商自有的嵌套形状经 extra_params 声明；
  * budget — Anthropic token 预算（由 anthropic 适配器单独消费，buildThinkingParams 不产出）；
- * toggle — 仅开关无分级（enable_thinking，qwen 系厂商经 provider thinking_kind 声明启用）；
+ * toggle — 仅开关无分级（enable_thinking，qwen 系厂商经模型条目声明启用）；
  * none — 不支持。
  */
 export type ThinkingParamKind = "effort" | "budget" | "toggle" | "none";
@@ -57,16 +52,14 @@ const EFFORT_BY_LEVEL: Readonly<Record<Exclude<ThinkingLevel, "off" | "on">, str
 /**
  * effort 系强度档位全集（模型级子集 thinking_levels 的合法值域）。
  * 子集来自目录厂商声明（models.dev reasoning_options 的 effort 值域），经
- * provider 模型条目带入；off 是通用开关不入子集。effort 形状受子集约束，toggle
- * 形状下非空子集直接升级为 effort 分级，budget 形状（anthropic 线）菜单同样随
- * 子集收缩、预算按 BUDGET_BY_LEVEL 阶梯映射。
+ * provider 模型条目带入；off 是通用开关不入子集。effort/budget 形状受子集约束，
+ * 预算按 BUDGET_BY_LEVEL 阶梯映射。
  */
 export const THINKING_STRENGTH_LEVELS: readonly ThinkingLevel[] = ["minimal", "low", "medium", "high", "xhigh", "max"];
 
 /**
  * Anthropic budget_tokens 预算阶梯；off=0 → 不发 thinking 块，temperature 正常下发。
- * minimal/xhigh/max 覆盖目录 effort 值域经 anthropic 折叠后的档位落点——budget 默认
- * 菜单（ANTHROPIC_LEVELS）仍不含它们，只在模型子集出现时可选。
+ * minimal/xhigh/max 只在模型子集出现时可选。
  */
 const BUDGET_BY_LEVEL: Readonly<Partial<Record<ThinkingLevel, number>>> = {
   off: 0,
@@ -79,14 +72,17 @@ const BUDGET_BY_LEVEL: Readonly<Partial<Record<ThinkingLevel, number>>> = {
 };
 
 /**
- * API 格式默认思考形状。openai 系三家走 effort；anthropic 走 budget；gemini 默认 none。
- * 厂商差异（qwen 系 enable_thinking 等）由 provider YAML 的 thinking_kind 覆盖，
- * 本表不出现任何厂商名。
+ * 格式 × 形状能力矩阵：本包适配器在该格式线上真能落线的形状集合。
+ * 模型条目声明必须落在矩阵内（失配 = 配置损坏，抛错不静默）：anthropic 线
+ * budget（原生 budget_tokens）/ effort（兼容网关 output_config.effort）；openai 线
+ * effort（顶层 reasoning_effort）/ toggle（enable_thinking）；gemini 思考走
+ * thinkingConfig（extra_params），kind 恒 none。
  */
-const THINKING_KIND_BY_PROVIDER_TYPE: Readonly<Record<string, ThinkingParamKind>> = {
-  openai_resp: "effort",
-  openai_chat: "effort",
-  anthropic: "budget",
+export const THINKING_KINDS_BY_FORMAT: Readonly<Record<string, readonly ThinkingParamKind[]>> = {
+  anthropic: ["budget", "effort", "none"],
+  openai_chat: ["effort", "toggle", "none"],
+  openai_resp: ["effort", "toggle", "none"],
+  gemini: ["none"],
 };
 
 function normalizeKindOverride(value: unknown): ThinkingParamKind | null {
@@ -94,27 +90,16 @@ function normalizeKindOverride(value: unknown): ThinkingParamKind | null {
 }
 
 /**
- * API 格式 → 可选档位（describeThinking 据此返回，前端选择器按此渲染）。
+ * 形状 → 可选档位（前端选择器按此渲染）。
  * 厂商特有的档位子集差异由其 API 兼容映射吸收（如 medium 映射 high），不再单列。
  */
 const OPENAI_LEVELS: readonly ThinkingLevel[] = ["off", "minimal", "low", "medium", "high"];
 const ANTHROPIC_LEVELS: readonly ThinkingLevel[] = ["off", "low", "medium", "high"];
 const TOGGLE_LEVELS: readonly ThinkingLevel[] = ["off", "on"];
 
-const THINKING_LEVELS_BY_PROVIDER_TYPE: Readonly<Record<string, readonly ThinkingLevel[]>> = {
-  openai_resp: OPENAI_LEVELS,
-  openai_chat: OPENAI_LEVELS,
-  anthropic: ANTHROPIC_LEVELS,
-};
-
 function levelsFor(providerType: string, kind: ThinkingParamKind): readonly ThinkingLevel[] {
-  // budget 默认菜单取预设阶梯的基准集；模型子集的收缩在 describeThinking 统一做
-  //（applyModelLevelSubset 对 effort/budget 同型）。openai 系被 budget 覆盖时同理。
-  // effort 形状无论格式都走 effort 阶梯（anthropic 显式 effort 声明同样有 minimal 档）。
   if (kind === "budget") return ANTHROPIC_LEVELS;
   if (kind === "effort") return OPENAI_LEVELS;
-  const byProvider = THINKING_LEVELS_BY_PROVIDER_TYPE[providerType];
-  if (byProvider && kind !== "toggle") return byProvider;
   if (kind === "toggle") return TOGGLE_LEVELS;
   return [];
 }
@@ -150,38 +135,37 @@ function applyModelLevelSubset(levels: readonly ThinkingLevel[], subset: unknown
 
 /**
  * 描述某 provider 的思考能力；前端选择器据此决定显隐与可选档位。
- * levelsSubset 为模型级强度子集（目录 effort 值域）：effort 形状下替换强度档位；
- * toggle 形状下非空子集是模型事实（厂商投票只描述多数默认，如智谱 glm-5.3 的
- * low/high/max 分级），升级为 effort 形状。anthropic 格式默认折叠为 budget
- * （原生线上只有 budget_tokens 一个思考参数），两个例外保留 effort：显式 effort
- * 声明——effort 型兼容端点（智谱/Kimi/阿里/火山等 /v1/messages 网关，
- * budget_tokens 被无视）的 opt-in；toggle + 模型 effort 子集自动升级——openai
- * 原生厂商挂 anthropic 端点必是兼容层，与 openai 的升级规则同型。
+ * 形状必须显式声明（投影层来自模型条目 thinking_kind）且落在格式能力矩阵内：
+ * 缺失/非法/失配直接抛错（配置改坏了报错，不静默回落——历史推断规则
+ * 【格式默认表 / anthropic 折叠 / toggle+子集升级】已退役，由 hydration 下沉迁移固化）。
+ * 未知 API 格式返回 none（4 格式封闭清单在上游校验，此处不再抛错）。
+ * levelsSubset 为模型级强度子集（目录 effort 值域）：effort/budget 形状下替换强度档位。
  */
 export function describeThinking(
   providerType: string,
   kindOverride?: unknown,
   levelsSubset?: unknown,
 ): ThinkingCapability {
-  let kind = normalizeKindOverride(kindOverride) ?? THINKING_KIND_BY_PROVIDER_TYPE[providerType] ?? "none";
+  const allowed = THINKING_KINDS_BY_FORMAT[providerType];
+  if (!allowed) return { kind: "none", levels: [] };
+  const kind = normalizeKindOverride(kindOverride);
+  if (!kind) {
+    // 缺失与非法分开口径（排障定位）：非法值带原文，缺失提示条目必达语义
+    const raw = String(kindOverride ?? "").trim();
+    if (raw) {
+      throw new Error(`thinking_kind "${raw}" is invalid for "${providerType}" provider (valid: effort/budget/toggle/none)`);
+    }
+    throw new Error(`thinking_kind is missing for "${providerType}" provider (model entry must declare it explicitly)`);
+  }
+  if (!allowed.includes(kind)) {
+    throw new Error(
+      `thinking_kind "${kind}" is not expressible on "${providerType}" wire (allowed: ${allowed.join("/")})`,
+    );
+  }
   if (kind === "none") return { kind, levels: [] };
-  // anthropic 线上原生只有 thinking.budget_tokens 一个思考参数（官方亦无 effort 枚举），
-  // 默认折叠为 budget 保护真 Anthropic/未知端点。两个例外保留 effort（适配器发
-  // output_config.effort）：显式 effort 声明（effort 型兼容端点 opt-in）；toggle + 模型
-  // effort 子集自动升级——toggle 声明只可能来自 openai 原生厂商的目录投票，该类厂商挂
-  // anthropic 端点必是兼容层（智谱/Kimi/阿里/火山等，budget_tokens 被无视、清一色档位制），
-  // 与 openai 格式的 toggle+子集升级同型。显式 none 已在上面短路。
-  if (providerType === "anthropic" && kind !== "effort") {
-    const toggleUpgrade = kind === "toggle" && normalizeStrengthSubset(levelsSubset).length > 0;
-    if (!toggleUpgrade) kind = "budget";
-  }
-  if (kind === "toggle") {
-    const picked = normalizeStrengthSubset(levelsSubset);
-    if (picked.length) return { kind: "effort", levels: ["off", ...picked] };
-    return { kind, levels: TOGGLE_LEVELS };
-  }
+  if (kind === "toggle") return { kind, levels: TOGGLE_LEVELS };
   const levels = levelsFor(providerType, kind);
-  return { kind, levels: kind === "effort" || kind === "budget" ? applyModelLevelSubset(levels, levelsSubset) : levels };
+  return { kind, levels: applyModelLevelSubset(levels, levelsSubset) };
 }
 
 /** 档位必须落在 provider 声明子集内（陈旧 tier 配置/外部请求不得静默下发越界值）。 */
@@ -213,6 +197,7 @@ export function resolveThinkingParams(
   return { ...(budget !== undefined ? { thinking_budget_tokens: budget } : {}) };
 }
 
+/** 模型条目 thinking_kind（投影层把选中模型条目的形状合并进 provider；厂商级字段已退役）。 */
 function kindOverrideOf(provider: ProviderConfig): unknown {
   return (provider as Record<string, unknown>).thinking_kind;
 }

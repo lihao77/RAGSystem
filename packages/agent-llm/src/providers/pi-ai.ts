@@ -39,6 +39,7 @@ import {
   withProviderGuards,
   type AttemptGuard,
 } from "../transport.js";
+import { isRetryableHttpStatus, RetryableHttpError } from "../external-call-policy.js";
 
 /** pi-ai 引擎声明值（provider.llm_engine）；其余值/缺省 = 原生适配器。 */
 export const PI_AI_ENGINE = "pi-ai";
@@ -380,6 +381,42 @@ export class PiAiAdapter implements LlmProviderAdapter {
   }
 }
 
+/**
+ * pi-ai 的失败经 in-band error 事件交付（errorMessage 是纯字符串，原始 SDK 错误
+ * 实例被 pi 侧 catch 吞掉），策略层按形态识别的可重试分类（APIConnectionError →
+ * TypeError、HTTP 状态 → RetryableHttpError）在此丢失，瞬时网络抖动会零重试直达
+ * 用户。这里按字符串形态重建同一套分类，对齐原生路径的重试语义。
+ */
+const PI_CONNECTION_ERROR_PATTERNS: readonly RegExp[] = [
+  /^connection error/i, // anthropic/openai SDK APIConnectionError 默认消息
+  /^request timed out/i, // SDK APIConnectionTimeoutError
+  /^fetch failed/i,
+  /^terminated/i, // undici 响应体中断（裸消息；限定行首避免误伤厂商侧"...terminated by..."文案）
+  /\b(?:ECONNRESET|ECONNREFUSED|ETIMEDOUT|EPIPE|EAI_AGAIN|ENOTFOUND|EHOSTUNREACH|ENETUNREACH)\b/i,
+  /socket hang up/i,
+];
+
+export function piStreamFailureToError(failed: PiMessage): Error {
+  const reason = String(failed.stopReason ?? "error");
+  const raw = String(failed.errorMessage ?? "unknown error");
+  const message = `pi-ai stream failed (${reason}): ${raw}`;
+  // abort 不可重试且先于一切形态判定（避免 "529 ..."/"terminated" 类文本撞上 aborted 语义）
+  if (reason === "aborted") return new Error(message);
+  // anthropic/openai SDK 的 HTTP 错误消息形如 "${status} ${body}"；pi 的 SSE error
+  // 事件则把 overloaded_error JSON 原样抛出（无状态码），按 529 归入可重试。
+  const statusMatch = /^\s*(\d{3})(?:\s|$)/.exec(raw);
+  if (statusMatch && isRetryableHttpStatus(Number(statusMatch[1]))) {
+    return new RetryableHttpError(Number(statusMatch[1]), message);
+  }
+  if (/"type"\s*:\s*"overloaded_error"/.test(raw)) {
+    return new RetryableHttpError(529, message);
+  }
+  if (PI_CONNECTION_ERROR_PATTERNS.some((pattern) => pattern.test(raw))) {
+    return new TypeError(message);
+  }
+  return new Error(message);
+}
+
 /** 消费 pi 事件流：text/thinking/toolcall 增量转 chunk，终态消息转 LlmResult。 */
 async function runPiStream(request: LlmRequest, guard: AttemptGuard, emit: LlmStreamHandler): Promise<LlmResult> {
   const runtime = await resolvePiRuntime(request);
@@ -421,7 +458,7 @@ async function runPiStream(request: LlmRequest, guard: AttemptGuard, emit: LlmSt
     await settleAsyncIterator(iterator);
   }
   if (failed) {
-    throw new Error(`pi-ai stream failed (${failed.stopReason ?? "error"}): ${failed.errorMessage ?? "unknown error"}`);
+    throw piStreamFailureToError(failed);
   }
   if (!finalMessage) {
     throw new Error(`pi-ai stream ended without a final message${stopped ? " (stopped by consumer)" : ""}`);

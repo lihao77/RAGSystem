@@ -24,7 +24,7 @@ export function useTierModels({ form, providers }) {
     return getProviderModels(p);
   }
 
-  /** 思考档位选项 = provider descriptor（格式 + thinking_kind）× 模型条目子集（目录 effort 值域）。 */
+  /** 思考档位选项 = 模型条目 thinking descriptor（后端逐模型注入：条目 thinking_kind × 档位子集）。 */
   function getTierThinkingOptions(tier) {
     const t = toValue(form)?.llm_tiers?.[tier];
     const key = getTierProviderKey(tier);

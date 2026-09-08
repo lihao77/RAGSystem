@@ -29,15 +29,15 @@ export function isCoreApiFormat(apiFormat) {
 }
 
 /**
- * 目录厂商 → 接入档案：API 格式与思考形状声明全部由后端 ModelsDevCatalog 从
- * models.dev 数据推导（npm SDK 家族 / 兼容端点 → api_format；reasoning_options →
- * thinking_kind）并随目录摘要下发。厂商差异都在 provider 层表达：格式走
- * api_format、思考开关走 thinking_kind（如 qwen 系 enable_thinking）、嵌套思考
- * map 等静态参数走 extra_params；agent-llm 只认通用形状，不出现任何厂商名。
+ * 目录厂商 → 接入档案：API 格式由后端 ModelsDevCatalog 从 models.dev 数据推导
+ * （npm SDK 家族 / 兼容端点）并随目录摘要下发。厂商差异的表达：格式走 api_format、
+ * 思考形状在模型条目 thinking_kind 上声明（目录命中模型自动预填推荐形状与值域，
+ * 用户可改）、嵌套思考 map 等静态参数走 extra_params；agent-llm 只认通用形状，
+ * 不出现任何厂商名。
  */
 export function catalogVendorProfile(summary) {
   if (!summary?.api_format) return null;
-  return { api_format: summary.api_format, ...(summary.thinking_kind ? { thinking_kind: summary.thinking_kind } : {}) };
+  return { api_format: summary.api_format };
 }
 
 /** 目录厂商是否可通过现有 kernel API 格式接入（原生厂商或有兼容端点）。 */
@@ -71,6 +71,9 @@ export function applyCatalogModel(form, catalogModel) {
   const output = normalizeModalities(catalogModel.output_modalities);
   if (input.length) next.input_modalities = input;
   if (output.length) next.output_modalities = output;
+  // 思考形状：目录有推荐值（含 reasoning:false → none）即预填（★推荐，用户可改）；
+  // 无形状信息（null）保留当前选择
+  if (catalogModel.recommended_thinking_kind) next.thinking_kind = catalogModel.recommended_thinking_kind;
   // 思考强度子集：目录声明 effort 值域时写入；目录明确该模型不支持思考时清空（换模型不残留）
   const efforts = normalizeThinkingLevels(catalogModel.reasoning_efforts);
   if (efforts.length) next.thinking_levels = efforts;

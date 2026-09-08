@@ -243,8 +243,8 @@ test('hydrate restores validated request overrides into the session override lay
     providers: [{
       key: 'ali_alibaba',
       name: 'ali',
-      thinking: { kind: 'toggle', levels: ['off', 'on'] },
-      models: [{ name: 'deepseek-v4-flash', thinking_levels: ['high', 'max'] }],
+      // 思考 descriptor 按模型条目注入（后端 describeThinking 显式定形：effort + 子集收缩）
+      models: [{ name: 'deepseek-v4-flash', thinking: { kind: 'effort', levels: ['off', 'high', 'max'] } }],
     }],
   });
   const chatSdkClient = {
@@ -313,8 +313,8 @@ test('hydrate restores default-model thinking level through defaultLlm resolutio
     providers: [{
       key: 'ali_alibaba',
       name: 'ali',
-      thinking: { kind: 'toggle', levels: ['off', 'on'] },
-      models: [{ name: 'deepseek-v4-flash', thinking_levels: ['high', 'max'] }],
+      // 思考 descriptor 按模型条目注入（后端 describeThinking 显式定形：effort + 子集收缩）
+      models: [{ name: 'deepseek-v4-flash', thinking: { kind: 'effort', levels: ['off', 'high', 'max'] } }],
     }],
   });
   const chatSdkClient = {

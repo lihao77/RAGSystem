@@ -43,7 +43,7 @@ const API_FIXTURE = {
         name: "DeepSeek Chat",
         modalities: { input: ["TEXT", "audio", "bogus", "audio"], output: ["text"] },
         limit: { context: 64000 },
-        // toggle+effort 同模型不计票 → effort 格式默认（deepseek 顶层 reasoning_effort 用法）
+        // toggle+effort 同模型：可接受集两形状并列，推荐 effort（分级最细）
         reasoning_options: [{ type: "toggle" }, { type: "effort", values: ["low", "high", "max"] }],
         interleaved: { field: "reasoning_content" },
       },
@@ -58,7 +58,7 @@ const API_FIXTURE = {
         id: "qwen3-max",
         name: "Qwen3 Max",
         reasoning: true,
-        // 纯 toggle（无 effort）：qwen 系启停开关 → 厂商声明 toggle
+        // 纯 toggle（无 effort 值域）：qwen 系启停开关 → 推荐 toggle（budget 亦在可接受集）
         reasoning_options: [{ type: "toggle" }, { type: "budget_tokens", min: 1024, max: 262144 }],
       },
     },
@@ -127,24 +127,23 @@ describe("ModelsDevCatalog", () => {
       stale: false,
       providers: [
         // 接入档案推导：npm SDK 家族 → 原生格式；api 端点 → openai_chat；皆无 → null 不可直连。
-        // 思考形状：qwen 纯 toggle → toggle；deepseek toggle+effort 同模型 / openai 纯 effort → 格式默认 null。
+        // 思考形状已下沉到每模型条目（推荐值/可接受集），厂商级不再投票。
         {
           id: "alibaba",
           name: "Alibaba",
           api_base_url: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
           api_format: "openai_chat",
-          thinking_kind: "toggle",
           model_count: 1,
         },
-        { id: "deepseek", name: "DeepSeek", api_base_url: "https://api.deepseek.com", api_format: "openai_chat", thinking_kind: null, model_count: 1 },
-        { id: "mistral", name: "Mistral", api_base_url: null, api_format: null, thinking_kind: null, model_count: 1 },
-        { id: "openai", name: "OpenAI", api_base_url: null, api_format: "openai_chat", thinking_kind: null, model_count: 3 },
+        { id: "deepseek", name: "DeepSeek", api_base_url: "https://api.deepseek.com", api_format: "openai_chat", model_count: 1 },
+        { id: "mistral", name: "Mistral", api_base_url: null, api_format: null, model_count: 1 },
+        { id: "openai", name: "OpenAI", api_base_url: null, api_format: "openai_chat", model_count: 3 },
       ],
     });
 
     const openai = await catalog.listModels("openai");
     expect(openai?.available).toBe(true);
-    expect(openai?.provider).toEqual({ id: "openai", name: "OpenAI", api_base_url: null, api_format: "openai_chat", thinking_kind: null, model_count: 3 });
+    expect(openai?.provider).toEqual({ id: "openai", name: "OpenAI", api_base_url: null, api_format: "openai_chat", model_count: 3 });
     expect(openai?.models[0]).toEqual({
       id: "gpt-4o",
       name: "GPT-4o",
@@ -155,6 +154,8 @@ describe("ModelsDevCatalog", () => {
       output_limit: 16384,
       tool_call: true,
       reasoning: false,
+      accepted_thinking_kinds: [],
+      recommended_thinking_kind: "none",
       reasoning_efforts: [],
       interleaved: false,
       interleaved_field: null,
@@ -170,12 +171,14 @@ describe("ModelsDevCatalog", () => {
       output_limit: null,
       tool_call: false,
       reasoning: null,
+      accepted_thinking_kinds: [],
+      recommended_thinking_kind: null,
       reasoning_efforts: [],
       interleaved: false,
       interleaved_field: null,
       cost: null,
     });
-    // effort 值域进模型条目（供按模型收缩思考档位）；reasoning_options 其余形状（toggle 等）不投影。
+    // effort 值域进模型条目（供按模型收缩思考档位）；形状集/推荐值按每模型直出。
     expect(openai?.models[2]).toEqual({
       id: "gpt-5",
       name: "GPT-5",
@@ -186,6 +189,8 @@ describe("ModelsDevCatalog", () => {
       output_limit: null,
       tool_call: null,
       reasoning: true,
+      accepted_thinking_kinds: ["effort"],
+      recommended_thinking_kind: "effort",
       reasoning_efforts: ["low", "medium", "high"],
       interleaved: false,
       interleaved_field: null,
@@ -200,9 +205,14 @@ describe("ModelsDevCatalog", () => {
     expect(deepseek?.models[0]?.reasoning_efforts).toEqual(["low", "high", "max"]);
     expect(deepseek?.models[0]?.interleaved).toBe(true);
     expect(deepseek?.models[0]?.interleaved_field).toBe("reasoning_content");
-    // qwen 系模型只有 toggle/budget 选项：无 effort 值域 → 空数组（档位由 thinking_kind toggle 表达）
+    // toggle+effort 同模型：可接受集两形状都列，推荐 effort（分级最细）
+    expect(deepseek?.models[0]?.accepted_thinking_kinds).toEqual(["effort", "toggle"]);
+    expect(deepseek?.models[0]?.recommended_thinking_kind).toBe("effort");
+    // qwen 系模型：toggle+budget_tokens → 可接受集两形状、推荐 toggle（无 effort 值域）
     const alibaba = await catalog.listModels("alibaba");
     expect(alibaba?.models[0]?.reasoning_efforts).toEqual([]);
+    expect(alibaba?.models[0]?.accepted_thinking_kinds).toEqual(["toggle", "budget"]);
+    expect(alibaba?.models[0]?.recommended_thinking_kind).toBe("toggle");
 
     expect(await catalog.listModels("unknown-vendor")).toBeNull();
     expect(calls).toEqual([{ url: "https://mirror.test/api.json", headers: {} }]);
@@ -397,12 +407,9 @@ describe("ModelsDevCatalog", () => {
 
     const providers = await catalog.listProviders();
     expect(providers.providers).toEqual([
-      { id: "amazon-bedrock", name: "Amazon Bedrock", api_base_url: null, api_format: null, thinking_kind: null, model_count: 1 },
-      // anthropic 线上只有 budget_tokens 一个思考参数通道（agent-llm 侧已把形状折叠为 budget），
-      // 厂商级 toggle 声明无落点，即使投票赢出也不推导 thinking_kind。
-      { id: "anthropic", name: "Anthropic", api_base_url: null, api_format: "anthropic", thinking_kind: null, model_count: 1 },
-      // gemini 格式当前无思考参数通道，即使模型带 toggle 选项也不推导 thinking_kind。
-      { id: "google", name: "Google", api_base_url: null, api_format: "gemini", thinking_kind: null, model_count: 1 },
+      { id: "amazon-bedrock", name: "Amazon Bedrock", api_base_url: null, api_format: null, model_count: 1 },
+      { id: "anthropic", name: "Anthropic", api_base_url: null, api_format: "anthropic", model_count: 1 },
+      { id: "google", name: "Google", api_base_url: null, api_format: "gemini", model_count: 1 },
     ]);
   });
 });

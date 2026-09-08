@@ -87,11 +87,13 @@ onBeforeUnmount(() => {
 });
 
 // 面板宽度：默认严格跟随 trigger；dropdownMin/Max 显式覆盖其一侧时，另一侧放开。
+// zIndex 走 inline：内容经 SelectPortal 挂 body，scoped 样式对 portal 节点不可靠；
+// inline 无视层叠与作用域必然生效，压过层叠弹窗（DialogContent z-[60] 一类）。
 const contentStyle = computed(() => {
   const tw = triggerWidth.value ? `${triggerWidth.value}px` : undefined;
   const minW = toSize(props.dropdownMinWidth);
   const maxW = toSize(props.dropdownMaxWidth);
-  const style = { maxHeight: toSize(props.dropdownMaxHeight, '260px') };
+  const style = { maxHeight: toSize(props.dropdownMaxHeight, '260px'), zIndex: 80 };
   if (tw) style.width = tw;
   style.minWidth = minW || (maxW ? undefined : tw);
   style.maxWidth = maxW || (minW ? undefined : tw);
@@ -145,7 +147,8 @@ function onChange(value) {
   transform: rotate(180deg);
 }
 
-/* 内容面板：glass；宽度由 inline style 跟随 trigger（见 contentStyle） */
+/* 内容面板：glass；宽度与 zIndex 由 inline style 提供（见 contentStyle——内容经
+   SelectPortal 挂 body，inline 无视层叠与作用域必然生效，压过层叠弹窗 z-[60]）。 */
 .dropdown-menu {
   border-radius: var(--radius-lg);
   border: var(--glass-border-width) var(--glass-border-style) var(--glass-border-color);

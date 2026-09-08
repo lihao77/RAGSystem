@@ -37,6 +37,20 @@ export async function getProviders() {
   }
 }
 
+/**
+ * 加载面拒载记录（配置损坏报错通道）：后端对条目思考形状非法/格式失配的 provider
+ * 拒载并在 /providers 响应带 load_errors（key + message），供管理界面展示告警。
+ */
+export async function getProviderLoadErrors() {
+  try {
+    const data = await http.get(`${API_BASE}/providers`)
+    return Array.isArray(data.load_errors) ? data.load_errors : []
+  } catch (error) {
+    console.error('Error fetching provider load errors:', error)
+    return []
+  }
+}
+
 function collectProviderModels(provider) {
   const result = []
   const seen = new Set()
@@ -89,8 +103,8 @@ export function findProviderModelByValue(value) {
 
 /**
  * 取指定模型（"provider|type|model" 值）的思考能力 descriptor（格式档位 × 模型级子集）。
- * 后端在 /providers 响应里注入 thinking 字段（agent-llm 注册表 + thinking_kind 覆盖）；
- * 模型条目带 thinking_levels 子集时（目录 effort 值域）强度档位以子集为准。
+ * 后端在 /providers 响应里逐模型条目注入 thinking descriptor（describeThinking 按条目
+ * thinking_kind 显式定形，含 thinking_levels 子集收缩）；前端直读条目 descriptor。
  * selectedValue 为空（"默认"状态）时改用 defaultLlm（runtime-core 解析的默认生效模型，
  * 见 api/runtimeCore.js）的能力——默认模型同样可被请求级档位覆盖；两者皆无 → kind 'none'
  * （调用方应隐藏选择器）。

@@ -13,7 +13,7 @@ import {
   ModelAdapterService,
   ModelAdapterServiceError,
 } from "@ragsystem/backend-core/services/integrations/model-adapter-service.js";
-import { toModelProviderConfig } from "./provider-config-mapping.js";
+import { toHydratedModelProviderConfig, toModelProviderConfig } from "./provider-config-mapping.js";
 
 /**
  * Tenant-bound provider application.
@@ -31,8 +31,17 @@ export class SaaSProviderApplication implements ProviderApplication {
   }
 
   async listProviders(): Promise<ModelProviderConfig[]> {
-    const records = await this.repository.listProviders(this.tenantId);
-    return records.map(toModelProviderConfig);
+    // 走运行时快照（replaceRuntimeProviders 归一链含 thinking_kind 下沉迁移）而非仓库原始行：
+    // 存量行模型条目无 thinking_kind，原始直读会让 /providers 的逐条目 thinking descriptor
+    // 注入抛错（500）；快照口径与 load_errors 同源，也消除同请求内两种归一状态的不一致。
+    await this.hydrateRuntimeFromRepository();
+    return this.service.listProviders();
+  }
+
+  async listProviderLoadErrors() {
+    // 拒载记录基于运行时快照；与 listProviders 同刻读取前先对齐运行时，保证错误与列表一致。
+    await this.hydrateRuntimeFromRepository();
+    return this.service.listProviderLoadErrors();
   }
 
   async createProvider(payload: ProviderPayload): Promise<string> {
@@ -61,7 +70,9 @@ export class SaaSProviderApplication implements ProviderApplication {
     if (!existingRecord) {
       throw new ModelAdapterServiceError(`Provider 不存在: ${providerKey}`, 404);
     }
-    const existing = toModelProviderConfig(existingRecord);
+    // existing 过加载归一链（含 thinking_kind 下沉迁移）再进 update 校验：存量行条目无
+    // thinking_kind，直读会让终局校验恒 400"缺少声明"——单字段保存（如改 endpoint）死路。
+    const existing = toHydratedModelProviderConfig(existingRecord);
     const { key, config } = this.service.buildUpdateProvider(providerKey, existing, payload);
     await this.repository.upsertProvider(this.tenantId, key, config as unknown as Record<string, unknown>);
     await this.hydrateRuntimeFromRepository();

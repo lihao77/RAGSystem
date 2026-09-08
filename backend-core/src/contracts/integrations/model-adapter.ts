@@ -62,9 +62,18 @@ export interface ProviderModelEntry {
   input_modalities?: ModelModality[];
   output_modalities?: ModelModality[];
   /**
+   * 模型级思考形状声明（effort / budget / toggle / none）：每条模型必达，无缺省、
+   * 无运行时推断（历史格式默认表 / anthropic 折叠 / toggle+子集升级均已退役）。
+   * 目录命中模型由 reasoning_options 直出推荐值（用户可改），自定义模型由用户选择。
+   * 合法值域受 API 格式能力矩阵约束（anthropic: budget/effort/none；openai 系:
+   * effort/toggle/none；gemini: none）——缺失或失配在加载/写入面报错，不静默兜底。
+   * 厂商级同名字段已退役（hydration 下沉迁移把厂商值固化进各条目后剥离）。
+   */
+  thinking_kind?: string;
+  /**
    * 模型级思考强度档位子集（目录 reasoning_options 的 effort 值域，如 deepseek 的
-   * low/high/max）：存在即替换格式默认档位的强度部分（off 恒可用），agent-llm 运行时
-   * 据此校验。空/缺省 = 用 API 格式默认档位。
+   * low/high/max）：存在即替换形状默认档位的强度部分（off 恒可用），agent-llm 运行时
+   * 据此校验。空/缺省 = 用形状默认档位。
    */
   thinking_levels?: ThinkingStrengthLevel[];
   /**
@@ -83,8 +92,6 @@ export interface CatalogProviderSummary {
   api_base_url: string | null;
   /** 推导的接入 API 格式：npm 官方 SDK 家族映射原生协议（@ai-sdk/openai 等），带兼容端点 → openai_chat；null = 专用 SDK 厂商（bedrock/vertex），内核 4 格式无法直连。 */
   api_format: string | null;
-  /** 目录 reasoning_options 推导的思考形状提示：toggle = 启停开关型（如 qwen 系）；null = 格式默认形状（openai 系 effort / anthropic budget）。表单默认值，用户可改。 */
-  thinking_kind: string | null;
   model_count: number;
 }
 
@@ -99,6 +106,13 @@ export interface CatalogModelEntry {
   output_limit: number | null;
   tool_call: boolean | null;
   reasoning: boolean | null;
+  /**
+   * 目录声明的可接受思考形状集（reasoning_options type → 我方词表 effort/toggle/budget；
+   * 空 = 目录无形状信息）。前端与 API 格式能力矩阵取交集后供用户选择。
+   */
+  accepted_thinking_kinds: string[];
+  /** 推荐思考形状（可接受集内的偏好：effort 值域优先，否则跟随厂商风格）；无思考 / 无信息 = null（reasoning:false 时为 "none"）。 */
+  recommended_thinking_kind: string | null;
   /** reasoning_options 中 effort 形状的值域（厂商侧档位枚举，过滤到已知强度档位；空 = 未声明）。 */
   reasoning_efforts: string[];
   /** 思考交错（interleaved）标记：思考块与正文交错输出。 */
@@ -137,19 +151,10 @@ export interface ModelProviderConfig {
   /**
    * API 格式（协议方言）：openai_resp / openai_chat / anthropic / gemini，
    * kernel 封闭清单（纯协议，无厂商类型）。agent-llm 按此分发；由厂商目录信息推导
-   * （官方与兼容网关统一走 openai_chat，官方差异由端点/能力位守卫），厂商思考形状经 thinking_kind 声明。
+   * （官方与兼容网关统一走 openai_chat，官方差异由端点/能力位守卫），思考形状在
+   * 模型条目 thinking_kind 上声明（厂商级同名字段已退役）。
    */
   api_format?: string;
-  /**
-   * 厂商思考形状声明（effort / budget / toggle / none，透传 agent-llm describeThinking 覆盖）：
-   * 如 qwen 系厂商声明 toggle（enable_thinking）；嵌套思考 map 等静态参数走 extra_params。
-   * anthropic 格式：默认折叠为 budget（原生线上只有 budget_tokens 一个思考参数通道）；
-   * 例外是 effort——显式声明，或 toggle + 模型 effort 子集自动升级（openai 原生厂商挂
-   * anthropic 端点必是兼容层：智谱/Kimi/阿里/火山等 /v1/messages 网关，budget_tokens
-   * 被无视、档位只认 output_config.effort），发 thinking{enabled}+output_config.effort；
-   * 真 Anthropic 上游勿用 effort（output_config 未知字段会被拒），无子集 toggle 折叠 budget。
-   */
-  thinking_kind?: string;
   /**
    * LLM 委托引擎声明（可选，缺省 = 原生适配器）：pi-ai = 协议实现外包给
    * @earendil-works/pi-ai（dsh 同款姿势——自有契约不动，厂商兼容补丁吃上游生态）。

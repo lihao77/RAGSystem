@@ -13,7 +13,7 @@ const existing: ModelProviderConfig = {
   api_format: "openai_chat",
   api_key: "secret",
   api_endpoint: "https://api.openai.com/v1",
-  models: [{ name: "gpt-4.1" }],
+  models: [{ name: "gpt-4.1", thinking_kind: "effort" }],
 };
 
 describe("ModelAdapterService provider configuration (provider_type=厂商, api_format=API 格式)", () => {
@@ -30,7 +30,7 @@ describe("ModelAdapterService provider configuration (provider_type=厂商, api_
     expect(formats.find((item) => item.value === "openai_chat")?.default_endpoint).toBe("https://api.openai.com/v1");
   });
 
-  it("update 可切换 API 格式与厂商（自由字符串），thinking_kind 声明随行（非法值剔除）", () => {
+  it("update 可切换 API 格式与厂商（自由字符串）；厂商级 thinking_kind 已退役（payload 忽略），条目形状失配报 400", () => {
     const service = new ModelAdapterService();
     const result = service.buildUpdateProvider("stable-provider-key", existing, {
       api_format: "anthropic",
@@ -39,17 +39,20 @@ describe("ModelAdapterService provider configuration (provider_type=厂商, api_
     expect(result.key).toBe("stable-provider-key");
     expect(result.config.api_format).toBe("anthropic");
     expect(result.config.provider_type).toBe("openai");
+    // 条目 effort 在 anthropic 线合法（effort 型兼容端点），跨格式切换随行
 
     const rebranded = service.buildUpdateProvider("stable-provider-key", result.config, {
       provider_type: " ZhipuAi ",
+      // 厂商级字段已退役：UPDATE_FIELDS 不含，payload 携带也不落盘（思考形状在模型条目上）
       thinking_kind: " TOGGLE ",
     });
     expect(rebranded.config.provider_type).toBe("zhipuai");
     expect(rebranded.config.api_format).toBe("anthropic");
-    expect(rebranded.config.thinking_kind).toBe("toggle");
+    expect((rebranded.config as Record<string, unknown>).thinking_kind).toBeUndefined();
 
-    const invalidKind = service.buildUpdateProvider("stable-provider-key", rebranded.config, { thinking_kind: "bogus" });
-    expect(invalidKind.config.thinking_kind).toBeUndefined();
+    // 跨字段失配：条目 effort 切到 gemini（仅 none）→ 终局校验 400 报错不静默
+    expect(() => service.buildUpdateProvider("stable-provider-key", rebranded.config, { api_format: "gemini" }))
+      .toThrowError(new ModelAdapterServiceError('模型 "gpt-4.1" 的 thinking_kind "effort" 在 API 格式 "gemini" 下不可用（可选: none）', 400));
   });
 
   it("rejects unknown or missing api formats (厂商自由、格式封闭)", () => {
@@ -60,22 +63,22 @@ describe("ModelAdapterService provider configuration (provider_type=厂商, api_
       .toThrowError(new ModelAdapterServiceError("不支持的 API 格式: (空)", 400));
 
     const base = { name: "Zhipu", provider_type: "zhipuai", api_key: "secret" };
-    expect(() => service.buildCreateProvider({ ...base, models: [{ name: "glm-5" }] }))
+    expect(() => service.buildCreateProvider({ ...base, models: [{ name: "glm-5", thinking_kind: "effort" }] }))
       .toThrowError(new ModelAdapterServiceError("缺少必需字段: api_format", 400));
-    expect(() => service.buildCreateProvider({ ...base, api_format: "openai_native", models: [{ name: "glm-5" }] }))
+    expect(() => service.buildCreateProvider({ ...base, api_format: "openai_native", models: [{ name: "glm-5", thinking_kind: "effort" }] }))
       .toThrowError(new ModelAdapterServiceError("不支持的 API 格式: openai_native", 400));
     // api_format 别名归一：openai_compatible_chat/openai_proxy → openai_chat、openai → openai_chat（厂商不受影响）。
     const aliased = service.buildCreateProvider({
       ...base,
       api_format: "openai_compatible_chat",
       api_endpoint: "https://open.bigmodel.cn/api/paas/v4",
-      models: [{ name: "glm-5" }],
+      models: [{ name: "glm-5", thinking_kind: "effort" }],
     });
     expect(aliased.config.api_format).toBe("openai_chat");
     expect(aliased.config.provider_type).toBe("zhipuai");
     const openaiAlias = service.buildCreateProvider({
       name: "OpenAI", provider_type: "openai", api_key: "secret", api_format: "openai",
-      models: [{ name: "gpt-4.1" }],
+      models: [{ name: "gpt-4.1", thinking_kind: "effort" }],
     });
     expect(openaiAlias.config.api_format).toBe("openai_chat");
   });
@@ -96,8 +99,15 @@ describe("ModelAdapterService provider configuration (provider_type=厂商, api_
       .toThrowError(new ModelAdapterServiceError("输入模态必须是数组", 400));
     expect(() => service.buildCreateProvider({ ...base, models: [{ name: "gpt-4.1", output_modalities: null }] }))
       .toThrowError(new ModelAdapterServiceError("输出模态必须是数组", 400));
-    expect(() => service.buildCreateProvider({ ...base, models: [{ name: "gpt-4.1", thinking_levels: "low" }] }))
+    expect(() => service.buildCreateProvider({ ...base, models: [{ name: "gpt-4.1", thinking_levels: "low", thinking_kind: "effort" }] }))
       .toThrowError(new ModelAdapterServiceError("思考档位必须是数组", 400));
+    // 思考形状写入面必达：缺失 / 非法值 / 格式失配 → 400 报错（不静默填充）
+    expect(() => service.buildCreateProvider({ ...base, models: [{ name: "gpt-4.1" }] }))
+      .toThrowError(new ModelAdapterServiceError('模型 "gpt-4.1" 缺少 thinking_kind 声明（thinking shape is required per model entry）', 400));
+    expect(() => service.buildCreateProvider({ ...base, models: [{ name: "gpt-4.1", thinking_kind: "efort" }] }))
+      .toThrowError(new ModelAdapterServiceError('模型 "gpt-4.1" 的 thinking_kind "efort" 非法（合法值: effort/budget/toggle/none）', 400));
+    expect(() => service.buildCreateProvider({ ...base, models: [{ name: "gpt-4.1", thinking_kind: "budget" }] }))
+      .toThrowError(new ModelAdapterServiceError('模型 "gpt-4.1" 的 thinking_kind "budget" 在 API 格式 "openai_chat" 下不可用（可选: effort/toggle/none）', 400));
 
     const { config } = service.buildCreateProvider({
       ...base,
@@ -113,12 +123,14 @@ describe("ModelAdapterService provider configuration (provider_type=厂商, api_
         output_modalities: ["text"],
         // 目录 effort 值域：未知 token/off 过滤，按全集顺序输出（deepseek 风格 low/high/max）
         thinking_levels: ["max", "off", "low", "high", "on", "bogus", "high"],
+        thinking_kind: " effort ",
         // 思考线字段声明：白名单两值，非法值静默丢弃
         reasoning_field: "reasoning_details",
         custom_key: "dropped",
       }, {
         name: "bad-field-model",
         reasoning_field: "reasoning",
+        thinking_kind: "none",
       }],
     } as never);
 
@@ -130,9 +142,10 @@ describe("ModelAdapterService provider configuration (provider_type=厂商, api_
         input_modalities: ["text", "image"],
         output_modalities: ["text"],
         thinking_levels: ["low", "high", "max"],
+        thinking_kind: "effort",
         reasoning_field: "reasoning_details",
       },
-      { name: "bad-field-model" },
+      { name: "bad-field-model", thinking_kind: "none" },
     ]);
     // 废弃的 provider 级字段（模型映射/运行参数/能力位/厂商目录临时补丁）不再落盘。
     expect(config.temperature).toBeUndefined();
@@ -144,15 +157,15 @@ describe("ModelAdapterService provider configuration (provider_type=厂商, api_
   it("update 可整体替换 models；未提供时保留原模型目录", () => {
     const service = new ModelAdapterService();
     const result = service.buildUpdateProvider("stable-provider-key", existing, {
-      models: [{ name: "gpt-4.1-mini", max_completion_tokens: 8192 }, { name: "o4-mini" }],
+      models: [{ name: "gpt-4.1-mini", max_completion_tokens: 8192, thinking_kind: "effort" }, { name: "o4-mini", thinking_kind: "toggle" }],
     });
     expect(result.config.models).toEqual([
-      { name: "gpt-4.1-mini", max_completion_tokens: 8192 },
-      { name: "o4-mini" },
+      { name: "gpt-4.1-mini", max_completion_tokens: 8192, thinking_kind: "effort" },
+      { name: "o4-mini", thinking_kind: "toggle" },
     ]);
 
     const untouched = service.buildUpdateProvider("stable-provider-key", existing, { timeout: 60 });
-    expect(untouched.config.models).toEqual([{ name: "gpt-4.1" }]);
+    expect(untouched.config.models).toEqual([{ name: "gpt-4.1", thinking_kind: "effort" }]);
   });
 
   it("availability 以 api_format + models 判定", () => {
@@ -163,7 +176,7 @@ describe("ModelAdapterService provider configuration (provider_type=厂商, api_
       api_format: "openai_proxy",
       api_key: "secret",
       api_endpoint: "https://open.bigmodel.cn/api/paas/v4",
-      models: [{ name: "glm-5" }],
+      models: [{ name: "glm-5", thinking_kind: "effort" }],
     });
     // key = 名称_厂商（api_format 不参与 key）。
     const availability = service.checkProviderAvailability("zhipu_zhipuai");
@@ -205,8 +218,9 @@ describe("ModelAdapterService provider configuration (provider_type=厂商, api_
     const chat = service.getProvider("chat");
     expect(chat?.provider_type).toBe("zhipuai");
     expect(chat?.api_format).toBe("openai_chat");
-    // 水合宽松归一：旧 supports_vision 剔除、模态未知值过滤、非数组丢弃、废弃字段剥离。
-    expect(chat?.models).toEqual([{ name: "glm-5", temperature: 0.2, input_modalities: ["image"] }]);
+    // 水合宽松归一：旧 supports_vision 剔除、模态未知值过滤、非数组丢弃、废弃字段剥离；
+    // 条目缺形状 = 迁移信号，加载链按旧格式默认下沉（openai_chat → effort）。
+    expect(chat?.models).toEqual([{ name: "glm-5", temperature: 0.2, input_modalities: ["image"], thinking_kind: "effort" }]);
     expect(chat?.temperature).toBeUndefined();
     expect(chat?.model_map).toBeUndefined();
     expect(chat?.catalog_provider_id).toBeUndefined();

@@ -19,10 +19,18 @@ export interface ProviderMetrics {
   resilience: unknown;
 }
 
+/** 加载面拒载的 provider 记录（配置损坏：模型条目思考形状缺失/失配等）。 */
+export interface ProviderLoadError {
+  key: string;
+  message: string;
+}
+
 /** Tenant-bound provider administration and runtime checks. */
 export interface ProviderApplication {
   listApiFormats(): Promise<ProviderTypeInfo[]>;
   listProviders(): Promise<ModelProviderConfig[]>;
+  /** 损坏配置的报错通道（加载面拒载记录，随列表界面暴露）。 */
+  listProviderLoadErrors(): Promise<ProviderLoadError[]>;
   createProvider(payload: ProviderPayload): Promise<string>;
   reorderProviders(providerKeys: string[]): Promise<string[]>;
   updateProvider(providerKey: string, payload: ProviderPayload): Promise<string>;

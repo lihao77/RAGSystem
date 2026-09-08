@@ -34,13 +34,8 @@
             <Field :data-invalid="!!formErrors.api_format">
               <FieldLabel>API 格式 <span class="required">*</span></FieldLabel>
               <CustomSelect :model-value="form.api_format" :options="apiFormatOptions" placeholder="-- 请选择 --" @update:model-value="emit('apiFormatChange', $event)" />
-              <FieldDescription>核心协议家族；厂商思考形状（如 qwen 系开关思考）由目录厂商选择自动声明。</FieldDescription>
+              <FieldDescription>核心协议家族；思考形状在下方每个模型条目上必选（目录模型自动预填推荐值）。</FieldDescription>
               <FieldError v-if="formErrors.api_format">{{ formErrors.api_format }}</FieldError>
-            </Field>
-            <Field>
-              <FieldLabel>思考形状</FieldLabel>
-              <CustomSelect :model-value="form.thinking_kind || ''" :options="THINKING_KIND_OPTIONS" placeholder="-- 跟随 API 格式默认 --" @update:model-value="form.thinking_kind = $event" />
-              <FieldDescription>目录厂商选择时自动带入推荐值，可在此覆盖。effort=推理档位、budget=token 预算（anthropic 默认）、toggle=仅开关、none=不支持思考。</FieldDescription>
             </Field>
             <Field class="form-grid__full" :data-invalid="!!formErrors.api_key">
               <FieldLabel for="provider-api-key">API Key <span v-if="dialog.mode === 'create'" class="required">*</span></FieldLabel>
@@ -163,7 +158,6 @@ import {
 import { Input } from '../ui/input';
 import { Switch } from '../ui/switch';
 import { modelCapabilityTitle, modelModalityMarks } from '../../utils/modelCatalog.js';
-import { THINKING_KIND_OPTIONS } from '../../utils/thinkingLevels.js';
 
 defineProps({
   dialog: { type: Object, required: true },

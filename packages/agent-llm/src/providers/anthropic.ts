@@ -104,7 +104,7 @@ export function buildAnthropicBody(request: LlmRequest, stream = false): Record<
   if (cacheEnabled && tools?.length) tools[tools.length - 1]!.cache_control = { type: "ephemeral" };
 
   const budget = effectiveThinkingBudget(request.provider, request.thinkingLevel);
-  // effort 型 anthropic 兼容端点（provider 显式声明 thinking_kind: effort，智谱/Kimi/
+  // effort 型 anthropic 兼容端点（模型条目声明 thinking_kind: effort——智谱/Kimi/
   // 阿里/火山等 /v1/messages 网关）：budget_tokens 被无视，档位唯一落点是 output_config.effort；
   // thinking.enabled 作通用开信号（adaptive 仅部分端点认）。off 与无档位不发字段——多数
   // 该类模型思考强制开启，关闭语义无处落点，降级为模型默认。

@@ -48,12 +48,15 @@ export const registerModelAdapterRoutes: FastifyPluginAsync<RouteOptions> = asyn
   });
 
   app.get("/providers", async (request) => {
-    const providers = (await (await ensureRequestApplications(request, options)).providers.listProviders())
+    const applications = await ensureRequestApplications(request, options);
+    const providers = (await applications.providers.listProviders())
       .map(redactProviderSecrets)
       .map(withThinkingDescriptor);
     return {
       ...ok(providers, "Provider 列表获取成功"),
       providers,
+      // 加载面拒载记录（配置损坏报错通道）：条目思考形状缺失/失配等
+      load_errors: await applications.providers.listProviderLoadErrors(),
     };
   });
 
@@ -184,15 +187,25 @@ function redactProviderSecrets<T extends Record<string, unknown>>(provider: T): 
   };
 }
 
-/** 注入思考能力 descriptor（agent-llm 注册表按 API 格式分发 + provider thinking_kind 覆盖），前端选择器据此渲染。
- * 刻意不带模型子集：provider 级只描述形状默认；toggle+子集的运行时升级/子集收缩由前端镜像按模型条目合成，
- * kind 在此与运行时可能不同（如 anthropic+toggle 此处 budget、运行时按子集升级 effort），levels 始终一致。 */
-function withThinkingDescriptor<T extends Record<string, unknown>>(provider: T): T & { thinking: { kind: string; levels: string[] } } {
-  const capability = describeThinking(
-    String(provider.api_format ?? ""),
-    provider.thinking_kind,
-  );
-  return { ...provider, thinking: { kind: capability.kind, levels: [...capability.levels] } };
+/**
+ * 每模型条目注入思考能力 descriptor（agent-llm describeThinking：格式能力矩阵 × 条目
+ * thinking_kind 显式声明 × 条目档位子集——无推断，失配在加载/写入面已拦截，此处仅投影）。
+ * 前端选择器（tier 档位下拉等）按模型名直读条目 descriptor，不再镜像合成。
+ */
+function withThinkingDescriptor<T extends Record<string, unknown>>(provider: T): T & { models: unknown } {
+  const apiFormat = String(provider.api_format ?? "");
+  const models = Array.isArray(provider.models)
+    ? provider.models.map((entry) => {
+        if (!entry || typeof entry !== "object") return entry;
+        const capability = describeThinking(
+          apiFormat,
+          (entry as Record<string, unknown>).thinking_kind,
+          (entry as Record<string, unknown>).thinking_levels,
+        );
+        return { ...entry, thinking: { kind: capability.kind, levels: [...capability.levels] } };
+      })
+    : provider.models;
+  return { ...provider, models };
 }
 
 async function collectProviderUsages(
