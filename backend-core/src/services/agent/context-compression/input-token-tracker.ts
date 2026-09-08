@@ -94,6 +94,12 @@ export class RuntimeInputTokenTracker {
     };
   }
 
+  /**
+   * 从会话元数据恢复上次观测基线。已知过渡:估算口径切换(如图片 token 从 base64/4 改为
+   * 分辨率制)后,旧口径持久化的 working_message_tokens 偏大,新 run 首轮 predict 会得到大负
+   * 增量、预测钳 0 而跳过一次本可能需要的压缩;首轮 round.after 重新 observe 即自愈。
+   * 数值口径过渡而非数据形状变更,不登记 MIGRATIONS.md。
+   */
   restore(metadata: Record<string, unknown>, identity: InputTokenTrackerIdentity): boolean {
     const root = recordValue(metadata[CONTEXT_TOKEN_USAGE_METADATA_KEY]);
     const entry = recordValue(root?.[normalizeThreadKey(identity.threadKey)]);
