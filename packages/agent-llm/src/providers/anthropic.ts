@@ -1,8 +1,7 @@
 /**
- * Anthropic Messages 方言：线协议走 @anthropic-ai/sdk。缓存断点布局与 thinking
- * 块原样回放是本方言的核心语义，由 buildAnthropicBody（请求侧）与流式块模型（响应侧）持有。
+ * Anthropic Messages 方言：线级传输走 provider-utils 直连（wire.ts）。缓存断点布局与
+ * thinking 块原样回放是本方言的核心语义，由 buildAnthropicBody（请求侧）与流式块模型（响应侧）持有。
  */
-import Anthropic from "@anthropic-ai/sdk";
 import type {
   ChatMessage,
   ChatToolCall,
@@ -12,7 +11,6 @@ import type {
   ReasoningBlock,
 } from "../types.js";
 import type { LlmProviderAdapter } from "./adapter.js";
-import type { AttemptGuard } from "../transport.js";
 import { StreamingBlocks } from "./internal/stream-blocks.js";
 import { extractText, toAnthropicContent } from "../content-parts.js";
 import { compactRecord } from "../record-utils.js";
@@ -28,7 +26,9 @@ import {
   requireApiKey,
   settleAsyncIterator,
   withProviderGuards,
+  type AttemptGuard,
 } from "../transport.js";
+import { postWireJson, postWireSse, type WireCallOptions, type WireEventStream } from "./wire.js";
 
 type CacheControl = { type: "ephemeral" };
 type CacheableTextBlock = { type: "text"; text: string; cache_control?: CacheControl };
@@ -44,12 +44,9 @@ export class AnthropicAdapter implements LlmProviderAdapter {
     return executeProviderOperation(request, ({ signal }) =>
       withProviderGuards(request, signal, async (guard) => {
         const message = await guard.total(
-          createMessagesClient(request).messages.create(
-            buildAnthropicBody(request) as unknown as Anthropic.MessageCreateParamsNonStreaming,
-            guard.requestOptions(),
-          ),
+          postWireJson(buildWireOptions(request, guard, buildAnthropicBody(request))),
         );
-        return parseAnthropicResponse(message as unknown as Record<string, unknown>);
+        return parseAnthropicResponse(message);
       }),
     );
   }
@@ -57,30 +54,29 @@ export class AnthropicAdapter implements LlmProviderAdapter {
   async stream(request: LlmRequest, onChunk: LlmStreamHandler): Promise<LlmResult> {
     return executeProviderOperation(request, ({ signal }) =>
       withProviderGuards(request, signal, async (guard) => {
-        const stream = await guard.total(
-          createMessagesClient(request).messages.create(
-            buildAnthropicBody(request, true) as unknown as Anthropic.MessageCreateParamsStreaming,
-            guard.requestOptions(),
-          ),
+        const events = await guard.total(
+          postWireSse(buildWireOptions(request, guard, buildAnthropicBody(request, true))),
         );
-        return consumeProviderStream(onChunk, (emit) => consumeAnthropicStream(stream, request, guard, emit));
+        return consumeProviderStream(onChunk, (emit) => consumeAnthropicStream(events, request, guard, emit));
       }),
     );
   }
 }
 
-/** 按请求构造（pi-ai 同款 createClient 模式）；重试/超时归策略层。 */
-function createMessagesClient(request: LlmRequest): Anthropic {
+/** 线级调用参数：按请求构造；重试/超时归策略层。 */
+function buildWireOptions(request: LlmRequest, guard: AttemptGuard, body: Record<string, unknown>): WireCallOptions {
   const provider = request.provider;
-  const fetch = resolveSdkFetch(provider);
-  const headers = resolveProviderHeaders(provider, request.promptCacheKey);
-  return new Anthropic({
-    apiKey: requireApiKey(provider),
-    baseURL: anthropicBaseURL(provider),
-    maxRetries: 0,
-    ...(headers ? { defaultHeaders: headers } : {}),
-    ...(fetch ? { fetch } : {}),
-  });
+  return {
+    url: `${anthropicBaseURL(provider)}/v1/messages`,
+    headers: {
+      "x-api-key": requireApiKey(provider),
+      "anthropic-version": "2023-06-01",
+      ...resolveProviderHeaders(provider, request.promptCacheKey),
+    },
+    body,
+    signal: guard.signal,
+    fetch: resolveSdkFetch(provider),
+  };
 }
 
 export function buildAnthropicBody(request: LlmRequest, stream = false): Record<string, unknown> {
@@ -273,7 +269,7 @@ function parseAnthropicResponse(body: Record<string, unknown>): LlmResult {
 }
 
 async function consumeAnthropicStream(
-  stream: AsyncIterable<Anthropic.RawMessageStreamEvent>,
+  events: WireEventStream,
   request: LlmRequest,
   guard: AttemptGuard,
   onChunk: LlmStreamHandler,
@@ -289,7 +285,7 @@ async function consumeAnthropicStream(
   // redacted_thinking 是终块（无 delta），按出现 index 与 thinking 块合并排序回放。
   const redacted: { index: number; block: ReasoningBlock }[] = [];
   const completedTools: ChatToolCall[] = [];
-  const iterator = stream[Symbol.asyncIterator]();
+  const iterator = events[Symbol.asyncIterator]();
 
   const finishTool = async (index: number): Promise<void> => {
     const block = blocks.find(index);
@@ -303,10 +299,10 @@ async function consumeAnthropicStream(
     while (true) {
       const result = await guard.next(iterator.next());
       if (result.done) break;
-      const event = result.value as unknown as Record<string, unknown>;
+      const event = result.value;
       const type = typeof event.type === "string" ? event.type : "";
       if (type === "message_start" && isRecord(event.message)) {
-        // usage 在 message_start 落底：即使流早退也保有输入侧计数（pi-ai 同款容错）。
+        // usage 在 message_start 落底：即使流早退也保有输入侧计数。
         const usage = extractAnthropicUsage(event.message);
         if (usage) {
           inputTokens = usage.inputTokens;
@@ -371,7 +367,7 @@ async function consumeAnthropicStream(
         if (isRecord(event.delta) && typeof event.delta.stop_reason === "string") finishReason = event.delta.stop_reason;
         const usage = extractAnthropicUsage(event);
         if (usage) {
-          // message_delta 仅更新非空字段：部分代理不回传 input 侧（pi-ai 同款容错）。
+          // message_delta 仅更新非空字段：部分代理不回传 input 侧。
           // 实测有网关（zhipu anthropic 兼容层）message_start 全 0、真实 input/cache
           // 只随 message_delta 到达——input 侧带值时必须采纳，否则该轮缓存进分子而
           // input 恒 0（表现为 run 级 token_in=0、会话命中率 >100%）。

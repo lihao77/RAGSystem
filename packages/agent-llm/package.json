@@ -28,9 +28,8 @@
     "node": ">=22.19.0"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.122.0",
-    "@earendil-works/pi-ai": "0.85.1",
-    "@google/genai": "^2.19.0",
-    "openai": "^7.8.0"
+    "@ai-sdk/provider": "^4.0.11",
+    "@ai-sdk/provider-utils": "^5.0.37",
+    "eventsource-parser": "^3.1.1"
   }
 }

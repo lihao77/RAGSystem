@@ -57,9 +57,9 @@ create/update 路径复用其中的 `canonicalizeProviderConfig` / `normalizePro
 | id | 归一内容 |
 | --- | --- |
 | `provider_api_format_alias_canonicalize` | provider_type trim/小写 + api_format 旧别名归一（openai_compatible_chat/openai_proxy → openai_chat 等） |
-| `provider_legacy_field_strip` | 剥离已下沉到模型条目的 provider 级废弃字段（model/model_map/temperature 等） |
+| `provider_legacy_field_strip` | 剥离已下沉到模型条目的 provider 级废弃字段（model/model_map/temperature 等；llm_engine 随 pi-ai 委托引擎退役并入剥离——该字段从未发布，无存量数据） |
 | `provider_thinking_kind_normalize` | 【已退役】原"thinking_kind 非法值剔除（回落格式默认）"——思考形状下沉到模型条目（显式必达）后由 `provider_thinking_kind_sink` 取代 |
-| `provider_llm_engine_normalize` | llm_engine 非法值剔除（仅 pi-ai 合法，缺省/非法回落原生适配器） |
+| `provider_llm_engine_normalize` | 【已退役】原"llm_engine 非法值剔除（仅 pi-ai 合法，缺省/非法回落原生适配器）"——pi-ai 委托引擎随 agent-llm 传输层迁移 provider-utils 整体移除，字段并入 `provider_legacy_field_strip` 剥离（从未发布，无存量数据） |
 | `provider_headers_normalize` | 自定义请求头归一为 `Record<string, string>`（键 trim 非空、非字符串值丢弃、名字值须 HTTP 头合法——非法字符条目丢弃，防 undici 在请求构造期抛错；空表剥键）。`{session_id}` 占位符原样保留，agent-llm 调用期解析为该次会话稳定路由键（无会话上下文的辅助调用回落 provider 级稳定值，标识非头值安全字符时折叠为哈希）。非对象形状按空表收敛（手工编辑半迁移态）；create/update 写入面在 `ensureProviderRequestShape` 严格校验（非字符串值/非法字符 400） |
 | `provider_model_entries_normalize` | models 归一为对象条目数组（非法条目丢弃、去重；条目 thinking_kind 合法值归一） |
 | `provider_thinking_kind_sink` | 厂商级 thinking_kind 下沉迁移：按旧运行时推断语义等价固化进每条模型条目（toggle+子集→effort、anthropic+toggle 无子集→budget、格式默认 anthropic→budget/openai→effort、openai+budget→none、gemini→none），随后剥离厂商字段；迁移后条目仍缺失/失配 = 数据损坏，加载面拒载报错 |

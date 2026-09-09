@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -58,8 +58,9 @@ const API_FIXTURE = {
         id: "qwen3-max",
         name: "Qwen3 Max",
         reasoning: true,
-        // 纯 toggle（无 effort 值域）：qwen 系启停开关 → 推荐 toggle（budget 亦在可接受集）
-        reasoning_options: [{ type: "toggle" }, { type: "budget_tokens", min: 1024, max: 262144 }],
+        // 纯 toggle（无 effort 值域）：qwen 系启停开关 → 推荐 toggle（budget 亦在可接受集）；
+        // budget_chars 是词表外 type：验证漂移对账告警与"不进可接受集"两条语义
+        reasoning_options: [{ type: "toggle" }, { type: "budget_tokens", min: 1024, max: 262144 }, { type: "budget_chars" }],
       },
     },
   },
@@ -105,6 +106,20 @@ afterEach(() => {
   for (const dir of tempDirs.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+/** console.warn 静默记录：夹具带词表外值（bogus/budget_chars）钉过滤语义，对账告警别刷测试输出。 */
+const warnMessages: string[] = [];
+
+beforeEach(() => {
+  warnMessages.length = 0;
+  vi.spyOn(console, "warn").mockImplementation((...args: unknown[]) => {
+    warnMessages.push(args.map(String).join(" "));
+  });
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 describe("ModelsDevCatalog", () => {
@@ -411,5 +426,47 @@ describe("ModelsDevCatalog", () => {
       { id: "anthropic", name: "Anthropic", api_base_url: null, api_format: "anthropic", model_count: 1 },
       { id: "google", name: "Google", api_base_url: null, api_format: "gemini", model_count: 1 },
     ]);
+  });
+
+  it("词表漂移对账：词表外 type/档位每次同步汇总告警一次，条目解析不受影响", async () => {
+    const catalog = new ModelsDevCatalog({
+      dataRoot: makeTempDir(),
+      fetchImpl: () => Promise.resolve(makeResponse(200, API_FIXTURE)),
+      now: () => 1_000_000,
+      ttlMs: 60_000,
+    });
+    await catalog.listProviders();
+    const drift = warnMessages.filter((message) => message.includes("[models-dev-catalog]"));
+    expect(drift).toHaveLength(1);
+    expect(drift[0]).toContain("budget_chars×1");
+    expect(drift[0]).toContain("bogus×1");
+    expect(drift[0]).toContain("THINKING_KIND_BY_OPTION_TYPE");
+
+    // 漂移不改变条目解析：未知 type 不进可接受集/推荐值，未知档位不进值域
+    const alibaba = await catalog.listModels("alibaba");
+    expect(alibaba?.models[0]?.accepted_thinking_kinds).toEqual(["toggle", "budget"]);
+    expect(alibaba?.models[0]?.recommended_thinking_kind).toBe("toggle");
+    const openai = await catalog.listModels("openai");
+    expect(openai?.models.find((model) => model.id === "gpt-5")?.reasoning_efforts).toEqual(["low", "medium", "high"]);
+  });
+
+  it("目录全部命中词表时同步不告警", async () => {
+    const catalog = new ModelsDevCatalog({
+      dataRoot: makeTempDir(),
+      fetchImpl: () => Promise.resolve(makeResponse(200, {
+        vendor: {
+          id: "vendor",
+          name: "Vendor",
+          api: "https://api.vendor.test",
+          models: {
+            m: { id: "m", name: "M", reasoning_options: [{ type: "effort", values: ["low", "high"] }] },
+          },
+        },
+      })),
+      now: () => 1_000_000,
+      ttlMs: 60_000,
+    });
+    await catalog.listProviders();
+    expect(warnMessages.filter((message) => message.includes("[models-dev-catalog]"))).toEqual([]);
   });
 });

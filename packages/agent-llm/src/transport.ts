@@ -1,17 +1,12 @@
 /**
- * Provider 调用策略层执行核：线协议（URL/鉴权/SSE 解析）已下沉官方 SDK，
- * 本层保留 agent-llm 自持的传输语义——重试调度、熔断、尝试生命周期事件、
- * 总/空闲看门狗、ipc_socket 本地组网注入。结构与 pi-ai 的 retryProviderRequest +
- * 三层 abort 判定同型：入口预检、signal 进 SDK、流后判定。
+ * Provider 调用策略层执行核：线级传输原语（URL/JSON POST/SSE 解析）已外包
+ * @ai-sdk/provider-utils（providers/wire.ts），本层保留 agent-llm 自持的传输语义——
+ * 重试调度、熔断、尝试生命周期事件、总/空闲看门狗、ipc_socket 本地组网注入。
+ * abort 判定三层同型：入口预检、signal 进线层、流后判定。
  */
 import { randomUUID } from "node:crypto";
 import { request as requestHttp, type IncomingHttpHeaders } from "node:http";
 import { Readable } from "node:stream";
-import { APIConnectionError as OpenAiConnectionError, APIConnectionTimeoutError as OpenAiConnectionTimeoutError } from "openai";
-import {
-  APIConnectionError as AnthropicConnectionError,
-  APIConnectionTimeoutError as AnthropicConnectionTimeoutError,
-} from "@anthropic-ai/sdk";
 import type { LlmRequest, LlmStreamHandler, ProviderConfig } from "./types.js";
 import { DEFAULT_ENDPOINTS } from "./provider-registry.js";
 import {
@@ -90,7 +85,7 @@ export async function executeProviderOperation<T>(
  * 单次尝试守卫：串接调用方 signal，自持超时中止。
  * - complete：total() 总超时 race（覆盖连接 + body 读取）；
  * - stream：next() 块间空闲看门狗，每次迭代重置；
- * - 流后 throwIfAborted()：SDK 流被 abort 时静默 return 不抛错，必须主动判定。
+ * - 流后 throwIfAborted()：底层流被 abort 时可能静默 return 不抛错，必须主动判定。
  */
 export class AttemptGuard {
   readonly timeoutMs: number;
@@ -118,12 +113,7 @@ export class AttemptGuard {
     return this.controller.signal.aborted;
   }
 
-  /** SDK 请求选项（每请求显式关掉 SDK 重试与超时自管，超时口径归本守卫）。 */
-  requestOptions(): { signal: AbortSignal; timeout: number; maxRetries: 0 } {
-    return { signal: this.signal, timeout: this.timeoutMs, maxRetries: 0 };
-  }
-
-  /** 总超时 race：超时先抛 ExternalCallTimeoutError 再中止连接（abort 会立刻触发 SDK 侧拒绝，顺序反了会抢跑）。 */
+  /** 总超时 race：超时先抛 ExternalCallTimeoutError 再中止连接（abort 会立刻触发线层拒绝，顺序反了会抢跑）。 */
   total<T>(promise: Promise<T>): Promise<T> {
     const timeoutPromise = new Promise<never>((_resolve, reject) => {
       this.timer = setTimeout(() => {
@@ -156,29 +146,28 @@ export class AttemptGuard {
     }
   }
 
-  /** 流循环结束后判定：看门狗超时 > 调用方中止，其余原样放行（pi-ai 三层 abort 同型）。 */
+  /** 流循环结束后判定：看门狗超时 > 调用方中止，其余原样放行（三层 abort 的流后判定）。 */
   throwIfAborted(): void {
     if (this.timeoutFired) throw new ExternalCallTimeoutError(this.timeoutMs);
     if (this.aborted) throw this.abortReason() ?? new DOMException("Aborted", "AbortError");
   }
 
-  /** SDK 错误 → 策略层错误族。abort 优先还原原因（AbortError/超时），保住上层语义。 */
+  /** 线级错误 → 策略层错误族。abort 优先还原原因（AbortError/超时），保住上层语义。 */
   normalize(error: unknown): unknown {
     // 已具超时/重试语义的错误（含"已产出后中断"包装，cause 即超时错误）不二次归一。
     if (error instanceof ExternalCallTimeoutError || error instanceof RetryableHttpError) return error;
     if ((error as { cause?: unknown })?.cause instanceof ExternalCallTimeoutError) return error;
     if (this.timeoutFired) return new ExternalCallTimeoutError(this.timeoutMs);
     if (this.aborted) return this.abortReason() ?? error;
-    const status = (error as { status?: unknown })?.status;
-    if (typeof status === "number" && isRetryableHttpStatus(status)) {
+    // HTTP 失败兜底：wire 层 failedResponseHandler 已直出 RetryableHttpError，此处捕获
+    // 携带可重试状态码的任意线级错误形状（status / statusCode 两种字段名）。
+    const status = wireErrorStatus(error);
+    if (status !== null && isRetryableHttpStatus(status)) {
       return new RetryableHttpError(status, errorMessage(error));
     }
-    if (error instanceof OpenAiConnectionTimeoutError || error instanceof AnthropicConnectionTimeoutError) {
-      return new ExternalCallTimeoutError(this.timeoutMs);
-    }
-    // 网络层失败：SDK 包成 APIConnectionError（非 TypeError），还原成 TypeError 保持
-    // isRetryableExternalError 的既有重试判定。
-    if (error instanceof OpenAiConnectionError || error instanceof AnthropicConnectionError) {
+    // 连接级失败：provider-utils 把裸 fetch 失败包成 APICallError（无状态码 + isRetryable），
+    // 还原成 TypeError 保持 isRetryableExternalError 的既有重试判定。
+    if (isWireConnectionError(error)) {
       return new TypeError(errorMessage(error), { cause: error });
     }
     return error;
@@ -195,7 +184,7 @@ export class AttemptGuard {
 }
 
 /**
- * 守卫 + 错误归一的统一入口：适配器把 SDK 交互整体包进 run，异常在边界归一为
+ * 守卫 + 错误归一的统一入口：适配器把线层交互整体包进 run，异常在边界归一为
  * 策略层可判定的错误族（ExternalCallTimeoutError / RetryableHttpError / TypeError）。
  */
 export async function withProviderGuards<T>(
@@ -217,7 +206,7 @@ export function providerTimeoutMs(request: LlmRequest): number {
   return providerCallPolicy(request.provider).timeoutMs ?? DEFAULT_PROVIDER_TIMEOUT_SECONDS * 1000;
 }
 
-/** 手动迭代中途退出（stop 控制/interrupted）时触发 SDK 流的 finally，abort 底层请求释放连接。 */
+/** 手动迭代中途退出（stop 控制/interrupted）时触发生成器 finally，取消响应体释放连接。 */
 export async function settleAsyncIterator<T>(iterator: AsyncIterator<T>): Promise<void> {
   try {
     await iterator.return?.();
@@ -250,14 +239,14 @@ function isRetryProviderError(error: unknown): boolean {
     || (error instanceof TypeError && error.name !== "AbortError");
 }
 
-/** 注入 openai/anthropic SDK 的 fetch：仅 ipc_socket 组网时启用，默认走 SDK 自带 fetch。 */
+/** 线层 fetch 注入（ipc_socket 组网 / 线级抓取用）。 */
 export type ProviderFetch = (input: Request | URL | string, init?: RequestInit) => Promise<Response>;
 
 /**
- * SDK fetch 统一解析口：ipc_socket 组网与线级抓取（wire-capture，开发基础设施，
- * env/程序化开关，默认零开销）正交组合。未启用任何一项时返回 undefined，
- * SDK 走自带 fetch——测试 stub globalThis.fetch 依赖这一点（包装层惰性读取
- * globalThis.fetch，stub 语义不变）。
+ * 线层 fetch 统一解析口：ipc_socket 组网与线级抓取（wire-capture，开发基础设施，
+ * env/程序化开关，默认零开销）正交组合。未启用任何一项时返回 undefined，wire 层透传
+ * undefined 让 provider-utils 默认参数在调用时取 globalThis.fetch——测试 stub
+ * globalThis.fetch 依赖这一点（包装层惰性读取 globalThis.fetch，stub 语义不变）。
  */
 export function resolveSdkFetch(provider: ProviderConfig): ProviderFetch | undefined {
   const ipc = createIpcFetch(provider);
@@ -269,7 +258,7 @@ export function resolveSdkFetch(provider: ProviderConfig): ProviderFetch | undef
 export function createIpcFetch(provider: ProviderConfig): ProviderFetch | undefined {
   const transport = provider.transport;
   if (!transport || transport.type !== "ipc_socket") return undefined;
-  // 配置预检在构造期完成：注入的 fetch 里抛的错会被 SDK 包装成 APIConnectionError，错误语义丢失。
+  // 配置预检在构造期完成：注入的 fetch 里抛的错若发生在请求期会被线层包装，错误语义丢失。
   const socketPath = requireIpcSocketPath(provider);
   return (input, init) => fetchOverIpcSocket(provider, socketPath, String(input), init ?? {});
 }
@@ -293,6 +282,19 @@ function requireIpcSocketPath(provider: ProviderConfig): string {
 function circuitKey(request: LlmRequest): string {
   const provider = request.provider;
   return `provider:${provider.key ?? provider.name ?? provider.provider_type}`;
+}
+
+/** 线级 HTTP 错误状态码（兼容 status / statusCode 字段名；无则 null）。 */
+function wireErrorStatus(error: unknown): number | null {
+  const candidate = (error as { status?: unknown; statusCode?: unknown }) ?? {};
+  const status = typeof candidate.status === "number" ? candidate.status : candidate.statusCode;
+  return typeof status === "number" ? status : null;
+}
+
+/** provider-utils 连接级失败形状（无状态码 + isRetryable，APICallError 鸭子判定，不引直依赖）。 */
+function isWireConnectionError(error: unknown): boolean {
+  const candidate = (error as { statusCode?: unknown; isRetryable?: unknown }) ?? {};
+  return candidate.statusCode === undefined && candidate.isRetryable === true;
 }
 
 function errorMessage(error: unknown): string {
@@ -350,7 +352,7 @@ function responseHeaders(headers: IncomingHttpHeaders): Headers {
   return result;
 }
 
-/** openai SDK baseURL：容忍已带方法后缀的存量配置（SDK 自己拼 /chat/completions、/responses）。 */
+/** openai 系端点基址：容忍已带方法后缀的存量配置（线层拼 /chat/completions、/responses）。 */
 export function openAiBaseURL(provider: ProviderConfig, methodSuffix: "/chat/completions" | "/responses"): string {
   const configured = String(provider.api_endpoint ?? DEFAULT_ENDPOINTS[provider.provider_type] ?? "").trim();
   if (!configured) throw new Error(`Provider '${provider.name}' is missing api_endpoint`);
@@ -358,7 +360,7 @@ export function openAiBaseURL(provider: ProviderConfig, methodSuffix: "/chat/com
   return base.endsWith(methodSuffix) ? base.slice(0, -methodSuffix.length) : base;
 }
 
-/** anthropic SDK baseURL：SDK 自拼 /v1/messages，剥离存量配置里的方法/版本段防翻倍。 */
+/** anthropic 端点基址：线层拼 /v1/messages，剥离存量配置里的方法/版本段防翻倍。 */
 export function anthropicBaseURL(provider: ProviderConfig): string {
   const configured = String(provider.api_endpoint ?? DEFAULT_ENDPOINTS.anthropic ?? "").trim();
   if (!configured) throw new Error(`Provider '${provider.name}' is missing api_endpoint`);
@@ -370,14 +372,14 @@ export function anthropicBaseURL(provider: ProviderConfig): string {
   return base || "https://api.anthropic.com";
 }
 
-/** genai baseUrl：保留版本段（配 apiVersion:"" 一起用），剥掉尾部方法段/模型段防重复。 */
+/** gemini 端点基址：保留版本段（如 /v1beta），剥掉尾部方法段/模型段，线层重拼方法路径。 */
 export function geminiBaseURL(provider: ProviderConfig): string {
   const configured = String(provider.api_endpoint ?? DEFAULT_ENDPOINTS.gemini ?? "").trim();
   if (!configured) throw new Error(`Provider '${provider.name}' is missing api_endpoint`);
   return configured
     .replace(/\/+$/, "")
     // 存量配置可能填到完整方法 URL（…/models/<model>:generateContent?alt=sse）——
-    // 模型由参数传入，这里剥掉方法段与模型段，SDK 自行重拼。
+    // 模型由调用参数传入，这里剥掉方法段与模型段防重复。
     .replace(/:(streamGenerateContent|generateContent)$/, "")
     .replace(/\/models\/[^/]+$/, "")
     .replace(/\/models$/, "");

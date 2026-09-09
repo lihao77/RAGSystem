@@ -1,5 +1,5 @@
 /**
- * 流式归一内容块累加器（pi-ai 块模型）：provider 侧 index 寻址，跨 chunk 追加。
+ * 流式归一内容块累加器：provider 侧 index 寻址，跨 chunk 追加。
  *
  * 每个块携带 provider 流里的序号（anthropic content_block index / openai tool_call index /
  * responses output_index），delta 按 index 定位目标块；工具参数进 partialJson 暂存区，

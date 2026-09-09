@@ -1,10 +1,8 @@
 /**
- * Google Gemini 方言：线协议走 @google/genai。candidate parts 原样回放（含
- * thoughtSignature）是本方言的核心语义；genai 对 config 未知字段会丢弃，厂商扩展
- * 经 httpOptions.extraBody 深合并兜底透传。
+ * Google Gemini 方言：线级传输走 provider-utils 直连（wire.ts），buildGeminiBody 的
+ * v1beta REST 形状原样即线体。candidate parts 原样回放（含 thoughtSignature）是本
+ * 方言的核心语义。
  */
-import { GoogleGenAI } from "@google/genai";
-import type { GenerateContentParameters } from "@google/genai";
 import type {
   ChatMessage,
   ChatToolCall,
@@ -22,35 +20,27 @@ import { compactRecord } from "../record-utils.js";
 import { resolveProviderHeaders } from "../provider-headers.js";
 import {
   consumeProviderStream,
+  resolveSdkFetch,
   executeProviderOperation,
   geminiBaseURL,
   requireApiKey,
   settleAsyncIterator,
   withProviderGuards,
 } from "../transport.js";
+import { postWireJson, postWireSse, type WireCallOptions, type WireEventStream } from "./wire.js";
 
 type GeminiPart = Record<string, unknown>;
 type GeminiContent = { role: "user" | "model"; parts: GeminiPart[] };
 type GeminiToolMetadata = { name: string; providerId: string | undefined };
-
-/** GenerateContentConfig 已知字段（可直下 config）；其余厂商扩展进 extraBody 深合并。
- * 注意 labels/routingConfig 不列于此：genai 的 MLdev 转换器会丢弃这两键（仅 Vertex 生效），
- * 走 extraBody 透传才能到达自定义网关。 */
-const GEMINI_CONFIG_KEYS = new Set([
-  "systemInstruction", "tools", "toolConfig", "temperature", "topP", "topK", "maxOutputTokens",
-  "candidateCount", "stopSequences", "responseMimeType", "responseSchema", "responseJsonSchema",
-  "safetySettings", "thinkingConfig", "cachedContent", "responseModalities",
-  "mediaResolution", "audioTimestamp", "speechConfig", "imageConfig",
-]);
 
 export class GeminiAdapter implements LlmProviderAdapter {
   async complete(request: LlmRequest): Promise<LlmResult> {
     return executeProviderOperation(request, ({ signal }) =>
       withProviderGuards(request, signal, async (guard) => {
         const response = await guard.total(
-          createGeminiClient(request).models.generateContent(generateContentParameters(request, guard)),
+          postWireJson(buildWireOptions(request, guard, buildGeminiBody(request), false)),
         );
-        return parseGeminiResponse(response as unknown as Record<string, unknown>);
+        return parseGeminiResponse(response);
       }),
     );
   }
@@ -58,60 +48,36 @@ export class GeminiAdapter implements LlmProviderAdapter {
   async stream(request: LlmRequest, onChunk: LlmStreamHandler): Promise<LlmResult> {
     return executeProviderOperation(request, ({ signal }) =>
       withProviderGuards(request, signal, async (guard) => {
-        const generator = await guard.total(
-          createGeminiClient(request).models.generateContentStream(generateContentParameters(request, guard)),
+        const events = await guard.total(
+          postWireSse(buildWireOptions(request, guard, buildGeminiBody(request), true)),
         );
-        return consumeProviderStream(onChunk, (emit) => consumeGeminiStream(generator, request, guard, emit));
+        return consumeProviderStream(onChunk, (emit) => consumeGeminiStream(events, request, guard, emit));
       }),
     );
   }
 }
 
-/** 按请求构造；baseUrl 含版本段 + apiVersion:""（pi-ai 同款姿势，防版本段翻倍）。
- * headers 走客户端级 httpOptions——genai 的 patchHttpOptions 与请求级 extraBody 逐键合并不互覆。 */
-function createGeminiClient(request: LlmRequest): GoogleGenAI {
+/** 线级调用参数：按请求构造；重试/超时归策略层。ipc_socket 经线层 fetch 注入支持（与 openai/anthropic 一致）。 */
+function buildWireOptions(
+  request: LlmRequest,
+  guard: AttemptGuard,
+  body: Record<string, unknown>,
+  stream: boolean,
+): WireCallOptions {
   const provider = request.provider;
-  if (provider.transport?.type === "ipc_socket") {
-    // @google/genai 无 fetch 注入口，本地组网传输不适用于本方言（openai/anthropic 支持）。
-    throw new Error(`Provider '${provider.name}' does not support the ipc_socket transport`);
-  }
-  const headers = resolveProviderHeaders(provider, request.promptCacheKey);
-  return new GoogleGenAI({
-    apiKey: requireApiKey(provider),
-    httpOptions: { baseUrl: geminiBaseURL(provider), apiVersion: "", ...(headers ? { headers } : {}) },
-  });
-}
-
-function generateContentParameters(request: LlmRequest, guard: AttemptGuard): GenerateContentParameters {
-  const body = buildGeminiBody(request);
   const normalizedModel = request.model.replace(/^models\//, "").trim();
   if (!normalizedModel) throw new Error("Gemini model is required");
-  const config = toGeminiConfig(body, guard.signal);
-  return { model: normalizedModel, contents: body.contents, config } as unknown as GenerateContentParameters;
-}
-
-/** wire body（v1beta REST 形状，buildGeminiBody 产出）→ genai config：已知字段直下，未知进 extraBody。 */
-function toGeminiConfig(body: Record<string, unknown>, signal: AbortSignal): Record<string, unknown> {
-  const config: Record<string, unknown> = {};
-  const extraBody: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(body)) {
-    if (key === "contents") continue;
-    if (key === "generationConfig") {
-      const generationConfig = isRecord(value) ? value : {};
-      const generationExtras: Record<string, unknown> = {};
-      for (const [genKey, genValue] of Object.entries(generationConfig)) {
-        if (GEMINI_CONFIG_KEYS.has(genKey)) config[genKey] = genValue;
-        else generationExtras[genKey] = genValue;
-      }
-      if (Object.keys(generationExtras).length) extraBody.generationConfig = generationExtras;
-      continue;
-    }
-    if (GEMINI_CONFIG_KEYS.has(key)) config[key] = value;
-    else extraBody[key] = value;
-  }
-  if (Object.keys(extraBody).length) config.httpOptions = { extraBody };
-  config.abortSignal = signal;
-  return config;
+  const method = stream ? "streamGenerateContent?alt=sse" : "generateContent";
+  return {
+    url: `${geminiBaseURL(provider)}/models/${normalizedModel}:${method}`,
+    headers: {
+      "x-goog-api-key": requireApiKey(provider),
+      ...resolveProviderHeaders(provider, request.promptCacheKey),
+    },
+    body,
+    signal: guard.signal,
+    fetch: resolveSdkFetch(provider),
+  };
 }
 
 export function buildGeminiBody(request: LlmRequest): Record<string, unknown> {
@@ -293,7 +259,7 @@ function parseGeminiResponse(body: Record<string, unknown>): LlmResult {
 }
 
 async function consumeGeminiStream(
-  generator: AsyncIterable<unknown>,
+  events: WireEventStream,
   request: LlmRequest,
   guard: AttemptGuard,
   onChunk: LlmStreamHandler,
@@ -306,13 +272,13 @@ async function consumeGeminiStream(
   const replayParts: GeminiPart[] = [];
   const toolCalls: ChatToolCall[] = [];
   let functionCallIndex = 0;
-  const iterator = generator[Symbol.asyncIterator]();
+  const iterator = events[Symbol.asyncIterator]();
 
   try {
     while (true) {
       const result = await guard.next(iterator.next());
       if (result.done) break;
-      const chunk = result.value as Record<string, unknown>;
+      const chunk = result.value;
       if (isRecord(chunk.usageMetadata)) Object.assign(usageMetadata, chunk.usageMetadata);
       const candidate = firstCandidate(chunk);
       if (!candidate) continue;

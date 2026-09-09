@@ -155,14 +155,6 @@ export interface ModelProviderConfig {
    * 模型条目 thinking_kind 上声明（厂商级同名字段已退役）。
    */
   api_format?: string;
-  /**
-   * LLM 委托引擎声明（可选，缺省 = 原生适配器）：pi-ai = 协议实现外包给
-   * @earendil-works/pi-ai（dsh 同款姿势——自有契约不动，厂商兼容补丁吃上游生态）。
-   * agent-llm 按 provider.llm_engine 命中即走 PiAiAdapter；投影层 spread 透传。
-   * 思考档位/工具/usage 语义与原生路径对齐（usage 还原 inclusive 口径）；toggle
-   * 形状（无 effort 子集）与 extra_params 的 anthropic 透传不支持（详见适配器头注释）。
-   */
-  llm_engine?: string;
   key?: string;
   api_key?: string;
   api_key_configured?: boolean;

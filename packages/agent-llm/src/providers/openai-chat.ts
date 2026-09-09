@@ -1,8 +1,7 @@
 /**
- * OpenAI Chat Completions 方言（官方 + 兼容网关共用）：线协议走 openai SDK，
- * 厂商差异（思考字段、缓存键）由 provider 配置声明，透传字段靠 SDK 原样序列化。
+ * OpenAI Chat Completions 方言（官方 + 兼容网关共用）：线级传输走 provider-utils
+ * 直连（wire.ts），厂商差异（思考字段、缓存键）由 provider 配置声明，透传字段原样序列化。
  */
-import OpenAI from "openai";
 import type { LlmRequest, LlmResult, LlmStreamHandler, ProviderContinuationState, TokenUsage } from "../types.js";
 import type { LlmProviderAdapter } from "./adapter.js";
 import type { AttemptGuard } from "../transport.js";
@@ -22,6 +21,7 @@ import {
   settleAsyncIterator,
   withProviderGuards,
 } from "../transport.js";
+import { postWireJson, postWireSse, type WireCallOptions, type WireEventStream } from "./wire.js";
 
 /** OpenAI 兼容方言中 assistant 消息可能承载思考文本的线字段（解析与补齐共用）。 */
 const REASONING_WIRE_FIELDS = ["reasoning_content", "reasoning", "reasoning_details"] as const;
@@ -41,12 +41,9 @@ export class OpenAiChatAdapter implements LlmProviderAdapter {
     return executeProviderOperation(request, ({ signal }) =>
       withProviderGuards(request, signal, async (guard) => {
         const completion = await guard.total(
-          createChatClient(request).chat.completions.create(
-            buildChatBody(request) as unknown as OpenAI.Chat.ChatCompletionCreateParamsNonStreaming,
-            guard.requestOptions(),
-          ),
+          postWireJson(buildWireOptions(request, guard, buildChatBody(request))),
         );
-        return parseCompletion(completion as unknown as Record<string, unknown>);
+        return parseCompletion(completion);
       }),
     );
   }
@@ -54,30 +51,28 @@ export class OpenAiChatAdapter implements LlmProviderAdapter {
   async stream(request: LlmRequest, onChunk: LlmStreamHandler): Promise<LlmResult> {
     return executeProviderOperation(request, ({ signal }) =>
       withProviderGuards(request, signal, async (guard) => {
-        const stream = await guard.total(
-          createChatClient(request).chat.completions.create(
-            buildChatBody(request, true) as unknown as OpenAI.Chat.ChatCompletionCreateParamsStreaming,
-            guard.requestOptions(),
-          ),
+        const events = await guard.total(
+          postWireSse(buildWireOptions(request, guard, buildChatBody(request, true))),
         );
-        return consumeProviderStream(onChunk, (emit) => consumeChatStream(stream, request, guard, emit));
+        return consumeProviderStream(onChunk, (emit) => consumeChatStream(events, request, guard, emit));
       }),
     );
   }
 }
 
-/** 按请求构造（构造时解析 fetch，测试 stub globalThis.fetch 依赖这一点）；重试/超时归策略层。 */
-function createChatClient(request: LlmRequest): OpenAI {
+/** 线级调用参数：按请求构造（fetch 惰性解析，测试 stub globalThis.fetch 依赖这一点）；重试/超时归策略层。 */
+function buildWireOptions(request: LlmRequest, guard: AttemptGuard, body: Record<string, unknown>): WireCallOptions {
   const provider = request.provider;
-  const fetch = resolveSdkFetch(provider);
-  const headers = resolveProviderHeaders(provider, request.promptCacheKey);
-  return new OpenAI({
-    apiKey: requireApiKey(provider),
-    baseURL: openAiBaseURL(provider, "/chat/completions"),
-    maxRetries: 0,
-    ...(headers ? { defaultHeaders: headers } : {}),
-    ...(fetch ? { fetch } : {}),
-  });
+  return {
+    url: `${openAiBaseURL(provider, "/chat/completions")}/chat/completions`,
+    headers: {
+      authorization: `Bearer ${requireApiKey(provider)}`,
+      ...resolveProviderHeaders(provider, request.promptCacheKey),
+    },
+    body,
+    signal: guard.signal,
+    fetch: resolveSdkFetch(provider),
+  };
 }
 
 export function buildChatBody(request: LlmRequest, stream = false): Record<string, unknown> {
@@ -182,7 +177,7 @@ function parseCompletion(body: Record<string, unknown>): LlmResult {
 }
 
 async function consumeChatStream(
-  stream: AsyncIterable<OpenAI.Chat.ChatCompletionChunk>,
+  events: WireEventStream,
   request: LlmRequest,
   guard: AttemptGuard,
   onChunk: LlmStreamHandler,
@@ -194,13 +189,13 @@ async function consumeChatStream(
   let stopped = false;
   const blocks = new StreamingBlocks();
   const assistantFields: Record<string, unknown> = {};
-  const iterator = stream[Symbol.asyncIterator]();
+  const iterator = events[Symbol.asyncIterator]();
 
   try {
     while (true) {
       const result = await guard.next(iterator.next());
       if (result.done) break;
-      const chunk = result.value as unknown as Record<string, unknown>;
+      const chunk = result.value;
       // Moonshot 等网关把 usage 放在 choice 上而非顶层，取 top-level 失败时回退。
       usage = extractOpenAiUsage(chunk) ?? extractChoiceUsage(chunk) ?? usage;
       const choice = firstChoice(chunk);
@@ -241,7 +236,7 @@ async function consumeChatStream(
   return result;
 }
 
-/** usage-on-choice 回退（pi-ai parseChunkUsage 同款）：部分网关（Moonshot 系）把 usage 挂在 choice 上。 */
+/** usage-on-choice 回退：部分网关（Moonshot 系）把 usage 挂在 choice 上而非顶层。 */
 function extractChoiceUsage(body: Record<string, unknown>): ReturnType<typeof extractOpenAiUsage> {
   const choice = firstChoice(body);
   return choice && isRecord(choice.usage) ? extractOpenAiUsage({ usage: choice.usage }) : null;

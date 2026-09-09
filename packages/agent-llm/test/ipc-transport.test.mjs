@@ -79,6 +79,66 @@ test("OpenAI-compatible client supports completion, streaming, and abort over an
   process.env[socketEnv] = socketPath;
 });
 
+test("Gemini client supports completion and streaming over an IPC socket", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-llm-ipc-"));
+  const socketPath = process.platform === "win32"
+    ? `\\\\.\\pipe\\agent-llm-${randomUUID()}`
+    : path.join(root, "llm.sock");
+  const socketEnv = `AGENT_LLM_TEST_GEMINI_SOCKET_${process.pid}`;
+  const previousSocket = process.env[socketEnv];
+  process.env[socketEnv] = socketPath;
+  const paths = [];
+  const server = http.createServer(async (request, response) => {
+    paths.push(request.url);
+    await readBody(request);
+    if (request.url.includes("streamGenerateContent")) {
+      response.writeHead(200, { "content-type": "text/event-stream" });
+      response.write('data: {"candidates":[{"content":{"parts":[{"text":"IPC "}]}}]}\n\n');
+      response.end('data: {"candidates":[{"content":{"parts":[{"text":"gemini"}]},"finishReason":"STOP"}]}\n\n');
+      return;
+    }
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({
+      candidates: [{ content: { parts: [{ text: "IPC gemini" }] }, finishReason: "STOP" }],
+    }));
+  });
+  await listen(server, socketPath);
+  t.after(async () => {
+    if (previousSocket === undefined) delete process.env[socketEnv];
+    else process.env[socketEnv] = previousSocket;
+    await close(server);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  const request = {
+    provider: {
+      key: "gemini-ipc",
+      name: "Gemini IPC",
+      provider_type: "gemini",
+      api_endpoint: "http://gemini.internal/v1beta",
+      api_key: "placeholder",
+      transport: { type: "ipc_socket", socket_env: socketEnv },
+    },
+    model: "gemini-2.5-flash",
+    messages: [{ role: "user", content: "hi" }],
+  };
+  const client = new OpenAiCompatibleClient();
+  const complete = await client.complete(request);
+  assert.equal(complete.content, "IPC gemini");
+
+  const chunks = [];
+  const streamed = await client.stream(request, async (chunk) => {
+    chunks.push(chunk.content);
+  });
+  assert.equal(streamed.content, "IPC gemini");
+  assert.deepEqual(chunks, ["IPC ", "gemini"]);
+
+  assert.deepEqual(paths, [
+    "/v1beta/models/gemini-2.5-flash:generateContent",
+    "/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse",
+  ]);
+});
+
 test("OpenAI-compatible client keeps the default HTTP transport", async (t) => {
   const server = http.createServer(async (request, response) => {
     const body = JSON.parse(await readBody(request));

@@ -1,8 +1,8 @@
 /**
- * OpenAI Responses 方言：线协议走 openai SDK。无状态回放（reasoning items 带加密内容
- * 逐条原样回传）是本方言的核心语义，由 buildResponsesBody（请求侧）持有。
+ * OpenAI Responses 方言：线级传输走 provider-utils 直连（wire.ts）。无状态回放
+ * （reasoning items 带加密内容逐条原样回传）是本方言的核心语义，由 buildResponsesBody
+ * （请求侧）持有。
  */
-import OpenAI from "openai";
 import type { ChatMessage, ChatToolCall, LlmRequest, LlmResult, LlmStreamHandler, ProviderContinuationState, TokenUsage } from "../types.js";
 import type { LlmProviderAdapter } from "./adapter.js";
 import type { AttemptGuard } from "../transport.js";
@@ -22,18 +22,16 @@ import {
   settleAsyncIterator,
   withProviderGuards,
 } from "../transport.js";
+import { postWireJson, postWireSse, type WireCallOptions, type WireEventStream } from "./wire.js";
 
 export class OpenAiResponsesAdapter implements LlmProviderAdapter {
   async complete(request: LlmRequest): Promise<LlmResult> {
     return executeProviderOperation(request, ({ signal }) =>
       withProviderGuards(request, signal, async (guard) => {
         const response = await guard.total(
-          createResponsesClient(request).responses.create(
-            buildResponsesBody(request) as unknown as OpenAI.Responses.ResponseCreateParamsNonStreaming,
-            guard.requestOptions(),
-          ),
+          postWireJson(buildWireOptions(request, guard, buildResponsesBody(request))),
         );
-        return parseResponse(response as unknown as Record<string, unknown>);
+        return parseResponse(response);
       }),
     );
   }
@@ -41,29 +39,28 @@ export class OpenAiResponsesAdapter implements LlmProviderAdapter {
   async stream(request: LlmRequest, onChunk: LlmStreamHandler): Promise<LlmResult> {
     return executeProviderOperation(request, ({ signal }) =>
       withProviderGuards(request, signal, async (guard) => {
-        const stream = await guard.total(
-          createResponsesClient(request).responses.create(
-            buildResponsesBody(request, true) as unknown as OpenAI.Responses.ResponseCreateParamsStreaming,
-            guard.requestOptions(),
-          ),
+        const events = await guard.total(
+          postWireSse(buildWireOptions(request, guard, buildResponsesBody(request, true))),
         );
-        return consumeProviderStream(onChunk, (emit) => consumeResponsesStream(stream, request, guard, emit));
+        return consumeProviderStream(onChunk, (emit) => consumeResponsesStream(events, request, guard, emit));
       }),
     );
   }
 }
 
-function createResponsesClient(request: LlmRequest): OpenAI {
+/** 线级调用参数：按请求构造；重试/超时归策略层。 */
+function buildWireOptions(request: LlmRequest, guard: AttemptGuard, body: Record<string, unknown>): WireCallOptions {
   const provider = request.provider;
-  const fetch = resolveSdkFetch(provider);
-  const headers = resolveProviderHeaders(provider, request.promptCacheKey);
-  return new OpenAI({
-    apiKey: requireApiKey(provider),
-    baseURL: openAiBaseURL(provider, "/responses"),
-    maxRetries: 0,
-    ...(headers ? { defaultHeaders: headers } : {}),
-    ...(fetch ? { fetch } : {}),
-  });
+  return {
+    url: `${openAiBaseURL(provider, "/responses")}/responses`,
+    headers: {
+      authorization: `Bearer ${requireApiKey(provider)}`,
+      ...resolveProviderHeaders(provider, request.promptCacheKey),
+    },
+    body,
+    signal: guard.signal,
+    fetch: resolveSdkFetch(provider),
+  };
 }
 
 export function buildResponsesBody(request: LlmRequest, stream = false): Record<string, unknown> {
@@ -146,7 +143,7 @@ function parseResponse(body: Record<string, unknown>): LlmResult {
 }
 
 async function consumeResponsesStream(
-  stream: AsyncIterable<OpenAI.Responses.ResponseStreamEvent>,
+  events: WireEventStream,
   request: LlmRequest,
   guard: AttemptGuard,
   onChunk: LlmStreamHandler,
@@ -159,13 +156,13 @@ async function consumeResponsesStream(
   let stopped = false;
   const blocks = new StreamingBlocks();
   const reasoningItems = new Map<number, Record<string, unknown>>();
-  const iterator = stream[Symbol.asyncIterator]();
+  const iterator = events[Symbol.asyncIterator]();
 
   try {
     while (true) {
       const result = await guard.next(iterator.next());
       if (result.done) break;
-      const event = result.value as unknown as Record<string, unknown>;
+      const event = result.value;
       const type = typeof event.type === "string" ? event.type : "";
       if (type === "error" || type === "response.failed") {
         throw new Error(extractErrorMessage(event) ?? extractNestedResponseError(event) ?? "OpenAI Responses stream failed");

@@ -1,8 +1,8 @@
 # LLM 线级抓取（wire capture）
 
-开发基础设施：在 agent-llm 的 SDK fetch 边界记录**发送的请求与收到的原始响应**（未经任何解析的 wire 数据）。用于 provider usage/缓存字段口径排障（例如网关 usage 字段名与标准协议不一致）、线协议形状对比、SSE 事件序列检查。
+开发基础设施：在 agent-llm 的线层 fetch 边界记录**发送的请求与收到的原始响应**（未经任何解析的 wire 数据）。用于 provider usage/缓存字段口径排障（例如网关 usage 字段名与标准协议不一致）、线协议形状对比、SSE 事件序列检查。
 
-实现位于 `packages/agent-llm/src/wire-capture.ts`，经 `transport.ts` 的 `resolveSdkFetch` 挂入 openai-chat / openai-responses / anthropic 三个方言（`@google/genai` 无 fetch 注入口，gemini 方言暂不支持）。
+实现位于 `packages/agent-llm/src/wire-capture.ts`，经 `transport.ts` 的 `resolveSdkFetch` 挂入全部四个方言（openai-chat / openai-responses / anthropic / gemini——线级传输统一走 `providers/wire.ts` 的 fetch 注入口）。
 
 ## 开启方式
 
@@ -48,6 +48,17 @@ npm run llm:wire-report -- --dir D:/test/llm-wire      # 指定目录
 ```
 
 `--usage-shapes` 直接回答"这家网关的 usage 里输入 token 字段叫什么、缓存字段有没有报"——例如排查 glm 网关 `token_in=0` 时，先抓一次会话再看 shapes，若 wire 上根本没有 `input_tokens` 而是别的字段名，把该字段补进 `packages/agent-llm/src/internal/usage.ts` 的对应提取器即可。
+
+## 回放与夹具（capture → 回归）
+
+抓到的真实会话可以零加工变成测试回归：
+
+```bash
+node packages/agent-llm/test/helpers/wire-replay.mjs llm-wire-logs/wire-2026-09-09.jsonl --list          # 列出交换（id/provider/URL/状态）
+node packages/agent-llm/test/helpers/wire-replay.mjs llm-wire-logs/wire-2026-09-09.jsonl --export <id>   # 导出可提交的自包含夹具
+```
+
+测试内 `readWireCapture` + `replayFetch(exchanges)` stub `globalThis.fetch` 即按 method+path 匹配回放（自证用例见 `packages/agent-llm/test/wire-replay.test.mjs`：经真实抓取链路录制后回放，两次解析结果一致）。夹具中鉴权头保持脱敏形态，可安全入库。
 
 ## 特性与边界
 

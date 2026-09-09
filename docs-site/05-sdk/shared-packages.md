@@ -72,7 +72,7 @@ Agent 运行时的内核实现，被 `backend-ts` 的 `services/agent/sdk/` 层�
 
 ## agent-llm（LLM Provider 适配）
 
-封装不同 LLM Provider 的协议差异。线协议（URL/鉴权/SSE 解析）依托官方 SDK（`openai` / `@anthropic-ai/sdk` / `@google/genai`，按 openai_chat / openai_resp / anthropic / gemini 四格式分派）；重试调度、熔断、尝试生命周期事件、超时看门狗与 ipc_socket 传输由本包策略层自持。
+封装不同 LLM Provider 的协议差异。线级传输原语（JSON POST、SSE 切帧、失败响应错误族）外包 `@ai-sdk/provider-utils`（`providers/wire.ts`，按 openai_chat / openai_resp / anthropic / gemini 四格式分派，URL/鉴权头由各方言适配器自持）；请求构造、流事件解析、重试调度、熔断、尝试生命周期事件、超时看门狗与 ipc_socket 传输由本包自持。
 
 `src/` 结构：
 
@@ -81,7 +81,8 @@ Agent 运行时的内核实现，被 `backend-ts` 的 `services/agent/sdk/` 层�
 | `provider-registry.ts` | 协议格式注册表（封闭 4 格式清单） |
 | `transport.ts` | 策略层执行核：重试/熔断/生命周期事件/看门狗/ipc fetch 注入 |
 | `llm-client.ts` | Provider-agnostic LLM client facade；`openai-compatible-client.ts` 仅保留旧名称兼容导出 |
-| `providers/` | 四格式适配器（SDK 事件 → 块累加器 → 归一化结果），`internal/stream-blocks.ts` 为共享流式块模型 |
+| `providers/wire.ts` | 线级传输层：postToApi 封装 + eventsource-parser SSE 切帧 + 失败路径直出策略层错误族 |
+| `providers/` | 四格式方言适配器（线事件 record → 块累加器 → 归一化结果），`internal/stream-blocks.ts` 为共享流式块模型 |
 | `thinking.ts` | 思考档位 → 厂商思考参数形状 |
 | `content-parts.ts` | 内容块处理 |
 | `record-utils.ts` | 记录工具 |

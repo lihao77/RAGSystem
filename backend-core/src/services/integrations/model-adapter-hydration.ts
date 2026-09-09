@@ -19,13 +19,8 @@ export const PROVIDER_FORM_NORMALIZATION_STEPS: readonly HydrationStep<ModelProv
   },
   {
     id: "provider_legacy_field_strip",
-    note: "剥离已下沉到模型条目/厂商目录的 provider 级废弃字段（model/model_map/temperature 等）",
+    note: "剥离已下沉到模型条目/厂商目录的 provider 级废弃字段（model/model_map/temperature 等；llm_engine 随 pi-ai 引擎退役并入剥离）",
     run: stripLegacyProviderFieldsStep,
-  },
-  {
-    id: "provider_llm_engine_normalize",
-    note: "llm_engine 非法值剔除（仅 pi-ai 合法，缺省/非法回落原生适配器）",
-    run: normalizeLlmEngineStep,
   },
   {
     id: "provider_headers_normalize",
@@ -51,7 +46,7 @@ export function runProviderFormNormalization(config: ModelProviderConfig): void 
   }
 }
 
-/** 已废弃的 provider 级字段（模型映射/运行参数已下沉到模型条目/厂商目录临时补丁），加载/写入时剥离。 */
+/** 已废弃的 provider 级字段（模型映射/运行参数已下沉到模型条目；llm_engine 随 pi-ai 委托引擎退役——字段从未发布，无存量数据），加载/写入时剥离。 */
 const LEGACY_PROVIDER_FIELDS = [
   "model",
   "model_map",
@@ -62,6 +57,7 @@ const LEGACY_PROVIDER_FIELDS = [
   "supports_function_calling",
   "supports_vision",
   "catalog_provider_id",
+  "llm_engine",
 ] as const;
 
 /** 厂商思考形状合法值（与 agent-llm describeThinking 词表一致）。 */
@@ -79,9 +75,6 @@ const LEGACY_DEFAULT_KIND_BY_FORMAT: Readonly<Record<string, string>> = {
   openai_chat: "effort",
   openai_resp: "effort",
 };
-
-/** LLM 委托引擎合法值（agent-llm 侧路由声明；缺省 = 原生适配器）。 */
-const LLM_ENGINES = new Set(["pi-ai"]);
 
 export function canonicalizeProviderConfig(config: ProviderPayload): ProviderPayload {
   const normalized: ProviderPayload = { ...config };
@@ -223,17 +216,6 @@ export function providerThinkingKindError(config: ModelProviderConfig): string |
     }
   }
   return null;
-}
-
-function normalizeLlmEngineStep(config: ModelProviderConfig): boolean {
-  const before = config.llm_engine;
-  const engine = String(before ?? "").trim().toLowerCase();
-  if (engine && LLM_ENGINES.has(engine)) {
-    config.llm_engine = engine;
-  } else {
-    delete config.llm_engine;
-  }
-  return before !== config.llm_engine;
 }
 
 function normalizeModelEntriesStep(config: ModelProviderConfig): boolean {

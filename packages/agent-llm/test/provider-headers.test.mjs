@@ -6,7 +6,6 @@ import { GeminiAdapter } from "../dist/index.js";
 import { OpenAiChatAdapter } from "../dist/providers/openai-chat.js";
 import { OpenAiResponsesAdapter } from "../dist/providers/openai-responses.js";
 import { AnthropicAdapter } from "../dist/providers/anthropic.js";
-import { PiAiAdapter } from "../dist/providers/pi-ai.js";
 
 // ───────────────────────────── 解析器单测 ─────────────────────────────
 
@@ -118,7 +117,7 @@ function withHeaderCapture(responseFactory, fn) {
   });
 }
 
-test("openai_chat：自定义头经 defaultHeaders 到达 wire（占位符解析）", async () => {
+test("openai_chat：自定义头到达 wire（占位符解析，鉴权头之后可覆盖）", async () => {
   await withHeaderCapture(
     () => new Response(JSON.stringify({
       choices: [{ message: { role: "assistant", content: "ok" }, finish_reason: "stop" }],
@@ -171,7 +170,7 @@ test("openai_chat：未配置 headers 时不注入（Authorization 照常）", a
   );
 });
 
-test("anthropic：自定义头经 defaultHeaders 到达 wire", async () => {
+test("anthropic：自定义头到达 wire", async () => {
   await withHeaderCapture(
     () => new Response(JSON.stringify({
       id: "msg_1",
@@ -200,7 +199,7 @@ test("anthropic：自定义头经 defaultHeaders 到达 wire", async () => {
   );
 });
 
-test("openai_resp：自定义头经 defaultHeaders 到达 wire", async () => {
+test("openai_resp：自定义头到达 wire", async () => {
   await withHeaderCapture(
     () => new Response(JSON.stringify({
       id: "resp_1",
@@ -226,7 +225,7 @@ test("openai_resp：自定义头经 defaultHeaders 到达 wire", async () => {
   );
 });
 
-test("gemini：自定义头经客户端级 httpOptions.headers 到达 wire", async () => {
+test("gemini：自定义头到达 wire", async () => {
   await withHeaderCapture(
     () => new Response(JSON.stringify({
       candidates: [{ content: { parts: [{ text: "ok" }] }, finishReason: "STOP" }],
@@ -244,40 +243,6 @@ test("gemini：自定义头经客户端级 httpOptions.headers 到达 wire", asy
       });
       assert.equal(result.content, "ok");
       assert.equal(captured[0].get("x-session-id"), "ragsystem:thread-3");
-    },
-  );
-});
-
-const piSseBody = [
-  { type: "message_start", data: { type: "message_start", message: { usage: { input_tokens: 12, output_tokens: 0 } } } },
-  { type: "content_block_start", data: { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } } },
-  { type: "content_block_delta", data: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "ok" } } },
-  { type: "content_block_stop", data: { type: "content_block_stop", index: 0 } },
-  { type: "message_delta", data: { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 2 } } },
-  { type: "message_stop", data: { type: "message_stop" } },
-]
-  .map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event.data)}\n\n`)
-  .join("");
-
-test("pi-ai 引擎：自定义头经 ProviderRequestOptions.headers 到达 wire", async () => {
-  await withHeaderCapture(
-    () => new Response(piSseBody, { headers: { "content-type": "text/event-stream" } }),
-    async (captured) => {
-      const result = await new PiAiAdapter().complete({
-        provider: {
-          key: "pi-gw", name: "PI GW", provider_type: "anthropic", api_key: "k",
-          api_endpoint: "https://pi.test",
-          llm_engine: "pi-ai",
-          thinking_kind: "effort",
-          thinking_levels: ["low", "high", "max"],
-          headers: { "x-opencode-session": "{session_id}" },
-        },
-        model: "glm-test",
-        messages: [{ role: "user", content: "hi" }],
-        promptCacheKey: "ragsystem:thread-4",
-      });
-      assert.equal(result.content, "ok");
-      assert.equal(captured[0].get("x-opencode-session"), "ragsystem:thread-4");
     },
   );
 });

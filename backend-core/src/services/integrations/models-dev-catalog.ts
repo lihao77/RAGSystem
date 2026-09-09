@@ -216,6 +216,7 @@ export class ModelsDevCatalog {
     this.summaries = summaries;
     this.fetchedAt = this.now();
     this.modelMemo.clear();
+    warnCatalogDrift(collectCatalogDrift(parsed));
   }
 
   /**
@@ -323,9 +324,16 @@ function normalizeCatalogModel(raw: RawCatalogModel): CatalogModelEntry | null {
 }
 
 /**
- * reasoning_options type → 我方思考形状词表（effort/toggle/budget）：目录声明的
- * 可接受形状集，前端与 API 格式能力矩阵取交集后供用户选择。空 = 目录无形状信息。
+ * 目录 reasoning_options.type → 我方思考形状词表（单一事实源：可接受集收集与
+ * 漂移对账共用；目录新增 type 时此处未登记即触发 warnCatalogDrift 告警）。
+ * 收集产物交前端与 API 格式能力矩阵取交集后供用户选择；空 = 目录无形状信息。
  */
+const THINKING_KIND_BY_OPTION_TYPE: Readonly<Record<string, string>> = {
+  effort: "effort",
+  toggle: "toggle",
+  budget_tokens: "budget",
+};
+
 function collectAcceptedThinkingKinds(value: unknown): string[] {
   if (!Array.isArray(value)) {
     return [];
@@ -335,9 +343,8 @@ function collectAcceptedThinkingKinds(value: unknown): string[] {
     if (!isRecord(option) || typeof option.type !== "string") {
       continue;
     }
-    if (option.type === "effort") kinds.add("effort");
-    else if (option.type === "toggle") kinds.add("toggle");
-    else if (option.type === "budget_tokens") kinds.add("budget");
+    const kind = THINKING_KIND_BY_OPTION_TYPE[option.type.trim().toLowerCase()];
+    if (kind) kinds.add(kind);
   }
   return ["effort", "toggle", "budget"].filter((kind) => kinds.has(kind));
 }
@@ -379,6 +386,76 @@ function collectReasoningEfforts(value: unknown): string[] {
     }
   }
   return THINKING_STRENGTH_LEVELS.filter((level) => picked.has(level));
+}
+
+// ────────────────────────────── 词表对账 ──────────────────────────────
+
+interface CatalogDriftReport {
+  /** 词表外 reasoning_options.type → 出现次数（当前静默丢弃）。 */
+  unknownOptionTypes: Map<string, number>;
+  /** 词表外 effort 档位 → 出现次数（collectReasoningEfforts 值域过滤丢弃）。 */
+  unknownEffortLevels: Map<string, number>;
+}
+
+/** 全目录漂移扫描：applyData 每次成功同步调用一次（与 listModels 的按需 memo 无关）。 */
+function collectCatalogDrift(parsed: Record<string, unknown>): CatalogDriftReport {
+  const report: CatalogDriftReport = { unknownOptionTypes: new Map(), unknownEffortLevels: new Map() };
+  for (const provider of Object.values(parsed)) {
+    if (!isRecord(provider) || !isRecord(provider.models)) {
+      continue;
+    }
+    for (const model of Object.values(provider.models)) {
+      if (!isRecord(model) || !Array.isArray(model.reasoning_options)) {
+        continue;
+      }
+      for (const option of model.reasoning_options) {
+        if (!isRecord(option) || typeof option.type !== "string") {
+          continue;
+        }
+        const type = option.type.trim().toLowerCase();
+        if (type && !(type in THINKING_KIND_BY_OPTION_TYPE)) {
+          bump(report.unknownOptionTypes, type);
+        }
+        if (type === "effort" && Array.isArray(option.values)) {
+          for (const item of option.values) {
+            const level = String(item ?? "").trim().toLowerCase();
+            if (level && !(THINKING_STRENGTH_LEVELS as readonly string[]).includes(level)) {
+              bump(report.unknownEffortLevels, level);
+            }
+          }
+        }
+      }
+    }
+  }
+  return report;
+}
+
+/**
+ * 目录词表漂移告警：models.dev 出现我方词表外的思考选项时当前只会静默丢弃，
+ * 目录侧演进（如当年新增 budget_tokens type）不会自察。每次同步汇总一次
+ * console.warn 提示对齐词表；纯观测，不阻断目录服务。
+ */
+function warnCatalogDrift(report: CatalogDriftReport): void {
+  if (report.unknownOptionTypes.size === 0 && report.unknownEffortLevels.size === 0) return;
+  const parts: string[] = [];
+  if (report.unknownOptionTypes.size > 0) {
+    parts.push(`type: ${formatDriftEntries(report.unknownOptionTypes)}`);
+  }
+  if (report.unknownEffortLevels.size > 0) {
+    parts.push(`effort 档位: ${formatDriftEntries(report.unknownEffortLevels)}`);
+  }
+  console.warn(
+    `[models-dev-catalog] 目录出现词表外思考选项（当前静默丢弃）：${parts.join("；")}`
+    + " —— 请对齐 THINKING_KIND_BY_OPTION_TYPE / THINKING_STRENGTH_LEVELS 词表",
+  );
+}
+
+function formatDriftEntries(entries: Map<string, number>): string {
+  return [...entries.entries()].map(([token, count]) => `${token}×${count}`).join(", ");
+}
+
+function bump(target: Map<string, number>, token: string): void {
+  target.set(token, (target.get(token) ?? 0) + 1);
 }
 
 /**

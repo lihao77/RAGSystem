@@ -5,7 +5,7 @@ import { GeminiAdapter } from "../dist/index.js";
 import { OpenAiChatAdapter } from "../dist/providers/openai-chat.js";
 import { extractOpenAiUsage } from "../dist/internal/usage.js";
 
-test("Gemini 经 @google/genai 透传未知厂商字段（extraBody 深合并兜底）", async () => {
+test("Gemini 直连 REST 线体透传未知厂商字段（extraParams 顶层合并）", async () => {
   const originalFetch = globalThis.fetch;
   let capturedUrl = "";
   let capturedBody = null;
@@ -39,17 +39,20 @@ test("Gemini 经 @google/genai 透传未知厂商字段（extraBody 深合并兜
   }
 });
 
-test("Gemini provider 配置 ipc_socket 传输时显式拒绝", async () => {
+test("Gemini provider 配置 ipc_socket 传输不再方言级拒绝（进入通用 ipc 注入链）", async () => {
+  // 完整 socket 链路见 ipc-transport.test.mjs；此处钉住行为面变化：不再抛
+  // "does not support the ipc_socket transport"，而是与 openai/anthropic 同样
+  // 走通用 ipc 解析（socket 环境变量缺失时报通用错误）。
   await assert.rejects(
     new GeminiAdapter().complete({
       provider: {
         key: "gemini", name: "Gemini", provider_type: "gemini", api_key: "secret",
-        transport: { type: "ipc_socket", socket_env: "NOPE" },
+        transport: { type: "ipc_socket", socket_env: "AGENT_LLM_GEMINI_IPC_UNSET" },
       },
       model: "gemini-2.5-flash",
       messages: [{ role: "user", content: "hi" }],
     }),
-    /does not support the ipc_socket transport/,
+    /IPC socket environment variable 'AGENT_LLM_GEMINI_IPC_UNSET' is not configured/,
   );
 });
 

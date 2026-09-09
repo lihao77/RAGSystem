@@ -1,9 +1,9 @@
 /**
  * @ragsystem/agent-llm 公共导出（LLM 通信基金层）。
  *
- * 线协议依托官方 SDK（openai / @anthropic-ai/sdk / @google/genai），重试调度、熔断、
- * 看门狗与厂商语义层（续传态回放、思考档位、缓存断点）自持；流式归一采用块累加器模型
- * （参考 pi-ai）。agent-sdk 依赖本包。
+ * 线级传输原语外包 @ai-sdk/provider-utils（providers/wire.ts），重试调度、熔断、
+ * 看门狗与厂商语义层（续传态回放、思考档位、缓存断点、方言适配）自持；流式归一
+ * 采用块累加器模型。agent-sdk 依赖本包。
  */
 export * from "./types.js";
 export * from "./provider-registry.js";
