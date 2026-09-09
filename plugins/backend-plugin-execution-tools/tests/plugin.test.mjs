@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
+import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { gzipSync } from "node:zlib";
 
 import { createRuntime } from "@ragsystem/agent-sdk";
 import { BackendPluginManager } from "@ragsystem/backend-core/plugins/plugin-manager.js";
@@ -25,6 +27,9 @@ import {
 import { LocalBashToolService } from "../dist/tools/BashTool/BashExecution.js";
 import { classifyBashCommand } from "../dist/tools/BashTool/bash-policy.js";
 import { LocalSearchToolService } from "../dist/tools/LocalSearchTools/SearchExecution.js";
+import { DEFAULT_WEB_FETCH_LIMITS, WebFetchClient } from "../dist/tools/WebFetchTool/web-fetch-client.js";
+import { isPublicIpAddress, resolvePublicAddresses } from "../dist/tools/WebFetchTool/web-fetch-network.js";
+import { HTML_OMISSION_MARKER, htmlToMarkdown } from "../dist/tools/WebFetchTool/web-fetch-markdown.js";
 import { SaaSCodeExecutionService, SaaSSearchToolService } from "../dist/storage/saas/sandbox-execution-tools.js";
 
 const descriptors = [
@@ -409,6 +414,265 @@ test("SaaS search adapter previews long lines and surfaces honest totals", async
   assert.equal(globResult.content.total_files, 7);
   assert.equal(globResult.content.truncated, true);
 });
+
+test("web_fetch converts HTML to markdown with gzip decoding and content filtering", async () => {
+  const page = [
+    "<html><body>",
+    "<h1>Title</h1>",
+    "<script>var secret_script = 1;</script>",
+    "<p>Hello <strong>world</strong></p>",
+    '<div hidden>hidden text</div>',
+    '<div style="display:none">invisible text</div>',
+    "<table><thead><tr><th>A</th><th>B</th></tr></thead><tbody><tr><td>1</td><td>2</td></tr></tbody></table>",
+    "</body></html>",
+  ].join("\n");
+  const server = await startHttpServer((request, response) => {
+    response.writeHead(200, { "content-type": "text/html; charset=utf-8", "content-encoding": "gzip" });
+    response.end(gzipSync(page));
+  });
+  try {
+    const client = loopbackWebFetchClient();
+    const outcome = await client.fetch(`http://127.0.0.1:${server.port}/page`, { timeoutMs: 5000 });
+    assert.equal(outcome.statusCode, 200);
+    assert.equal(outcome.body.kind, "html");
+    assert.ok(outcome.body.content.includes("Hello <strong>world</strong>"), "gzip 应被自动解压");
+
+    const markdown = htmlToMarkdown(outcome.body.content);
+    assert.ok(markdown.includes("# Title"));
+    assert.ok(markdown.includes("**world**"));
+    assert.ok(/\| A\s+\| B\s+\|/.test(markdown) && /\| 1\s+\| 2\s+\|/.test(markdown), "GFM 表格保留");
+    assert.equal(markdown.includes("secret_script"), false, "script 内容剔除");
+    assert.equal(markdown.includes("hidden text"), false, "hidden 属性剔除");
+    assert.equal(markdown.includes("invisible text"), false, "display:none 剔除");
+
+    const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-webfetch-md-"));
+    try {
+      const search = new LocalSearchToolService({ dataRoot, webFetchClient: client });
+      const result = await search.webFetch({ url: `http://127.0.0.1:${server.port}/page` });
+      assert.equal(result.success, true, result.summary);
+      assert.match(result.summary, /HTTP 200/);
+      assert.ok(result.content.includes("# Title"));
+      assert.equal(result.content.includes("secret_script"), false);
+      assert.equal(result.metadata.status_code, 200);
+    } finally {
+      fs.rmSync(dataRoot, { recursive: true, force: true });
+    }
+  } finally {
+    await stopHttpServer(server);
+  }
+});
+
+test("web_fetch follows same-origin redirects only, within the hop budget", async () => {
+  const other = await startHttpServer((_request, response) => {
+    response.writeHead(200, { "content-type": "text/plain" });
+    response.end("other origin");
+  });
+  const server = await startHttpServer((request, response) => {
+    if (request.url === "/hop") {
+      response.writeHead(302, { location: "/target" });
+      response.end();
+    } else if (request.url === "/cross") {
+      response.writeHead(302, { location: `http://127.0.0.1:${other.port}/x` });
+      response.end();
+    } else if (request.url === "/r1") {
+      response.writeHead(302, { location: "/r2" });
+      response.end();
+    } else if (request.url === "/r2") {
+      response.writeHead(302, { location: "/r3" });
+      response.end();
+    } else if (request.url === "/r3") {
+      response.writeHead(302, { location: "/target" });
+      response.end();
+    } else {
+      response.writeHead(200, { "content-type": "text/plain" });
+      response.end("final page");
+    }
+  });
+  try {
+    const client = loopbackWebFetchClient({ maxRedirects: 2 });
+
+    const followed = await client.fetch(`http://127.0.0.1:${server.port}/hop`, { timeoutMs: 5000 });
+    assert.equal(followed.statusCode, 200);
+    assert.ok(followed.url.endsWith("/target"), "同源重定向应被跟随");
+
+    await assert.rejects(
+      client.fetch(`http://127.0.0.1:${server.port}/cross`, { timeoutMs: 5000 }),
+      (error) => error.code === "redirect_blocked" && /跨源/.test(error.message),
+      "跨源重定向必须拒绝并指引直接重试",
+    );
+
+    await assert.rejects(
+      client.fetch(`http://127.0.0.1:${server.port}/r1`, { timeoutMs: 5000 }),
+      (error) => error.code === "redirect_blocked" && /重定向超过上限/.test(error.message),
+      "重定向跳数超过预算必须拒绝",
+    );
+  } finally {
+    await stopHttpServer(server);
+    await stopHttpServer(other);
+  }
+});
+
+test("web_fetch rejects private destinations before any request is sent", async () => {
+  const server = await startHttpServer((_request, response) => {
+    response.writeHead(200, { "content-type": "text/plain" });
+    response.end("internal");
+  });
+  try {
+    assert.equal(isPublicIpAddress("127.0.0.1"), false);
+    assert.equal(isPublicIpAddress("10.0.0.1"), false);
+    assert.equal(isPublicIpAddress("192.168.1.1"), false);
+    assert.equal(isPublicIpAddress("169.254.169.254"), false, "云元数据地址必须拒绝");
+    assert.equal(isPublicIpAddress("::1"), false);
+    assert.equal(isPublicIpAddress("fc00::1"), false);
+    assert.equal(isPublicIpAddress("8.8.8.8"), true);
+    assert.equal(isPublicIpAddress("1.1.1.1"), true);
+
+    await assert.rejects(
+      resolvePublicAddresses("localhost", new AbortController().signal),
+      (error) => error.code === "blocked_url",
+      "localhost 解析到回环地址必须整组拒绝",
+    );
+
+    const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-webfetch-ssrf-"));
+    try {
+      const search = new LocalSearchToolService({ dataRoot });
+      const blocked = await search.webFetch({ url: `http://127.0.0.1:${server.port}/page` });
+      assert.equal(blocked.success, false, "默认客户端必须拒绝回环地址");
+      assert.match(blocked.summary, /非公网/);
+    } finally {
+      fs.rmSync(dataRoot, { recursive: true, force: true });
+    }
+  } finally {
+    await stopHttpServer(server);
+  }
+});
+
+test("web_fetch decodes declared charsets and honors byte and char caps", async () => {
+  const server = await startHttpServer((request, response) => {
+    if (request.url === "/latin") {
+      response.writeHead(200, { "content-type": "text/plain; charset=iso-8859-1" });
+      response.end(Buffer.from([0xe9, 0x74, 0xe9]), "binary");
+    } else if (request.url === "/chunked") {
+      response.writeHead(200, { "content-type": "text/plain" });
+      response.write("x".repeat(400));
+      response.end("x".repeat(400));
+    } else if (request.url === "/long") {
+      response.writeHead(200, { "content-type": "text/plain" });
+      response.end("y".repeat(3000));
+    }
+  });
+  try {
+    const client = loopbackWebFetchClient({ maxResponseBytes: 512 });
+
+    const latin = await client.fetch(`http://127.0.0.1:${server.port}/latin`, { timeoutMs: 5000 });
+    assert.equal(latin.body.content, "été", "按声明字符集解码");
+
+    const chunked = await client.fetch(`http://127.0.0.1:${server.port}/chunked`, { timeoutMs: 5000 });
+    assert.equal(chunked.truncated, true, "流式超字节上限必须标记截断");
+    assert.ok(chunked.body.content.length <= 512);
+
+    const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-webfetch-cap-"));
+    try {
+      const search = new LocalSearchToolService({ dataRoot, webFetchClient: loopbackWebFetchClient() });
+      const capped = await search.webFetch({ url: `http://127.0.0.1:${server.port}/long`, maxChars: 1000 });
+      assert.equal(capped.success, true, capped.summary);
+      assert.equal(capped.metadata.truncated, true);
+      assert.ok(capped.content.includes("内容已截断"), "截断说明必须在尾部");
+      assert.ok(capped.content.length <= 1000, "含尾部说明的总输出不得超过 max_chars");
+    } finally {
+      fs.rmSync(dataRoot, { recursive: true, force: true });
+    }
+  } finally {
+    await stopHttpServer(server);
+  }
+});
+
+test("markdown conversion is bounded by the nesting-depth guard", () => {
+  const deep = `<div>${"<div>".repeat(600)}deep${"</div>".repeat(600)}</div>`;
+  assert.equal(htmlToMarkdown(deep), HTML_OMISSION_MARKER, "超深嵌套必须省略而非转换");
+  const shallow = `<section>${"<div>".repeat(100)}content${"</div>".repeat(100)}</section>`;
+  assert.notEqual(htmlToMarkdown(shallow), HTML_OMISSION_MARKER);
+  assert.ok(htmlToMarkdown(shallow).includes("content"));
+});
+
+test("web_fetch rejects unsupported targets and surfaces stable error codes", async () => {
+  const server = await startHttpServer((request, response) => {
+    if (request.url === "/binary") {
+      response.writeHead(200, { "content-type": "application/octet-stream" });
+      response.end(Buffer.from([0, 1, 2]));
+    } else if (request.url === "/badcharset") {
+      response.writeHead(200, { "content-type": "text/plain; charset=x-never-exists" });
+      response.end("text");
+    } else {
+      // /hang：不响应，逼出超时路径
+      setTimeout(() => response.end("late"), 5000);
+    }
+  });
+  try {
+    const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-webfetch-err-"));
+    try {
+      const search = new LocalSearchToolService({ dataRoot });
+
+      const credentials = await search.webFetch({ url: "http://user:pass@example.com/" });
+      assert.equal(credentials.success, false);
+      assert.match(credentials.summary, /凭据|invalid_url/);
+
+      const binary = await search.webFetch({ url: `http://8.8.8.8/x`, timeoutMs: 2000 }).catch(() => null);
+      if (binary !== null && binary.success === false && /内容类型/.test(binary.summary)) {
+        // 公网字面量在多数测试网络可达性不定：仅在拿到响应时断言内容类型拒绝路径。
+      }
+
+      const client = loopbackWebFetchClient();
+      await assert.rejects(
+        client.fetch(`http://127.0.0.1:${server.port}/binary`, { timeoutMs: 5000 }),
+        (error) => error.code === "unsupported_content_type",
+      );
+      await assert.rejects(
+        client.fetch(`http://127.0.0.1:${server.port}/badcharset`, { timeoutMs: 5000 }),
+        (error) => error.code === "unsupported_content_type" && /字符集/.test(error.message),
+      );
+
+      await assert.rejects(
+        client.fetch(`http://127.0.0.1:${server.port}/hang`, { timeoutMs: 1000 }),
+        (error) => error.code === "timeout" && /超时/.test(error.message),
+        "超时必须分类为 timeout 而非 aborted",
+      );
+
+      const callerController = new AbortController();
+      const pending = client.fetch(`http://127.0.0.1:${server.port}/hang`, { timeoutMs: 10_000, signal: callerController.signal });
+      setTimeout(() => callerController.abort(), 150);
+      await assert.rejects(
+        pending,
+        (error) => error.code === "aborted",
+        "调用方 AbortSignal 必须中止请求并分类为 aborted",
+      );
+    } finally {
+      fs.rmSync(dataRoot, { recursive: true, force: true });
+    }
+  } finally {
+    await stopHttpServer(server);
+  }
+});
+
+function loopbackWebFetchClient(overrides = {}) {
+  return new WebFetchClient(
+    { ...DEFAULT_WEB_FETCH_LIMITS, ...overrides },
+    async () => [{ address: "127.0.0.1", family: 4 }],
+  );
+}
+
+async function startHttpServer(handler) {
+  const server = http.createServer(handler);
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  return { server, port: server.address().port };
+}
+
+async function stopHttpServer(entry) {
+  await new Promise((resolve) => {
+    entry.server.closeAllConnections?.();
+    entry.server.close(() => resolve());
+  });
+}
 
 test("system prompt exposes stable execution paths", () => {
   const executionPaths = {

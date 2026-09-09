@@ -1,7 +1,4 @@
-import http from "node:http";
-import https from "node:https";
 import path from "node:path";
-import { URL } from "node:url";
 
 import type { ToolExecContext, ToolExecutionResult } from "@ragsystem/agent-sdk";
 import type { PathAccessPolicy } from "@ragsystem/backend-core/contracts/runtime/path-access-policy.js";
@@ -26,21 +23,31 @@ import {
   runRipgrep,
   VCS_EXCLUDE_GLOBS,
 } from "./ripgrep-engine.js";
+import { WebFetchClient } from "../WebFetchTool/web-fetch-client.js";
+import { WebFetchError } from "../WebFetchTool/web-fetch-policy.js";
+import { renderBody } from "../WebFetchTool/web-fetch-markdown.js";
 
 const DEFAULT_MAX_CHARS = 20_000;
 const DEFAULT_WEB_TIMEOUT_MS = 15_000;
+const WEB_TRUNCATION_FOOTER = "\n\n(内容已截断；请抓取更具体的 URL 或页面段落获取全文。)";
 
 export class LocalSearchToolService {
   private readonly dataRoot: string;
   private readonly paths: ManagedPathResolver;
   private readonly todosBySession = new Map<string, TodoItem[]>();
+  private readonly webFetchClient: WebFetchClient;
 
-  constructor(options: { dataRoot?: string | undefined; pathResolver?: ManagedPathResolver | undefined } = {}) {
+  constructor(options: {
+    dataRoot?: string | undefined;
+    pathResolver?: ManagedPathResolver | undefined;
+    webFetchClient?: WebFetchClient | undefined;
+  } = {}) {
     if (!options.dataRoot?.trim()) {
       throw new Error("LocalSearchToolService 必须传入已解析的 dataRoot");
     }
     this.dataRoot = path.resolve(options.dataRoot);
     this.paths = options.pathResolver ?? new ManagedPathResolver(this.dataRoot);
+    this.webFetchClient = options.webFetchClient ?? new WebFetchClient();
   }
 
   getSearchRootCandidates(
@@ -138,32 +145,45 @@ export class LocalSearchToolService {
     }
   }
 
-  async webFetch(input: { url: string; timeoutMs?: number | null; maxChars?: number | null }): Promise<ToolExecutionResult> {
+  /**
+   * web_fetch：公网校验 + 地址钉扎的 HTTP(S) 抓取（gzip 自动解压、同源重定向
+   * 有限跟随、字节/字符双层上限、按声明字符集解码），HTML 经 turndown 转
+   * markdown（非可见内容剔除 + 嵌套深度护栏）。
+   */
+  async webFetch(
+    input: { url: string; timeoutMs?: number | null; maxChars?: number | null },
+    context?: ToolExecContext,
+  ): Promise<ToolExecutionResult> {
     const toolName = "web_fetch";
     try {
-      const url = new URL(input.url);
-      if (url.protocol !== "http:" && url.protocol !== "https:") {
-        return toolError(toolName, "仅支持 http/https URL");
-      }
       const timeoutMs = clampPositiveInt(input.timeoutMs, DEFAULT_WEB_TIMEOUT_MS, 1000, 60_000);
       const maxChars = clampPositiveInt(input.maxChars, DEFAULT_MAX_CHARS, 1000, 200_000);
-      const response = await fetchText(url, timeoutMs, maxChars);
-      const markdown = htmlToText(response.body);
-      const truncated = response.truncated || markdown.length > maxChars;
-      const content = markdown.slice(0, maxChars);
+      const outcome = await this.webFetchClient.fetch(input.url, { timeoutMs, signal: context?.signal });
+      const rendered = renderBody(outcome.body, maxChars);
+      const truncated = outcome.truncated || rendered.sourceTruncated || rendered.text.length > maxChars;
+      // 尾部截断说明计入 max_chars 总预算（对齐参考实现：header/footer 都算输出的一部分）。
+      let content = rendered.text;
+      if (truncated) {
+        const bodyBudget = Math.max(0, maxChars - WEB_TRUNCATION_FOOTER.length);
+        if (content.length > bodyBudget) content = content.slice(0, bodyBudget);
+        content += WEB_TRUNCATION_FOOTER;
+      }
       return toolSuccess(content, {
         toolName,
-        summary: `已获取 ${url.toString()}，HTTP ${response.statusCode}${truncated ? "（内容已截断）" : ""}`,
+        summary: `已获取 ${outcome.url}，HTTP ${outcome.statusCode}${truncated ? "（内容已截断）" : ""}`,
         outputType: "text",
         metadata: {
-          url: url.toString(),
-          status_code: response.statusCode,
-          content_type: response.contentType,
+          url: outcome.url,
+          status_code: outcome.statusCode,
+          content_type: outcome.contentType,
           truncated,
           length: content.length,
         },
       });
     } catch (error) {
+      if (error instanceof WebFetchError) {
+        return toolError(toolName, `web_fetch 失败（${error.code}）: ${error.message}`);
+      }
       return toolError(toolName, `web_fetch 失败: ${formatError(error)}`);
     }
   }
@@ -180,77 +200,6 @@ export class LocalSearchToolService {
     return formatTodoWriteResult(previous, parsed.todos, sessionId);
   }
 
-}
-
-async function fetchText(
-  url: URL,
-  timeoutMs: number,
-  maxChars: number,
-): Promise<{ statusCode: number; contentType: string; body: string; truncated: boolean }> {
-  const client = url.protocol === "https://" ? https : http;
-  return new Promise((resolve, reject) => {
-    const request = client.get(url, { timeout: timeoutMs }, (response) => {
-      const statusCode = response.statusCode ?? 0;
-      const contentType = String(response.headers["content-type"] ?? "");
-      if (statusCode >= 300 && statusCode < 400 && response.headers.location) {
-        response.resume();
-        const redirectUrl = new URL(response.headers.location, url);
-        fetchText(redirectUrl, timeoutMs, maxChars).then(resolve, reject);
-        return;
-      }
-      const chunks: Buffer[] = [];
-      let totalLength = 0;
-      let truncated = false;
-      response.on("data", (chunk: Buffer) => {
-        if (totalLength < maxChars) {
-          chunks.push(chunk);
-        }
-        totalLength += chunk.length;
-        if (totalLength > maxChars) {
-          truncated = true;
-          response.destroy();
-        }
-      });
-      response.on("end", () => {
-        resolve({
-          statusCode,
-          contentType,
-          body: Buffer.concat(chunks).toString("utf8"),
-          truncated,
-        });
-      });
-      response.on("close", () => {
-        resolve({
-          statusCode,
-          contentType,
-          body: Buffer.concat(chunks).toString("utf8"),
-          truncated,
-        });
-      });
-      response.on("error", reject);
-    });
-    request.on("timeout", () => {
-      request.destroy(new Error(`请求超时: ${timeoutMs}ms`));
-    });
-    request.on("error", reject);
-  });
-}
-
-function htmlToText(value: string): string {
-  return value
-    .replace(/<script[\s\S]*?<\/script>/gi, "")
-    .replace(/<style[\s\S]*?<\/style>/gi, "")
-    .replace(/<\/(p|div|section|article|header|footer|li|tr|h[1-6])>/gi, "\n")
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<[^>]+>/g, "")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, "\"")
-    .replace(/&#39;/g, "'")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
 }
 
 function clampPositiveInt(value: number | null | undefined, fallback: number, min: number, max: number): number {
