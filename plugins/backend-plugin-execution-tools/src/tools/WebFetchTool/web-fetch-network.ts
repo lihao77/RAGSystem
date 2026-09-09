@@ -56,6 +56,24 @@ export function isPublicIpAddress(input: string): boolean {
 }
 
 /**
+ * 消费级代理（Clash/sing-box/Surge 等 TUN + fake-ip 模式）约定的虚拟 IP 段：
+ * 198.18.0.0/15（IETF 基准测试保留段）。该模式下的系统 DNS 把所有外部域名
+ * 解析到本段，连接由 OS TUN 网卡拦截转发给代理——段内不存在真实服务，
+ * 拦截它只会让所有 fake-ip 部署完全不可用，放行的攻击面近乎为零（回环/
+ * 私网/链路本地/组播等真正承载服务的段仍然拒绝）。
+ */
+function isFakeIpProxyAddress(input: string): boolean {
+  try {
+    const parsed = ipaddr.parse(stripIpv6Brackets(input));
+    if (!(parsed instanceof ipaddr.IPv4)) return false;
+    const [first, second] = parsed.octets;
+    return first === 198 && (second === 18 || second === 19);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * 解析一次 hostname，任一目的地非公网则拒绝整个应答集。返回的地址集是传输
  * 唯一可用的地址。
  */
@@ -84,7 +102,7 @@ export async function resolvePublicAddresses(
     if ((entry.family !== 4 && entry.family !== 6) || isIP(entry.address) !== entry.family) {
       throw new WebFetchError(`hostname "${hostname}" 解析到非法 IP 地址`, "provider_error");
     }
-    if (!isPublicIpAddress(entry.address)) {
+    if (!isPublicIpAddress(entry.address) && !isFakeIpProxyAddress(entry.address)) {
       throw new WebFetchError(`URL hostname "${hostname}" 解析到非公网 IP 地址`, "blocked_url");
     }
     const translatedIpv4 = translatedIpv4Address(entry.address, nat64Prefixes);

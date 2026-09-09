@@ -654,6 +654,60 @@ test("web_fetch rejects unsupported targets and surfaces stable error codes", as
   }
 });
 
+test("web_fetch tolerates fake-ip proxy DNS and routes through proxy env", async () => {
+  // fake-ip 段（198.18.0.0/15，Clash/sing-box 等 TUN 模式）放行，其余私网段仍拒绝
+  const fakeIp = await resolvePublicAddresses(
+    "example.com",
+    new AbortController().signal,
+    async () => [{ address: "198.18.0.12", family: 4 }],
+  );
+  assert.deepEqual(fakeIp, [{ address: "198.18.0.12", family: 4 }]);
+  await assert.rejects(
+    resolvePublicAddresses("example.com", new AbortController().signal, async () => [{ address: "192.168.0.12", family: 4 }]),
+    (error) => error.code === "blocked_url",
+  );
+
+  // HTTP_PROXY 命中：请求以绝对形式 URL 发给代理（源站解析交给代理）；
+  // NO_PROXY 命中：回到直连+钉扎路径（origin-form 请求）；回环永远直连。
+  let lastRequestUrl = null;
+  const proxy = await startHttpServer((request, response) => {
+    lastRequestUrl = request.url;
+    response.writeHead(200, { "content-type": "text/plain" });
+    response.end("via proxy");
+  });
+  // Windows 的 process.env 键名大小写不敏感：http_proxy 与 HTTP_PROXY 是同一条目，
+  // 设置其一即可，不得 delete 另一名字（会把刚设置的也删掉）。
+  const previousHttpProxy = process.env.http_proxy ?? process.env.HTTP_PROXY;
+  const previousNoProxy = process.env.no_proxy ?? process.env.NO_PROXY;
+  try {
+    process.env.http_proxy = `http://127.0.0.1:${proxy.port}`;
+
+    const client = new WebFetchClient();
+    const outcome = await client.fetch("http://example.org/page", { timeoutMs: 5000 });
+    assert.equal(outcome.statusCode, 200);
+    assert.equal(outcome.body.content, "via proxy");
+    assert.equal(lastRequestUrl, "http://example.org/page", "代理请求必须是绝对形式 URL");
+
+    process.env.no_proxy = "example.org";
+    const bypassed = new WebFetchClient(DEFAULT_WEB_FETCH_LIMITS, async () => [{ address: "127.0.0.1", family: 4 }]);
+    const bypassedOutcome = await bypassed.fetch(`http://sub.example.org:${proxy.port}/x`, { timeoutMs: 5000 });
+    assert.equal(bypassedOutcome.statusCode, 200);
+    assert.equal(lastRequestUrl, "/x", "NO_PROXY 命中必须走直连（origin-form）");
+
+    delete process.env.no_proxy;
+    const loopback = new WebFetchClient(DEFAULT_WEB_FETCH_LIMITS, async () => [{ address: "127.0.0.1", family: 4 }]);
+    const direct = await loopback.fetch(`http://127.0.0.1:${proxy.port}/local`, { timeoutMs: 5000 });
+    assert.equal(direct.statusCode, 200);
+    assert.equal(lastRequestUrl, "/local", "回环永远直连，不进代理");
+  } finally {
+    if (previousHttpProxy === undefined) delete process.env.http_proxy;
+    else process.env.http_proxy = previousHttpProxy;
+    if (previousNoProxy === undefined) delete process.env.no_proxy;
+    else process.env.no_proxy = previousNoProxy;
+    await stopHttpServer(proxy);
+  }
+});
+
 function loopbackWebFetchClient(overrides = {}) {
   return new WebFetchClient(
     { ...DEFAULT_WEB_FETCH_LIMITS, ...overrides },

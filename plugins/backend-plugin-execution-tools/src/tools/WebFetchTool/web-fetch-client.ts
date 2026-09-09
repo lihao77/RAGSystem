@@ -4,6 +4,7 @@
  * 字符双层上限、按声明字符集解码。请求不携带浏览器 cookie 或任何宿主凭据。
  */
 import type { Response } from "undici";
+import { ProxyAgent, fetch } from "undici";
 import {
   WebFetchError,
   classifyContentType,
@@ -155,6 +156,12 @@ export class WebFetchClient {
       "accept": "text/html,application/xhtml+xml,text/*;q=0.9,application/json;q=0.8",
     };
     try {
+      const proxyUrl = proxyUrlFor(url);
+      if (proxyUrl !== null) {
+        // 走代理的请求跳过公网解析与钉扎：源站由代理解析，本地钉扎反而会绕开代理
+        // 直连（对齐 deepseek-harness web-fetch-http 的代理语义）。
+        return await requestViaProxy(proxyUrl, url, headers, signal);
+      }
       const addresses = await this.resolveAddresses(url.hostname, signal);
       return await requestPinned(url, addresses, headers, signal);
     } catch (error: unknown) {
@@ -259,6 +266,88 @@ export class WebFetchClient {
 /** 携带 Location 的重定向状态码。 */
 function isRedirectStatus(status: number): boolean {
   return status === 301 || status === 302 || status === 303 || status === 307 || status === 308;
+}
+
+/* ============================================================
+ * 代理环境路由（对齐 deepseek-harness http-proxy/policy 语义的最小子集）
+ * ========================================================== */
+
+/** 每个策略字段拥有的环境变量名（小写优先，undici 同序读取，读写成对）。 */
+const PROXY_ENV_NAMES = {
+  http: ["http_proxy", "HTTP_PROXY"],
+  https: ["https_proxy", "HTTPS_PROXY"],
+  all: ["all_proxy", "ALL_PROXY"],
+  no: ["no_proxy", "NO_PROXY"],
+} as const;
+
+/** 回环永远直连：本机回环走代理会把本地 UI/测试服务变成路由环路。 */
+const ALWAYS_DIRECT_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
+
+/**
+ * 解析该 URL 应走的代理 URL；null = 直连（随后进入公网解析+钉扎路径）。
+ * 仅支持 http(s) 代理；socks 代理显式报错而不是静默直连。
+ */
+function proxyUrlFor(url: URL): string | null {
+  const host = url.hostname.toLowerCase();
+  if (ALWAYS_DIRECT_HOSTS.has(host)) return null;
+  const noProxy = readEnv(PROXY_ENV_NAMES.no) ?? "";
+  if (noProxyMatches(noProxy, host)) return null;
+  const names = url.protocol === "https:" ? [PROXY_ENV_NAMES.https, PROXY_ENV_NAMES.all] : [PROXY_ENV_NAMES.http, PROXY_ENV_NAMES.all];
+  for (const candidates of names) {
+    const value = readEnv(candidates)?.trim();
+    if (!value) continue;
+    let parsed: URL;
+    try {
+      parsed = new URL(value);
+    } catch (error: unknown) {
+      throw new WebFetchError(`代理 URL 非法: ${value}`, "provider_error", { cause: error });
+    }
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      throw new WebFetchError(`代理协议不支持（${parsed.protocol}；本工具不支持 socks 代理）`, "provider_error");
+    }
+    return parsed.toString();
+  }
+  return null;
+}
+
+function readEnv(names: readonly string[]): string | undefined {
+  for (const name of names) {
+    const value = process.env[name];
+    if (value !== undefined && value !== "") return value;
+  }
+  return undefined;
+}
+
+/** NO_PROXY 简化匹配：`*` 全放行；主机全等或域名后缀匹配（前导 "." 的裸后缀也认）。 */
+function noProxyMatches(noProxy: string, hostname: string): boolean {
+  const value = noProxy.trim().toLowerCase();
+  if (!value) return false;
+  if (value === "*") return true;
+  const host = hostname.replace(/^\[/, "").replace(/\]$/, "");
+  return value.split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .some((entry) => {
+      const suffix = entry.startsWith(".") ? entry : `.${entry}`;
+      return host === entry || host.endsWith(suffix);
+    });
+}
+
+/** 经代理转发一次请求；代理连接自身的生命周期与该请求一致。 */
+async function requestViaProxy(
+  proxyUrl: string,
+  url: URL,
+  headers: Record<string, string>,
+  signal: AbortSignal,
+): Promise<{ response: Response; close(): Promise<void> }> {
+  const dispatcher = new ProxyAgent(proxyUrl);
+  try {
+    const response = await fetch(url, { method: "GET", redirect: "manual", headers, signal, dispatcher });
+    return { response, close: async () => { await dispatcher.close(); } };
+  } catch (error: unknown) {
+    await dispatcher.close();
+    throw error;
+  }
 }
 
 /** 相对 Location 以当前 URL 为基准解析。 */
