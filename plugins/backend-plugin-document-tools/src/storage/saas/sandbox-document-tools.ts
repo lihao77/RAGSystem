@@ -6,6 +6,7 @@ import { resolveSandboxPath } from "@ragsystem/backend-core/contracts/sandbox/sa
 import {
   READ_FILE_CHAR_BUDGET,
   READ_FILE_MAX_LINE_CHARS,
+  isTextualEncoding,
   normalizeEncoding,
   normalizePreviewLimit,
   normalizeReadRange,
@@ -28,11 +29,34 @@ export class SaaSDocumentToolService {
     try {
       const file = resolveSandboxPath(input.filePath, { explicitSpace: input.filePathSpace, operation: "read" });
       const range = normalizeReadRange(input.offset, input.limit);
+      const encoding = normalizeEncoding(input.encoding);
       const result = await this.sandbox.readFile(context, {
         path: file.internalPath,
-        encoding: normalizeEncoding(input.encoding),
+        encoding,
         maxBytes: MAX_TOOL_FILE_BYTES,
       });
+      // base64/hex 无行语义：与本地适配器一致整读原样返回（仅字符预算截断），不做行号化渲染。
+      if (!isTextualEncoding(encoding)) {
+        const truncated = result.content.length > READ_FILE_CHAR_BUDGET;
+        const content = truncated ? result.content.slice(0, READ_FILE_CHAR_BUDGET) : result.content;
+        return toolSuccess(content, {
+          toolName,
+          summary: `文件读取成功: ${file.displayPath}（${result.size} 字节，${encoding} 编码；二进制类编码无行语义，offset 不适用）${truncated ? `；已截断至前 ${READ_FILE_CHAR_BUDGET} 字符` : ""}`,
+          outputType: "text",
+          metadata: {
+            file_path: file.displayPath,
+            display_path: file.displayPath,
+            file_size: result.size,
+            total_lines: 1,
+            start_line: 1,
+            end_line: 1,
+            has_more: false,
+            next_offset: null,
+            char_truncated: truncated,
+            truncated_lines: 0,
+          },
+        });
+      }
       const selection = selectLineRange(result.content, range.offset, range.limit);
       let summary = `文件读取成功: ${file.displayPath}`;
       if (selection.hasMore) {

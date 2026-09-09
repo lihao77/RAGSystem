@@ -16,7 +16,13 @@ import {
   DOCUMENT_TOOLS_RUNTIME_CAPABILITY,
 } from "../dist/index.js";
 import { SaaSDocumentToolService } from "../dist/storage/saas/sandbox-document-tools.js";
-import { READ_FILE_CHAR_BUDGET, READ_FILE_MAX_LINE_CHARS, selectLineRange } from "../dist/tools/shared/document-policy.js";
+import {
+  LINE_TRUNCATION_SUFFIX,
+  READ_FILE_CHAR_BUDGET,
+  READ_FILE_MAX_LINE_CHARS,
+  scanStreamWindow,
+  selectLineRange,
+} from "../dist/tools/shared/document-policy.js";
 
 const descriptorNames = ["read_file", "write_file", "edit_file", "preview_data_structure"];
 
@@ -137,14 +143,14 @@ test("document relative writes and reads use the same workspace", async () => {
       pathPolicy,
     );
     assert.equal(written.success, true, written.summary);
-    const read = runtime.document.readFile(
+    const read = await runtime.document.readFile(
       { filePath: "shared.txt" },
       context,
       { custom_params: {} },
       pathPolicy,
     );
     assert.equal(read.success, true, read.summary);
-    assert.equal(read.content, "workspace content");
+    assert.equal(read.content, "1: workspace content\n\n(第 1-1 行，已到文件末尾，共 1 行)");
     assert.equal(read.metadata.file_path, written.metadata.file_path);
     assert.equal(read.metadata.execution_paths.workspace, path.join(root, "sessions", "session-workspace", "workspace"));
     assert.deepEqual(Object.keys(read.metadata.execution_paths).sort(), ["uploads", "workspace"]);
@@ -176,7 +182,7 @@ test("local and SaaS document adapters share encoding and line-range policy", as
       async closeAll() {},
     });
 
-    const localRead = local.readFile({ filePath: "lines.txt", offset: 2, limit: 1 }, context, { custom_params: {} }, pathPolicy);
+    const localRead = await local.readFile({ filePath: "lines.txt", offset: 2, limit: 1 }, context, { custom_params: {} }, pathPolicy);
     const saasRead = await saas.readFile({ filePath: "lines.txt", offset: 2, limit: 1 }, context);
     assert.equal(localRead.content, saasRead.content);
     for (const key of ["total_lines", "start_line", "end_line", "has_more", "next_offset", "char_truncated", "truncated_lines"]) {
@@ -184,7 +190,7 @@ test("local and SaaS document adapters share encoding and line-range policy", as
     }
 
     // 宽行文件走字符预算截断分支时双端仍一致
-    const localWide = local.readFile({ filePath: "wide.txt" }, context, { custom_params: {} }, pathPolicy);
+    const localWide = await local.readFile({ filePath: "wide.txt" }, context, { custom_params: {} }, pathPolicy);
     const saasWide = await saas.readFile({ filePath: "wide.txt" }, context);
     assert.equal(localWide.content, saasWide.content);
     assert.equal(localWide.metadata.char_truncated, true);
@@ -283,7 +289,7 @@ test("系统临时目录天然可读写：observation 物化文件可回读、te
       strictPolicy,
     );
     assert.equal(read.success, true, read.summary);
-    assert.equal(read.content, "temp data");
+    assert.equal(read.content, "1: temp data\n\n(第 1-1 行，已到文件末尾，共 1 行)");
 
     // 3. 受管目录之外的普通外部路径仍走审批边界（严格策略下抛错）
     const outside = await runtime.document.readFile(
@@ -306,16 +312,16 @@ test("selectLineRange 字符预算在行数上限之前截断并给出正确续�
   assert.equal(selection.charTruncated, true);
   assert.equal(selection.hasMore, true);
   assert.equal(selection.totalLines, 100);
-  // "line-0\n"…"line-6\n" 共 49 字符；第 8 行只剩 1 字符预算，截断后仅剩行尾 "\n"，
-  // 与前一行的换行连续，被尾部剥除一起去掉 → content 48 字符
-  assert.equal(selection.content.length, 48);
+  // 前 8 行各 6 字符共 48；第 9 行只剩 2 字符预算 → "li" + 截断标注，随后预算耗尽
   assert.equal(selection.truncatedLines, 1);
-  assert.equal(selection.endLine, 8);
-  assert.equal(selection.nextOffset, 9);
-  assert.ok(selection.content.startsWith("line-0\nline-1"));
-  // 续读从下一整行开始
+  assert.equal(selection.endLine, 9);
+  assert.equal(selection.nextOffset, 10);
+  assert.ok(selection.content.startsWith("1: line-0\n2: line-1"));
+  assert.ok(selection.content.includes("9: li... (line truncated)"));
+  assert.match(selection.content, /第 9 行截断；继续读取用 offset=10/);
+  // 续读从下一整行开始，行号保持文件全局行号
   const rest = selectLineRange(lines, selection.nextOffset, 2000, { charBudget: 10_000, maxLineChars: 100 });
-  assert.ok(rest.content.startsWith("line-8"));
+  assert.ok(rest.content.startsWith("10: line-9"));
 });
 
 test("selectLineRange 少行超宽文件被行内截断，短行文件不受影响", () => {
@@ -325,27 +331,35 @@ test("selectLineRange 少行超宽文件被行内截断，短行文件不受影�
   assert.equal(wideSelection.truncatedLines, 3);
   assert.equal(wideSelection.charTruncated, false);
   assert.equal(wideSelection.hasMore, false);
-  assert.ok(wideSelection.content.length <= 3 * READ_FILE_MAX_LINE_CHARS);
+  // 每行截到 2000 字符 + 截断标注；行号前缀与 footer 是有界的信封开销
+  for (const line of wideSelection.numberedLines) {
+    assert.equal(line.truncated, true);
+    assert.equal(line.text.length, READ_FILE_MAX_LINE_CHARS + LINE_TRUNCATION_SUFFIX.length);
+    assert.ok(line.text.endsWith(LINE_TRUNCATION_SUFFIX));
+  }
 
   const normal = selectLineRange("hello\nworld\n", 1, 2000, {});
-  assert.equal(normal.content, "hello\nworld");
+  assert.equal(normal.content, "1: hello\n2: world\n\n(第 1-2 行，已到文件末尾，共 2 行)");
   assert.equal(normal.charTruncated, false);
   assert.equal(normal.truncatedLines, 0);
   assert.equal(normal.hasMore, false);
 });
 
-test("selectLineRange 截断行保留行尾换行符，相邻行不熔接", () => {
+test("selectLineRange 行号化渲染逐行独立，CRLF 行尾在窗口中归一为 LF", () => {
   const wide = `${"a".repeat(3000)}\n${"b".repeat(3000)}\n${"c".repeat(3000)}`;
   const selection = selectLineRange(wide, 1, 2000, { charBudget: 16_000, maxLineChars: 2_000 });
-  const segments = selection.content.split("\n");
-  assert.deepEqual(segments.map((segment) => segment.length), [1999, 1999, 2000]);
+  // 渲染按行号逐行拼接，截断行不会与相邻行熔接
+  assert.deepEqual(selection.numberedLines.map((line) => line.text[0]), ["a", "b", "c"]);
+  assert.deepEqual(selection.numberedLines.map((line) => line.number), [1, 2, 3]);
   assert.equal(selection.truncatedLines, 3);
   assert.equal(selection.charTruncated, false);
 
   const crlf = `${"a".repeat(3000)}\r\n${"b".repeat(3000)}`;
   const crlfSelection = selectLineRange(crlf, 1, 2000, { charBudget: 16_000, maxLineChars: 2_000 });
-  assert.ok(crlfSelection.content.includes("\r\n"));
-  assert.equal(crlfSelection.content.split("\r\n").length, 2);
+  assert.equal(crlfSelection.totalLines, 2);
+  // 行尾 \r 在窗口渲染中剥除（dsh stripCarriageReturn），不给模型灌回车符
+  assert.ok(!crlfSelection.content.includes("\r"));
+  assert.equal(crlfSelection.numberedLines.length, 2);
 });
 
 test("selectLineRange 预算恰好耗尽在最后一行不误报截断", () => {
@@ -355,6 +369,177 @@ test("selectLineRange 预算恰好耗尽在最后一行不误报截断", () => {
   assert.equal(selection.hasMore, false);
   assert.equal(selection.endLine, 4);
   assert.equal(selection.nextOffset, null);
+});
+
+test("scanStreamWindow 巨型单行有界扫描：截断可见且总行数精确", async () => {
+  // 50 万字符无换行 + 一行短文本；块边界与行边界刻意错开
+  const giant = `${"x".repeat(500_000)}\nshort\n`;
+  const selection = await scanStreamWindow([giant.slice(0, 300_000), giant.slice(300_000)], 1, 2000, {});
+  assert.equal(selection.totalLines, 2);
+  assert.equal(selection.truncatedLines, 1);
+  assert.equal(selection.numberedLines[0].number, 1);
+  assert.equal(selection.numberedLines[0].text.length, READ_FILE_MAX_LINE_CHARS + LINE_TRUNCATION_SUFFIX.length);
+  assert.ok(selection.numberedLines[0].text.endsWith(LINE_TRUNCATION_SUFFIX));
+  assert.equal(selection.numberedLines[1].text, "short");
+  assert.equal(selection.hasMore, false);
+});
+
+test("scanStreamWindow offset 超出文件总行数返回空窗口提示", async () => {
+  const selection = await scanStreamWindow(["a\nb\n"], 5, 2000, {});
+  assert.equal(selection.totalLines, 2);
+  assert.equal(selection.numberedLines.length, 0);
+  assert.equal(selection.content, "(offset 5 超出文件总行数 2)");
+  assert.equal(selection.hasMore, false);
+
+  const empty = await scanStreamWindow([], 1, 2000, {});
+  assert.equal(empty.totalLines, 0);
+  assert.equal(empty.content, "(空文件)");
+});
+
+test("scanStreamWindow 与 selectLineRange 在超长行含 \\r 时逐字一致（截断可见）", async () => {
+  // 2000 字符 + 行中 \r + 更多内容：流式缓冲在 2002 上限处截断，
+  // 不得把行中的 \r 误当行尾剥掉而伪装成"恰好 2000 字符且未截断"
+  const content = `${"a".repeat(2000)}\r${"b".repeat(50)}\nnext line\n`;
+  const streamed = await scanStreamWindow([content], 1, 2000, {});
+  const synced = selectLineRange(content, 1, 2000, {});
+  assert.equal(streamed.content, synced.content);
+  assert.equal(streamed.truncatedLines, 1);
+  assert.equal(synced.truncatedLines, 1);
+  assert.ok(streamed.content.includes(`1: ${"a".repeat(2000)}${LINE_TRUNCATION_SUFFIX}`));
+  assert.ok(!streamed.content.includes(`\r${LINE_TRUNCATION_SUFFIX}`));
+
+  // 块边界刻意切在 \r 与行中间：结果仍与整段一致
+  const split = await scanStreamWindow([content.slice(0, 1000), content.slice(1000, 2001), content.slice(2001)], 1, 2000, {});
+  assert.equal(split.content, synced.content);
+
+  // 完整行自带行尾 \r（CRLF 文件）仍被剥除且不误报截断
+  const crlfLine = `${"a".repeat(2000)}\r\nnext\r\n`;
+  const crlfStreamed = await scanStreamWindow([crlfLine], 1, 2000, {});
+  const crlfSynced = selectLineRange(crlfLine, 1, 2000, {});
+  assert.equal(crlfStreamed.content, crlfSynced.content);
+  assert.equal(crlfStreamed.truncatedLines, 0);
+  assert.ok(!crlfStreamed.content.includes("\r"));
+});
+
+test("read_file offset 超出总行数时返回与 SaaS 一致的提示文案", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-document-oob-"));
+  try {
+    const runtime = createLocalDocumentToolsRuntimeFactory()({ deploymentKind: "local", dataRoot: root });
+    const context = { sessionId: "session-oob", runId: "run-oob" };
+    const pathPolicy = { isApproved: () => false, assertWithin: (candidatePath) => candidatePath };
+    await runtime.document.writeFile({ content: "only\n", filePath: "small.txt" }, context, { custom_params: {} }, pathPolicy);
+
+    const read = await runtime.document.readFile(
+      { filePath: "small.txt", offset: 5 },
+      context,
+      { custom_params: {} },
+      pathPolicy,
+    );
+    assert.equal(read.success, true);
+    assert.equal(read.content, "(offset 5 超出文件总行数 1)");
+    assert.equal(read.metadata.has_more, false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("edit_file 匹配不唯一时报出全部命中行号，replace_all 一次替换", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-document-edit-multi-"));
+  try {
+    const runtime = createLocalDocumentToolsRuntimeFactory()({ deploymentKind: "local", dataRoot: root });
+    const context = { sessionId: "session-edit-multi", runId: "run-edit-multi" };
+    const pathPolicy = { isApproved: () => false, assertWithin: (candidatePath) => candidatePath };
+    await runtime.document.writeFile(
+      { content: "x\nfoo\ny\nfoo\nz\nfoo\n", filePath: "multi.txt" },
+      context,
+      { custom_params: {} },
+      pathPolicy,
+    );
+
+    const ambiguous = await runtime.document.editFile(
+      { filePath: "multi.txt", oldString: "foo", newString: "bar" },
+      context,
+      { custom_params: {} },
+      pathPolicy,
+    );
+    assert.equal(ambiguous.success, false);
+    assert.match(ambiguous.summary, /匹配不唯一（找到 3 处，位于第 2, 4, 6 行）/);
+
+    const replaced = await runtime.document.editFile(
+      { filePath: "multi.txt", oldString: "foo", newString: "bar", replaceAll: true },
+      context,
+      { custom_params: {} },
+      pathPolicy,
+    );
+    assert.equal(replaced.success, true, replaced.summary);
+    assert.equal(replaced.content.replacements, 3);
+    assert.equal(fs.readFileSync(path.join(root, "sessions", "session-edit-multi", "workspace", "multi.txt"), "utf8"), "x\nbar\ny\nbar\nz\nbar\n");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("edit_file CRLF 文件用 LF old_string 匹配，写回保持 CRLF 行尾", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-document-edit-crlf-"));
+  try {
+    const runtime = createLocalDocumentToolsRuntimeFactory()({ deploymentKind: "local", dataRoot: root });
+    const context = { sessionId: "session-edit-crlf", runId: "run-edit-crlf" };
+    const pathPolicy = { isApproved: () => false, assertWithin: (candidatePath) => candidatePath };
+    await runtime.document.writeFile(
+      { content: "alpha\r\nbeta\r\ngamma\r\n", filePath: "crlf.txt" },
+      context,
+      { custom_params: {} },
+      pathPolicy,
+    );
+
+    const edited = await runtime.document.editFile(
+      { filePath: "crlf.txt", oldString: "beta", newString: "BETA" },
+      context,
+      { custom_params: {} },
+      pathPolicy,
+    );
+    assert.equal(edited.success, true, edited.summary);
+    assert.equal(edited.content.replacements, 1);
+    const after = fs.readFileSync(path.join(root, "sessions", "session-edit-crlf", "workspace", "crlf.txt"), "utf8");
+    assert.equal(after, "alpha\r\nBETA\r\ngamma\r\n");
+    // diff 在 LF 归一文本上计算：CRLF 不产生全文件 diff
+    assert.ok(edited.content.diff_preview.includes("-beta"));
+    assert.ok(edited.content.diff_preview.includes("+BETA"));
+    assert.equal(edited.content.diff_preview.match(/^@@/gm)?.length, 1);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("edit_file 行首插入的真 unified diff 只产生一个 hunk", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-document-edit-diff-"));
+  try {
+    const runtime = createLocalDocumentToolsRuntimeFactory()({ deploymentKind: "local", dataRoot: root });
+    const context = { sessionId: "session-edit-diff", runId: "run-edit-diff" };
+    const pathPolicy = { isApproved: () => false, assertWithin: (candidatePath) => candidatePath };
+    await runtime.document.writeFile(
+      { content: "line1\nline2\nline3\n", filePath: "plain.txt" },
+      context,
+      { custom_params: {} },
+      pathPolicy,
+    );
+
+    const edited = await runtime.document.editFile(
+      { filePath: "plain.txt", oldString: "line2", newString: "line2\nline2b" },
+      context,
+      { custom_params: {} },
+      pathPolicy,
+    );
+    assert.equal(edited.success, true, edited.summary);
+    const diff = edited.content.diff_preview;
+    assert.ok(diff.startsWith("a/plain.txt\nb/plain.txt\n"));
+    assert.ok(diff.includes("@@ -2,2 +2,3 @@"));
+    assert.equal(diff.match(/^@@/gm)?.length, 1);
+    assert.ok(diff.includes("+line2b"));
+    assert.ok(diff.includes(" line3"));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("read_file 默认调用对宽行大文件按字符预算分页，不再整文件入上下文", async () => {
@@ -374,16 +559,17 @@ test("read_file 默认调用对宽行大文件按字符预算分页，不再整�
       pathPolicy,
     );
 
-    const first = runtime.document.readFile({ filePath: "wide.txt" }, context, { custom_params: {} }, pathPolicy);
+    const first = await runtime.document.readFile({ filePath: "wide.txt" }, context, { custom_params: {} }, pathPolicy);
     assert.equal(first.success, true, first.summary);
-    // 40 行 × 5000+ 字符：单行截到 2000，8 行即耗尽 16000 字符预算
+    // 40 行 × 5000+ 字符：单行截到 2000+标注，8 行即耗尽 16000 字符预算
     assert.equal(first.metadata.char_truncated, true);
     assert.equal(first.metadata.truncated_lines, 8);
     assert.equal(first.metadata.end_line, 8);
     assert.equal(first.metadata.next_offset, 9);
-    assert.ok(first.content.length <= READ_FILE_CHAR_BUDGET);
-    // 每个截断行保留行尾换行：8 行 → 8 段
-    assert.equal(first.content.split("\n").length, 8);
+    // 行文本载荷受字符预算约束；行号前缀与 footer 是额外信封开销（本窗口 8 行 < 200 字符）
+    assert.ok(first.content.length <= READ_FILE_CHAR_BUDGET + 200);
+    // 8 行行号化正文 + 空行 + footer
+    assert.equal(first.content.split("\n").length, 10);
     assert.match(first.summary, /字符预算/);
     assert.match(first.summary, /超长/);
     assert.equal("user_approved_full_read" in first.metadata, false);
@@ -391,9 +577,9 @@ test("read_file 默认调用对宽行大文件按字符预算分页，不再整�
     let offset = first.metadata.next_offset;
     let reads = 0;
     while (true) {
-      const page = runtime.document.readFile({ filePath: "wide.txt", offset }, context, { custom_params: {} }, pathPolicy);
+      const page = await runtime.document.readFile({ filePath: "wide.txt", offset }, context, { custom_params: {} }, pathPolicy);
       assert.equal(page.success, true, page.summary);
-      assert.ok(page.content.length <= READ_FILE_CHAR_BUDGET);
+      assert.ok(page.content.length <= READ_FILE_CHAR_BUDGET + 200);
       reads++;
       assert.ok(reads < 20, "分页必须在有限步内到达文件末尾");
       if (!page.metadata.has_more) {
@@ -402,6 +588,7 @@ test("read_file 默认调用对宽行大文件按字符预算分页，不再整�
       }
       offset = page.metadata.next_offset;
     }
+    // 首读覆盖 1-8 行，循环内再读 4 页（9-16/17-24/25-32/33-40）到达末尾
     assert.equal(reads, 4);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });

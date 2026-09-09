@@ -80,14 +80,60 @@ async function editFile(input) {
   if (!oldString) throw new Error("oldString cannot be empty");
   const stat = await fs.lstat(resolved);
   if (!stat.isFile() || stat.isSymbolicLink()) throw new Error("Sandbox edit target must be a regular file");
-  const original = (await fs.readFile(resolved)).toString(encoding);
-  const replaceAll = input.replaceAll === true;
-  const replacements = replaceAll ? original.split(oldString).length - 1 : (original.includes(oldString) ? 1 : 0);
-  if (!replacements) throw new Error("oldString was not found");
-  const edited = replaceAll ? original.split(oldString).join(newString) : original.replace(oldString, newString);
-  const bytes = Buffer.from(edited, encoding);
+  // 匹配/替换在 LF 归一文本上做（CRLF 文件与 LF oldString 互相可匹配）；
+  // 写回按文件原行尾风格还原（混合行尾按 LF 归一写）——与本地 DocumentExecution 同款语义。
+  const raw = (await fs.readFile(resolved)).toString(encoding);
+  const wasCrlf = crlfDominant(raw);
+  const original = raw.replaceAll("\r\n", "\n");
+  const normalizedOld = oldString.replaceAll("\r\n", "\n");
+  const normalizedNew = newString.replaceAll("\r\n", "\n");
+  const matchLines = findMatchLineNumbers(original, normalizedOld);
+  if (matchLines.length === 0) throw new Error("oldString was not found");
+  if (matchLines.length > 1 && input.replaceAll !== true) {
+    throw new Error(`oldString matched ${matchLines.length} times (lines ${matchLines.join(", ")}); make it unique or pass replaceAll`);
+  }
+  const edited = input.replaceAll === true
+    ? original.split(normalizedOld).join(normalizedNew)
+    : original.replace(normalizedOld, normalizedNew);
+  const bytes = Buffer.from(wasCrlf ? edited.replaceAll("\n", "\r\n") : edited, encoding);
   await fs.writeFile(resolved, bytes, { mode: 0o640 });
-  return { size: bytes.byteLength, replacements };
+  return { size: bytes.byteLength, replacements: input.replaceAll === true ? matchLines.length : 1 };
+}
+
+function countOccurrencesOf(content, search) {
+  if (!search) return 0;
+  let count = 0;
+  let index = 0;
+  for (;;) {
+    const found = content.indexOf(search, index);
+    if (found === -1) break;
+    count += 1;
+    index = found + search.length;
+  }
+  return count;
+}
+
+function crlfDominant(content) {
+  const crlf = countOccurrencesOf(content, "\r\n");
+  return crlf > 0 && crlf > countOccurrencesOf(content, "\n") - crlf;
+}
+
+function findMatchLineNumbers(content, search) {
+  const lines = [];
+  let line = 1;
+  let cursor = 0;
+  let searchFrom = 0;
+  for (;;) {
+    const found = content.indexOf(search, searchFrom);
+    if (found === -1) break;
+    while (cursor < found) {
+      if (content[cursor] === "\n") line += 1;
+      cursor += 1;
+    }
+    lines.push(line);
+    searchFrom = found + search.length;
+  }
+  return lines;
 }
 
 /**

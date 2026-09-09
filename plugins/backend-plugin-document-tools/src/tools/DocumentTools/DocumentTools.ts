@@ -101,10 +101,10 @@ export const DOCUMENT_TOOLS: RuntimeToolDefinition[] = [
     },
     usage_contract: [
       "读取已有文件内容优先用 read_file，而非 execute_shell 的 cat 或 execute_code。",
-      "read_file 默认最多返回 2000 行（limit 至多 10000），且受单次字符预算约束（约 1.6 万字符）；达到任一上限时用 metadata.next_offset 继续分页读取。",
-      "超长单行会被截断，被截断的尾部无法通过分页找回；确需完整超长行内容时，改用 execute_code/execute_shell 处理文件。",
+      "返回内容逐行前缀 `行号: `，行号可直接用于 edit_file 定位与 grep 结果对照；末尾 footer 标注当前窗口与续读 offset。",
+      "read_file 默认最多返回 2000 行（limit 至多 10000），且受单次字符预算约束（约 1.6 万字符）；达到任一上限时按 footer/metadata 里的 next_offset 继续分页读取。",
+      "超长单行会截断到 2000 字符并带 `... (line truncated)` 标注，被截断的尾部无法通过分页找回；确需完整超长行内容时，改用 execute_code/execute_shell 处理文件。",
       "不知道文件大小时不要假设一次能读全：先看返回 metadata 里的 file_size/total_lines，数据文件优先用 preview_data_structure 了解结构。",
-      "返回内容为文件原始文本内容（超长行除外），不附带行号。",
       "file_path 必须是真实路径字符串，不是变量名文本。",
       "数据文件已有路径时，优先用 preview_data_structure 确认结构。",
     ],
@@ -226,7 +226,8 @@ export const DOCUMENT_TOOLS: RuntimeToolDefinition[] = [
       },
     },
     usage_contract: [
-      "old_string 必须与文件内容精确匹配，包含空白和换行。",
+      "old_string 必须与文件内容精确匹配，包含空白和换行；换行风格不阻碍匹配（CRLF 文件可用 LF 换行的 old_string），写回保持文件原行尾风格。",
+      "匹配不唯一时报错会列出每个命中的行号，据此扩大上下文重试，或显式传 replace_all=true。",
       "默认要求唯一匹配；需要批量替换时显式传 replace_all=true。",
       "编辑已有文件优先使用 edit_file，不要用 write_file 重写整文件。",
     ],

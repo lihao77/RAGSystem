@@ -18,12 +18,17 @@ import {
   READ_FILE_CHAR_BUDGET,
   READ_FILE_MAX_LINE_CHARS,
   buildDiffPreview,
-  countOccurrences,
+  crlfDominant,
+  findMatchLineNumbers,
+  isTextualEncoding,
   normalizeEncoding,
+  normalizeLineEndings,
   normalizePreviewLimit,
   normalizeReadRange,
   normalizeWriteMode,
   renderWritableContent,
+  restoreCrlf,
+  scanStreamWindow,
   selectLineRange,
   type EditFileInput,
   type PreviewDataStructureInput,
@@ -48,12 +53,16 @@ export class LocalDocumentToolService {
     this.fileHistory = options.fileHistory ?? null;
   }
 
-  readFile(
+  /**
+   * read_file：文本编码走流式行窗口（行缓冲有界，巨型单行/大文件不整读进内存），
+   * 输出行号化文本 + 分页 footer；base64/hex 等二进制类编码无行语义，整读原样返回。
+   */
+  async readFile(
     input: ReadFileInput,
     context: ToolExecContext,
     agent: AgentConfig,
     pathService: PathAccessPolicy,
-  ): ToolExecutionResult {
+  ): Promise<ToolExecutionResult> {
     const toolName = "read_file";
     try {
       const resolvedPath = this.pathManager.resolveManagedPath(input.filePath, {
@@ -79,25 +88,37 @@ export class LocalDocumentToolService {
       const offset = range.offset;
       const limit = range.limit;
       const encoding = normalizeEncoding(input.encoding);
-      const rawContent = fs.readFileSync(resolvedPath).toString(encoding);
-      const selection = selectLineRange(rawContent, offset, limit);
-      if (!selection.hasMore && selection.content === "" && offset > selection.totalLines) {
-        return successResult("", {
-          summary: `offset ${offset} 超出文件总行数 ${selection.totalLines}`,
+      if (!isTextualEncoding(encoding)) {
+        // base64/hex 无行语义：整读原样返回（仅字符预算截断），不做行号化渲染，offset 不适用。
+        const raw = fs.readFileSync(resolvedPath).toString(encoding);
+        const truncated = raw.length > READ_FILE_CHAR_BUDGET;
+        const content = truncated ? raw.slice(0, READ_FILE_CHAR_BUDGET) : raw;
+        return successResult(content, {
+          summary: `文件读取成功: ${input.filePath}（${stat.size} 字节，${encoding} 编码；二进制类编码无行语义，offset 不适用）${truncated ? `；已截断至前 ${READ_FILE_CHAR_BUDGET} 字符` : ""}`,
           outputType: "text",
           metadata: {
             execution_paths: this.pathManager.executionPaths(context, agent.custom_params),
             file_path: resolvedPath,
             display_path: this.pathManager.toDisplayPath(resolvedPath),
             file_size: stat.size,
-            total_lines: selection.totalLines,
-            start_line: selection.startLine,
-            end_line: selection.endLine,
+            total_lines: 1,
+            start_line: 1,
+            end_line: 1,
             has_more: false,
             next_offset: null,
-            char_truncated: false,
+            char_truncated: truncated,
             truncated_lines: 0,
           },
+          toolName,
+        });
+      }
+      const selection = await scanStreamWindow(fs.createReadStream(resolvedPath, { encoding }), offset, limit);
+      if (offset > selection.totalLines) {
+        // 空窗口内容是"offset 超界"提示文案（与 SaaS 适配器的 selectLineRange 渲染一致）
+        return successResult(selection.content, {
+          summary: `offset ${offset} 超出文件总行数 ${selection.totalLines}`,
+          outputType: "text",
+          metadata: this.readMetadata(resolvedPath, stat.size, selection, context, agent),
           toolName,
         });
       }
@@ -118,24 +139,34 @@ export class LocalDocumentToolService {
       return successResult(selection.content, {
         summary,
         outputType: "text",
-        metadata: {
-          execution_paths: this.pathManager.executionPaths(context, agent.custom_params),
-          file_path: resolvedPath,
-          display_path: this.pathManager.toDisplayPath(resolvedPath),
-          file_size: stat.size,
-          total_lines: selection.totalLines,
-          start_line: selection.startLine,
-          end_line: selection.endLine,
-          has_more: selection.hasMore,
-          next_offset: selection.nextOffset,
-          char_truncated: selection.charTruncated,
-          truncated_lines: selection.truncatedLines,
-        },
+        metadata: this.readMetadata(resolvedPath, stat.size, selection, context, agent),
         toolName,
       });
     } catch (error) {
       return errorResult(`读取文件失败: ${error instanceof Error ? error.message : String(error)}`, toolName);
     }
+  }
+
+  private readMetadata(
+    resolvedPath: string,
+    fileSize: number,
+    selection: ReturnType<typeof selectLineRange>,
+    context: ToolExecContext,
+    agent: AgentConfig,
+  ): Record<string, unknown> {
+    return {
+      execution_paths: this.pathManager.executionPaths(context, agent.custom_params),
+      file_path: resolvedPath,
+      display_path: this.pathManager.toDisplayPath(resolvedPath),
+      file_size: fileSize,
+      total_lines: selection.totalLines,
+      start_line: selection.startLine,
+      end_line: selection.endLine,
+      has_more: selection.hasMore,
+      next_offset: selection.nextOffset,
+      char_truncated: selection.charTruncated,
+      truncated_lines: selection.truncatedLines,
+    };
   }
 
   async writeFile(
@@ -209,27 +240,33 @@ export class LocalDocumentToolService {
       }
 
       const encoding = normalizeEncoding(input.encoding);
-      const originalContent = fs.readFileSync(resolvedPath).toString(encoding);
-      const matchCount = countOccurrences(originalContent, input.oldString);
-      if (matchCount === 0) {
-        return errorResult("未找到匹配内容，请检查 old_string 是否与文件内容完全一致", toolName);
+      const rawContent = fs.readFileSync(resolvedPath).toString(encoding);
+      // 匹配/替换在 LF 归一文本上做（CRLF 文件与 LF old_string 互相可匹配，dsh 同款）；
+      // 写回时按文件原行尾风格还原，混合行尾文件按 LF 归一写。
+      const wasCrlf = crlfDominant(rawContent);
+      const originalContent = normalizeLineEndings(rawContent);
+      const oldString = normalizeLineEndings(input.oldString);
+      const newString = normalizeLineEndings(input.newString);
+      const matchLines = findMatchLineNumbers(originalContent, oldString);
+      if (matchLines.length === 0) {
+        return errorResult("未找到匹配内容，请检查 old_string 是否与文件内容完全一致（含空白与换行）", toolName);
       }
-      if (matchCount > 1 && !input.replaceAll) {
+      if (matchLines.length > 1 && !input.replaceAll) {
         return errorResult(
-          `匹配不唯一（找到 ${matchCount} 处匹配）。请提供更多上下文使 old_string 唯一，或设 replace_all=true`,
+          `匹配不唯一（找到 ${matchLines.length} 处，位于第 ${matchLines.join(", ")} 行）。请扩大 old_string 上下文使其唯一，或设 replace_all=true`,
           toolName,
         );
       }
 
       const updatedContent = input.replaceAll
-        ? originalContent.split(input.oldString).join(input.newString)
-        : originalContent.replace(input.oldString, input.newString);
+        ? originalContent.split(oldString).join(newString)
+        : originalContent.replace(oldString, newString);
       await this.fileHistory?.trackEdit(context.sessionId, resolvedPath);
-      fs.writeFileSync(resolvedPath, updatedContent, { encoding });
+      fs.writeFileSync(resolvedPath, wasCrlf ? restoreCrlf(updatedContent) : updatedContent, { encoding });
       const updatedStat = fs.statSync(resolvedPath);
       const diffPreview = buildDiffPreview(originalContent, updatedContent, path.basename(resolvedPath));
       const displayPath = this.pathManager.toDisplayPath(resolvedPath);
-      const replacements = input.replaceAll ? matchCount : 1;
+      const replacements = input.replaceAll ? matchLines.length : 1;
       return successResult(
         {
           file_path: resolvedPath,
