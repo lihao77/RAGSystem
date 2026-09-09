@@ -55,6 +55,71 @@ describe("ModelAdapterService provider configuration (provider_type=厂商, api_
       .toThrowError(new ModelAdapterServiceError('模型 "gpt-4.1" 的 thinking_kind "effort" 在 API 格式 "gemini" 下不可用（可选: none）', 400));
   });
 
+  it("endpoint_mode：full 落盘 / base 剥键 / 非法值 400；gemini × full 跨字段失配终局 400（先于归一链不静默剥弃）", () => {
+    const service = new ModelAdapterService();
+    // 元数据：三种适用格式提供 select（base/full 两档，缺省 base），gemini 不提供
+    const formats = service.listApiFormats();
+    const fieldOf = (apiFormat: string) =>
+      (formats.find((item) => item.value === apiFormat)?.config_fields ?? [])
+        .find((field) => field.key === "endpoint_mode");
+    for (const apiFormat of ["openai_resp", "openai_chat", "anthropic"]) {
+      expect(fieldOf(apiFormat)?.options.map((option) => option.value)).toEqual(["base", "full"]);
+      expect(fieldOf(apiFormat)?.default).toBe("base");
+    }
+    expect(fieldOf("gemini")).toBeUndefined();
+
+    const base = { name: "Pqy", provider_type: "zhipuai", api_key: "secret" };
+    const models = [{ name: "glm-5.3", thinking_kind: "effort" }];
+    // full 保留（完整方法 URL 原样直用，agent-llm 传输层据此跳过拼装）
+    const full = service.buildCreateProvider({
+      ...base,
+      api_format: "openai_chat",
+      api_endpoint: "https://gw.example/v1/chat/completions",
+      endpoint_mode: "full",
+      models,
+    });
+    expect(full.config.endpoint_mode).toBe("full");
+    // 值域 trim/小写归一：" FULL " 通过并落盘为 full
+    expect(service.buildCreateProvider({
+      ...base,
+      api_format: "openai_chat",
+      api_endpoint: "https://gw.example/v1/chat/completions",
+      endpoint_mode: " FULL ",
+      models,
+    }).config.endpoint_mode).toBe("full");
+    // 单字段 update 同样生效（existing 须已是完整方法 URL，否则被方法段校验拦截）
+    const fullExisting = { ...existing, api_endpoint: "https://api.openai.com/v1/chat/completions" };
+    expect(service.buildUpdateProvider("k", fullExisting, { endpoint_mode: "full" }).config.endpoint_mode).toBe("full");
+    expect(() => service.buildUpdateProvider("k", existing, { endpoint_mode: "full" }))
+      .toThrowError("endpoint_mode=full 要求 api_endpoint 为以 /chat/completions 结尾的完整方法 URL");
+    // base / null = 缺省语义（基座拼装），不落盘
+    expect(service.buildCreateProvider({ ...base, api_format: "openai_chat", endpoint_mode: "base", models }).config)
+      .not.toHaveProperty("endpoint_mode");
+    expect(service.buildCreateProvider({ ...base, api_format: "openai_chat", endpoint_mode: null, models }).config)
+      .not.toHaveProperty("endpoint_mode");
+    // 非法值 400（值域封闭）
+    expect(() => service.buildCreateProvider({ ...base, api_format: "openai_chat", endpoint_mode: "weird", models }))
+      .toThrowError(new ModelAdapterServiceError("endpoint_mode 非法值: weird（合法值: base/full）", 400));
+    // full 的方法段形状写入面 400（anthropic 须以 /messages 结尾），不等到调用期才爆
+    expect(() => service.buildCreateProvider({
+      ...base,
+      api_format: "anthropic",
+      api_endpoint: "https://api.anthropic.com",
+      endpoint_mode: "full",
+      models,
+    })).toThrowError("endpoint_mode=full 要求 api_endpoint 为以 /messages 结尾的完整方法 URL");
+    // 跨字段失配：gemini × full → 终局校验 400（在归一链剥弃之前拦截，误配响亮报错）
+    expect(() => service.buildCreateProvider({
+      ...base,
+      api_format: "gemini",
+      endpoint_mode: "full",
+      models: [{ name: "gem", thinking_kind: "none" }],
+    })).toThrowError("gemini 格式不支持 endpoint_mode");
+    // 已有 full 的 provider 切到 gemini：同样拦截
+    expect(() => service.buildUpdateProvider("k", full.config, { api_format: "gemini" }))
+      .toThrowError("gemini 格式不支持 endpoint_mode");
+  });
+
   it("rejects unknown or missing api formats (厂商自由、格式封闭)", () => {
     const service = new ModelAdapterService();
     expect(() => service.buildUpdateProvider("stable-provider-key", existing, { api_format: "unsupported-format" }))

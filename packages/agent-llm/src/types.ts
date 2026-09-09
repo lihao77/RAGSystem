@@ -111,6 +111,16 @@ export interface ProviderConfig {
   name: string;
   provider_type: string;
   api_endpoint?: string | null;
+  /**
+   * 服务端点形态（用户显式声明，缺省 base）：
+   * - base = 基座 URL，传输层按协议归一拼装规范方法路径（openai 系剥误粘段后拼
+   *   /v1/chat/completions|/responses——裸域名自动补 /v1；anthropic 拼 /v1/messages）；
+   * - full = 配置即完整方法 URL 原样直用（根路径网关等非规范布局的逃生通道），
+   *   openai 系须以方法段结尾、anthropic 须以 /messages 结尾，失配显式报错
+   *   （防误配落回 200+HTML 的空流陷阱）。
+   * gemini 不适用（URL 由 SDK 按模型名拼装），配置面拒绝。
+   */
+  endpoint_mode?: "base" | "full" | null;
   api_key?: string | null;
   /** Optional process-local transport used by trusted local deployment composition. */
   transport?: {

@@ -23,6 +23,7 @@ import {
   normalizeModels,
   normalizeProviderHeaders,
   normalizeProviderRuntimeConfig,
+  providerEndpointModeError,
   providerThinkingKindError,
   runProviderFormNormalization,
 } from "./model-adapter-hydration.js";
@@ -55,6 +56,7 @@ const UPDATE_FIELDS = [
   "models",
   "api_endpoint",
   "headers",
+  "endpoint_mode",
 ] as const;
 
 export class ModelAdapterServiceError extends Error {
@@ -218,6 +220,12 @@ export class ModelAdapterService {
       assignProviderField(config, field, value);
     }
 
+    // 终局校验先于归一链：gemini × full 失配须在归一步剥弃前拦截为 400（归一链只服务
+    // 加载面收敛；写入面显式报错不静默改写）。
+    const endpointModeError = providerEndpointModeError(config);
+    if (endpointModeError) {
+      throw new ModelAdapterServiceError(endpointModeError, 400);
+    }
     normalizeProviderRuntimeConfig(config);
     if (!String(config.provider_type ?? "").trim()) {
       throw new ModelAdapterServiceError("缺少必需字段: provider_type", 400);
@@ -431,6 +439,11 @@ export class ModelAdapterService {
     const config = normalized as ModelProviderConfig;
     config.name = String(config.name);
     config.provider_type = String(config.provider_type).trim().toLowerCase();
+    // 终局校验先于归一链（同 buildUpdateProvider：失配须 400 而非被归一步静默剥弃）。
+    const createEndpointModeError = providerEndpointModeError(config);
+    if (createEndpointModeError) {
+      throw new ModelAdapterServiceError(createEndpointModeError, 400);
+    }
     normalizeProviderRuntimeConfig(config);
     // 写入面不做形状填充（用户必须显式选择）：缺失/非法/格式失配直接 400。
     const thinkingError = providerThinkingKindError(config);
@@ -466,6 +479,17 @@ export class ModelAdapterService {
     const models = normalized.models;
     if (models !== undefined && !Array.isArray(models)) {
       throw new ModelAdapterServiceError("models 必须是数组", 400);
+    }
+    // endpoint_mode 值域（写入面 400；base/full 二值，trim/小写归一后比对，null/缺省 = 基座）。
+    // 跨字段失配（gemini × full、full 的方法段形状）在终局校验拦截（合并配置后才可判定）。
+    if (normalized.endpoint_mode !== undefined && normalized.endpoint_mode !== null) {
+      const endpointMode = String(normalized.endpoint_mode).trim().toLowerCase();
+      if (endpointMode !== "base" && endpointMode !== "full") {
+        throw new ModelAdapterServiceError(
+          `endpoint_mode 非法值: ${String(normalized.endpoint_mode)}（合法值: base/full）`,
+          400,
+        );
+      }
     }
     const entries = Array.isArray(models) ? models : [];
     for (const entry of entries) {
@@ -612,6 +636,22 @@ function providerConfigFields(providerType: string): ProviderTypeInfo["config_fi
   ];
 
   const capabilities = providerTypeSpec(providerType);
+  // 端点形态声明（与写入面 providerEndpointModeError 同判定源：除 gemini 外全格式提供——
+  // gemini 的 URL 由 SDK 按模型名拼装不适用）。置顶于扩展配置区，前端两处编辑面
+  // （新建表单/详情面板）由 config_fields 元数据驱动自动渲染。
+  if (providerType !== "gemini") {
+    fields.unshift({
+      key: "endpoint_mode",
+      label: "服务端点形态",
+      type: "select",
+      default: "base",
+      help: "基座 URL：填域名或到 /v1 版本段，自动拼装 /chat/completions 等接口路径（裸域名自动补 /v1）；完整 URL：填到接口路径结尾（如 …/v1/chat/completions），原样直用——接口在根路径、无 /v1 段的网关用此项。",
+      options: [
+        { value: "base", label: "基座 URL（自动拼路径）" },
+        { value: "full", label: "完整 URL（原样使用）" },
+      ],
+    });
+  }
   if (capabilities?.exposesPromptCacheToggle) {
     fields.unshift({
       key: "supports_prompt_caching",
@@ -708,6 +748,14 @@ function assignProviderField(config: ModelProviderConfig, field: (typeof UPDATE_
       else delete config.headers;
       break;
     }
+    case "endpoint_mode":
+      // base 为缺省语义不落盘（值域已在 ensureProviderRequestShape 严格 400）。
+      if (String(value ?? "").trim().toLowerCase() === "full") {
+        config.endpoint_mode = "full";
+      } else {
+        delete config.endpoint_mode;
+      }
+      break;
   }
 }
 

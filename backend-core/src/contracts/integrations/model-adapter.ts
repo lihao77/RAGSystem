@@ -181,6 +181,14 @@ export interface ModelProviderConfig {
    * 有意为之，一般场景勿配置保留头名。
    */
   headers?: Record<string, string>;
+  /**
+   * 服务端点形态（用户显式声明端点是裸基座还是完整 URL，agent-llm 传输层拼装依据）：
+   * - base（缺省，不落盘）：基座 URL，运行时按协议归一拼装规范方法路径（openai 系
+   *   /v1/chat/completions|/responses——裸域名自动补 /v1；anthropic /v1/messages）；
+   * - full：配置即完整方法 URL 原样直用（接口在根路径、无 /v1 段的网关）。
+   * gemini 不适用（URL 由 SDK 按模型名拼装）：写入面 400、加载面剥键。
+   */
+  endpoint_mode?: "base" | "full";
   is_loaded?: boolean;
   is_available?: boolean;
   [key: string]: unknown;

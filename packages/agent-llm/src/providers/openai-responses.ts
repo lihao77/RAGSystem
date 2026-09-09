@@ -17,7 +17,7 @@ import {
   consumeProviderStream,
   resolveSdkFetch,
   executeProviderOperation,
-  openAiBaseURL,
+  openAiMethodUrl,
   requireApiKey,
   settleAsyncIterator,
   withProviderGuards,
@@ -52,7 +52,7 @@ export class OpenAiResponsesAdapter implements LlmProviderAdapter {
 function buildWireOptions(request: LlmRequest, guard: AttemptGuard, body: Record<string, unknown>): WireCallOptions {
   const provider = request.provider;
   return {
-    url: `${openAiBaseURL(provider, "/responses")}/responses`,
+    url: openAiMethodUrl(provider, "/responses"),
     headers: {
       authorization: `Bearer ${requireApiKey(provider)}`,
       ...resolveProviderHeaders(provider, request.promptCacheKey),

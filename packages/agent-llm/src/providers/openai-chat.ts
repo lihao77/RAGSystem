@@ -16,7 +16,7 @@ import {
   consumeProviderStream,
   resolveSdkFetch,
   executeProviderOperation,
-  openAiBaseURL,
+  openAiMethodUrl,
   requireApiKey,
   settleAsyncIterator,
   withProviderGuards,
@@ -64,7 +64,7 @@ export class OpenAiChatAdapter implements LlmProviderAdapter {
 function buildWireOptions(request: LlmRequest, guard: AttemptGuard, body: Record<string, unknown>): WireCallOptions {
   const provider = request.provider;
   return {
-    url: `${openAiBaseURL(provider, "/chat/completions")}/chat/completions`,
+    url: openAiMethodUrl(provider, "/chat/completions"),
     headers: {
       authorization: `Bearer ${requireApiKey(provider)}`,
       ...resolveProviderHeaders(provider, request.promptCacheKey),

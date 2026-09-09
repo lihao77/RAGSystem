@@ -173,14 +173,37 @@
                   <p v-if="formErrors.api_key" class="pd-field__error">{{ formErrors.api_key }}</p>
                 </div>
                 <div class="pd-field">
-                  <label class="pd-field__label" for="create-endpoint">Base URL</label>
+                  <div class="pd-field__label-row">
+                    <label class="pd-field__label" for="create-endpoint">Base URL</label>
+                    <div
+                      v-if="endpointModeApplicable(form.api_format)"
+                      class="endpoint-mode-pill"
+                      :class="{ 'endpoint-mode-pill--full': form.endpoint_mode === 'full' }"
+                      :title="form.endpoint_mode === 'full' ? '完整 URL：原样直用，填到接口路径结尾' : '基座 URL：自动拼装接口路径（裸域名自动补 /v1）'"
+                    >
+                      <Link2 :size="13" />
+                      <span class="endpoint-mode-pill__text">{{ form.endpoint_mode === 'full' ? '完整 URL' : '基座 URL' }}</span>
+                      <Switch
+                        :checked="form.endpoint_mode === 'full'"
+                        class="endpoint-mode-pill__switch"
+                        aria-label="使用完整 URL 端点（关闭则为基座 URL 自动拼路径）"
+                        @update:checked="form.endpoint_mode = $event ? 'full' : 'base'"
+                      />
+                    </div>
+                  </div>
                   <Input
                     id="create-endpoint"
                     v-model="form.api_endpoint"
                     :aria-invalid="!!formErrors.api_endpoint"
                     :placeholder="apiEndpointPlaceholder"
                   />
-                  <p class="pd-field__hint">留空时使用该 API 格式的默认 Endpoint。</p>
+                  <p class="pd-field__hint">{{
+                    form.endpoint_mode === 'full'
+                      ? '完整 URL 原样直用——填到接口路径结尾（如 …/v1/chat/completions）。'
+                      : form.api_format === 'gemini'
+                        ? '填 API 基址，接口路径由 SDK 按模型名拼装。'
+                        : '自动拼装接口路径（裸域名自动补 /v1）；留空使用该 API 格式的默认 Endpoint。'
+                  }}</p>
                   <p v-if="formErrors.api_endpoint" class="pd-field__error">{{ formErrors.api_endpoint }}</p>
                 </div>
               </section>
@@ -407,7 +430,25 @@
                   <p class="pd-field__hint">provider type 即厂商：从目录选择自动带出 API 格式与 Endpoint；自建服务直接输入标识。</p>
                 </div>
                 <div class="pd-field">
-                  <label class="pd-field__label" for="detail-endpoint">Base URL</label>
+                  <div class="pd-field__label-row">
+                    <label class="pd-field__label" for="detail-endpoint">Base URL</label>
+                    <div
+                      v-if="endpointModeApplicable(detailForm.api_format)"
+                      class="endpoint-mode-pill"
+                      :class="{ 'endpoint-mode-pill--full': detailForm.endpoint_mode === 'full' }"
+                      :title="detailForm.endpoint_mode === 'full' ? '完整 URL：原样直用，填到接口路径结尾' : '基座 URL：自动拼装接口路径（裸域名自动补 /v1）'"
+                    >
+                      <Link2 :size="13" />
+                      <span class="endpoint-mode-pill__text">{{ detailForm.endpoint_mode === 'full' ? '完整 URL' : '基座 URL' }}</span>
+                      <Switch
+                        :checked="detailForm.endpoint_mode === 'full'"
+                        class="endpoint-mode-pill__switch"
+                        aria-label="使用完整 URL 端点（关闭则为基座 URL 自动拼路径）"
+                        :disabled="savingFields.has('endpoint_mode')"
+                        @update:checked="saveDetailField('endpoint_mode', $event ? 'full' : 'base')"
+                      />
+                    </div>
+                  </div>
                   <Input
                     id="detail-endpoint"
                     v-model="detailForm.api_endpoint"
@@ -677,7 +718,7 @@
 
 <script setup>
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue';
-import { Box, ChevronDown, ChevronUp, Eye, EyeOff, GripVertical, Info, Play } from 'lucide-vue-next';
+import { Box, ChevronDown, ChevronUp, Eye, EyeOff, GripVertical, Info, Link2, Play } from 'lucide-vue-next';
 import {
   getProviderTestTargets,
   providerTestTaskLabel,
@@ -744,12 +785,32 @@ const ANTHROPIC_FIELDS = [
   { key: 'cache_ttl_seconds', label: 'Cache TTL (s)', type: 'number', default: 300, help: 'Provider KV cache 的滑动失效阈值。', options: [] },
 ];
 const PROMPT_CACHE_API_FORMATS = new Set(['anthropic']);
+// 端点形态（与后端 config_fields 元数据同款；接口失败兜底时保持一致）：gemini 不适用
+// （URL 由 SDK 按模型名拼装）。base=基座自动拼路径（裸域名自动补 /v1），full=完整 URL 直用。
+const ENDPOINT_MODE_FIELD = {
+  key: 'endpoint_mode',
+  label: '服务端点形态',
+  type: 'select',
+  default: 'base',
+  help: '基座 URL：填域名或到 /v1 版本段，自动拼装 /chat/completions 等接口路径（裸域名自动补 /v1）；完整 URL：填到接口路径结尾（如 …/v1/chat/completions），原样直用——接口在根路径、无 /v1 段的网关用此项。',
+  options: [
+    { value: 'base', label: '基座 URL（自动拼路径）' },
+    { value: 'full', label: '完整 URL（原样使用）' },
+  ],
+};
+const ENDPOINT_MODE_API_FORMATS = new Set(['openai_resp', 'openai_chat', 'anthropic']);
+/** 端点形态开关贴着 Base URL 输入框渲染（本文件模板直用），扩展配置区不再重复出现。 */
+const ENDPOINT_MODE_UI_EXCLUDED_KEYS = new Set(['endpoint_mode']);
+function endpointModeApplicable(apiFormat) {
+  return ENDPOINT_MODE_API_FORMATS.has(apiFormat);
+}
 
 // 思考档位不归 provider 配置（在 agent llm_tiers 配置），表单不暴露思考相关字段。
 function fallbackConfigFields(apiFormat) {
   const fields = [...COMMON_PROVIDER_FIELDS];
   if (apiFormat === 'anthropic') fields.unshift(...ANTHROPIC_FIELDS);
   if (PROMPT_CACHE_API_FORMATS.has(apiFormat)) fields.unshift(PROMPT_CACHE_FIELD);
+  if (ENDPOINT_MODE_API_FORMATS.has(apiFormat)) fields.unshift(ENDPOINT_MODE_FIELD);
   return fields;
 }
 
@@ -790,7 +851,8 @@ function providerModelEntries(provider) {
   if (!Array.isArray(provider.models)) return [];
   return provider.models.filter((model) => model && String(model.name || '').trim());
 }
-function providerTestTargets(provider) { return getProviderTestTargets(provider); }function getProviderConfigFields(apiFormat) { return apiFormatMeta.value[apiFormat]?.config_fields || []; }
+function providerTestTargets(provider) { return getProviderTestTargets(provider); }
+function getProviderConfigFields(apiFormat) { return apiFormatMeta.value[apiFormat]?.config_fields || []; }
 
 function providerStatus(provider) {
   const key = getProviderKey(provider);
@@ -837,7 +899,7 @@ const detailResilienceFields = computed(() => {
 });
 const detailExtensionFields = computed(() => {
   const fields = apiFormatMeta.value[detailForm.value?.api_format]?.config_fields || [];
-  return fields.filter((field) => !RESILIENCE_FIELD_KEYS.has(field.key));
+  return fields.filter((field) => !RESILIENCE_FIELD_KEYS.has(field.key) && !ENDPOINT_MODE_UI_EXCLUDED_KEYS.has(field.key));
 });
 
 function buildDetailForm(provider) {
@@ -851,6 +913,8 @@ function buildDetailForm(provider) {
   for (const field of getProviderConfigFields(provider.api_format)) {
     next[field.key] = provider[field.key] ?? field.default ?? '';
   }
+  // 端点形态兜底归一（元数据缺失/格式不适用时与后端缺省语义一致：base）
+  next.endpoint_mode = endpointModeApplicable(provider.api_format) && provider.endpoint_mode === 'full' ? 'full' : 'base';
   return next;
 }
 function selectProvider(provider) {
@@ -893,7 +957,9 @@ async function saveDetailField(field, value) {
   try {
     await updateProvider(getProviderKey(provider), { [field]: value });
     provider[field] = value;
-    if (['api_key', 'api_endpoint', 'api_format'].includes(field)) loadProviderAvailability(providers.value);
+    // 非 v-model 控件（下拉/开关）的显示值随保存同步，失败路径由 catch 重建回滚
+    if (detailForm.value) detailForm.value[field] = value;
+    if (['api_key', 'api_endpoint', 'api_format', 'endpoint_mode'].includes(field)) loadProviderAvailability([provider]);
   } catch (e) {
     setFieldError(field, e?.message || '保存失败');
     toast.error(e?.message || '保存失败');
@@ -912,7 +978,7 @@ async function saveDetailApiKey() {
     await updateProvider(getProviderKey(provider), { api_key: value });
     provider.api_key_configured = true;
     detailForm.value.api_key = '';
-    loadProviderAvailability(providers.value);
+    loadProviderAvailability([provider]);
   } catch (e) {
     setFieldError('api_key', e?.message || '保存失败');
     toast.error(e?.message || '保存失败');
@@ -1016,6 +1082,9 @@ async function onDetailVendorPick(option) {
       for (const field of getProviderConfigFields(profile.api_format)) {
         if (!prevFields.some((item) => item.key === field.key)) payload[field.key] = field.default ?? '';
       }
+      // 切到不适用的格式（如目录选中原生 Google → gemini）随 payload 清掉完整 URL 声明，
+      // 防残留 full 被后端终局校验 400 卡死厂商切换（与 onDetailFormatChange 同款守卫）
+      if (!endpointModeApplicable(profile.api_format)) payload.endpoint_mode = 'base';
     }
     if (summary?.api_base_url) payload.api_endpoint = summary.api_base_url;
   }
@@ -1030,7 +1099,7 @@ async function persistDetailVendor(payload) {
     await updateProvider(getProviderKey(provider), payload);
     Object.assign(provider, payload);
     detailForm.value = buildDetailForm(provider);
-    loadProviderAvailability(providers.value);
+    loadProviderAvailability([provider]);
   } catch (e) {
     setFieldError('provider_type', e?.message || '保存失败');
     toast.error(e?.message || '保存失败');
@@ -1049,6 +1118,8 @@ async function onDetailFormatChange(apiFormat) {
   for (const field of nextFields) {
     if (!previousFields.some((item) => item.key === field.key)) payload[field.key] = field.default ?? '';
   }
+  // 切到不适用的格式（gemini）时随格式保存清掉完整 URL 声明，避免残留 full 被终局校验 400
+  if (!endpointModeApplicable(apiFormat)) payload.endpoint_mode = 'base';
   markSaving('api_format', true);
   setFieldError('api_format', '');
   try {
@@ -1058,7 +1129,7 @@ async function onDetailFormatChange(apiFormat) {
       if (key !== 'api_format') provider[key] = payload[key];
     }
     detailForm.value = buildDetailForm(provider);
-    loadProviderAvailability(providers.value);
+    loadProviderAvailability([provider]);
   } catch (e) {
     setFieldError('api_format', e?.message || '保存失败');
     toast.error(e?.message || '保存失败');
@@ -1078,7 +1149,8 @@ function fmtContextTokens(value) {
 
 async function loadProviderAvailability(items) {
   const keys = items.map(getProviderKey);
-  availabilityLoadingKeys.value = new Set(keys);
+  // 并集标记 + 结束只清本次 key：并发调用（单项重查 × 全量刷新/连续保存）互不吞掉对方的检查中态
+  availabilityLoadingKeys.value = new Set([...availabilityLoadingKeys.value, ...keys]);
   const entries = await Promise.all(items.map(async (provider) => {
     const key = getProviderKey(provider);
     try {
@@ -1087,8 +1159,11 @@ async function loadProviderAvailability(items) {
       return [key, { is_available: false, error: e?.message || '配置检查失败', checks: {} }];
     }
   }));
-  availabilityByKey.value = Object.fromEntries(entries);
-  availabilityLoadingKeys.value = new Set();
+  // 增量合并：字段保存只影响该 provider，单项重查不清空其余条目的结果，列表不整片闪烁
+  availabilityByKey.value = { ...availabilityByKey.value, ...Object.fromEntries(entries) };
+  const nextLoading = new Set(availabilityLoadingKeys.value);
+  for (const key of keys) nextLoading.delete(key);
+  availabilityLoadingKeys.value = nextLoading;
 }
 
 /** 拒载记录（load_errors）：与列表同刷，展示损坏 provider 的报错（不在列表中的原因）。 */
@@ -1400,7 +1475,7 @@ async function persistModels(nextEntries, successMessage) {
   try {
     await updateProvider(getProviderKey(provider), { models: nextEntries });
     provider.models = nextEntries;
-    loadProviderAvailability(providers.value);
+    loadProviderAvailability([provider]);
     if (successMessage) toast.success(successMessage);
   } catch (e) {
     toast.error(e?.message || '模型保存失败');
@@ -1506,7 +1581,7 @@ const resilienceProviderConfigFields = computed(() => {
 });
 const extensionProviderConfigFields = computed(() => {
   const fields = apiFormatMeta.value[form.value.api_format]?.config_fields || [];
-  return fields.filter((field) => !RESILIENCE_FIELD_KEYS.has(field.key));
+  return fields.filter((field) => !RESILIENCE_FIELD_KEYS.has(field.key) && !ENDPOINT_MODE_UI_EXCLUDED_KEYS.has(field.key));
 });
 const providerKeyPreview = computed(() => {
   const name = String(form.value.name || '').trim().toLowerCase().replace(/\s+/g, '_');
@@ -1515,7 +1590,7 @@ const providerKeyPreview = computed(() => {
 });
 
 function buildFormDefaults() {
-  return { name: '', provider_type: '', api_key: '', api_endpoint: '', api_format: '', headers: [] };
+  return { name: '', provider_type: '', api_key: '', api_endpoint: '', api_format: '', endpoint_mode: 'base', headers: [] };
 }
 function buildModelDefaults() {
   return {
@@ -1554,6 +1629,8 @@ function handleApiFormatChange(apiFormat) {
     const prevDef = previousFields.find((item) => item.key === field.key)?.default;
     if (form.value[field.key] === undefined || form.value[field.key] === prevDef) form.value[field.key] = field.default ?? '';
   }
+  // 端点形态在不适用的格式（gemini）下回落基座；适用格式间切换保留用户已选形态
+  if (!endpointModeApplicable(apiFormat)) form.value.endpoint_mode = 'base';
 }
 function closeDialog() { createOpen.value = false; formErrors.value = {}; }
 
@@ -1815,6 +1892,11 @@ onBeforeUnmount(() => {
 /* 内联字段 */
 .pd-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .pd-field__label { font-size: 12px; font-weight: 500; color: var(--color-text-secondary); }
+.pd-field__label-row { display: flex; align-items: center; justify-content: flex-start; gap: 8px; }
+/* 端点形态胶囊：贴在 Base URL 标签行右侧，[链接图标 + 当前形态 + 开关] 随状态切换 */
+.endpoint-mode-pill { display: inline-flex; align-items: center; gap: 5px; padding: 3px 3px 3px 9px; border: 1px solid var(--color-border); border-radius: 999px; background: var(--color-bg-elevated); color: var(--color-text-muted); font-size: 12px; line-height: 1; white-space: nowrap; }
+.endpoint-mode-pill--full { color: var(--color-text-secondary); }
+.endpoint-mode-pill__switch { transform: scale(0.78); }
 .pd-field__label--switch { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; color: var(--color-text-primary); cursor: pointer; }
 .pd-field__hint { margin: 0; font-size: 11px; line-height: 1.5; color: var(--color-text-muted); }
 .pd-field__error { margin: 0; font-size: 12px; color: var(--color-error); }

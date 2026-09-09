@@ -66,9 +66,10 @@ test("OpenAI-compatible client supports completion, streaming, and abort over an
   await assert.rejects(aborted, (error) => error?.name === "AbortError");
 
   assert.deepEqual(requests.map((entry) => entry.url), [
-    "/private-token/chat/completions",
-    "/private-token/chat/completions",
-    "/private-token/chat/completions",
+    // base（缺省）模式：无版本段子路径归一补 /v1（endpoint_mode 契约，见 endpoint-mode.test.mjs）
+    "/private-token/v1/chat/completions",
+    "/private-token/v1/chat/completions",
+    "/private-token/v1/chat/completions",
   ]);
 
   delete process.env[socketEnv];

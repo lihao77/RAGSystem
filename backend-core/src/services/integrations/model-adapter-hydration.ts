@@ -28,6 +28,11 @@ export const PROVIDER_FORM_NORMALIZATION_STEPS: readonly HydrationStep<ModelProv
     run: normalizeProviderHeadersStep,
   },
   {
+    id: "provider_endpoint_mode_normalize",
+    note: "endpoint_mode 归一：full 且非 gemini 格式保留；base/非法值/gemini 格式剥键回落基座语义（agent-llm 缺省按基座拼装）",
+    run: normalizeEndpointModeStep,
+  },
+  {
     id: "provider_model_entries_normalize",
     note: "models 归一为对象条目数组（旧字符串条目/字符串模型名丢弃，只保留合法条目并去重；条目 thinking_kind 合法值归一）",
     run: normalizeModelEntriesStep,
@@ -81,6 +86,10 @@ export function canonicalizeProviderConfig(config: ProviderPayload): ProviderPay
   // provider_type = 厂商（自由字符串，仅归一大小写/空白）；API 格式别名归一只作用于 api_format。
   normalized.provider_type = String(normalized.provider_type ?? "").trim().toLowerCase();
   normalized.api_format = canonicalizeProviderType(normalized.api_format, normalized.api_mode);
+  // endpoint_mode 值归一（trim/小写；非法值不在归一范围内——由写入面值域校验 400 拦截）
+  if (normalized.endpoint_mode !== undefined && normalized.endpoint_mode !== null) {
+    normalized.endpoint_mode = String(normalized.endpoint_mode).trim().toLowerCase() as ProviderPayload["endpoint_mode"];
+  }
   return normalized;
 }
 
@@ -124,6 +133,7 @@ export function normalizeProviderRuntimeConfig(config: ModelProviderConfig): voi
     delete (config as Record<string, unknown>).thinking_kind;
   }
   normalizeProviderHeadersStep(config);
+  normalizeEndpointModeStep(config);
   normalizeModelEntriesStep(config);
 }
 
@@ -252,6 +262,46 @@ function normalizeProviderHeadersStep(config: ModelProviderConfig): boolean {
   if (normalized) config.headers = normalized;
   else delete config.headers;
   return before !== JSON.stringify(config.headers ?? null);
+}
+
+/**
+ * endpoint_mode 归一（base 为缺省语义，不落盘）：full 且 API 格式适用（非 gemini）
+ * 保留；其余（显式 base、非法值、gemini 格式残留、手工编辑半迁移态）剥键——
+ * 加载面收敛而非拒载（良性字段，剥弃最坏退化为拼装路径，与 headers 同策略）。
+ */
+function normalizeEndpointModeStep(config: ModelProviderConfig): boolean {
+  if (config.endpoint_mode === undefined) return false;
+  const keepFull = config.endpoint_mode === "full"
+    && String(config.api_format ?? "").trim().toLowerCase() !== "gemini";
+  if (keepFull) return false;
+  delete config.endpoint_mode;
+  return true;
+}
+
+/**
+ * endpoint_mode 跨字段终局校验（create/update 写入面 400、加载面不触发——加载面由
+ * normalizeEndpointModeStep 收敛）。值域校验在 ensureProviderRequestShape（本函数管
+ * 合并后才可判定的失配 + full 的完整方法 URL 形状）。返回 null = 通过；错误消息 = 拒绝原因。
+ */
+export function providerEndpointModeError(config: ModelProviderConfig): string | null {
+  if (config.endpoint_mode !== "full") return null;
+  const format = String(config.api_format ?? "").trim().toLowerCase();
+  if (format === "gemini") {
+    return "gemini 格式不支持 endpoint_mode（URL 由 SDK 按模型名拼装，端点填基址即可）";
+  }
+  // full = 完整方法 URL 的显式声明：方法段形状在写入面拦截（否则要等首次调用在
+  // agent-llm 传输层才报错，保存成功但一用即挂）。
+  const suffixByFormat: Record<string, string> = {
+    openai_chat: "/chat/completions",
+    openai_resp: "/responses",
+    anthropic: "/messages",
+  };
+  const suffix = suffixByFormat[format];
+  const endpoint = String(config.api_endpoint ?? "").trim().replace(/\/+$/, "");
+  if (suffix && !endpoint.endsWith(suffix)) {
+    return `endpoint_mode=full 要求 api_endpoint 为以 ${suffix} 结尾的完整方法 URL，当前: ${endpoint || "(空)"}`;
+  }
+  return null;
 }
 
 /** 模型条目数组归一：只保留已知键，name trim 非空去重，数值/布尔/模态非法值丢弃；非数组 → []。 */

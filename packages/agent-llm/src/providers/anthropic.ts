@@ -19,7 +19,7 @@ import { isRecord } from "../internal/records.js";
 import { extractAnthropicUsage } from "../internal/usage.js";
 import { resolveProviderHeaders } from "../provider-headers.js";
 import {
-  anthropicBaseURL,
+  anthropicMethodUrl,
   consumeProviderStream,
   resolveSdkFetch,
   executeProviderOperation,
@@ -67,7 +67,7 @@ export class AnthropicAdapter implements LlmProviderAdapter {
 function buildWireOptions(request: LlmRequest, guard: AttemptGuard, body: Record<string, unknown>): WireCallOptions {
   const provider = request.provider;
   return {
-    url: `${anthropicBaseURL(provider)}/v1/messages`,
+    url: anthropicMethodUrl(provider),
     headers: {
       "x-api-key": requireApiKey(provider),
       "anthropic-version": "2023-06-01",

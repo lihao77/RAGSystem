@@ -69,12 +69,15 @@ describe("provider form normalization hydration", () => {
       provider_type: "zhipuai",
       api_format: "openai_chat",
       api_key: "sk",
+      api_endpoint: "https://gw.example/v1/chat/completions",
+      endpoint_mode: "full",
       models: [{ name: "glm-model", max_context_tokens: 128000, thinking_kind: "effort" }],
     };
     const snapshot = JSON.stringify(config);
     runProviderFormNormalization(config);
     runProviderFormNormalization(config);
     expect(JSON.stringify(config)).toBe(snapshot);
+    expect(config.endpoint_mode).toBe("full");
   });
 
   it("厂商级 thinking_kind 下沉迁移：按旧运行时推断语义等价固化进条目并剥离厂商字段", () => {
@@ -236,6 +239,57 @@ describe("provider form normalization hydration", () => {
     } as unknown as ModelProviderConfig;
     runProviderFormNormalization(malformed);
     expect(malformed).not.toHaveProperty("headers");
+  });
+
+  it("endpoint_mode 归一：full 非 gemini 保留；显式 base/非法值/gemini 残留剥键回落基座语义", () => {
+    const yaml = [
+      "full_mode:",
+      "  name: Full Mode",
+      "  provider_type: zhipuai",
+      "  api_format: openai_chat",
+      "  api_key: sk",
+      "  api_endpoint: https://gw.example/v1/chat/completions",
+      "  endpoint_mode: full",
+      "  models:",
+      "    - name: glm",
+      "      thinking_kind: effort",
+      "explicit_base:",
+      "  name: Explicit Base",
+      "  provider_type: deepseek",
+      "  api_format: openai_chat",
+      "  api_key: sk",
+      "  endpoint_mode: base",
+      "  models:",
+      "    - name: ds",
+      "      thinking_kind: effort",
+      "invalid_value:",
+      "  name: Invalid Value",
+      "  provider_type: deepseek",
+      "  api_format: openai_chat",
+      "  api_key: sk",
+      "  endpoint_mode: weird",
+      "  models:",
+      "    - name: ds",
+      "      thinking_kind: effort",
+      "gemini_full:",
+      "  name: Gemini Full",
+      "  provider_type: google",
+      "  api_format: gemini",
+      "  api_key: sk",
+      "  endpoint_mode: full",
+      "  models:",
+      "    - name: gem",
+      "      thinking_kind: none",
+    ].join("\n");
+    const service = loadFromYaml(yaml);
+
+    // full = 完整方法 URL 直用的显式声明，保留落盘
+    expect(service.getProvider("full_mode")?.endpoint_mode).toBe("full");
+    // base 是缺省语义不落盘；非法值/手工编辑半迁移态收敛剥弃（与 headers 同策略）
+    expect(service.getProvider("explicit_base")).not.toHaveProperty("endpoint_mode");
+    expect(service.getProvider("invalid_value")).not.toHaveProperty("endpoint_mode");
+    // gemini 不适用（URL 由 SDK 按模型名拼装），残留剥弃
+    expect(service.getProvider("gemini_full")).not.toHaveProperty("endpoint_mode");
   });
 
   function loadFromYaml(yaml: string): ModelAdapterService {

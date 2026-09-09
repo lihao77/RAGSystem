@@ -352,12 +352,32 @@ function responseHeaders(headers: IncomingHttpHeaders): Headers {
   return result;
 }
 
-/** openai 系端点基址：容忍已带方法后缀的存量配置（线层拼 /chat/completions、/responses）。 */
-export function openAiBaseURL(provider: ProviderConfig, methodSuffix: "/chat/completions" | "/responses"): string {
-  const configured = String(provider.api_endpoint ?? DEFAULT_ENDPOINTS[provider.provider_type] ?? "").trim();
+/** 解析 provider 配置端点（显式配置优先、格式默认兜底），尾斜杠归一；缺失显式报错。 */
+function configuredEndpointBase(provider: ProviderConfig, fallback: string | undefined): string {
+  const configured = String(provider.api_endpoint ?? fallback ?? "").trim();
   if (!configured) throw new Error(`Provider '${provider.name}' is missing api_endpoint`);
-  const base = configured.replace(/\/+$/, "");
-  return base.endsWith(methodSuffix) ? base.slice(0, -methodSuffix.length) : base;
+  return configured.replace(/\/+$/, "");
+}
+
+/**
+ * openai 系最终方法 URL（endpoint_mode 两种形态收敛到唯一规范 URL）：
+ * - full：配置即完整方法 URL，原样直用——根路径网关（无 /v1 段、接口在根 /chat/completions）
+ *   的显式声明，不做任何拼装；不以方法段结尾 = 误配，显式报错。
+ * - base（缺省）：基座归一拼装——剥误粘的方法段后：结尾已是版本段（/v1、/v3、/v4、/v1beta
+ *   等，智谱 paas/v4、火山方舟 api/v3 形态）只拼方法段（存量行为逐字符不变）；裸域名/
+ *   无版本段路径补 /v1 再拼（Sub2API 类网关根路径是前端 SPA，裸拼方法段会拿到
+ *   200+HTML 的空流——本分支即该事故修复）。与 anthropicMethodUrl 同为"归一后再拼"策略。
+ */
+export function openAiMethodUrl(provider: ProviderConfig, methodSuffix: "/chat/completions" | "/responses"): string {
+  const base = configuredEndpointBase(provider, DEFAULT_ENDPOINTS[provider.provider_type]);
+  if (provider.endpoint_mode === "full") {
+    if (!base.endsWith(methodSuffix)) {
+      throw new Error(`Provider '${provider.name}' declares endpoint_mode=full; api_endpoint must be the complete method URL ending with ${methodSuffix}`);
+    }
+    return base;
+  }
+  const root = base.endsWith(methodSuffix) ? base.slice(0, -methodSuffix.length) : base;
+  return /\/v\d+[a-z]*$/i.test(root) ? `${root}${methodSuffix}` : `${root}/v1${methodSuffix}`;
 }
 
 /** anthropic 端点基址：线层拼 /v1/messages，剥离存量配置里的方法/版本段防翻倍。 */
@@ -370,6 +390,22 @@ export function anthropicBaseURL(provider: ProviderConfig): string {
     .replace(/\/messages$/, "")
     .replace(/\/v1$/, "");
   return base || "https://api.anthropic.com";
+}
+
+/**
+ * anthropic 最终方法 URL：full → 配置即完整方法 URL 原样直用（须以 /messages 结尾，
+ * 失配显式报错防误配落回 200+HTML 空流陷阱）；base（缺省）→ 既有归一
+ * （剥 /v1/messages、/messages、/v1 到规范根）后拼 /v1/messages。
+ */
+export function anthropicMethodUrl(provider: ProviderConfig): string {
+  if (provider.endpoint_mode === "full") {
+    const base = configuredEndpointBase(provider, DEFAULT_ENDPOINTS.anthropic);
+    if (!base.endsWith("/messages")) {
+      throw new Error(`Provider '${provider.name}' declares endpoint_mode=full; api_endpoint must be the complete method URL ending with /messages`);
+    }
+    return base;
+  }
+  return `${anthropicBaseURL(provider)}/v1/messages`;
 }
 
 /** gemini 端点基址：保留版本段（如 /v1beta），剥掉尾部方法段/模型段，线层重拼方法路径。 */
