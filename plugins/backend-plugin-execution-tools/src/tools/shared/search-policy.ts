@@ -2,13 +2,17 @@ import { isRecord, normalizeString } from "@ragsystem/backend-core/utils/guards.
 import type { ToolExecutionResult } from "@ragsystem/agent-sdk";
 import { toolError, toolSuccess } from "@ragsystem/backend-core/services/agent/sdk/tool-results.js";
 
-const DEFAULT_MAX_RESULTS = 200;
+/** grep 默认内联保留匹配数（对齐业界 harness 的 head_limit 默认值）。 */
+export const DEFAULT_GREP_MAX_RESULTS = 250;
+/** glob 默认内联保留路径数。 */
+export const DEFAULT_GLOB_MAX_RESULTS = 100;
+/** 单条匹配行预览的字节上限；截断保留 UTF-8 边界并标注 (line truncated)。 */
+export const GREP_MAX_LINE_BYTES = 2_000;
 const TODO_STATUS_VALUES = new Set(["pending", "in_progress", "completed"]);
 
 export interface GlobInput {
   pattern: string;
   path?: string | null;
-  recursive?: boolean | null;
   maxResults?: number | null;
 }
 
@@ -59,8 +63,10 @@ export function normalizeGlobInput(input: GlobInput): NormalizedGlobInput | { er
   return {
     pattern,
     path: input.path ?? null,
-    recursive: input.recursive ?? pattern.includes("**"),
-    maxResults: clampPositiveInt(input.maxResults, DEFAULT_MAX_RESULTS, 1, 5_000),
+    // glob 深度由 pattern 自身表达（无 "/" 匹配任意深度的 basename）；
+    // 恒为 true 仅为兼容存量沙箱 wire 契约（SandboxGlobInput.recursive）。
+    recursive: true,
+    maxResults: clampPositiveInt(input.maxResults, DEFAULT_GLOB_MAX_RESULTS, 1, 5_000),
   };
 }
 
@@ -74,8 +80,9 @@ export function normalizeGrepInput(input: GrepInput): NormalizedGrepInput | { er
     pattern,
     path: input.path ?? null,
     glob,
-    caseSensitive: input.caseSensitive === true,
-    maxResults: clampPositiveInt(input.maxResults, DEFAULT_MAX_RESULTS, 1, 5_000),
+    // 与 ripgrep/业界 grep 工具一致：默认大小写敏感；忽略大小写需显式 case_sensitive=false（或正则 (?i)）。
+    caseSensitive: input.caseSensitive !== false,
+    maxResults: clampPositiveInt(input.maxResults, DEFAULT_GREP_MAX_RESULTS, 1, 5_000),
     contextLines: clampPositiveInt(input.contextLines, 0, 0, 20),
   };
 }
@@ -86,14 +93,16 @@ export function formatGlobResult(
   files: string[],
   truncated: boolean,
   metadata: Record<string, unknown> = {},
+  totalFiles?: number,
 ): ToolExecutionResult {
+  const total = totalFiles ?? files.length;
   return toolSuccess(
-    { base_path: basePath, pattern: input.pattern, files, count: files.length, truncated },
+    { base_path: basePath, pattern: input.pattern, files, count: files.length, total_files: total, truncated },
     {
       toolName: "glob",
-      summary: `glob 匹配 ${files.length} 个文件${truncated ? "（已截断）" : ""}`,
+      summary: `glob 匹配 ${files.length} 个文件${total > files.length ? `（共 ${total}，已截断）` : ""}`,
       outputType: "json",
-      metadata: { ...metadata, base_path: basePath, pattern: input.pattern, count: files.length, truncated },
+      metadata: { ...metadata, base_path: basePath, pattern: input.pattern, count: files.length, total_files: total, truncated },
     },
   );
 }
@@ -105,23 +114,47 @@ export function formatGrepResult(
   scannedFiles: number,
   truncated: boolean,
   metadata: Record<string, unknown> = {},
+  totalMatches?: number,
 ): ToolExecutionResult {
+  const total = totalMatches ?? matches.length;
   return toolSuccess(
-    { base_path: basePath, pattern: input.pattern, matches, count: matches.length, scanned_files: scannedFiles, truncated },
+    {
+      base_path: basePath,
+      pattern: input.pattern,
+      matches,
+      count: matches.length,
+      total_matches: total,
+      scanned_files: scannedFiles,
+      truncated,
+    },
     {
       toolName: "grep",
-      summary: `grep 找到 ${matches.length} 个匹配${truncated ? "（已截断）" : ""}`,
+      summary: `grep 找到 ${matches.length} 个匹配${total > matches.length ? `（共 ${total}，已截断）` : ""}`,
       outputType: "json",
       metadata: {
         ...metadata,
         base_path: basePath,
         pattern: input.pattern,
         count: matches.length,
+        total_matches: total,
         scanned_files: scannedFiles,
         truncated,
       },
     },
   );
+}
+
+/**
+ * 把单条匹配行预览限制在 maxBytes 内（截断点回退到 UTF-8 序列边界），
+ * 截断时追加 " (line truncated)" 标注——完整行仍在源文件里可由 read 工具读取。
+ */
+export function previewLine(line: string, maxBytes: number = GREP_MAX_LINE_BYTES): string {
+  const buffer = Buffer.from(line, "utf8");
+  if (buffer.byteLength <= maxBytes) return line;
+  let end = maxBytes;
+  while (end > 0 && (buffer[end]! & 0xc0) === 0x80) end -= 1;
+  if (end === 0) end = maxBytes;
+  return `${buffer.subarray(0, end).toString("utf8")} (line truncated)`;
 }
 
 export function parseTodos(value: unknown): { todos: TodoItem[] } | { error: string } {

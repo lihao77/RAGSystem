@@ -90,7 +90,11 @@ export class RemoteHttpSandboxDriver implements SandboxDriver {
   async glob(lease: SandboxLease, input: Parameters<SandboxDriver["glob"]>[1]): Promise<SandboxGlobResult> {
     const body = requireRecord(await this.request("POST", `${this.sandboxPath(lease)}/files/glob`, withoutSignal(input), input.signal), "glob response");
     if (!Array.isArray(body.files) || !body.files.every((item) => typeof item === "string")) throw new Error("Invalid sandbox glob files");
-    return { files: body.files, truncated: body.truncated === true };
+    return {
+      files: body.files,
+      truncated: body.truncated === true,
+      ...(typeof body.totalFiles === "number" ? { totalFiles: body.totalFiles } : {}),
+    };
   }
 
   async grep(lease: SandboxLease, input: Parameters<SandboxDriver["grep"]>[1]): Promise<SandboxGrepResult> {
@@ -109,6 +113,7 @@ export class RemoteHttpSandboxDriver implements SandboxDriver {
       }),
       scannedFiles: requireNumber(body.scannedFiles, "scannedFiles"),
       truncated: body.truncated === true,
+      ...(typeof body.totalMatches === "number" ? { totalMatches: body.totalMatches } : {}),
     };
   }
 

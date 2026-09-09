@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { spawn } from "node:child_process";
 
 const operation = process.argv[2] ?? "";
 
@@ -89,23 +90,91 @@ async function editFile(input) {
   return { size: bytes.byteLength, replacements };
 }
 
+/**
+ * ripgrep 内核（与本地 LocalSearchTools/ripgrep-engine.ts 同构）：
+ * glob/grep 不再自实现遍历与匹配，spawn 容器内的 rg 二进制。argv 直传
+ * （无 shell 层），前置 --no-config 阻断宿主 RIPGREP_CONFIG_PATH 注入；
+ * exit 1 = 零匹配的成功；stdout 在 20MB 上限内完整采集，超限/超时显式报错。
+ */
+/**
+ * stdout 上限须低于外层 docker 捕获预算（SANDBOX_MAX_COMMAND_OUTPUT_BYTES，
+ * 默认 2MB）：超限时由 helper 先杀进程并显式报"收窄 pattern"错误（stderr 经
+ * docker-cli 原样抛出），而不是让 docker 截尾后 JSON 解析失败成笼统 500。
+ */
+const RAW_OUTPUT_MAX_BYTES = 1_500_000;
+const STDERR_MAX_BYTES = 64 * 1024;
+const SEARCH_TIMEOUT_MS = 30_000;
+const VCS_EXCLUDE_GLOBS = [".git", ".svn", ".hg", ".bzr", ".jj", ".sl"];
+
+function rgBinary() {
+  return process.env.RAGSYSTEM_SANDBOX_RG_PATH || "rg";
+}
+
+function runRipgrep(argv, cwd) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(rgBinary(), ["--no-config", ...argv], { cwd, stdio: ["ignore", "pipe", "pipe"] });
+    const stdoutChunks = [];
+    const stderrChunks = [];
+    let stdoutBytes = 0;
+    let stderrBytes = 0;
+    let settled = false;
+    const timer = setTimeout(() => {
+      finish(new Error(`搜索超时（${SEARCH_TIMEOUT_MS}ms），请收窄 pattern/path/glob`));
+      child.kill("SIGKILL");
+    }, SEARCH_TIMEOUT_MS);
+    function finish(error) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(error);
+    }
+    child.stdout.on("data", (chunk) => {
+      if (stdoutBytes + chunk.byteLength > RAW_OUTPUT_MAX_BYTES) {
+        finish(new Error(`搜索原始输出超过 ${RAW_OUTPUT_MAX_BYTES} 字节上限，请收窄 pattern/path/glob`));
+        child.kill("SIGKILL");
+        return;
+      }
+      stdoutBytes += chunk.byteLength;
+      stdoutChunks.push(chunk);
+    });
+    child.stderr.on("data", (chunk) => {
+      if (stderrBytes + chunk.byteLength <= STDERR_MAX_BYTES) {
+        stderrBytes += chunk.byteLength;
+        stderrChunks.push(chunk);
+      }
+    });
+    child.on("error", (error) => finish(new Error(`ripgrep 启动失败: ${error.message}`)));
+    child.on("close", (code, signal) => {
+      if (settled) return;
+      clearTimeout(timer);
+      if (signal !== null) {
+        reject(new Error(`搜索进程被信号 ${signal} 终止`));
+        return;
+      }
+      const stderr = Buffer.concat(stderrChunks).toString("utf8").trim();
+      if (code === 0 || code === 1) {
+        resolve({ stdout: Buffer.concat(stdoutChunks).toString("utf8"), noMatches: code === 1 });
+        return;
+      }
+      if (/regex parse error|error parsing glob/i.test(stderr)) {
+        reject(new Error(`pattern/glob 被 ripgrep 拒绝: ${stderr}`));
+        return;
+      }
+      reject(new Error(`ripgrep 执行失败（exit ${code}）${stderr ? `: ${stderr}` : ""}`));
+    });
+  });
+}
+
 async function globFiles(input) {
   const root = await resolveExistingDirectory(requireString(input.root, "root"));
   const pattern = validateGlob(requireString(input.pattern, "pattern"));
-  const recursive = input.recursive === true;
-  const maxResults = optionalInteger(input.maxResults, 200, 1, 5000, "maxResults");
-  const regex = globToRegExp(pattern);
-  const output = [];
-  let truncated = false;
-  for await (const relativePath of walkFiles(root, recursive ? 5000 : 1)) {
-    if (!regex.test(relativePath)) continue;
-    if (output.length >= maxResults) {
-      truncated = true;
-      break;
-    }
-    output.push(relativePath);
-  }
-  return { files: output, truncated };
+  const maxResults = optionalInteger(input.maxResults, 100, 1, 5000, "maxResults");
+  const argv = ["--files", `--glob=${pattern}`, "--sort=modified", "--no-ignore", "--hidden"];
+  for (const name of VCS_EXCLUDE_GLOBS) argv.push(`--glob=!**/${name}`, `--glob=!**/${name}/**`);
+  argv.push("--", ".");
+  const run = await runRipgrep(argv, root);
+  const all = run.noMatches ? [] : run.stdout.split("\n").filter(Boolean).map(normalizeRipgrepPath);
+  return { files: all.slice(0, maxResults), truncated: all.length > maxResults, totalFiles: all.length };
 }
 
 async function grepFiles(input) {
@@ -113,37 +182,97 @@ async function grepFiles(input) {
   const pattern = requireString(input.pattern, "pattern");
   if (pattern.length > 1000) throw new Error("grep pattern is too long");
   const fileGlob = validateGlob(requireString(input.glob, "glob"));
-  const fileRegex = globToRegExp(fileGlob);
-  const matchRegex = new RegExp(pattern, input.caseSensitive === true ? "" : "i");
-  const maxResults = optionalInteger(input.maxResults, 200, 1, 5000, "maxResults");
+  const caseSensitive = input.caseSensitive !== false;
+  const maxResults = optionalInteger(input.maxResults, 250, 1, 5000, "maxResults");
   const contextLines = optionalInteger(input.contextLines, 0, 0, 20, "contextLines");
+  const argv = ["--json", `--regexp=${pattern}`];
+  if (!caseSensitive) argv.push("--ignore-case");
+  if (fileGlob !== "**/*") argv.push(`--glob=${fileGlob}`);
+  if (contextLines > 0) argv.push(`--context=${contextLines}`);
+  // 显式包含隐藏文件（受管工作区不是源码仓库），VCS 元数据目录永远排除。
+  argv.push("--hidden");
+  for (const name of VCS_EXCLUDE_GLOBS) argv.push(`--glob=!**/${name}`, `--glob=!**/${name}/**`);
+  argv.push("--", ".");
+  const run = await runRipgrep(argv, root);
+  // 零匹配（exit 1）时 rg 仍输出带 stats.searches 的 summary，照常解析以如实上报扫描数。
+  const parsed = parseGrepJson(run.stdout, contextLines);
+  return {
+    matches: parsed.matches.slice(0, maxResults),
+    scannedFiles: parsed.scannedFiles,
+    truncated: parsed.matches.length > maxResults,
+    totalMatches: parsed.matches.length,
+  };
+}
+
+function parseGrepJson(stdout, contextLines) {
   const matches = [];
   let scannedFiles = 0;
-  let truncated = false;
-  for await (const relativePath of walkFiles(root, 5000)) {
-    if (!fileRegex.test(relativePath)) continue;
-    const absolutePath = path.posix.join(root, relativePath);
-    const stat = await fs.stat(absolutePath);
-    if (stat.size > 4 * 1024 * 1024) continue;
-    scannedFiles += 1;
-    const lines = (await fs.readFile(absolutePath, "utf8")).split(/\r?\n/);
-    for (let index = 0; index < lines.length; index += 1) {
-      if (!matchRegex.test(lines[index] ?? "")) continue;
-      if (matches.length >= maxResults) {
-        truncated = true;
-        break;
-      }
-      matches.push({
-        file: relativePath,
-        lineNumber: index + 1,
-        line: lines[index] ?? "",
-        before: lines.slice(Math.max(0, index - contextLines), index),
-        after: lines.slice(index + 1, index + 1 + contextLines),
-      });
+  let pendingBefore = [];
+  let lastAfterBuffer = null;
+  for (const raw of stdout.split("\n")) {
+    if (!raw) continue;
+    let record;
+    try {
+      record = JSON.parse(raw);
+    } catch {
+      throw new Error("grep 收到畸形 ripgrep --json 输出（非 JSON 行）");
     }
-    if (truncated) break;
+    if (record.type === "summary") {
+      if (typeof record.data?.stats?.searches === "number") scannedFiles = record.data.stats.searches;
+      continue;
+    }
+    if (record.type === "begin") {
+      pendingBefore = [];
+      lastAfterBuffer = null;
+      continue;
+    }
+    if (record.type === "context") {
+      const line = recordLineText(record);
+      if (line === undefined) continue;
+      pendingBefore.push(line);
+      if (lastAfterBuffer) lastAfterBuffer.push(line);
+      continue;
+    }
+    if (record.type !== "match") continue;
+    const line = recordLineText(record);
+    if (line === undefined || typeof record.data?.line_number !== "number" || typeof record.data?.path?.text !== "string") {
+      throw new Error("grep 收到畸形 ripgrep --json 输出（match 记录缺字段）");
+    }
+    const after = [];
+    matches.push({
+      file: normalizeRipgrepPath(record.data.path.text),
+      lineNumber: record.data.line_number,
+      line,
+      before: contextLines > 0 ? pendingBefore.slice(-contextLines) : [],
+      after,
+    });
+    lastAfterBuffer = after;
+    pendingBefore = [];
   }
-  return { matches, scannedFiles, truncated };
+  // 远距匹配间的 context 行会同时流进前一匹配的 after 缓冲，定稿时取前 N 行（见 TS 内核同名注释）。
+  if (contextLines > 0) {
+    for (const match of matches) {
+      if (match.after.length > contextLines) match.after = match.after.slice(0, contextLines);
+    }
+  }
+  matches.sort((left, right) =>
+    left.file === right.file ? left.lineNumber - right.lineNumber : left.file.localeCompare(right.file),
+  );
+  return { matches, scannedFiles };
+}
+
+function recordLineText(record) {
+  const lines = record.data?.lines;
+  if (!lines || typeof lines !== "object") return undefined;
+  if (typeof lines.text === "string") return lines.text.replace(/\r?\n$/, "");
+  if (typeof lines.bytes === "string") return "(line is not valid UTF-8)";
+  return undefined;
+}
+
+function normalizeRipgrepPath(value) {
+  let normalized = value.replace(/\\/g, "/");
+  if (normalized.startsWith("./")) normalized = normalized.slice(2);
+  return normalized;
 }
 
 async function previewFile(input) {
@@ -213,47 +342,12 @@ async function ensureWritableTarget(target, root) {
   }
 }
 
-async function* walkFiles(root, maxEntries) {
-  const pending = [""];
-  let entries = 0;
-  while (pending.length) {
-    const relativeDir = pending.pop();
-    const absoluteDir = relativeDir ? path.posix.join(root, relativeDir) : root;
-    for (const entry of await fs.readdir(absoluteDir, { withFileTypes: true })) {
-      entries += 1;
-      if (entries > maxEntries) return;
-      const relativePath = relativeDir ? `${relativeDir}/${entry.name}` : entry.name;
-      if (entry.isSymbolicLink()) continue;
-      if (entry.isDirectory()) pending.push(relativePath);
-      else if (entry.isFile()) yield relativePath;
-    }
-  }
-}
-
 function validateGlob(value) {
   const normalized = value.trim().replace(/\\/g, "/");
   if (!normalized || normalized.startsWith("/") || normalized.split("/").includes("..") || normalized.includes("\0")) {
     throw new Error("Invalid sandbox glob");
   }
   return normalized;
-}
-
-function globToRegExp(glob) {
-  let output = "^";
-  for (let index = 0; index < glob.length; index += 1) {
-    const char = glob[index];
-    if (char === "*") {
-      if (glob[index + 1] === "*") {
-        index += 1;
-        if (glob[index + 1] === "/") {
-          index += 1;
-          output += "(?:.*/)?";
-        } else output += ".*";
-      } else output += "[^/]*";
-    } else if (char === "?") output += "[^/]";
-    else output += char.replace(/[|\\{}()[\]^$+?.]/g, "\\$&");
-  }
-  return new RegExp(`${output}$`);
 }
 
 function summarizeJson(value, maxRows) {

@@ -33,6 +33,8 @@ export interface SandboxFileEditResult extends SandboxFileWriteResult {
 export interface SandboxGlobResult {
   files: string[];
   truncated: boolean;
+  /** 完整命中路径数（截断前）；旧沙箱缺省时按 files.length 兜底。 */
+  totalFiles?: number;
 }
 
 export interface SandboxGrepMatch {
@@ -47,6 +49,8 @@ export interface SandboxGrepResult {
   matches: SandboxGrepMatch[];
   scannedFiles: number;
   truncated: boolean;
+  /** 完整命中匹配数（截断前）；旧沙箱缺省时按 matches.length 兜底。 */
+  totalMatches?: number;
 }
 
 export interface SandboxExecResult {

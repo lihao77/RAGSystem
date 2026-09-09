@@ -27,7 +27,6 @@ export function readGlobArguments(value: Record<string, unknown> | undefined) {
   return {
     pattern: asString(value?.pattern) ?? "",
     path: asString(value?.path),
-    recursive: typeof value?.recursive === "boolean" ? value.recursive : null,
     maxResults: asInteger(value?.max_results) ?? asInteger(value?.maxResults),
   };
 }

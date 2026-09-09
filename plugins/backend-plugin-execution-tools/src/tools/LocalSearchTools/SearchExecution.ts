@@ -1,4 +1,3 @@
-import fs from "node:fs";
 import http from "node:http";
 import https from "node:https";
 import path from "node:path";
@@ -15,11 +14,18 @@ import {
   normalizeGlobInput,
   normalizeGrepInput,
   parseTodos,
+  previewLine,
   type GlobInput,
   type GrepInput,
-  type GrepMatch,
   type TodoItem,
 } from "../shared/search-policy.js";
+import {
+  parseGlobOutput,
+  parseGrepJsonOutput,
+  RipgrepError,
+  runRipgrep,
+  VCS_EXCLUDE_GLOBS,
+} from "./ripgrep-engine.js";
 
 const DEFAULT_MAX_CHARS = 20_000;
 const DEFAULT_WEB_TIMEOUT_MS = 15_000;
@@ -45,78 +51,89 @@ export class LocalSearchToolService {
     return this.paths.getSearchRootCandidates(rawPath, context, pathService);
   }
 
-  glob(
+  /**
+   * glob（文件发现）：rg --files --sort=modified --no-ignore --hidden + VCS 目录双重排除。
+   * 发现语义要穿透 ignore/隐藏文件才能回答"有哪些文件"；按修改时间排序回答"最近改了什么"。
+   */
+  async glob(
     input: GlobInput,
     context: ToolExecContext,
     pathService?: PathAccessPolicy,
-  ): ToolExecutionResult {
+  ): Promise<ToolExecutionResult> {
     const toolName = "glob";
     try {
       const normalized = normalizeGlobInput(input);
       if ("error" in normalized) return toolError(toolName, normalized.error);
       const baseRoot = this.paths.resolveSearchRoot(normalized.path, context, pathService);
-      const matches = globSearch(baseRoot, normalized.pattern, {
-        recursive: normalized.recursive,
-        maxResults: normalized.maxResults,
-      });
-      const displayMatches = matches.items.map((item) => toPortableRelative(baseRoot, item));
-      return formatGlobResult(baseRoot, normalized, displayMatches, matches.truncated, {
-        execution_paths: this.paths.roots(context),
-      });
+      const argv = ["--files", `--glob=${normalized.pattern}`, "--sort=modified", "--no-ignore", "--hidden"];
+      for (const name of VCS_EXCLUDE_GLOBS) {
+        argv.push(`--glob=!**/${name}`, `--glob=!**/${name}/**`);
+      }
+      argv.push("--", ".");
+      const run = await runRipgrep({ argv, cwd: baseRoot, signal: context.signal });
+      const all = run.noMatches ? [] : parseGlobOutput(run.stdout);
+      const retained = all.slice(0, normalized.maxResults);
+      return formatGlobResult(
+        baseRoot,
+        normalized,
+        retained,
+        all.length > retained.length,
+        { execution_paths: this.paths.roots(context) },
+        all.length,
+      );
     } catch (error) {
       return toolError(toolName, `glob 执行失败: ${formatError(error)}`);
     }
   }
 
-  grep(
+  /**
+   * grep（内容搜索）：rg --json 正则搜索。默认大小写敏感；显式 --hidden 让
+   * agent 能搜到自己写的点文件（受管工作区不是源码仓库），ignore 规则
+   * （.gitignore/.ignore）保持尊重以挡住 node_modules 类噪音，二进制由 rg 跳过。
+   */
+  async grep(
     input: GrepInput,
     context: ToolExecContext,
     pathService?: PathAccessPolicy,
-  ): ToolExecutionResult {
+  ): Promise<ToolExecutionResult> {
     const toolName = "grep";
     try {
       const normalized = normalizeGrepInput(input);
       if ("error" in normalized) return toolError(toolName, normalized.error);
       const baseRoot = this.paths.resolveSearchRoot(normalized.path, context, pathService);
-      const files = globSearch(baseRoot, normalized.glob, {
-        recursive: normalized.glob.includes("**") || !input.glob,
-        maxResults: 20_000,
-      }).items;
-      const regexp = new RegExp(escapeRegExp(normalized.pattern), normalized.caseSensitive ? "" : "i");
-      const matches: GrepMatch[] = [];
-      let scannedFiles = 0;
-      for (const filePath of files) {
-        if (matches.length >= normalized.maxResults) {
-          break;
-        }
-        if (!isLikelyTextFile(filePath)) {
-          continue;
-        }
-        scannedFiles += 1;
-        const content = fs.readFileSync(filePath, "utf8");
-        const lines = content.split(/\r?\n/);
-        for (let index = 0; index < lines.length; index += 1) {
-          const line = lines[index] ?? "";
-          if (!regexp.test(line)) {
-            continue;
-          }
-          matches.push({
-            file: toPortableRelative(baseRoot, filePath),
-            line_number: index + 1,
-            line,
-            before: normalized.contextLines > 0 ? lines.slice(Math.max(0, index - normalized.contextLines), index) : [],
-            after: normalized.contextLines > 0 ? lines.slice(index + 1, Math.min(lines.length, index + 1 + normalized.contextLines)) : [],
-          });
-          if (matches.length >= normalized.maxResults) {
-            break;
-          }
-        }
+      const argv = ["--json", `--regexp=${normalized.pattern}`];
+      if (!normalized.caseSensitive) argv.push("--ignore-case");
+      if (normalized.glob !== "**/*") argv.push(`--glob=${normalized.glob}`);
+      if (normalized.contextLines > 0) argv.push(`--context=${normalized.contextLines}`);
+      // 显式包含隐藏文件（受管工作区不是源码仓库，agent 需要搜到自己写的点文件），
+      // 但 VCS 元数据目录与 glob 一样永远排除，避免 .git 噪音进入匹配结果。
+      argv.push("--hidden");
+      for (const name of VCS_EXCLUDE_GLOBS) {
+        argv.push(`--glob=!**/${name}`, `--glob=!**/${name}/**`);
       }
-      const truncated = matches.length >= normalized.maxResults;
-      return formatGrepResult(baseRoot, normalized, matches, scannedFiles, truncated, {
-        execution_paths: this.paths.roots(context),
-      });
+      argv.push("--", ".");
+      const run = await runRipgrep({ argv, cwd: baseRoot, signal: context.signal });
+      // 零匹配（exit 1）时 rg 仍输出带 stats.searches 的 summary，照常解析以如实上报扫描数。
+      const parsed = parseGrepJsonOutput(run.stdout, normalized.contextLines);
+      const retained = parsed.matches.slice(0, normalized.maxResults);
+      for (const match of retained) {
+        match.line = previewLine(match.line);
+        match.before = match.before.map((line) => previewLine(line));
+        match.after = match.after.map((line) => previewLine(line));
+      }
+      return formatGrepResult(
+        baseRoot,
+        normalized,
+        retained,
+        parsed.scannedFiles,
+        parsed.matches.length > retained.length,
+        { execution_paths: this.paths.roots(context) },
+        parsed.matches.length,
+      );
     } catch (error) {
+      if (error instanceof RipgrepError && error.kind === "invalid_pattern") {
+        return toolError(toolName, `grep pattern 非法（ripgrep 正则）: ${error.message}`);
+      }
       return toolError(toolName, `grep 执行失败: ${formatError(error)}`);
     }
   }
@@ -165,102 +182,12 @@ export class LocalSearchToolService {
 
 }
 
-function globSearch(
-  baseRoot: string,
-  pattern: string,
-  options: { recursive: boolean; maxResults: number },
-): { items: string[]; truncated: boolean } {
-  const matcher = createGlobMatcher(pattern);
-  const results: string[] = [];
-  let truncated = false;
-  const visit = (directory: string, depth: number): void => {
-    if (results.length >= options.maxResults) {
-      truncated = true;
-      return;
-    }
-    const entries = safeReadDir(directory);
-    for (const entry of entries) {
-      if (results.length >= options.maxResults) {
-        truncated = true;
-        return;
-      }
-      const fullPath = path.join(directory, entry.name);
-      if (entry.isDirectory()) {
-        if (options.recursive || depth === 0) {
-          visit(fullPath, depth + 1);
-        }
-        continue;
-      }
-      if (!entry.isFile()) {
-        continue;
-      }
-      const relative = toPortableRelative(baseRoot, fullPath);
-      if (matcher(relative)) {
-        results.push(fullPath);
-      }
-    }
-  };
-  visit(baseRoot, 0);
-  results.sort((left, right) => left.localeCompare(right));
-  return { items: results, truncated };
-}
-
-function createGlobMatcher(pattern: string): (relativePath: string) => boolean {
-  const normalized = pattern.replace(/\\/g, "/");
-  const regex = new RegExp(`^${globToRegex(normalized)}$`);
-  return (relativePath) => regex.test(relativePath.replace(/\\/g, "/"));
-}
-
-function globToRegex(pattern: string): string {
-  let output = "";
-  for (let index = 0; index < pattern.length; index += 1) {
-    const char = pattern[index];
-    const next = pattern[index + 1];
-    if (char === "*" && next === "*") {
-      output += ".*";
-      index += 1;
-      if (pattern[index + 1] === "/") {
-        output += "\\/?";
-        index += 1;
-      }
-      continue;
-    }
-    if (char === "*") {
-      output += "[^/]*";
-      continue;
-    }
-    if (char === "?") {
-      output += "[^/]";
-      continue;
-    }
-    output += escapeRegExp(char ?? "");
-  }
-  return output;
-}
-
-function safeReadDir(directory: string): fs.Dirent[] {
-  try {
-    return fs.readdirSync(directory, { withFileTypes: true });
-  } catch {
-    return [];
-  }
-}
-
-function isLikelyTextFile(filePath: string): boolean {
-  try {
-    const buffer = fs.readFileSync(filePath);
-    return !buffer.subarray(0, Math.min(buffer.length, 4096)).includes(0);
-  } catch {
-    return false;
-  }
-}
-
 async function fetchText(
   url: URL,
   timeoutMs: number,
   maxChars: number,
 ): Promise<{ statusCode: number; contentType: string; body: string; truncated: boolean }> {
-  const client = url.protocol === "https:" ? https : http;
+  const client = url.protocol === "https://" ? https : http;
   return new Promise((resolve, reject) => {
     const request = client.get(url, { timeout: timeoutMs }, (response) => {
       const statusCode = response.statusCode ?? 0;
@@ -331,15 +258,6 @@ function clampPositiveInt(value: number | null | undefined, fallback: number, mi
     return fallback;
   }
   return Math.max(min, Math.min(max, value));
-}
-
-function toPortableRelative(root: string, filePath: string): string {
-  return path.relative(root, filePath).split(path.sep).join("/");
-}
-
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function formatError(error: unknown): string {

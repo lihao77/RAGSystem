@@ -32,7 +32,6 @@ interface LocalSearchToolDeps {
 const globSchema = z.object({
   pattern: z.string(),
   path: optionalString,
-  recursive: optionalBoolean,
   max_results: optionalInteger,
   maxResults: optionalInteger,
 }).strict();
@@ -68,10 +67,12 @@ export const LOCAL_SEARCH_TOOLS: RuntimeToolDefinition[] = [
     category: "filesystem",
     riskLevel: "low",
     allowed_callers: ["direct", "code_execution"],
-    description: "Find files in the managed workspace using glob patterns such as **/*.ts.",
+    description: "Find files in the managed workspace whose paths match a glob pattern, sorted by modification time.",
     usage_contract: [
       "查找文件优先用 glob，而非 execute_shell 的 find。",
-      "默认最多返回 200 条结果以防 token 超限；需要更多时用 max_results 调整。",
+      "深度由 pattern 自身表达：不含 / 的 pattern（如 *.ts）匹配任意深度的 basename，含 / 才锚定层级。",
+      "结果包含隐藏与被 ignore 的文件，按修改时间排序；.git/.svn/.hg 等版本库元数据目录自动排除。",
+      "默认最多返回 100 条路径以防 token 超限；结果截断时 total_files 报告完整命中数，需要更多时用 max_results 调整。",
     ],
     parameters: {
       type: "object",
@@ -80,21 +81,17 @@ export const LOCAL_SEARCH_TOOLS: RuntimeToolDefinition[] = [
       properties: {
         pattern: {
           type: "string",
-          description: "Glob pattern relative to the search root.",
+          description: "Glob pattern relative to the search root, e.g. **/*.ts. A pattern without '/' matches basenames at any depth.",
         },
         path: {
           type: "string",
           description: "Optional search root. Relative paths resolve against the workspace; absolute paths may reach uploads or, after approval, directories outside the managed roots.",
         },
-        recursive: {
-          type: "boolean",
-          description: "Whether to recurse into subdirectories. Defaults to true when pattern contains **.",
-        },
         max_results: {
           type: "integer",
           minimum: 1,
           maximum: 5000,
-          description: "Maximum number of paths to return. Defaults to 200.",
+          description: "Maximum number of paths to return. Defaults to 100.",
         },
       },
     },
@@ -105,11 +102,13 @@ export const LOCAL_SEARCH_TOOLS: RuntimeToolDefinition[] = [
     category: "filesystem",
     riskLevel: "low",
     allowed_callers: ["direct"],
-    description: "Search text in managed workspace files and return matching lines.",
+    description: "Search file contents with a ripgrep regular expression and return matching lines grouped by file.",
     usage_contract: [
-      "搜索文本优先用 grep，而非 execute_shell 的 grep/rg。",
-      "自动排除 .git、.svn、.hg、node_modules、__pycache__ 目录。",
-      "默认最多返回 200 条匹配以防 token 超限；需要更多时用 max_results 调整。",
+      "搜索文本优先用 grep，而非 execute_shell 的 grep/rg；pattern 是 ripgrep 正则语法（字面文本也是合法正则）。",
+      "默认大小写敏感；需要忽略大小写传 case_sensitive=false 或在正则里用 (?i)。",
+      "遵循 .gitignore/.ignore 忽略规则并跳过二进制文件（node_modules 等被忽略目录不会命中）；隐藏文件（点开头）会被搜索。",
+      "需要匹配行的上下文时传 context_lines，或直接 read 命中文件。",
+      "默认最多返回 250 条匹配以防 token 超限；结果截断时 total_matches 报告完整命中数，需要更多时用 max_results 调整。",
     ],
     parameters: {
       type: "object",
@@ -118,7 +117,7 @@ export const LOCAL_SEARCH_TOOLS: RuntimeToolDefinition[] = [
       properties: {
         pattern: {
           type: "string",
-          description: "Literal text pattern to search for.",
+          description: "Regular expression to search for (ripgrep syntax).",
         },
         path: {
           type: "string",
@@ -126,23 +125,23 @@ export const LOCAL_SEARCH_TOOLS: RuntimeToolDefinition[] = [
         },
         glob: {
           type: "string",
-          description: "Optional glob filter, for example **/*.ts.",
+          description: "Optional glob filter for which files to search, for example **/*.ts.",
         },
         case_sensitive: {
           type: "boolean",
-          description: "Whether matching is case-sensitive. Defaults to false.",
+          description: "Whether matching is case-sensitive. Defaults to true.",
         },
         max_results: {
           type: "integer",
           minimum: 1,
           maximum: 5000,
-          description: "Maximum matches to return. Defaults to 200.",
+          description: "Maximum matches to return. Defaults to 250.",
         },
         context_lines: {
           type: "integer",
           minimum: 0,
           maximum: 20,
-          description: "Number of surrounding lines to include. Defaults to 0.",
+          description: "Number of surrounding lines to include with each match. Defaults to 0.",
         },
       },
     },

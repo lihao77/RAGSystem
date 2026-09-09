@@ -171,7 +171,7 @@ test("execute_code receives the generic plugin callTool callback", async () => {
   assert.equal(receivedContext.caller, "code_execution");
 });
 
-test("managed paths share one deterministic workspace view across execution tools", () => {
+test("managed paths share one deterministic workspace view across execution tools", async () => {
   const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-managed-paths-"));
   const externalRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-external-path-"));
   try {
@@ -195,7 +195,7 @@ test("managed paths share one deterministic workspace view across execution tool
     assert.equal(bashPlan.plan.cwd, roots.workspace);
 
     const search = new LocalSearchToolService({ dataRoot, pathResolver: resolver });
-    const globResult = search.glob({ pattern: "*.txt" }, context);
+    const globResult = await search.glob({ pattern: "*.txt" }, context);
     assert.equal(globResult.success, true);
     assert.equal(globResult.metadata.base_path, roots.workspace);
     assert.deepEqual(globResult.content.files, ["root.txt"]);
@@ -221,7 +221,7 @@ test("managed paths share one deterministic workspace view across execution tool
   }
 });
 
-test("glob and grep apply read-path approval outside managed roots", () => {
+test("glob and grep apply read-path approval outside managed roots", async () => {
   const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-search-approval-"));
   // os.tmpdir() 属于读语义界内根，外部搜索根必须建在仓库目录下才真正越界
   const externalRoot = path.join(fileURLToPath(new URL(".", import.meta.url)), ".tmp-external-search");
@@ -239,15 +239,15 @@ test("glob and grep apply read-path approval outside managed roots", () => {
 
     // 未批准的外部搜索根 → checkAccess 候选信号；call 阶段转为工具错误
     assert.deepEqual(search.getSearchRootCandidates(externalRoot, context, pathPolicy), [externalRoot]);
-    const rejected = search.glob({ pattern: "*.txt", path: externalRoot }, context, pathPolicy);
+    const rejected = await search.glob({ pattern: "*.txt", path: externalRoot }, context, pathPolicy);
     assert.equal(rejected.success, false);
     assert.match(rejected.summary, /受管目录范围/);
 
     pathPolicy.approve([externalRoot]);
-    const globResult = search.glob({ pattern: "*.txt", path: externalRoot }, context, pathPolicy);
+    const globResult = await search.glob({ pattern: "*.txt", path: externalRoot }, context, pathPolicy);
     assert.equal(globResult.success, true);
     assert.deepEqual(globResult.content.files, ["needle.txt"]);
-    const grepResult = search.grep({ pattern: "needle", path: externalRoot }, context, pathPolicy);
+    const grepResult = await search.grep({ pattern: "needle", path: externalRoot }, context, pathPolicy);
     assert.equal(grepResult.success, true);
     assert.equal(grepResult.content.matches.length, 1);
 
@@ -257,6 +257,157 @@ test("glob and grep apply read-path approval outside managed roots", () => {
     fs.rmSync(dataRoot, { recursive: true, force: true });
     fs.rmSync(externalRoot, { recursive: true, force: true });
   }
+});
+
+test("search tools run on the ripgrep engine with unified semantics", async () => {
+  const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-search-rg-"));
+  try {
+    const resolver = new ManagedPathResolver(dataRoot);
+    const context = { sessionId: "session-rg", runId: "run-rg" };
+    const workspace = resolver.roots(context).workspace;
+    fs.mkdirSync(path.join(workspace, "ignored"), { recursive: true });
+    fs.mkdirSync(path.join(workspace, "sub"), { recursive: true });
+    fs.mkdirSync(path.join(workspace, ".git"), { recursive: true });
+    fs.writeFileSync(path.join(workspace, "app.ts"), "const version = 42;\nconst name = 'ragsystem';\n", "utf8");
+    fs.writeFileSync(path.join(workspace, "sub/note.md"), "see v2 notes\n", "utf8");
+    fs.writeFileSync(path.join(workspace, ".hidden.conf"), "secret_token = 1\n", "utf8");
+    fs.writeFileSync(path.join(workspace, ".ignore"), "ignored/\n", "utf8");
+    fs.writeFileSync(path.join(workspace, ".git/config"), "version in vcs metadata\n", "utf8");
+    fs.writeFileSync(path.join(workspace, "ignored/skip.txt"), "version in ignored dir\n", "utf8");
+    fs.writeFileSync(path.join(workspace, "case.txt"), "NEEDLE upper\nneedle lower\n", "utf8");
+
+    const search = new LocalSearchToolService({ dataRoot, pathResolver: resolver });
+
+    // pattern 是 ripgrep 正则：v\d+ 命中 "v2"（字面量匹配下不可能）
+    const regex = await search.grep({ pattern: "v\\d+" }, context);
+    assert.equal(regex.success, true, regex.summary);
+    assert.ok(regex.content.matches.some((match) => match.file === "sub/note.md" && match.line.includes("v2")));
+
+    // 默认大小写敏感；case_sensitive=false 才忽略大小写
+    const sensitive = await search.grep({ pattern: "needle", glob: "case.txt" }, context);
+    assert.equal(sensitive.success, true, sensitive.summary);
+    assert.equal(sensitive.content.matches.length, 1);
+    const insensitive = await search.grep({ pattern: "needle", glob: "case.txt", caseSensitive: false }, context);
+    assert.equal(insensitive.content.matches.length, 2);
+
+    // .ignore 忽略规则被尊重（ignored/ 与 VCS 元数据不命中），隐藏文件可搜索
+    const ignored = await search.grep({ pattern: "version" }, context);
+    assert.equal(ignored.content.matches.length, 1);
+    assert.equal(ignored.content.matches[0].file, "app.ts");
+    const hidden = await search.grep({ pattern: "secret_token" }, context);
+    assert.equal(hidden.content.matches.length, 1);
+    assert.equal(hidden.content.matches[0].file, ".hidden.conf");
+    assert.ok(hidden.content.scanned_files >= 1, "scanned_files 来自 rg summary.stats.searches");
+
+    // context_lines 重建前后文
+    const withContext = await search.grep({ pattern: "name = 'ragsystem'", glob: "app.ts", contextLines: 1 }, context);
+    const contextMatch = withContext.content.matches[0];
+    assert.deepEqual(contextMatch.before, ["const version = 42;"]);
+    assert.deepEqual(contextMatch.after, []);
+
+    // 远距匹配间的 context 行不得串进前一匹配的 after（rg 连续输出两段 context）
+    const spread = Array.from({ length: 13 }, (_, i) => `l${i + 1}`).map((line, i) => (i === 1 || i === 11 ? `${line} HIT` : line));
+    fs.writeFileSync(path.join(workspace, "spread.txt"), `${spread.join("\n")}\n`, "utf8");
+    const distant = await search.grep({ pattern: "HIT", glob: "spread.txt", contextLines: 2 }, context);
+    assert.equal(distant.content.matches.length, 2);
+    assert.deepEqual(distant.content.matches[0].after, ["l3", "l4"], "after 只取紧邻的 N 行");
+    assert.deepEqual(distant.content.matches[1].before, ["l10", "l11"]);
+    assert.equal(distant.content.matches[0].after.length, 2, "after 不得超过 contextLines");
+
+    // 诚实截断：恰好满额不误报，超出的报告 total_matches
+    const exact = await search.grep({ pattern: "needle", glob: "case.txt", maxResults: 1 }, context);
+    assert.equal(exact.content.truncated, false, "恰好满额不得误报截断");
+    assert.equal(exact.content.total_matches, 1);
+    const capped = await search.grep({ pattern: "(?i)needle", glob: "case.txt", maxResults: 1 }, context);
+    assert.equal(capped.content.count, 1);
+    assert.equal(capped.content.total_matches, 2);
+    assert.equal(capped.content.truncated, true);
+
+    // glob：穿透 ignore/hidden、mtime 排序、VCS 目录排除、诚实截断
+    const jan = new Date("2024-01-01T00:00:00Z");
+    const feb = new Date("2024-02-01T00:00:00Z");
+    const mar = new Date("2024-03-01T00:00:00Z");
+    const apr = new Date("2024-04-01T00:00:00Z");
+    fs.writeFileSync(path.join(workspace, "old.txt"), "old", "utf8");
+    fs.writeFileSync(path.join(workspace, "ignored/new.txt"), "new", "utf8");
+    fs.utimesSync(path.join(workspace, "ignored/skip.txt"), jan, jan);
+    fs.utimesSync(path.join(workspace, "old.txt"), feb, feb);
+    fs.utimesSync(path.join(workspace, "ignored/new.txt"), mar, mar);
+    fs.utimesSync(path.join(workspace, "case.txt"), apr, apr);
+    const globAll = await search.glob({ pattern: "**/*.txt" }, context);
+    assert.equal(globAll.success, true, globAll.summary);
+    assert.deepEqual(globAll.content.files, ["ignored/skip.txt", "old.txt", "ignored/new.txt", "case.txt", "spread.txt"]);
+    assert.equal(globAll.content.total_files, 5);
+    assert.equal(globAll.content.truncated, false);
+    const globCapped = await search.glob({ pattern: "**/*.txt", maxResults: 2 }, context);
+    assert.deepEqual(globCapped.content.files, ["ignored/skip.txt", "old.txt"]);
+    assert.equal(globCapped.content.total_files, 5);
+    assert.equal(globCapped.content.truncated, true);
+    const globAny = await search.glob({ pattern: "**/*" }, context);
+    assert.equal(globAny.content.files.some((file) => file.startsWith(".git/")), false, "VCS 元数据目录必须排除");
+    assert.equal(globAny.content.files.includes(".hidden.conf"), true, "发现语义包含隐藏文件");
+
+    // 非法正则显式报错（ripgrep 拒绝），不静默空结果
+    const invalid = await search.grep({ pattern: "a(b" }, context);
+    assert.equal(invalid.success, false);
+    assert.match(invalid.summary, /pattern 非法/);
+  } finally {
+    fs.rmSync(dataRoot, { recursive: true, force: true });
+  }
+});
+
+test("search policy defaults align with ripgrep semantics and cap line previews", async () => {
+  const { normalizeGrepInput, normalizeGlobInput, previewLine } = await import("../dist/tools/shared/search-policy.js");
+
+  const grep = normalizeGrepInput({ pattern: "x" });
+  assert.equal(grep.caseSensitive, true, "默认大小写敏感");
+  assert.equal(grep.maxResults, 250);
+  assert.equal(grep.contextLines, 0);
+  assert.deepEqual(normalizeGrepInput({ pattern: "x", caseSensitive: false }).caseSensitive, false);
+  assert.equal(normalizeGrepInput({ pattern: "x", maxResults: 99_999 }).maxResults, 5_000, "上限钳制");
+
+  const glob = normalizeGlobInput({ pattern: "*.ts" });
+  assert.equal(glob.maxResults, 100);
+  assert.equal(glob.recursive, true, "wire 契约恒传 recursive=true");
+
+  const ascii = previewLine("a".repeat(3_000));
+  assert.ok(ascii.endsWith(" (line truncated)"));
+  const chinese = previewLine("中".repeat(1_000));
+  assert.ok(chinese.endsWith(" (line truncated)"));
+  assert.ok(!chinese.includes("\uFFFD"), "截断必须落在 UTF-8 序列边界");
+  assert.equal(previewLine("short"), "short");
+});
+
+test("SaaS search adapter previews long lines and surfaces honest totals", async () => {
+  const longLine = "x".repeat(3_000);
+  const sandbox = {
+    async glob() { return { files: ["a.txt", "b.txt"], truncated: true, totalFiles: 7 }; },
+    async grep() {
+      return {
+        matches: [{ file: "a.txt", lineNumber: 3, line: longLine, before: [], after: [] }],
+        scannedFiles: 2,
+        truncated: true,
+        totalMatches: 9,
+      };
+    },
+  };
+  const saas = new SaaSSearchToolService(sandbox);
+  const context = { userId: "user-a", sessionId: "session-saas-search" };
+
+  const grepResult = await saas.grep({ pattern: "x" }, context);
+  assert.equal(grepResult.success, true, grepResult.summary);
+  assert.equal(grepResult.content.total_matches, 9);
+  assert.equal(grepResult.content.count, 1);
+  const match = grepResult.content.matches[0];
+  assert.equal(match.line_number, 3, "wire 字段映射 lineNumber → line_number");
+  assert.ok(match.line.endsWith(" (line truncated)"));
+  assert.ok(Buffer.byteLength(match.line, "utf8") < 2_100);
+
+  const globResult = await saas.glob({ pattern: "*.txt" }, context);
+  assert.equal(globResult.success, true, globResult.summary);
+  assert.deepEqual(globResult.content.files, ["a.txt", "b.txt"]);
+  assert.equal(globResult.content.total_files, 7);
+  assert.equal(globResult.content.truncated, true);
 });
 
 test("system prompt exposes stable execution paths", () => {
@@ -305,7 +456,7 @@ test("execute_code uses standard Python and the shared workspace", async () => {
     assert.equal(fs.readFileSync(path.join(result.metadata.execution_paths.workspace, "code-output.txt"), "utf8"), "code");
 
     const search = new LocalSearchToolService({ dataRoot });
-    const globResult = search.glob({ pattern: "code-output.txt" }, context);
+    const globResult = await search.glob({ pattern: "code-output.txt" }, context);
     assert.deepEqual(globResult.content.files, ["code-output.txt"]);
   } finally {
     fs.rmSync(dataRoot, { recursive: true, force: true });
@@ -358,7 +509,7 @@ test("execute_shell writes into the same workspace seen by glob", async () => {
     const executed = await bash.executePlan(prepared.plan, context);
     assert.equal(executed.success, true, executed.summary);
     const search = new LocalSearchToolService({ dataRoot, pathResolver: resolver });
-    const globResult = search.glob({ pattern: "bash-output.txt" }, context);
+    const globResult = await search.glob({ pattern: "bash-output.txt" }, context);
     assert.deepEqual(globResult.content.files, ["bash-output.txt"]);
     assert.equal(fs.readFileSync(path.join(resolver.roots(context).workspace, "bash-output.txt"), "utf8"), "bash");
   } finally {

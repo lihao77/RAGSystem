@@ -23,6 +23,7 @@ import {
   normalizeGlobInput,
   normalizeGrepInput,
   parseTodos,
+  previewLine,
   type GlobInput,
   type GrepInput,
   type TodoItem,
@@ -50,7 +51,7 @@ export class SaaSSearchToolService {
         recursive: normalized.recursive,
         maxResults: normalized.maxResults,
       });
-      return formatGlobResult(root.displayPath, { pattern }, result.files, result.truncated);
+      return formatGlobResult(root.displayPath, { pattern }, result.files, result.truncated, {}, result.totalFiles);
     } catch (error) { return toolError(toolName, `glob 执行失败: ${messageOf(error)}`); }
   }
 
@@ -69,8 +70,15 @@ export class SaaSSearchToolService {
         maxResults: normalized.maxResults,
         contextLines: normalized.contextLines,
       });
-      const matches = result.matches.map((match) => ({ file: match.file, line_number: match.lineNumber, line: match.line, before: match.before, after: match.after }));
-      return formatGrepResult(root.displayPath, normalized, matches, result.scannedFiles, result.truncated);
+      // 行预览在模型-facing 边界统一施加（2000B/UTF-8 边界），兼容旧版沙箱镜像未预览的长行。
+      const matches = result.matches.map((match) => ({
+        file: match.file,
+        line_number: match.lineNumber,
+        line: previewLine(match.line),
+        before: match.before.map((line) => previewLine(line)),
+        after: match.after.map((line) => previewLine(line)),
+      }));
+      return formatGrepResult(root.displayPath, normalized, matches, result.scannedFiles, result.truncated, {}, result.totalMatches);
     } catch (error) { return toolError(toolName, `grep 执行失败: ${messageOf(error)}`); }
   }
 
