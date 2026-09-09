@@ -20,12 +20,15 @@ export interface AgentCallStartEventInput {
 export function buildAgentCallStart(input: AgentCallStartEventInput & { runId: string }): Envelope {
   // call.agent.start → agent_started：agent_id=子 agent，call_id=子 agent call_id，
   // lineage.parent_call_id=父 agent call_id（挂父）。task=委派描述。
+  // participant_id 顶层盖章：本帧是子 run 的锚点事件（agent-unit 条目诞生），参与者
+  // 线程路由必须不依赖 payload 兜底——与其余子 run 信封的盖章口径一致。
   return {
       type: "agent_started",
       session_id: input.sessionId,
       run_id: input.runId,
       agent_id: input.agentName,
       call_id: input.agentCallId,
+      participant_id: input.childAgentId,
       // 顶层 timestamp（ISO）供前端执行树推子 agent 工作时长。
       timestamp: new Date().toISOString(),
       payload: {

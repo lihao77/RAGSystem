@@ -84,7 +84,6 @@ describe("kernel event wire translation", () => {
       content: "Map: ",
       partIndex: 0,
     }, context)[0]?.payload).toMatchObject({ phase: "delta", content: "Map: ", part_index: 0 });
-
     expect(translateKernelEvent({
       type: "output_file_ref",
       agentName: "agent",
@@ -339,5 +338,38 @@ describe("kernel event wire translation", () => {
 
     const [legacy] = translateKernelEvent(base, context);
     expect((legacy?.payload as Record<string, unknown>).raw_result).toBeUndefined();
+  });
+
+  it("stamps participant_id on child-run envelopes and omits it for root runs", () => {
+    // 子 run：childAgentId 非空 → 全部 kernel 翻译帧顶层盖章 participant_id，
+    // 前端据此直路由参与者线程（不再从 agent_message 推断归属）。
+    const childContext = {
+      ...context,
+      runId: "child-run-1",
+      parentCallId: "root-call",
+      childAgentId: "child-1",
+    };
+    const childEvents = [
+      ...translateKernelEvent({ type: "output_delta", agentName: "agent", content: "hi", partIndex: 0 }, childContext),
+      ...translateKernelEvent({
+        type: "tool_call",
+        agentName: "agent",
+        toolCallId: "tool-1",
+        toolName: "read",
+        arguments: {},
+        round: 0,
+        order: 0,
+        roundIndex: 0,
+      }, childContext),
+      ...translateKernelEvent({ type: "model_request", agentName: "agent", round: 0 }, childContext),
+    ];
+    expect(childEvents.length).toBeGreaterThan(0);
+    for (const envelope of childEvents) {
+      expect(envelope.participant_id).toBe("child-1");
+    }
+
+    // root run：不带 participant_id（缺失即根身份，与 lineage.parent_call_id 口径一致）。
+    const [rootEnvelope] = translateKernelEvent({ type: "output_delta", agentName: "agent", content: "hi", partIndex: 0 }, context);
+    expect(rootEnvelope?.participant_id).toBeUndefined();
   });
 });

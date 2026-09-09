@@ -27,15 +27,23 @@ interface ExecutionEventContext {
 
 /**
  * 把 ExecutionEventContext 的公共字段投影到 envelope 顶层 + payload.lineage。
- * child run 带 lineage.parent_call_id（挂父）；root run 不带（顶层 root）。
+ * child run 带 lineage.parent_call_id（挂父）与顶层 participant_id（参与者线程直路由）；root run 均不带。
+ * 注：生产中本函数只服务 root run 的生命周期帧（buildRootAgentStart）；子 run 的锚点帧
+ * agent_started 来自 delegation/events.ts 的 buildAgentCallStart（自行盖章 participant_id）。
+ * 此处的 participant_id 投影是统一口径的预留位——任何后续经此发布的 child 生命周期帧自动带章。
  */
 function contextMarkers(input: ExecutionEventContext): {
-  top: { run_id: string; agent_id: string; call_id: string };
+  top: { run_id: string; agent_id: string; call_id: string; participant_id?: string };
   lineage: { parent_call_id?: string } | undefined;
 } {
   const lineage = input.parentCallId ? { parent_call_id: input.parentCallId } : undefined;
   return {
-    top: { run_id: input.runId, agent_id: input.agent.agent_name, call_id: input.rootCallId },
+    top: {
+      run_id: input.runId,
+      agent_id: input.agent.agent_name,
+      call_id: input.rootCallId,
+      ...(input.childAgentId ? { participant_id: input.childAgentId } : {}),
+    },
     lineage,
   };
 }

@@ -308,6 +308,7 @@ describe("buildRunTerminalRecords", () => {
         runId: "run-1",
         agentCallId: "agent-call-1",
         lineageParentCallId: null,
+        childAgentId: null,
         agentName: "assistant",
         agentDisplayName: "Assistant",
       },
@@ -348,6 +349,7 @@ describe("buildRunTerminalRecords", () => {
         runId: "run-1",
         agentCallId: "agent-call-1",
         lineageParentCallId: null,
+        childAgentId: null,
         agentName: "assistant",
         agentDisplayName: "Assistant",
       },
@@ -361,6 +363,75 @@ describe("buildRunTerminalRecords", () => {
     for (const record of records) {
       const event = record.outbox.payload.client_event as { boundary_message_id?: string };
       expect(event.boundary_message_id).toBe("u2");
+    }
+  });
+
+  it("stamps participant_id on every terminal envelope for child runs only", () => {
+    const finalMessage = {
+      id: "child-run-1:final",
+      seq: 4,
+      session_id: "session-1",
+      role: "assistant",
+      content_parts: [{ type: "text", text: "子智能体最终答案" }],
+      metadata: { run_id: "child-run-1" },
+      created_at: "2026-01-01T00:00:00.000Z",
+      thread_key: "child:child-1",
+      child_agent_id: "child-1",
+    } as MessageInfo;
+    const closedTool = {
+      id: "child-run-1:tool:call-9",
+      seq: 3,
+      session_id: "session-1",
+      role: "tool",
+      content_parts: [{ type: "text", text: "obs" }],
+      metadata: { run_id: "child-run-1", boundary_message_id: "u2" },
+      created_at: "2026-01-01T00:00:00.000Z",
+      thread_key: "child:child-1",
+      child_agent_id: "child-1",
+      tool_call_id: "call-9",
+      name: "read",
+    } as MessageInfo;
+
+    // 子 run：全部终局信封（含悬空工具收尾）顶层盖章 participant_id。
+    const childRecords = buildRunTerminalRecords({
+      run: {
+        sessionId: "session-1",
+        runId: "child-run-1",
+        agentCallId: "child-agent-call",
+        lineageParentCallId: "root-call",
+        childAgentId: "child-1",
+        agentName: "worker",
+        agentDisplayName: "Worker",
+      },
+      status: "interrupted",
+      reason: "session_stopped",
+      finalMessage,
+      boundaryMessageId: "u2",
+      closedToolMessages: [closedTool],
+    });
+    expect(childRecords.length).toBeGreaterThan(0);
+    for (const record of childRecords) {
+      const event = record.outbox.payload.client_event as { participant_id?: string };
+      expect(event.participant_id).toBe("child-1");
+    }
+
+    // root run：不带 participant_id（缺失即根身份，与 lineage 口径一致）。
+    const rootRecords = buildRunTerminalRecords({
+      run: {
+        sessionId: "session-1",
+        runId: "run-1",
+        agentCallId: "agent-call-1",
+        lineageParentCallId: null,
+        childAgentId: null,
+        agentName: "assistant",
+        agentDisplayName: "Assistant",
+      },
+      status: "completed",
+      finalMessage: { ...finalMessage, id: "run-1:final", metadata: { run_id: "run-1" }, thread_key: "root", child_agent_id: null },
+    });
+    for (const record of rootRecords) {
+      const event = record.outbox.payload.client_event as { participant_id?: string };
+      expect(event.participant_id).toBeUndefined();
     }
   });
 });
@@ -392,6 +463,7 @@ describe("AsyncKernelEventPersister terminal cleanup", () => {
               runId: input.runId,
               agentCallId: "root-call-1",
               lineageParentCallId: null,
+              childAgentId: null,
               agentName: "agent-1",
               agentDisplayName: "Agent 1",
             },
@@ -690,6 +762,7 @@ describe("AsyncKernelEventPersister terminal cleanup", () => {
               runId: input.runId,
               agentCallId: "child-call-1",
               lineageParentCallId: "root-call-1",
+              childAgentId: "child-1",
               agentName: "worker",
               agentDisplayName: "Worker",
             },

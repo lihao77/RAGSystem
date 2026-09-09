@@ -635,6 +635,13 @@ export function createSessionEnvelopeDispatcher({
       const category = payload.category;
       if (category === 'message_saved') {
         const ref = { ...(payload.ref || {}), ...(event.run_id ? { run_id: event.run_id } : {}) };
+        // 子 run 的 assistant 落库帧属于参与者线程（useMessageExecution 承接），根列表
+        // 一律不收——此前仅按"run_id ≠ 活跃 run"过滤，activeRunId 为空时子答案会整块
+        // 泄漏进根视图。子身份以顶层 participant_id / payload.lineage 判定。
+        if (ref.role === 'assistant'
+          && (event.participant_id || payload.lineage?.parent_call_id)) {
+          return;
+        }
         let currentMsg = messages.value[activeRun.assistantMsgIndex];
         const refMessageId = ref.message_id || ref.id || null;
         const refRunId = ref.run_id || null;

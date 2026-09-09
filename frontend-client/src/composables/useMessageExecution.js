@@ -1,6 +1,6 @@
 import { createExecutionTreeState, applyEnvelope, getExecutionTree } from '@ragsystem/agent-protocol';
 import { getCurrentScope, onScopeDispose, watch } from 'vue';
-import { partsToPlainText } from '../utils/messageContentParts.js';
+import { partsToPlainText, reconcileMessageContentParts } from '../utils/messageContentParts.js';
 import {
   getMessageExecutionTimeText,
   getMessageExecutionTimeTitle,
@@ -279,6 +279,56 @@ export function useMessageExecution(deps) {
       message.finished = false;
     }
   };
+  // 子 run 消息槽载体：与 root 的投递口径对齐——root 从 run 开始就持有 assistant 气泡、
+  // final 相位全文直达、message_saved 只合并 id/seq。子线程此前没有气泡载体，最终答案
+  // 全靠 message_saved 整块造泡，事件丢失就得 HTTP 补拉；载体补齐后两条路径同构。
+  const findParticipantRunCarrier = (participantId, runId) => {
+    const list = deps.participantMessages?.value?.[participantId];
+    if (!Array.isArray(list)) return null;
+    return list.find(item => item?.role === 'assistant' && getMessageRunId(item) === runId) || null;
+  };
+  const ensureParticipantRunCarrier = (participantId, runId) => {
+    const existing = findParticipantRunCarrier(participantId, runId);
+    if (existing) return existing;
+    const carrier = createAssistantMessage({
+      run_id: runId,
+      thread_key: `child:${participantId}`,
+      child_agent_id: participantId,
+      metadata: {
+        run_id: runId,
+        thread_key: `child:${participantId}`,
+        child_agent_id: participantId,
+      },
+    });
+    deps.syncParticipantMessage?.(participantId, carrier);
+    return carrier;
+  };
+  const applyChildRunEnvelopeToCarrier = (participantId, runId, event) => {
+    if (event.type === 'agent_started' || event.type === 'stream_output') {
+      const carrier = ensureParticipantRunCarrier(participantId, runId);
+      // final 是终局一次性帧（每 run 恰一条），全文直达气泡——镜像 sessionEventReducer
+      // 根路径的 final 写入；后续 message_saved 经 run_id 去重只合并 id/seq。
+      if (event.type === 'stream_output' && event.payload?.phase === 'final') {
+        const payload = event.payload || {};
+        if (typeof payload.content === 'string' && payload.content) carrier.content = payload.content;
+        if (Array.isArray(payload.content_parts)) reconcileMessageContentParts(carrier, payload.content_parts);
+        carrier.finished = true;
+      }
+      return;
+    }
+    if (event.type === 'run_ended') {
+      const carrier = findParticipantRunCarrier(participantId, runId);
+      if (!carrier) return;
+      const status = event.payload?.status || 'completed';
+      // 失败/中断 run 同样有终局 final 文本（先到、已定格 finished），此处不得按
+      // finished 早退——run_failed/stopped/terminal_status 必须无条件补齐，
+      // 否则失败旗标永远缺失，且重载历史（带 terminal_status）后前后不一致。
+      if (status !== 'suspended') carrier.finished = true;
+      carrier.run_failed = status === 'failed';
+      carrier.stopped = status === 'interrupted';
+      carrier.metadata = { ...(carrier.metadata || {}), terminal_status: status };
+    }
+  };
   const flushParticipantRun = (sessionId, participantId, runId) => {
     const key = runKey(sessionId, runId);
     const pending = pendingEnvelopesByRun.get(key);
@@ -299,6 +349,7 @@ export function useMessageExecution(deps) {
     if (seenKey) seenEnvelopeIds.set(seenKey, true);
     const participantId = event?.payload?.child_agent_id
       || event?.payload?.participant_id
+      || event?.participant_id
       || (event?.type === 'agent_message' ? event?.payload?.target_child_agent_id : null)
       || event?.child_agent_id
       || participantByRun.get(runKey(sessionId, runId))
@@ -331,6 +382,7 @@ export function useMessageExecution(deps) {
     }
     if (!participantId || participantId === 'root') return;
     participantByRun.set(runKey(sessionId, runId), participantId);
+    applyChildRunEnvelopeToCarrier(participantId, runId, event);
     const message = findBoundaryForEnvelope(participantId, runId, event);
     if (message) applyParticipantEnvelope(message, event);
     else {

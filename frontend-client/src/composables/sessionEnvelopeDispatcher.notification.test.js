@@ -302,3 +302,63 @@ test('runtime 快照无 compact 租约且无活动 run 时清瞬态横线与呼�
   assert.equal(messages.value.some(m => m.metadata?.msg_type === 'context_compression_pending'), false);
   assert.equal(state.isCompressing.value, false);
 });
+
+// 回归：子 run 的 assistant 落库帧不得落入根列表。
+// 根因：旧守卫按"run_id ≠ 活跃 run"过滤，活跃 run 为空（后台委派/收尾后）时
+// 子答案气泡会整块泄漏进根视图。修复：凡带子身份（顶层 participant_id 或
+// payload.lineage.parent_call_id）的 assistant message_saved 一律不进根列表。
+test('子 run assistant message_saved 不进根列表（无活跃 run 也不泄漏）', () => {
+  setActivePinia(createPinia());
+  const { dispatcher, messages } = createDispatcherFixture();
+
+  const childSaved = {
+    type: 'state_sync',
+    session_id: 'session-1',
+    run_id: 'child-run-9',
+    participant_id: 'child-9',
+    payload: {
+      category: 'message_saved',
+      lineage: { parent_call_id: 'root-call' },
+      ref: {
+        message_id: 'child-run-9:final',
+        seq: 5,
+        role: 'assistant',
+        content_parts: [{ type: 'text', text: '子智能体最终答案' }],
+      },
+    },
+  };
+  dispatcher.handleEnvelope(childSaved, 'session-1');
+  // 旧形状（无顶层 participant_id，仅 payload.lineage）同样拦截。
+  dispatcher.handleEnvelope({
+    ...childSaved,
+    participant_id: undefined,
+    run_id: 'child-run-10',
+    payload: { ...childSaved.payload, ref: { ...childSaved.payload.ref, message_id: 'child-run-10:final' } },
+  }, 'session-1');
+
+  assert.equal(messages.value.length, 0, '子 run 的 assistant 落库帧不得在根列表建泡');
+});
+
+test('根 run 的 assistant message_saved 仍走根列表合并（守卫不影响 root）', () => {
+  setActivePinia(createPinia());
+  const { dispatcher, messages } = createDispatcherFixture();
+
+  dispatcher.handleEnvelope({
+    type: 'state_sync',
+    session_id: 'session-1',
+    run_id: 'run-root-1',
+    payload: {
+      category: 'message_saved',
+      ref: {
+        message_id: 'run-root-1:final',
+        seq: 5,
+        role: 'assistant',
+        content_parts: [{ type: 'text', text: '主智能体最终答案' }],
+      },
+    },
+  }, 'session-1');
+
+  const bubbles = messages.value.filter(item => item.role === 'assistant');
+  assert.equal(bubbles.length, 1);
+  assert.equal(bubbles[0].id, 'run-root-1:final');
+});

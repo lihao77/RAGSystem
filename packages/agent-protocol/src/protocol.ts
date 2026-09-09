@@ -806,8 +806,7 @@ export const PluginEventPayloadSchema = z.object({
 /**
  * 顶层基础形状（纯 ZodObject，供 HelloEnvelopeSchema 等 extend 复用）。
  *
- * 维护提醒：本对象（zod 运行时校验）与上方 ProtocolEnvelope（TS 静态接口）是
- * 两份独立定义——新增 / 修改顶层字段时必须同步两者，否则运行时校验与静态类型不一致。
+ * 维护提醒：ProtocolEnvelope（TS 静态类型）即本对象 z.infer 派生，字段增改只需改本对象。
  * （EnvelopeSchema = EnvelopeBaseObject.superRefine(...)，派生自本对象，字段自动跟随，
  *   无需手动同步。）
  */
@@ -818,6 +817,9 @@ export const ProtocolEnvelopeSchema = z.object({
   run_id: z.string().optional(),
   call_id: z.string().min(1).optional(),
   agent_id: z.string().optional(),
+  // 子 run 归属标识（= 发起委派时的 child agent id）：后端在子 run 的各类事件顶层盖章，
+  // 前端据此直接路由到对应参与者线程，无需从别的事件推断；root run 不带。
+  participant_id: z.string().min(1).optional(),
   seq: z.number().int().nonnegative().optional(),
   message_id: z.string().optional(),
   boundary_message_id: z.string().optional(),

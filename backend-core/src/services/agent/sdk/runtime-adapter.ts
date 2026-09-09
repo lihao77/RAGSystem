@@ -444,6 +444,7 @@ export async function executeRunWithSdk(
     requestId: input.requestId,
     agentId: input.agent.agent_name,
     boundaryMessageId: input.initialMessage?.id ?? input.rootMailboxMessage?.id ?? null,
+    childAgentId: input.childAgentId ?? null,
   };
   if (input.lineageParentCallId !== undefined && input.lineageParentCallId !== null) {
     wireCtx.parentCallId = input.lineageParentCallId;

@@ -36,6 +36,8 @@ export interface WireTranslationContext {
   agentId: string;
   parentCallId?: string | null;
   boundaryMessageId?: string | null;
+  // 子 run 归属：非空时事件顶层盖章 participant_id，前端直接路由到对应参与者线程。
+  childAgentId?: string | null;
 }
 
 /** Translate one SDK event into the envelopes visible to this backend's clients. */
@@ -85,6 +87,7 @@ function topMarkers(ctx: WireTranslationContext): {
   call_id: string;
   agent_id: string;
   boundary_message_id?: string;
+  participant_id?: string;
 } {
   return {
     session_id: ctx.sessionId,
@@ -92,6 +95,7 @@ function topMarkers(ctx: WireTranslationContext): {
     call_id: ctx.rootCallId,
     agent_id: ctx.agentId,
     ...(ctx.boundaryMessageId ? { boundary_message_id: ctx.boundaryMessageId } : {}),
+    ...(ctx.childAgentId ? { participant_id: ctx.childAgentId } : {}),
   };
 }
 
@@ -229,6 +233,7 @@ function onToolCall(event: ToolCallEvent, ctx: WireTranslationContext): Envelope
     // 工具事件同样绑定当前 boundary：插嘴认领后 call/result 精确路由到新面板，
     // 不再依赖前端按消息列表位置回退（列表 splice/重排会拆散 call-result 配对）。
     ...(ctx.boundaryMessageId ? { boundary_message_id: ctx.boundaryMessageId } : {}),
+    ...(ctx.childAgentId ? { participant_id: ctx.childAgentId } : {}),
     payload: {
       tool: event.toolName,
       input: event.arguments,
@@ -277,6 +282,7 @@ function onToolResult(event: ToolResultEvent, ctx: WireTranslationContext): Enve
     call_id: event.toolCallId,
     agent_id: ctx.agentId,
     ...(ctx.boundaryMessageId ? { boundary_message_id: ctx.boundaryMessageId } : {}),
+    ...(ctx.childAgentId ? { participant_id: ctx.childAgentId } : {}),
     payload: base,
   };
 }

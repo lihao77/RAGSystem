@@ -108,17 +108,29 @@ test('root agent result uses its target thread instead of source child metadata'
   }]);
 });
 
-test('child envelopes wait for the durable message and project onto that exact object', async () => {
+test('child envelopes project onto the durable boundary while the run carrier stays separate', async () => {
   const handlers = new Set();
   const participantMessages = ref({ 'child-1': [] });
+  // 模拟 store 的去重合并口径（id 或 assistant 同 run_id）：载体只建一条。
+  const syncParticipantMessage = (participantId, message) => {
+    const list = participantMessages.value[participantId] || [];
+    const idMatch = message?.id ? list.findIndex(item => item?.id === message.id) : -1;
+    const runMatch = message?.role === 'assistant'
+      ? list.findIndex(item => item?.role === 'assistant'
+        && (item?.run_id || item?.metadata?.run_id) === (message?.run_id || message?.metadata?.run_id))
+      : -1;
+    const index = idMatch >= 0 ? idMatch : runMatch;
+    const next = [...list];
+    if (index >= 0) Object.assign(next[index], message);
+    else next.push(message);
+    participantMessages.value = { ...participantMessages.value, [participantId]: next };
+  };
   useMessageExecution({
     currentSessionId: ref('session-1'),
     selectedParticipantId: ref('child-1'),
     participantMessages,
     activeRun: { runId: 'root-run', rootCallId: 'root-call' },
-    syncParticipantMessage() {
-      assert.fail('execution envelopes must not create a virtual message');
-    },
+    syncParticipantMessage,
     chatSdkClient: {
       on(name, handler) {
         if (name === 'event') handlers.add(handler);
@@ -131,7 +143,13 @@ test('child envelopes wait for the durable message and project onto that exact o
     handler(childStarted());
     handler(childToolCall());
   }
-  assert.deepEqual(participantMessages.value['child-1'], []);
+
+  // agent_started 建消息槽载体（与 root run_started 建泡同构）：一条空 assistant，未完成。
+  const afterStart = participantMessages.value['child-1'];
+  assert.equal(afterStart.length, 1);
+  assert.equal(afterStart[0].role, 'assistant');
+  assert.equal(afterStart[0].run_id, 'child-run');
+  assert.equal(afterStart[0].finished, false);
 
   const durableMessage = reactive({
     role: 'user',
@@ -141,11 +159,191 @@ test('child envelopes wait for the durable message and project onto that exact o
     has_execution: true,
     executionTree: { root: null, steps: [] },
   });
-  participantMessages.value = { 'child-1': [durableMessage] };
+  participantMessages.value = { 'child-1': [durableMessage, afterStart[0]] };
   await nextTick();
 
-  assert.equal(participantMessages.value['child-1'][0], durableMessage);
+  // 执行树照旧投影到持久 boundary 本体；载体不承载过程。
   assert.equal(durableMessage.executionTree.root.rounds[0].toolCalls[0].callId, 'tool-1');
+  assert.equal(participantMessages.value['child-1'][0], durableMessage);
+  const carriers = participantMessages.value['child-1'].filter(item => item.role === 'assistant');
+  assert.equal(carriers.length, 1);
+  assert.equal(carriers[0].content, '');
+});
+
+test('child final streams into the run carrier and message_saved only merges identity', () => {
+  const handlers = new Set();
+  const participantMessages = ref({ 'child-1': [] });
+  const syncParticipantMessage = (participantId, message) => {
+    const list = participantMessages.value[participantId] || [];
+    const idMatch = message?.id ? list.findIndex(item => item?.id === message.id) : -1;
+    const runMatch = message?.role === 'assistant'
+      ? list.findIndex(item => item?.role === 'assistant'
+        && (item?.run_id || item?.metadata?.run_id) === (message?.run_id || message?.metadata?.run_id))
+      : -1;
+    const index = idMatch >= 0 ? idMatch : runMatch;
+    const next = [...list];
+    if (index >= 0) Object.assign(next[index], message);
+    else next.push(message);
+    participantMessages.value = { ...participantMessages.value, [participantId]: next };
+  };
+  useMessageExecution({
+    currentSessionId: ref('session-1'),
+    selectedParticipantId: ref('child-1'),
+    participantMessages,
+    activeRun: { runId: 'root-run', rootCallId: 'root-call' },
+    syncParticipantMessage,
+    chatSdkClient: {
+      on(name, handler) {
+        if (name === 'event') handlers.add(handler);
+        return () => handlers.delete(handler);
+      },
+    },
+  });
+
+  for (const handler of handlers) {
+    handler(childStarted());
+    handler({
+      type: 'stream_output',
+      session_id: 'session-1',
+      run_id: 'child-run',
+      participant_id: 'child-1',
+      payload: { phase: 'final', content: '子智能体最终答案', content_parts: [{ type: 'text', text: '子智能体最终答案' }] },
+    });
+    handler({
+      type: 'state_sync',
+      session_id: 'session-1',
+      run_id: 'child-run',
+      participant_id: 'child-1',
+      payload: {
+        category: 'message_saved',
+        lineage: { parent_call_id: 'root-call' },
+        ref: {
+          message_id: 'child-run:final',
+          seq: 9,
+          role: 'assistant',
+          content_parts: [{ type: 'text', text: '子智能体最终答案' }],
+        },
+      },
+    });
+  }
+
+  // final 全文直达载体（与根路径同构）；message_saved 经 run_id 去重只合并 id/seq——
+  // 全程只有一条 assistant 气泡，最终答案不依赖 message_saved 送达。
+  const bubbles = participantMessages.value['child-1'].filter(item => item.role === 'assistant');
+  assert.equal(bubbles.length, 1);
+  assert.equal(bubbles[0].id, 'child-run:final');
+  assert.equal(bubbles[0].seq, 9);
+  assert.equal(bubbles[0].content, '子智能体最终答案');
+  assert.equal(bubbles[0].finished, true);
+});
+
+test('child run_ended finalizes an unfinished carrier', () => {
+  const handlers = new Set();
+  const participantMessages = ref({ 'child-1': [] });
+  useMessageExecution({
+    currentSessionId: ref('session-1'),
+    selectedParticipantId: ref('child-1'),
+    participantMessages,
+    activeRun: { runId: 'root-run', rootCallId: 'root-call' },
+    syncParticipantMessage(participantId, message) {
+      participantMessages.value = {
+        ...participantMessages.value,
+        [participantId]: [...(participantMessages.value[participantId] || []), message],
+      };
+    },
+    chatSdkClient: {
+      on(name, handler) {
+        if (name === 'event') handlers.add(handler);
+        return () => handlers.delete(handler);
+      },
+    },
+  });
+
+  for (const handler of handlers) {
+    handler(childStarted());
+    handler({
+      type: 'run_ended',
+      session_id: 'session-1',
+      run_id: 'child-run',
+      participant_id: 'child-1',
+      payload: { status: 'interrupted', reason: 'session_stopped' },
+    });
+  }
+
+  const [carrier] = participantMessages.value['child-1'];
+  assert.equal(carrier.role, 'assistant');
+  assert.equal(carrier.finished, true);
+  assert.equal(carrier.stopped, true);
+  assert.equal(carrier.metadata.terminal_status, 'interrupted');
+});
+
+test('child run_ended stamps failure flags even after final already finished the carrier', () => {
+  // 失败/中断 run 的终局顺序是 final（带终局文本，定格 finished）→ message_saved →
+  // run_ended：旗标补齐不得因 finished 早退，否则失败状态永远缺失。
+  const handlers = new Set();
+  const participantMessages = ref({ 'child-1': [] });
+  useMessageExecution({
+    currentSessionId: ref('session-1'),
+    selectedParticipantId: ref('child-1'),
+    participantMessages,
+    activeRun: { runId: 'root-run', rootCallId: 'root-call' },
+    syncParticipantMessage(participantId, message) {
+      const list = participantMessages.value[participantId] || [];
+      const runMatch = message?.role === 'assistant'
+        ? list.findIndex(item => item?.role === 'assistant'
+          && (item?.run_id || item?.metadata?.run_id) === (message?.run_id || message?.metadata?.run_id))
+        : -1;
+      const next = [...list];
+      if (runMatch >= 0) Object.assign(next[runMatch], message);
+      else next.push(message);
+      participantMessages.value = { ...participantMessages.value, [participantId]: next };
+    },
+    chatSdkClient: {
+      on(name, handler) {
+        if (name === 'event') handlers.add(handler);
+        return () => handlers.delete(handler);
+      },
+    },
+  });
+
+  for (const handler of handlers) {
+    handler(childStarted());
+    handler({
+      type: 'stream_output',
+      session_id: 'session-1',
+      run_id: 'child-run',
+      participant_id: 'child-1',
+      payload: { phase: 'final', content: '本次运行执行失败：工具报错', content_parts: [{ type: 'text', text: '本次运行执行失败：工具报错' }] },
+    });
+    handler({
+      type: 'state_sync',
+      session_id: 'session-1',
+      run_id: 'child-run',
+      participant_id: 'child-1',
+      payload: {
+        category: 'message_saved',
+        ref: {
+          message_id: 'child-run:terminal',
+          seq: 8,
+          role: 'assistant',
+          content_parts: [{ type: 'text', text: '本次运行执行失败：工具报错' }],
+        },
+      },
+    });
+    handler({
+      type: 'run_ended',
+      session_id: 'session-1',
+      run_id: 'child-run',
+      participant_id: 'child-1',
+      payload: { status: 'failed', reason: 'tool_error' },
+    });
+  }
+
+  const [carrier] = participantMessages.value['child-1'].filter(item => item.role === 'assistant');
+  assert.equal(carrier.finished, true);
+  assert.equal(carrier.run_failed, true);
+  assert.equal(carrier.metadata.terminal_status, 'failed');
+  assert.equal(carrier.content, '本次运行执行失败：工具报错');
 });
 
 test('child execution events keep a durable user boundary finished like the root path', () => {
@@ -305,7 +503,7 @@ test('agent_message creates only its real conversation message', () => {
   assert.equal(synced[0].message.has_execution, false);
 });
 
-test('child final message_saved creates the assistant bubble while the root Run is still active', () => {
+test('child final message_saved without a live carrier still creates the full bubble', () => {
   const handlers = new Set();
   const synced = [];
   useMessageExecution({
@@ -323,11 +521,13 @@ test('child final message_saved creates the assistant bubble while the root Run 
   });
 
   for (const handler of handlers) {
-    handler(childStarted());
+    // 未经历 agent_started/final（如中途加入会话）：message_saved 整块建泡的保底路径不变。
+    // 终局 message_saved 现自带顶层 participant_id（后端盖章），无需从别的信封推断归属。
     handler({
       type: 'state_sync',
       session_id: 'session-1',
       run_id: 'child-run',
+      participant_id: 'child-1',
       payload: {
         category: 'message_saved',
         lineage: { parent_call_id: 'root-call' },

@@ -21,6 +21,8 @@ export interface TerminalRunIdentity {
   runId: string;
   agentCallId: string;
   lineageParentCallId: string | null;
+  /** 子 run 归属：非空时终局 envelope 顶层盖章 participant_id（前端直路由参与者线程）。 */
+  childAgentId: string | null;
   agentName: string;
   agentDisplayName: string;
 }
@@ -181,6 +183,7 @@ export function buildRunTerminalRecords(input: {
   const boundary = input.boundaryMessageId
     ? { boundary_message_id: input.boundaryMessageId }
     : {};
+  const participant = run.childAgentId ? { participant_id: run.childAgentId } : {};
   const records: RuntimeRecordEnvelopeInput[] = [];
   if (finalMessage) {
     records.push(terminalEnvelopeRecord(run, `${run.runId}:terminal:stream_output`, {
@@ -191,6 +194,7 @@ export function buildRunTerminalRecords(input: {
       call_id: run.agentCallId,
       agent_id: run.agentName,
       ...boundary,
+      ...participant,
       payload: {
         phase: "final",
         content: partsToPlainText(finalMessage.content_parts),
@@ -203,6 +207,7 @@ export function buildRunTerminalRecords(input: {
       session_id: run.sessionId,
       run_id: run.runId,
       ...boundary,
+      ...participant,
       payload: {
         category: "message_saved",
         ref: {
@@ -230,6 +235,7 @@ export function buildRunTerminalRecords(input: {
         ...(input.boundaryMessageId ?? toolBoundaryOf(message)
           ? { boundary_message_id: input.boundaryMessageId ?? toolBoundaryOf(message)! }
           : {}),
+        ...participant,
         payload: {
           tool: message.name ?? "unknown",
           phase: "end",
@@ -250,6 +256,7 @@ export function buildRunTerminalRecords(input: {
     call_id: run.agentCallId,
     agent_id: run.agentName,
     ...boundary,
+    ...participant,
     // 顶层 timestamp（ISO）供前端执行树定格 agent 工作时长。取终局消息的持久化
     // created_at 而非墙钟：本投影按 eventId 幂等重放，墙钟会使重放 payload 漂移；
     // 消息表 created_at 可能是 SQLite datetime 串，须经 toEnvelopeTimestamp 归一。
@@ -268,6 +275,7 @@ export function buildRunTerminalRecords(input: {
     session_id: run.sessionId,
     run_id: run.runId,
     ...boundary,
+    ...participant,
     payload: {
       status,
       ...(reason ? { reason } : {}),
