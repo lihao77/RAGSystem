@@ -131,6 +131,7 @@ function parseResponse(body: Record<string, unknown>): LlmResult {
   const toolCalls = extractResponseToolCalls(body);
   const reasoningItems = extractResponseReasoningItems(body);
   const finishReason = typeof body.status === "string" ? body.status : null;
+  assertUsableResponse(content, toolCalls, finishReason, extractIncompleteReason(body));
   if (!content && !reasoning && toolCalls.length === 0) {
     throw new Error(`OpenAI Responses output did not include assistant content (status=${finishReason ?? "unknown"})`);
   }
@@ -154,6 +155,7 @@ async function consumeResponsesStream(
   let reasoning = "";
   let finishReason: string | null = null;
   let usage: TokenUsage | null = null;
+  let incompleteReason: string | null = null;
   let stopped = false;
   const blocks = new StreamingBlocks();
   const reasoningItems = new Map<number, Record<string, unknown>>();
@@ -176,7 +178,9 @@ async function consumeResponsesStream(
           stopped = true;
           break;
         }
-      } else if (type === "response.reasoning_summary_text.delta" && typeof event.delta === "string") {
+      } else if ((type === "response.reasoning_summary_text.delta" || type === "response.reasoning_text.delta") && typeof event.delta === "string") {
+        // OpenAI 汇总走 summary delta；DeepSeek 等兼容端把推理正文放 reasoning item 的
+        // content（reasoning_text），流事件为 response.reasoning_text.delta——两者同样透传。
         reasoning += event.delta;
         const control = await onChunk({ content: "", reasoning: event.delta, finishReason, raw: event });
         if (control?.stop) {
@@ -201,6 +205,7 @@ async function consumeResponsesStream(
       if (type === "response.completed" || type === "response.incomplete") {
         if (isRecord(event.response)) {
           finishReason = typeof event.response.status === "string" ? event.response.status : type.slice("response.".length);
+          incompleteReason = extractIncompleteReason(event.response) ?? incompleteReason;
           usage = extractOpenAiUsage(event.response) ?? usage;
           if (!content) content = extractOutputText(event.response);
           if (!reasoning) reasoning = extractResponseReasoning(event.response);
@@ -231,6 +236,7 @@ async function consumeResponsesStream(
 
   const toolCalls = blocks.toolCalls();
   if (toolCalls.length && !stopped) await onChunk({ content: "", finishReason, toolCalls });
+  assertUsableResponse(content, toolCalls, finishReason, incompleteReason, stopped);
   if (!content && !reasoning && !toolCalls.length && !stopped && !request.allowEmptyStream) {
     throw new Error(`OpenAI Responses streaming response did not include assistant content (status=${finishReason ?? "unknown"})`);
   }
@@ -266,8 +272,10 @@ function extractOutputText(body: unknown): string {
   if (!isRecord(body)) return "";
   if (typeof body.output_text === "string") return body.output_text;
   if (!Array.isArray(body.output)) return "";
+  // 正文只取 message items：DeepSeek 等兼容端把推理正文放 reasoning items 的 content
+  // （reasoning_text），按 item 类型分流，防止推理文本冒充 assistant 正文。
   return body.output.flatMap((item) => {
-    if (!isRecord(item) || !Array.isArray(item.content)) return [];
+    if (!isRecord(item) || item.type !== "message" || !Array.isArray(item.content)) return [];
     return item.content.map((part) => isRecord(part) && typeof part.text === "string" ? part.text : "");
   }).join("");
 }
@@ -275,9 +283,43 @@ function extractOutputText(body: unknown): string {
 function extractResponseReasoning(body: unknown): string {
   if (!isRecord(body) || !Array.isArray(body.output)) return "";
   return body.output.flatMap((item) => {
-    if (!isRecord(item) || item.type !== "reasoning" || !Array.isArray(item.summary)) return [];
-    return item.summary.map((part) => isRecord(part) && typeof part.text === "string" ? part.text : "");
+    if (!isRecord(item) || item.type !== "reasoning") return [];
+    // OpenAI 走 summary 汇总；DeepSeek 等兼容端推理在 content（reasoning_text parts）。
+    const summary = Array.isArray(item.summary)
+      ? item.summary.map((part) => isRecord(part) && typeof part.text === "string" ? part.text : "")
+      : [];
+    const content = Array.isArray(item.content)
+      ? item.content.map((part) => isRecord(part) && part.type === "reasoning_text" && typeof part.text === "string" ? part.text : "")
+      : [];
+    return [...summary, ...content];
   }).join("");
+}
+
+function extractIncompleteReason(body: unknown): string | null {
+  if (!isRecord(body) || !isRecord(body.incomplete_details)) return null;
+  return typeof body.incomplete_details.reason === "string" ? body.incomplete_details.reason : null;
+}
+
+/**
+ * 截断守卫：推理阶段烧尽输出预算的响应（status=incomplete、无正文无工具调用）不是
+ * 可用的 assistant 轮——思考文本已作为 reasoning 透传，但救不回这一轮，静默落库只会
+ * 变成空回复结束。报错并指明 max_output_tokens，让调用方调预算或降 effort。
+ */
+function assertUsableResponse(
+  content: string,
+  toolCalls: ChatToolCall[],
+  finishReason: string | null,
+  incompleteReason: string | null,
+  stopped = false,
+): void {
+  if (stopped || finishReason !== "incomplete" || content || toolCalls.length) return;
+  // 建议句只对预算耗尽成立：content_filter 等其它 incomplete 原因调预算无效，不误导。
+  const hint = incompleteReason === "max_output_tokens"
+    ? "reasoning consumed the output budget — raise max_output_tokens (max_completion_tokens) or lower reasoning effort"
+    : "check the provider's incomplete_details reason";
+  throw new Error(
+    `OpenAI Responses response ended incomplete (${incompleteReason ?? "unknown"}) with no assistant output or tool calls; ${hint}`,
+  );
 }
 
 function extractResponseReasoningItems(body: unknown): Record<string, unknown>[] {

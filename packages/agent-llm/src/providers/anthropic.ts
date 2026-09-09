@@ -251,6 +251,7 @@ function parseAnthropicResponse(body: Record<string, unknown>): LlmResult {
   const reasoning = reasoningBlocks.flatMap((block) => block.type === "thinking" ? [block.thinking] : []).join("");
   const toolCalls = extractAnthropicToolCalls(body);
   const finishReason = typeof body.stop_reason === "string" ? body.stop_reason : null;
+  assertUsableAnthropicResponse(content, toolCalls, finishReason, reasoningBlocks);
   if (!content && !reasoningBlocks.length && !toolCalls.length) {
     throw new Error(`Anthropic response did not include assistant content (stopReason=${finishReason ?? "unknown"})`);
   }
@@ -402,6 +403,7 @@ async function consumeAnthropicStream(
     .sort((a, b) => a.index - b.index)
     .map((entry) => entry.block);
   const reasoning = reasoningBlocks.flatMap((block) => block.type === "thinking" ? [block.thinking] : []).join("");
+  assertUsableAnthropicResponse(content, completedTools, finishReason, reasoningBlocks, stopped);
   if (!content && !reasoningBlocks.length && !completedTools.length && finishReason !== "interrupted" && !stopped && !request.allowEmptyStream) {
     throw new Error(`Anthropic streaming response did not include assistant content (stopReason=${finishReason ?? "unknown"})`);
   }
@@ -432,6 +434,27 @@ async function consumeAnthropicStream(
 function extractAnthropicText(body: unknown): string {
   if (!isRecord(body) || !Array.isArray(body.content)) return "";
   return body.content.map((block) => isRecord(block) && block.type === "text" && typeof block.text === "string" ? block.text : "").join("");
+}
+
+/**
+ * 截断守卫：思考阶段烧尽 max_tokens 的响应（stop_reason=max_tokens、无正文无工具调用）
+ * 不是可用的 assistant 轮——静默放行只会变成空回复结束。报错并指明 max_tokens，
+ * 让调用方调预算或降思考档位。半截正文/工具不在此列（有部分产出的轮按既有语义放行）。
+ */
+function assertUsableAnthropicResponse(
+  content: string,
+  toolCalls: ChatToolCall[],
+  finishReason: string | null,
+  reasoningBlocks: ReasoningBlock[] | undefined,
+  stopped = false,
+): void {
+  if (stopped || finishReason !== "max_tokens" || content || toolCalls.length) return;
+  // 归因句只在场上有思考块时成立（思考烧预算）；纯空截断只保留调预算建议。
+  const cause = reasoningBlocks?.length ? "thinking consumed the output budget — " : "";
+  throw new Error(
+    `Anthropic response stopped at max_tokens with no assistant text or tool calls; `
+      + `${cause}raise max_tokens (max_completion_tokens) or lower the thinking budget`,
+  );
 }
 
 function extractReasoningBlocks(body: unknown): ReasoningBlock[] {
