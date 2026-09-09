@@ -46,7 +46,8 @@ export function createBashTools(deps: BashToolDeps): Tool[] {
       allowedCallers: ["direct"],
       extendedUsage: `#### 适用场景
 
-仅在确实需要 shell/系统命令、且没有专用工具（read_file/edit_file/write_file/glob/grep 等）适用时使用 execute_shell；文件读写与搜索请优先用专用工具。
+仅在确实需要 shell/系统命令、且没有专用工具（read_file/edit_file/write_file/glob/grep/web_fetch 等）适用时使用 execute_shell；文件读写与搜索请优先用专用工具。
+抓取网页内容优先用 web_fetch（自动转 markdown 并做公网安全校验）；curl/wget 仅用于下载文件落盘、或带认证/自定义请求头的 API 调用。
 
 #### 运行时环境
 
