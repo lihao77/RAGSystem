@@ -1,5 +1,5 @@
 import type { Envelope, MessageContentPart } from "@ragsystem/agent-protocol";
-import type { MessageRequestStatusPort } from './message-request-status.js';
+import type { MessageRequestStatusPort, MessageRequestMutationPort } from './message-request-status.js';
 
 import type { PermissionMode } from "../runtime/permissions.js";
 import type { MessageFeedback, MessageFeedbackValue, RunInfo } from "../conversation-store/index.js";
@@ -74,7 +74,7 @@ export interface SessionParticipantRunSummary {
 }
 
 /** Request-scoped session use cases shared by Local and SaaS deployments. */
-export interface SessionApplication extends MessageRequestStatusPort {
+export interface SessionApplication extends MessageRequestStatusPort, MessageRequestMutationPort {
   ensureSession(input: SessionIdentity): Promise<void>;
   createSession(input: SessionCreateInput): Promise<SessionInfo>;
   listSessions(input: Omit<SessionListQuery, "tenantId">): Promise<SessionListProjectionPage>;

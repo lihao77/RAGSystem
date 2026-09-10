@@ -29,7 +29,7 @@
         @pasteFiles="emit('pasteFiles', $event)"
       >
         <template v-if="pendingFollowups.length" #pending>
-          <PendingFollowups :items="pendingFollowups" />
+          <PendingFollowups :items="pendingFollowups" @edit="emit('edit-followup', $event)" @delete="emit('delete-followup', $event)" />
         </template>
         <template v-if="!hasMessages" #context>
           <TaskLauncher
@@ -173,6 +173,8 @@ const props = defineProps({
 });
 
 const emit = defineEmits([
+  'edit-followup',
+  'delete-followup',
   'update:modelValue',
   'send',
   'stop',

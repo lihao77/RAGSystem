@@ -44,3 +44,29 @@ test('Postgres initializes absent and partial receipt schemas without version ga
   assert.match(queries[0], /CREATE TABLE IF NOT EXISTS session_message_requests/);
   for (const column of ['content', 'status', 'error', 'updated_at']) assert.ok(queries[0].includes(`ADD COLUMN IF NOT EXISTS ${column}`));
 });
+
+test('Postgres mutations lock the queue before checking the latest receipt and reject stale edits', async () => {
+  for (const action of ['edit', 'cancel']) {
+    const queries = [];
+    let currentContent = '原文';
+    const tx = { async query(sql, params) {
+      queries.push({ sql, params });
+      if (sql.startsWith('SELECT b.seq')) return { rows: [{ seq: 42 }] };
+      if (sql.startsWith('SELECT content, status')) return { rows: [{ content: currentContent, status: 'queued' }] };
+      return { rows: [] };
+    } };
+    const repository = new PostgresConversationRepository({ async transaction(fn) { return fn(tx); }, query() { throw new Error('mutation escaped transaction'); } });
+    const input = { sessionId: 's1', requestId: 'r1', expectedContent: '原文', action, ...(action === 'edit' ? { content: '新内容' } : {}) };
+    assert.equal(await repository.mutateQueuedMessageRequest(input), true);
+    assert.match(queries[0].sql, /b.session_id=\$1.*b.metadata->>'request_id'=\$2/);
+    assert.match(queries[0].sql, /b.status='queued'/);
+    assert.match(queries[0].sql, /FOR UPDATE OF b/);
+    assert.match(queries[1].sql, /FOR UPDATE/);
+    assert.equal(queries.length, 4);
+    assert.equal(queries[3].params[3], action === 'edit' ? 'queued' : 'cancelled');
+    currentContent = '另一个页面已修改';
+    queries.length = 0;
+    assert.equal(await repository.mutateQueuedMessageRequest(input), false);
+    assert.equal(queries.length, 2);
+  }
+});

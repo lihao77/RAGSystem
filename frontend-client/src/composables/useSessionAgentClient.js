@@ -7,6 +7,7 @@ import { createSessionRunRecovery } from './sessionRunRecovery.js';
 import { createSessionCommandController } from './sessionCommandController.js';
 import { createSessionEnvelopeDispatcher } from './sessionEnvelopeDispatcher.js';
 import { createSessionFollowupRecovery } from './sessionFollowupRecovery.js';
+import { createSessionFollowupActions } from './sessionFollowupActions.js';
 
 export { createRequestId, serializeAttachmentForSend } from './sessionCommandController.js';
 
@@ -76,6 +77,8 @@ export function useSessionAgentClient(deps) {
   });
   const stopFollowupWatch = watch(() => sessionRunStore.currentPendingFollowups.map(item => `${item.request_id}:${item.status}`).join('|'),
     () => followupRecovery.schedule());
+  const followupActions = createSessionFollowupActions({ sdk, store: sessionRunStore, recovery: followupRecovery,
+    showToast: (...args) => deps.showToast(...args) });
   const markDisconnectedFollowups = () => {
     sessionRunStore.markFollowupsUnconfirmed(sdk.sessionId || currentSessionId.value);
   };
@@ -275,6 +278,8 @@ export function useSessionAgentClient(deps) {
     dispose,
     send,
     stop,
+    takeBackPendingFollowup: followupActions.takeBack,
+    deletePendingFollowup: followupActions.cancel,
     respondInteraction: interactionController.respond,
     resume,
     waitForSessionRuntime,

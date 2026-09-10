@@ -91,6 +91,7 @@ export function createConversationStore(options: ConversationStoreOptions) {
     renewMessageRequest: messageRequests.renewMessageRequest.bind(messageRequests),
     settleMessageRequest: messageRequests.settleMessageRequest.bind(messageRequests),
     listMessageRequestStatuses: messageRequests.listMessageRequestStatuses.bind(messageRequests),
+    mutateQueuedMessageRequest: messageRequests.mutateQueuedMessageRequest.bind(messageRequests),
     agentMailbox,
 
     // session

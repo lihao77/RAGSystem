@@ -19,6 +19,7 @@ export function createSessionFollowupRecovery({ sdk, store, loadMessages, showTo
       return pending;
     }
     let retry = false;
+    const revision = store.followupRevision;
     pending = (async () => {
       const requestIds = store.pendingFollowups.filter(item => item.session_id === sessionId).map(item => item.request_id);
       const chunks = requestIds.length ? Array.from({ length: Math.ceil(requestIds.length / 100) }, (_, index) => requestIds.slice(index * 100, (index + 1) * 100)) : [[]];
@@ -28,25 +29,34 @@ export function createSessionFollowupRecovery({ sdk, store, loadMessages, showTo
         for (const item of response?.data?.items || []) statuses.set(item.request_id, item);
       }
       if (disposed || store.currentSessionId !== sessionId) return;
+      if (store.followupRevision !== revision) { retry = true; return; }
       let consumed = false;
       for (const item of statuses.values()) {
         if (item.status === 'processing' || item.status === 'queued' || item.status === 'consumed') {
           store.markFollowupAccepted(sessionId, item.request_id);
         }
         const existing = store.pendingFollowups.find(entry => entry.session_id === sessionId && entry.request_id === item.request_id);
+        if (existing?.mutating) { retry = true; continue; }
         // A consumption event may have removed a send while the older HTTP snapshot was in flight.
         if (requestIds.includes(item.request_id) && !existing) continue;
         if (item.status === 'consumed') {
           consumed ||= Boolean(existing);
           continue;
         }
-        if (item.status === 'failed') {
+        if (item.status === 'cancelled') {
+          store.removePendingFollowup(sessionId, item.request_id);
+        } else if (item.status === 'failed') {
           store.removePendingFollowup(sessionId, item.request_id);
           if (existing) showToast(item.error || '补充消息发送失败', 'warning');
         } else if (item.status === 'processing' || item.status === 'queued') {
           store.queueFollowup(sessionId, item.request_id, item.content);
           const queued = store.pendingFollowups.find(entry => entry.session_id === sessionId && entry.request_id === item.request_id);
-          if (queued) queued.status = item.status;
+          if (queued) {
+            queued.status = item.status;
+            queued.content = item.content;
+            queued.can_manage = item.can_manage === true;
+            queued.can_edit = item.can_edit === true;
+          }
         }
       }
       if (consumed) {

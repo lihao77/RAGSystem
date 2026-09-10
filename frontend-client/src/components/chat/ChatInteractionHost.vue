@@ -7,6 +7,8 @@
     <PendingFollowups
       v-if="pendingFollowups.length"
       :items="pendingFollowups"
+      @edit="emit('edit-followup', $event)"
+      @delete="emit('delete-followup', $event)"
       class="mb-2 rounded-xl border bg-muted px-4 py-1"
     />
     <WorkPanelUserInput
@@ -39,7 +41,7 @@ defineProps({
   responseAllowed: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(['approval-submit', 'user-input-submit', 'user-input-cancel']);
+const emit = defineEmits(['approval-submit', 'user-input-submit', 'user-input-cancel', 'edit-followup', 'delete-followup']);
 </script>
 
 <style scoped>

@@ -1,3 +1,4 @@
+import type { QueuedMessageRequestMutation } from '@ragsystem/backend-core/contracts/session/message-request-status.js';
 import type { ConversationStore } from "./sqlite/conversation-store/index.js";
 import type {
   AgentSessionMessageInput,
@@ -7,6 +8,7 @@ import type {
 
 /** Adapts the synchronous SQLite conversation facade to the shared async port. */
 export class LocalAgentSessionRepository implements AgentSessionRepositoryPort {
+  async mutateQueuedMessageRequest(input: QueuedMessageRequestMutation) { return this.store.mutateQueuedMessageRequest(input); }
   async beginMessageRequest(sessionId: string, requestId: string, content: string) {
     return this.store.beginMessageRequest(sessionId, requestId, content);
   }

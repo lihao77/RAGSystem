@@ -1,3 +1,4 @@
+import type { QueuedMessageRequestMutation } from '@ragsystem/backend-core/contracts/session/message-request-status.js';
 import type { AsyncConversationRepository, AsyncMessageFeedbackStore, AsyncRunStore, ExecutionReplayRepositoryPort } from "@ragsystem/backend-core/contracts/storage/async-persistence-ports.js";
 import type { TenantId } from "@ragsystem/backend-core/identity/types.js";
 import type { PermissionMode } from "@ragsystem/backend-core/contracts/runtime/permissions.js";
@@ -19,6 +20,7 @@ import type { ExecutionSessionPort, SessionApplication, SessionParticipantRunSum
 import type { WorkspaceRepositoryPort } from "@ragsystem/backend-core/contracts/workspace/workspace-repository.js";
 
 export class SaaSSessionApplication implements SessionApplication, ExecutionSessionPort {
+  async mutateQueuedMessageRequest(input: QueuedMessageRequestMutation) { return this.repository.mutateQueuedMessageRequest(input); }
   beginMessageRequest(sessionId: string, requestId: string, content: string) { return this.repository.beginMessageRequest(sessionId, requestId, content); }
   renewMessageRequest(sessionId: string, requestId: string) { return this.repository.renewMessageRequest(sessionId, requestId); }
   settleMessageRequest(sessionId: string, requestId: string, status: 'queued' | 'consumed' | 'failed', error?: string | null) { return this.repository.settleMessageRequest(sessionId, requestId, status, error); }

@@ -1,4 +1,4 @@
-export type MessageRequestState = 'processing' | 'queued' | 'consumed' | 'failed' | 'unknown';
+export type MessageRequestState = 'processing' | 'queued' | 'consumed' | 'failed' | 'cancelled' | 'unknown';
 
 export interface MessageRequestStatus {
   request_id: string;
@@ -7,6 +7,18 @@ export interface MessageRequestStatus {
   message_id: string | null;
   error: string | null;
   updated_at: string;
+  can_manage: boolean;
+  can_edit: boolean;
+}
+
+export type QueuedMessageRequestMutation = {
+  sessionId: string;
+  requestId: string;
+  expectedContent: string;
+} & ({ action: 'edit'; content: string } | { action: 'cancel' });
+
+export interface MessageRequestMutationPort {
+  mutateQueuedMessageRequest(input: QueuedMessageRequestMutation): Promise<boolean>;
 }
 
 /** Durable receipt for a send, independent of the WebSocket that submitted it. */
@@ -22,10 +34,12 @@ export function hydrateMessageRequestStatus(row: Record<string, unknown>): Messa
   const status = row.status;
   return {
     request_id: String(row.request_id),
-    status: status === 'processing' || status === 'queued' || status === 'consumed' || status === 'failed' ? status : 'unknown',
+    status: status === 'processing' || status === 'queued' || status === 'consumed' || status === 'failed' || status === 'cancelled' ? status : 'unknown',
     content: typeof row.content === 'string' ? row.content : '',
     message_id: typeof row.message_id === 'string' ? row.message_id : null,
     error: typeof row.error === 'string' ? row.error : null,
     updated_at: row.updated_at instanceof Date ? row.updated_at.toISOString() : String(row.updated_at ?? ''),
+    can_manage: row.can_manage === true || row.can_manage === 1,
+    can_edit: row.can_edit === true || row.can_edit === 1,
   };
 }

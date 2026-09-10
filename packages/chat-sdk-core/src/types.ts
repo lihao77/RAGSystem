@@ -32,6 +32,8 @@ export type RagChatEndpointName =
   | "getParticipantRunSteps"
   | "listMessages"
   | "listMessageRequestStatuses"
+  | "editQueuedMessageRequest"
+  | "cancelQueuedMessageRequest"
   | "getMessageExecution"
   | "listMessageFeedback"
   | "setMessageFeedback"

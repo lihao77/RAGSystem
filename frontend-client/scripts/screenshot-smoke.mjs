@@ -199,6 +199,30 @@ const shots = [
     ],
   },
   ...[960, 390].map((width) => ({
+    name: `chat-followup-editor-${width === 390 ? 'mobile' : 'desktop'}`,
+    path: '/?__smoke=artifact&__pendingFollowup=1',
+    width,
+    height: 900,
+    actions: [
+      { type: 'mockArtifactApi' },
+      { type: 'expectVisible', selector: '.pending-followups' },
+      { type: 'click', selector: '[aria-label="编辑待处理消息"]' },
+      { type: 'expectValue', selector: 'textarea', value: '请先检查异常站点，再补充最近一周的数据。' },
+    ],
+  })),
+  {
+    name: 'chat-followup-edit-delete',
+    path: '/?__smoke=artifact&__pendingFollowup=1',
+    width: 960,
+    height: 900,
+    actions: [
+      { type: 'mockArtifactApi' },
+      { type: 'expectVisible', selector: '.pending-followups' },
+      { type: 'click', selector: '[aria-label="编辑待处理消息"]' },
+      { type: 'expectValue', selector: 'textarea', value: '请先检查异常站点，再补充最近一周的数据。' },
+    ],
+  },
+  ...[960, 390].map((width) => ({
     name: `chat-pending-followups-${width === 390 ? 'mobile' : 'desktop'}`,
     path: '/?__smoke=artifact&__pendingFollowup=1',
     width,
@@ -893,6 +917,10 @@ async function setupShotMocks(client, shot) {
     patterns: [
       ...(mockArtifactApi ? [
         {
+          urlPattern: '*://*/api/agent/sessions/smoke-artifact-session/message-requests*',
+          requestStage: 'Request',
+        },
+        {
           urlPattern: '*://*/api/artifacts/art_smoke_chart*',
           requestStage: 'Request',
         },
@@ -936,7 +964,20 @@ async function setupShotMocks(client, shot) {
     ],
   });
 
+  let pendingReceipt = { request_id: 'smoke-followup-1', content: '请先检查异常站点，再补充最近一周的数据。', status: 'queued', can_manage: true, can_edit: true, error: null, message_id: null, updated_at: '' };
   client.on('Fetch.requestPaused', async (event) => {
+    if (mockArtifactApi && event.request?.url?.includes('/smoke-artifact-session/message-requests')) {
+      const method = event.request.method;
+      if (method === 'PATCH') pendingReceipt = { ...pendingReceipt, content: JSON.parse(event.request.postData).content };
+      if (method === 'DELETE') pendingReceipt = { ...pendingReceipt, status: 'cancelled', can_manage: false, can_edit: false };
+      const data = method === 'GET'
+        ? { items: shot.path.includes('__pendingFollowup=1') && pendingReceipt.status !== 'cancelled' ? [pendingReceipt] : [] }
+        : { item: pendingReceipt };
+      await client.send('Fetch.fulfillRequest', { requestId: event.requestId, responseCode: 200,
+        responseHeaders: [{ name: 'Content-Type', value: 'application/json; charset=utf-8' }],
+        body: Buffer.from(JSON.stringify({ success: true, message: '', data }), 'utf8').toString('base64') });
+      return;
+    }
     if (mockFileRefApi && event.request?.url?.includes('/api/agent/sessions/smoke-fileref-session/workspace-files/content')) {
       const requestUrl = new URL(event.request.url);
       const filePath = requestUrl.searchParams.get('path') || '';
@@ -1516,6 +1557,26 @@ async function runShotActions(client, shot) {
           `Visibility state: ${JSON.stringify(visibilityState)}`,
         );
       }
+      continue;
+    }
+
+    if (action.type === 'expectValue') {
+      const matched = await waitForEvaluation(client, `(() => {
+        const element = document.querySelector(${jsString(action.selector)});
+        return !!element && String(element.value ?? '') === ${jsString(action.value)};
+      })()`, action.timeoutMs ?? 30000);
+      if (!matched) throw new Error(`${shot.name} value mismatch: ${action.selector}`);
+      continue;
+    }
+
+    if (action.type === 'expectHidden') {
+      const hidden = await waitForEvaluation(client, `(() => {
+        const element = document.querySelector(${jsString(action.selector)});
+        if (!element) return true;
+        const rect = element.getBoundingClientRect();
+        return rect.width === 0 || rect.height === 0 || getComputedStyle(element).display === 'none';
+      })()`, action.timeoutMs ?? 30000);
+      if (!hidden) throw new Error(`${shot.name} selector is still visible: ${action.selector}`);
       continue;
     }
 

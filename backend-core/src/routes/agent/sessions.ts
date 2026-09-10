@@ -13,6 +13,9 @@ import {
   SessionWorkspacePreviewResponseSchema,
   SessionMessageListResponseSchema,
   MessageRequestStatusListResponseSchema,
+  MessageRequestMutationResponseSchema,
+  EditQueuedMessageRequestSchema,
+  CancelQueuedMessageRequestSchema,
   SessionMessageExecutionResponseSchema,
   SessionParticipantRunListResponseSchema,
   SessionParticipantRunStepsResponseSchema,
@@ -362,6 +365,29 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
     const items = await sessions.listMessageRequestStatuses(request.params.sessionId, requestIds);
     return validateResponse(MessageRequestStatusListResponseSchema, ok({ items }, '获取发送状态成功'));
   });
+
+  for (const action of ['edit', 'cancel'] as const) {
+    app.route<{ Params: SessionParams & { requestId: string } }>({
+      method: action === 'edit' ? 'PATCH' : 'DELETE',
+      url: '/sessions/:sessionId/message-requests/:requestId',
+      handler: async request => {
+        const sessions = await resolveSessionApplication(options, request);
+        const { sessionId, requestId } = request.params;
+        await loadMutableSession(request, sessionId, sessions);
+        const payload = action === 'edit' ? EditQueuedMessageRequestSchema.parse(request.body) : CancelQueuedMessageRequestSchema.parse(request.body);
+        const previous = (await sessions.listMessageRequestStatuses(sessionId, [requestId])).find(item => item.request_id === requestId);
+        if (!previous) throw new HttpError(404, 'not_found', '待处理消息不存在');
+        const updated = await sessions.mutateQueuedMessageRequest({ sessionId, requestId, expectedContent: payload.expected_content,
+          ...(action === 'edit' && 'content' in payload && typeof payload.content === 'string' ? { action: 'edit', content: payload.content } : { action: 'cancel' }) });
+        const item = (await sessions.listMessageRequestStatuses(sessionId, [requestId])).find(item => item.request_id === requestId);
+        if (!updated && !(action === 'cancel' && item?.status === 'cancelled')) {
+          throw new HttpError(409, 'conflict', '消息已被处理或内容已变更，请刷新后重试');
+        }
+        if (!item) throw new HttpError(404, 'not_found', '待处理消息不存在');
+        return validateResponse(MessageRequestMutationResponseSchema, ok({ item }, action === 'edit' ? '消息已更新' : '消息已删除'));
+      },
+    });
+  }
 
   app.get<{ Params: SessionParams }>("/sessions/:sessionId/messages", async (request) => {
     const sessions = await resolveSessionApplication(options, request);

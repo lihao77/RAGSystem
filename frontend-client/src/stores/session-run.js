@@ -156,6 +156,7 @@ export const useSessionRunStore = defineStore('session-run', () => {
   const pendingCommands = ref([]);
   // 已发送、尚未进入上下文的用户补充。按会话保存，切换视图不会串到另一会话。
   const pendingFollowups = ref([]);
+  const followupRevision = ref(0);
   const settledFollowups = new Set();
   const acceptedFollowups = new Set();
   const followupKey = (sessionId, requestId) => JSON.stringify([sessionId, requestId]);
@@ -188,6 +189,18 @@ export const useSessionRunStore = defineStore('session-run', () => {
     pendingFollowups.value = pendingFollowups.value.filter(item => (
       item.session_id !== sessionId || item.request_id !== requestId
     ));
+  };
+  const beginFollowupMutation = (sessionId, requestId, editing = false) => {
+    const item = pendingFollowups.value.find(item => item.session_id === sessionId && item.request_id === requestId);
+    if (!item || !item.can_manage || (editing && !item.can_edit) || item.mutating || item.status === 'unconfirmed') return false;
+    followupRevision.value++;
+    item.mutating = true;
+    return true;
+  };
+  const finishFollowupMutation = (sessionId, requestId) => {
+    followupRevision.value++;
+    const item = pendingFollowups.value.find(item => item.session_id === sessionId && item.request_id === requestId);
+    if (item) item.mutating = false;
   };
   const reconcilePendingFollowups = (sessionId, items) => {
     for (const message of items) {
@@ -438,6 +451,9 @@ export const useSessionRunStore = defineStore('session-run', () => {
     runtimeObservability,
     pendingCommands,
     pendingFollowups,
+    followupRevision,
+    beginFollowupMutation,
+    finishFollowupMutation,
     markFollowupAccepted,
     hasAcceptedFollowup,
     currentPendingFollowups,

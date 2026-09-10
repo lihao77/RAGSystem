@@ -69,6 +69,8 @@
             :approval-submitting-id="approvalSubmittingId"
             :pending-user-input="pendingUserInput"
             :pending-followups="isRootParticipant ? currentPendingFollowups : []"
+            @edit-followup="takeBackPendingFollowup"
+            @delete-followup="deletePendingFollowup"
             :response-allowed="canRespondInteraction"
             @approval-submit="({ approvalId, approved, message }) => submitApproval(approvalId, approved, message, currentSessionId)"
             @user-input-submit="handleUserInputSubmit"
@@ -80,6 +82,8 @@
             ref="chatComposerRef"
             v-model="inputMessage"
             :pending-followups="currentPendingFollowups"
+            @edit-followup="takeBackPendingFollowup"
+            @delete-followup="deletePendingFollowup"
             :attachments="pendingAttachments"
             :can-send="canSendMessage"
             :can-stop="canStopRun"
@@ -115,6 +119,7 @@
       </div>
     </div><!-- end .chat-conversation-column -->
     </main>
+
 
     <!-- 上下文快照抽屉 -->
     <ContextSnapshotDrawer
@@ -505,6 +510,8 @@ const {
   resume: handleResume,
   respondInteraction,
   waitForSessionRuntime,
+  takeBackPendingFollowup: takeBackFollowupAction,
+  deletePendingFollowup,
 } = useSessionAgentClient({
   chatSdkClient,
   createAssistantMessage,
@@ -539,6 +546,19 @@ const {
   showToast,
   handleBackgroundTaskLifecycle: backgroundTaskState.handleLifecycleEvent,
 });
+
+// “编辑”先撤回排队请求，再把原文放回当前会话输入框，用户修改后手动发送。
+const takeBackPendingFollowup = async (item) => {
+  const sessionId = item?.session_id;
+  const content = item?.content || '';
+  const succeeded = await takeBackFollowupAction(item);
+  if (succeeded && sessionId && currentSessionId.value === sessionId) {
+    const existing = inputMessage.value.trim();
+    inputMessage.value = existing ? `${content}\n\n${existing}` : content;
+    await focusInput();
+  }
+  return succeeded;
+};
 const {
   sessionFiles,
   pendingAttachments,
@@ -822,6 +842,7 @@ watch(
       if (route.query.__pendingFollowup === '1') {
         sessionRunStore.queueFollowup(currentSessionId.value, 'smoke-followup-1', '请先检查异常站点，再补充最近一周的数据。');
         sessionRunStore.markFollowupQueued(currentSessionId.value, 'smoke-followup-1');
+        Object.assign(sessionRunStore.currentPendingFollowups[0], { can_manage: true, can_edit: true });
         sessionRunStore.queueFollowup(currentSessionId.value, 'smoke-followup-2', '结果中请保留原始站点名称。');
       }
       contextUsage.value = { used: 1840, max: 8192 };

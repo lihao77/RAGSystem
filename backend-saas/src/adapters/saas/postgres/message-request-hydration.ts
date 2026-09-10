@@ -31,5 +31,13 @@ export async function hydrateMessageRequestSchema(executor: PostgresExecutor): P
         FOR EACH ROW WHEN (NEW.role='user' AND NEW.thread_key='root' AND jsonb_typeof(NEW.metadata->'request_id')='string')
         EXECUTE FUNCTION consume_message_request();
     END IF;
+  END $$;
+  DO $$ BEGIN
+    IF to_regclass('agent_mailbox_messages') IS NOT NULL THEN
+      UPDATE agent_mailbox_messages b SET status='expired', last_error='user_cancelled'
+        WHERE b.status='queued' AND b.target_thread_key='root' AND b.input_type='user_message'
+          AND EXISTS (SELECT 1 FROM session_message_requests r WHERE r.session_id=b.session_id
+            AND r.request_id=b.metadata->>'request_id' AND r.status='cancelled');
+    END IF;
   END $$;`);
 }

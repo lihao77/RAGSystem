@@ -1,3 +1,4 @@
+import type { QueuedMessageRequestMutation } from '../../contracts/session/message-request-status.js';
 import { normalizeSessionMetadata, type CreateSessionRecordInput, type MessageInfo, type SessionInfo, type SessionListQuery, type SessionMessageListSnapshot, type SessionTeamSnapshotResolver } from "../../contracts/session/session.js";
 import type {
   AgentSessionRepositoryPort,
@@ -18,6 +19,7 @@ import { synthesizeExecutionEnvelopes } from "./execution-synthesis.js";
 import { executionRunId, getExecutionCarrierIds, groupExecutionRowsByBoundary } from "./execution-boundaries.js";
 
 export class AgentSessionApplication implements ExecutionSessionPort {
+  async mutateQueuedMessageRequest(input: QueuedMessageRequestMutation) { return this.repository.mutateQueuedMessageRequest(input); }
   beginMessageRequest(sessionId: string, requestId: string, content: string) {
     return this.repository.beginMessageRequest(sessionId, requestId, content);
   }
