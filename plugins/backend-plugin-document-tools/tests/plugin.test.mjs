@@ -532,7 +532,7 @@ test("edit_file 行首插入的真 unified diff 只产生一个 hunk", async () 
     );
     assert.equal(edited.success, true, edited.summary);
     const diff = edited.content.diff_preview;
-    assert.ok(diff.startsWith("a/plain.txt\nb/plain.txt\n"));
+    assert.ok(diff.startsWith("--- a/plain.txt\n+++ b/plain.txt\n"));
     assert.ok(diff.includes("@@ -2,2 +2,3 @@"));
     assert.equal(diff.match(/^@@/gm)?.length, 1);
     assert.ok(diff.includes("+line2b"));

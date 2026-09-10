@@ -353,7 +353,9 @@ export function buildDiffPreview(before: string, after: string, fileName: string
     undefined,
     { context: 1 },
   );
-  const output = [patch.oldFileName, patch.newFileName];
+  // 标准 unified diff 头（--- a/x / +++ b/x）：前端 parseDiffPreviewText 靠 `+++ b/`
+  // 提取文件名，裸 a/x、b/x 会被当成上下文行渲染成垃圾行。
+  const output = [`--- ${patch.oldFileName}`, `+++ ${patch.newFileName}`];
   for (const hunk of patch.hunks) {
     output.push(`@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@`);
     output.push(...hunk.lines);
