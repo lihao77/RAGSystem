@@ -133,8 +133,15 @@ export class PostgresConversationRepository implements AsyncConversationReposito
       WHERE session_message_requests.status NOT IN ('processing', 'queued', 'consumed', 'failed') OR session_message_requests.status IS NULL
         OR session_message_requests.content IS NULL OR session_message_requests.content=''
         OR session_message_requests.updated_at IS NULL`, [sessionId]);
+    // Reconcile historical receipts even after rollback removed the canonical user message.
+    await this.executor.query(`UPDATE session_message_requests r SET status='consumed', error=NULL, updated_at=CURRENT_TIMESTAMP
+      WHERE session_id=$1 AND status IS DISTINCT FROM 'consumed' AND (
+        EXISTS (SELECT 1 FROM conversation_messages m WHERE m.session_id=r.session_id AND m.role='user' AND m.thread_key='root'
+          AND m.metadata->>'request_id'=r.request_id)
+        OR EXISTS (SELECT 1 FROM agent_mailbox_messages b WHERE b.session_id=r.session_id AND b.target_thread_key='root'
+          AND b.input_type='user_message' AND b.status='acked' AND b.metadata->>'request_id'=r.request_id))`, [sessionId]);
     const result = await this.executor.query(`SELECT r.request_id, r.content,
-      CASE WHEN m.id IS NOT NULL OR r.status='consumed' THEN 'consumed' WHEN r.status='failed' OR b.status='expired' THEN 'failed'
+      CASE WHEN m.id IS NOT NULL OR r.status='consumed' OR b.status='acked' THEN 'consumed' WHEN r.status='failed' OR b.status='expired' THEN 'failed'
         WHEN b.status IN ('queued', 'claimed') THEN 'queued' ELSE r.status END AS status,
       m.id AS message_id, CASE WHEN b.status='expired' THEN COALESCE(b.last_error, '排队消息已过期') ELSE r.error END AS error, r.updated_at
       FROM session_message_requests r
@@ -142,7 +149,7 @@ export class PostgresConversationRepository implements AsyncConversationReposito
         AND role='user' AND thread_key='root' AND metadata->>'request_id'=r.request_id ORDER BY seq LIMIT 1) m ON TRUE
       LEFT JOIN LATERAL (SELECT status, last_error FROM agent_mailbox_messages WHERE session_id=r.session_id
         AND target_thread_key='root' AND input_type='user_message' AND metadata->>'request_id'=r.request_id ORDER BY seq LIMIT 1) b ON TRUE
-      WHERE r.session_id=$1 AND ((r.status IN ('processing', 'queued') AND m.id IS NULL AND (b.status IS NULL OR b.status!='expired')) OR r.request_id=ANY($2::text[]))
+      WHERE r.session_id=$1 AND ((r.status IN ('processing', 'queued') AND m.id IS NULL AND (b.status IS NULL OR b.status NOT IN ('acked', 'expired'))) OR r.request_id=ANY($2::text[]))
       ORDER BY r.updated_at, r.request_id`, [sessionId, [...requestIds]]);
     return result.rows.map(hydrateMessageRequestStatus);
   }

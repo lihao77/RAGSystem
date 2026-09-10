@@ -53,6 +53,74 @@ test('receipts survive reopen, reject duplicate sends and reconcile canonical co
   } finally { store.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
+test('historical queued receipts converge from durable consumption after rollback and reopen', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'rag-request-rollback-'));
+  const options = { dbPath: join(directory, 'conversation.db'), dataRoot: directory };
+  let store = createConversationStore(options);
+  try {
+    session(store);
+    // This mailbox audit row survives rollback, while the original canonical user row is gone.
+    await store.agentMailbox.enqueue({ tenantId: 'tnt_test', sessionId: 'session-1', messageId: 'old-user',
+      targetThreadKey: 'root', kind: 'request', inputType: 'user_message', sourceKind: 'user', visibleToUser: true,
+      contentParts: [{ type: 'text', text: '你好，继续' }], metadata: { request_id: 'old-request' } });
+    await store.agentMailbox.settle({ sessionId: 'session-1', messageId: 'old-user' });
+    store.beginMessageRequest('session-1', 'old-request', '你好，继续');
+    store.settleMessageRequest('session-1', 'old-request', 'queued');
+
+    // Old receipts can also have been written after a canonical message, before triggers existed.
+    store.addMessage({ sessionId: 'session-1', messageId: 'historic-user', role: 'user',
+      contentParts: [{ type: 'text', text: '已有历史消息' }], metadata: { request_id: 'historic-request' } });
+    store.beginMessageRequest('session-1', 'historic-request', '已有历史消息');
+    store.settleMessageRequest('session-1', 'historic-request', 'queued');
+    store.close();
+    store = createConversationStore(options);
+
+    assert.deepEqual(store.listMessageRequestStatuses('session-1'), []);
+    const receipts = store.listMessageRequestStatuses('session-1', ['old-request', 'historic-request']);
+    assert.equal(receipts.length, 2);
+    assert.ok(receipts.every(receipt => receipt.status === 'consumed'));
+    assert.equal(receipts.find(receipt => receipt.request_id === 'old-request').message_id, null);
+    assert.equal(receipts.find(receipt => receipt.request_id === 'historic-request').message_id, 'historic-user');
+    assert.deepEqual(store.listMessageRequestStatuses('session-1', ['old-request', 'historic-request']), receipts);
+
+    store.deleteMessagesAfter('session-1', { afterSeq: 0 });
+    const raw = new DatabaseSync(options.dbPath);
+    assert.deepEqual(raw.prepare('SELECT DISTINCT status FROM session_message_requests').all().map(row => row.status), ['consumed']);
+    raw.prepare('DELETE FROM agent_mailbox WHERE session_id=?').run('session-1');
+    raw.close();
+    store.close();
+    store = createConversationStore(options);
+    assert.deepEqual(store.listMessageRequestStatuses('session-1'), []);
+    assert.ok(store.listMessageRequestStatuses('session-1', ['old-request', 'historic-request']).every(receipt => receipt.status === 'consumed'));
+  } finally { store.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('mailbox acknowledgement recovery is scoped to the matching root user request and session', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'rag-request-ack-scope-'));
+  const options = { dbPath: join(directory, 'conversation.db'), dataRoot: directory };
+  const store = createConversationStore(options);
+  try {
+    session(store);
+    session(store, 'session-2');
+    for (const fixture of [
+      { requestId: 'waiting', thread: 'root', inputType: 'user_message', sessionId: 'session-1', ack: false },
+      { requestId: 'child', thread: 'child:a', inputType: 'user_message', sessionId: 'session-1', ack: true },
+      { requestId: 'agent', thread: 'root', inputType: 'agent_message', sessionId: 'session-1', ack: true },
+      { requestId: 'other-session', thread: 'root', inputType: 'user_message', sessionId: 'session-2', ack: true },
+    ]) {
+      store.beginMessageRequest('session-1', fixture.requestId, fixture.requestId);
+      store.settleMessageRequest('session-1', fixture.requestId, 'queued');
+      await store.agentMailbox.enqueue({ tenantId: 'tnt_test', sessionId: fixture.sessionId, messageId: fixture.requestId,
+        targetThreadKey: fixture.thread, kind: 'request', inputType: fixture.inputType, sourceKind: 'user', visibleToUser: true,
+        contentParts: [{ type: 'text', text: fixture.requestId }], metadata: { request_id: fixture.requestId } });
+      if (fixture.ack) await store.agentMailbox.settle({ sessionId: fixture.sessionId, messageId: fixture.requestId });
+    }
+    const receipts = store.listMessageRequestStatuses('session-1');
+    assert.equal(receipts.length, 4);
+    assert.ok(receipts.every(receipt => receipt.status === 'queued'));
+  } finally { store.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
 for (const fixture of [
   { name: 'missing table', fields: null },
   { name: 'missing columns', fields: {} },

@@ -76,6 +76,8 @@ create/update 路径复用其中的 `canonicalizeProviderConfig` / `normalizePro
   独立补全缺失原文与时间，并保留已有合法状态（包括 consumed / failed 终态）；
   实际消费以 canonical user 消息为准，并在同一事务内由消息写入触发器固化为 consumed，
   避免回退删除消息后已消费请求重新成为排队请求；过期以 mailbox 状态为准。
+  读取时也将已有 canonical user 消息或 root 用户 mailbox 的 acked 记录归一为 consumed，
+  修复触发器引入前的旧回执，以及原消息已被回退删除但仍有消费记录的旧请求；归一结果持久化且幂等。
   processing 请求每 30 秒续写 updated_at；查询将超过 2 分钟未续期且没有 mailbox / canonical
   消息的孤立请求归为 failed，避免进程退出后永久处理中。
   `contracts/session/message-request-status.ts` 的 `hydrateMessageRequestStatus` 同时处理

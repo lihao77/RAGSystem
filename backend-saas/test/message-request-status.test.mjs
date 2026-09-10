@@ -25,9 +25,14 @@ test('Postgres send receipts scope reads/writes and legacy hydration to the sess
   assert.match(queries[3].sql, /THEN session_message_requests.status ELSE excluded.status END/);
   assert.match(queries[3].sql, /content=COALESCE\(NULLIF\(session_message_requests.content, ''\), excluded.content\)/);
   assert.match(queries[3].sql, /OR session_message_requests.content IS NULL OR session_message_requests.content=''/);
-  assert.deepEqual(queries[4].params, ['s1', ['r1']]);
-  assert.match(queries[4].sql, /WHEN m.id IS NOT NULL OR r.status='consumed' THEN 'consumed'/);
-  assert.match(queries[4].sql, /WHEN r.status='failed' OR b.status='expired' THEN 'failed'/);
+  assert.deepEqual(queries[4].params, ['s1']);
+  assert.match(queries[4].sql, /WHERE session_id=\$1 AND status IS DISTINCT FROM 'consumed'/);
+  assert.match(queries[4].sql, /b.session_id=r.session_id AND b.target_thread_key='root'/);
+  assert.match(queries[4].sql, /b.input_type='user_message' AND b.status='acked' AND b.metadata->>'request_id'=r.request_id/);
+  assert.deepEqual(queries[5].params, ['s1', ['r1']]);
+  assert.match(queries[5].sql, /WHEN m.id IS NOT NULL OR r.status='consumed' OR b.status='acked' THEN 'consumed'/);
+  assert.match(queries[5].sql, /WHEN r.status='failed' OR b.status='expired' THEN 'failed'/);
+  assert.match(queries[5].sql, /b.status NOT IN \('acked', 'expired'\)/);
 });
 
 test('Postgres initializes absent and partial receipt schemas without version gating', async () => {

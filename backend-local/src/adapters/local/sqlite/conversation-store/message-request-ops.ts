@@ -72,8 +72,17 @@ export class MessageRequestOps {
       WHERE session_message_requests.status NOT IN ('processing', 'queued', 'consumed', 'failed') OR session_message_requests.status IS NULL
         OR session_message_requests.content IS NULL OR session_message_requests.content=''
         OR session_message_requests.updated_at IS NULL OR session_message_requests.updated_at=''`).run(sessionId);
+    // Older receipts can predate the consumption trigger, and rollback can remove the user row.
+    // The mailbox acknowledgement is durable evidence that this input already entered context.
+    this.db.prepare(`UPDATE session_message_requests AS r SET status='consumed', error=NULL, updated_at=?
+      WHERE session_id=? AND status IS NOT 'consumed' AND (
+        EXISTS (SELECT 1 FROM messages m WHERE m.session_id=r.session_id AND m.role='user' AND m.thread_key='root'
+          AND json_extract(m.metadata, '$.request_id')=r.request_id)
+        OR EXISTS (SELECT 1 FROM agent_mailbox b WHERE b.session_id=r.session_id AND b.target_thread_key='root'
+          AND b.input_type='user_message' AND b.status='acked' AND json_extract(b.metadata, '$.request_id')=r.request_id))`)
+      .run(new Date().toISOString(), sessionId);
     const rows = this.db.prepare(`SELECT r.request_id, r.content,
-      CASE WHEN m.id IS NOT NULL OR r.status='consumed' THEN 'consumed' WHEN r.status='failed' OR b.status='expired' THEN 'failed'
+      CASE WHEN m.id IS NOT NULL OR r.status='consumed' OR b.status='acked' THEN 'consumed' WHEN r.status='failed' OR b.status='expired' THEN 'failed'
         WHEN b.status IN ('queued', 'claimed') THEN 'queued' ELSE r.status END AS status,
       m.id AS message_id, CASE WHEN b.status='expired' THEN COALESCE(b.last_error, '排队消息已过期') ELSE r.error END AS error, r.updated_at
       FROM session_message_requests r
@@ -81,7 +90,7 @@ export class MessageRequestOps {
         AND role='user' AND thread_key='root' AND json_extract(metadata, '$.request_id')=r.request_id ORDER BY seq LIMIT 1)
       LEFT JOIN agent_mailbox b ON b.seq=(SELECT seq FROM agent_mailbox WHERE session_id=r.session_id
         AND target_thread_key='root' AND input_type='user_message' AND json_extract(metadata, '$.request_id')=r.request_id ORDER BY seq LIMIT 1)
-      WHERE r.session_id=? AND ((r.status IN ('processing', 'queued') AND m.id IS NULL AND (b.status IS NULL OR b.status!='expired'))
+      WHERE r.session_id=? AND ((r.status IN ('processing', 'queued') AND m.id IS NULL AND (b.status IS NULL OR b.status NOT IN ('acked', 'expired')))
         OR r.request_id IN (SELECT value FROM json_each(?)))
       ORDER BY r.updated_at, r.request_id`).all(sessionId, JSON.stringify(requestIds)) as Record<string, unknown>[];
     return rows.map(hydrateMessageRequestStatus);
