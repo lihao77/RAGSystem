@@ -1,4 +1,4 @@
-import { normalizeSessionTeamSnapshot, type MessageInfo, type SessionInfo, type SessionListProjection } from "@ragsystem/backend-core/contracts/session/session.js";
+import { hydrateSessionMetadata, hydrateSessionTeamSnapshot, type MessageInfo, type SessionInfo, type SessionListProjection } from "@ragsystem/backend-core/contracts/session/session.js";
 import { parseMessageProviderState } from "@ragsystem/backend-core/contracts/conversation-store/chat-message-codec.js";
 import { parseJsonObject, sqliteTimestampToIso } from "./helpers.js";
 import { decodeChatFields } from "@ragsystem/backend-core/contracts/conversation-store/chat-message-codec.js";
@@ -15,7 +15,7 @@ import type {
 export function rowToSession(row: SessionRow): SessionInfo {
   return {
     session_id: row.session_id,
-    team_snapshot: normalizeSessionTeamSnapshot(row.team_snapshot ? JSON.parse(row.team_snapshot) : null),
+    team_snapshot: hydrateSessionTeamSnapshot(row.team_snapshot ? JSON.parse(row.team_snapshot) : null),
     tenant_id: row.tenant_id,
     owner_user_id: row.owner_user_id,
     visibility: row.visibility,
@@ -24,7 +24,7 @@ export function rowToSession(row: SessionRow): SessionInfo {
     origin_channel: row.origin_channel,
     workspace_id: row.workspace_id,
     permission_mode: row.permission_mode,
-    metadata: parseJsonObject(row.metadata),
+    metadata: hydrateSessionMetadata(parseJsonObject(row.metadata)),
     created_at: sqliteTimestampToIso(row.created_at),
     updated_at: sqliteTimestampToIso(row.updated_at),
   };

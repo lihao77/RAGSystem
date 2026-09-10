@@ -1,13 +1,17 @@
 import { describe, expect, it } from "vitest";
 
-import { TeamSelectionError } from "../src/contracts/agent/agent-config.js";
+import { AgentConfigSchema, TeamSelectionError } from "../src/contracts/agent/agent-config.js";
 import type { AgentConfigTeam, IAgentConfigTeamStore } from "../src/contracts/agent/team-store.js";
 import { registerRetiredToolNames } from "../src/contracts/agent/tool-name-aliases.js";
 import {
   computeSessionTeamRevision,
+  hydrateSessionMetadata,
+  hydrateSessionTeamSnapshot,
   normalizeSessionMetadata,
   normalizeSessionTeamSnapshot,
+  requireSessionTeamSnapshot,
   SessionTeamSnapshotSchema,
+  type SessionInfo,
 } from "../src/contracts/session/session.js";
 import { AgentConfigService } from "../src/services/agent/config/index.js";
 
@@ -64,6 +68,28 @@ describe("Session Team snapshots", () => {
   it("rejects legacy Team routing hidden in free-form Session metadata", () => {
     expect(() => normalizeSessionMetadata({ team: "default" })).toThrow(/保留字段/);
     expect(() => normalizeSessionMetadata({ entry_agent: "orchestrator_agent" })).toThrow(/保留字段/);
+  });
+
+  it("hydrates reserved keys out of legacy Session metadata on read paths", () => {
+    // 历史形状：保留字规则收紧前，自由 metadata 曾合法承载 team/entry_agent
+    // （今天的语义由一等字段与 team_snapshot 承载）。读取汇点必须剔除它们，
+    // 否则存量行的任何 metadata 合并更新都会在保留字校验处崩溃（飞书机器人
+    // 对旧会话的消息曾因此二段崩溃）。其余键原样保留；下次回写落盘干净形状。
+    const legacy = {
+      chatId: "oc_0d2d",
+      team: "2",
+      entry_agent: "orchestrator_agent",
+      feishu: { sender_open_id: "ou_x" },
+      workspace_root: "/tmp",
+    };
+    expect(hydrateSessionMetadata(legacy)).toEqual({
+      chatId: "oc_0d2d",
+      feishu: { sender_open_id: "ou_x" },
+    });
+    // 非对象/空形状容忍；干净 metadata 幂等透传。
+    expect(hydrateSessionMetadata(null)).toEqual({});
+    expect(hydrateSessionMetadata("junk")).toEqual({});
+    expect(hydrateSessionMetadata({ chatId: "x" })).toEqual({ chatId: "x" });
   });
 
   it("rejects a revision that does not cover the complete Agent snapshot", async () => {
@@ -152,5 +178,55 @@ describe("Session Team snapshots", () => {
     expect(normalized.agents.orchestrator_agent?.tools?.enabled_tools)
       .toEqual(["execute_shell", "execute_shell", "read_file"]);
     expect(normalized.team_revision).toBe(computeSessionTeamRevision(normalized.agents));
+  });
+
+  it("hydrates NULL as the legacy un-anchored shape on read paths (2026-08 快照特性前的存量行)", () => {
+    // 历史形状：team_snapshot 列为 NULL 的存量会话行。读取汇点（local mappers /
+    // SaaS conversation-repository）必须透传 null 而不是抛 ZodError——该形状曾让
+    // 飞书机器人对旧会话的所有新消息在 rowToSession 处静默崩溃。
+    expect(hydrateSessionTeamSnapshot(null)).toBeNull();
+    expect(hydrateSessionTeamSnapshot(undefined)).toBeNull();
+    // 非空形状仍走严格校验，与 normalizeSessionTeamSnapshot 完全同构。
+    const rawAgents = { orchestrator_agent: AgentConfigSchema.parse({ agent_name: "orchestrator_agent" }) };
+    const persisted = {
+      team_name: "default",
+      team_revision: computeSessionTeamRevision(rawAgents),
+      entry_agent_name: "orchestrator_agent",
+      agents: rawAgents,
+    };
+    expect(hydrateSessionTeamSnapshot(persisted)).toEqual(normalizeSessionTeamSnapshot(persisted));
+    // 写入端语义不变：normalize 对 NULL 依旧严格拒绝（新建/更新路径必须携带快照）。
+    expect(() => normalizeSessionTeamSnapshot(null)).toThrow();
+  });
+
+  it("requires an anchored snapshot on execution paths and names the session", () => {
+    const legacy: SessionInfo = {
+      session_id: "legacy-session",
+      team_snapshot: null,
+      tenant_id: "tnt_test" as never,
+      owner_user_id: null,
+      visibility: "private",
+      origin_type: "direct",
+      origin_id: null,
+      origin_channel: "web",
+      workspace_id: null,
+      permission_mode: null,
+      metadata: {},
+      created_at: "2026-07-26T00:00:00.000Z",
+      updated_at: "2026-07-26T00:00:00.000Z",
+    };
+    expect(() => requireSessionTeamSnapshot(legacy)).toThrow(/legacy-session/);
+
+    const rawAgents = { orchestrator_agent: AgentConfigSchema.parse({ agent_name: "orchestrator_agent" }) };
+    const anchored: SessionInfo = {
+      ...legacy,
+      team_snapshot: {
+        team_name: "default",
+        team_revision: computeSessionTeamRevision(rawAgents),
+        entry_agent_name: "orchestrator_agent",
+        agents: rawAgents,
+      },
+    };
+    expect(requireSessionTeamSnapshot(anchored)).toBe(anchored.team_snapshot);
   });
 });

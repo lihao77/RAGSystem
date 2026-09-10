@@ -24,6 +24,7 @@ import type {
   SessionListProjectionPage,
   SessionListQuery,
   SessionMessageListSnapshot,
+  SessionTeamSnapshot,
 } from "../session/session.js";
 import type { TenantId } from "../../identity/types.js";
 
@@ -31,6 +32,8 @@ export interface AsyncConversationRepository {
   createSession(input: CreateSessionRecordInput): Promise<void>;
   getSession(sessionId: string): Promise<SessionInfo | null>;
   updateSessionMetadata(sessionId: string, patch: Record<string, unknown>): Promise<Record<string, unknown> | null>;
+  /** 锚定回填：仅对 team_snapshot 仍为 NULL 的存量行生效，幂等。 */
+  anchorSessionTeamSnapshot(sessionId: string, snapshot: SessionTeamSnapshot): Promise<boolean>;
   updateSessionPermissionMode(sessionId: string, mode: PermissionMode): Promise<boolean>;
   deleteSession(sessionId: string): Promise<boolean>;
   listSessions(input: SessionListQuery): Promise<SessionListProjectionPage>;

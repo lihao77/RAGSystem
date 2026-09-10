@@ -703,9 +703,9 @@ async function assembleSessionDetail(
     session_id: session.session_id,
     // 列表投影 title（含 LLM 生成）：前端在首条消息后用它回显侧边栏标题。
     title: listEntry?.title ?? "",
-    team_name: session.team_snapshot.team_name,
-    team_revision: session.team_snapshot.team_revision,
-    entry_agent_name: session.team_snapshot.entry_agent_name,
+    team_name: session.team_snapshot?.team_name ?? null,
+    team_revision: session.team_snapshot?.team_revision ?? null,
+    entry_agent_name: session.team_snapshot?.entry_agent_name ?? null,
     tenant_id: session.tenant_id,
     owner_user_id: session.owner_user_id,
     visibility: session.visibility,

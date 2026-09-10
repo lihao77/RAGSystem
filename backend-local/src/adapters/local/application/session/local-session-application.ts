@@ -26,6 +26,7 @@ export class LocalSessionApplication implements SessionApplication {
       getSession: async (sessionId) => conversations.getSession(sessionId),
       createSession: async (input) => { await sessions.createSession(input); },
       updateSessionMetadata: async (sessionId, patch) => conversations.updateSessionMetadata(sessionId, patch),
+      anchorSessionTeamSnapshot: async (sessionId, snapshot) => conversations.anchorSessionTeamSnapshot(sessionId, snapshot),
     });
   }
 

@@ -45,6 +45,8 @@ plugin-manager 注册描述符时聚合进 `tool-name-aliases` 注册表，core 
 | --- | --- |
 | `enabled_tools` 退役名归一（`canonicalizeEnabledToolNames` + 注册表） | 插件声明的退役名映射为现名（首个声明：执行工具插件 `execute_bash` → `execute_shell`，2026-09 更名为平台中性的 shell 执行）。配置路径保序去重；快照路径在 schema preprocess 中**逐项**改名（保留重复项、不动非字符串项——存量 revision 锚点按落库原形状计算，去重会失配致快照不可读），并当库内 `team_revision` 命中退役名形状哈希时**重锚定**为现名形状哈希——revision 恒等于 parse 结果内容的内容哈希，superRefine 单哈希严格校验不变，下游身份比较（run-engine、SaaS createSession 冲突检测）比较原文即一致 |
 | `stripConfigManagedToolNames` | 剥离 runtime/config 接线托管的工具名与退役 workflow 工具名（task_* 等 core 自有工具），早于归一层长期存在 |
+| 存量未锚定快照 NULL 容忍与锚定回填（`hydrateSessionTeamSnapshot` + `SessionIdentityStoragePort.anchorSessionTeamSnapshot`） | 2026-08 快照特性之前落库的会话行 `team_snapshot=NULL`。读取汇点（local mappers / SaaS conversation-repository）经 `hydrateSessionTeamSnapshot` 透传 null（`SessionInfo.team_snapshot` 可空）；首次 `ensureSession` 带运行期解析的快照触达时锚定回填（UPDATE 仅命中 NULL 行，幂等），此后恢复不可变身份比对。写入端 `normalizeSessionTeamSnapshot` 仍严格拒绝 NULL。引入于 2026-09——该形状曾让飞书机器人对旧会话的所有新消息在 `rowToSession` 处 ZodError 崩溃且只余 console.error 痕迹 |
+| 存量 metadata 保留字剔除（`hydrateSessionMetadata`） | 保留字规则收紧前，自由 metadata 曾合法承载 `team`/`entry_agent` 等团队路由（今由 Session 一等字段与 team_snapshot 承载）。读取汇点与 SaaS `updateSessionMetadata` 的裸读合并处剔除保留字（其余键透传）；行在下次 metadata 回写时落盘干净形状自愈。写入端 `normalizeSessionMetadata` 仍严格拒绝保留字。引入于 2026-09——存量行的任意 metadata 合并更新曾整体崩溃（"metadata.team 是保留字段"） |
 
 ### Provider 配置（`src/services/integrations/model-adapter-hydration.ts`）
 

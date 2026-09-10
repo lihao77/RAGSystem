@@ -194,7 +194,12 @@ export type RollbackAndRetryRequest = z.infer<typeof RollbackAndRetryRequestSche
 
 export interface SessionInfo {
   session_id: string;
-  team_snapshot: SessionTeamSnapshot;
+  /**
+   * null = team 快照特性（2026-08）之前的存量未锚定行。读取汇点用
+   * hydrateSessionTeamSnapshot 透传 null；首次 ensureSession 带快照触达时
+   * 锚定回填，此后恢复非空。执行链消费须走 requireSessionTeamSnapshot。
+   */
+  team_snapshot: SessionTeamSnapshot | null;
   tenant_id: TenantId;
   owner_user_id: string | null;
   visibility: SessionVisibility;
@@ -280,7 +285,7 @@ export type SessionCreateInput = Omit<SessionIdentity, "teamSnapshot"> & {
 export function toSessionIdentity(session: SessionInfo): SessionIdentity {
   return {
     sessionId: session.session_id,
-    teamSnapshot: structuredClone(session.team_snapshot),
+    teamSnapshot: structuredClone(requireSessionTeamSnapshot(session)),
     ownerUserId: session.owner_user_id,
     visibility: session.visibility,
     originType: session.origin_type,
@@ -376,7 +381,44 @@ export function normalizeSessionMetadata(value: unknown): Record<string, unknown
   return metadata;
 }
 
+/**
+ * 读取汇点水合（形态归一层）：剔除存量行里遗留的保留字键。保留字规则收紧前，
+ * 自由 metadata 曾合法承载 team/entry_agent 等团队路由（今天的语义由 Session
+ * 一等字段与 team_snapshot 承载）；不剔除会让这些行的任何 metadata 合并更新
+ * 在 normalizeSessionMetadata 的保留字校验处崩溃。其余键原样透传；行在下次
+ * metadata 回写时落盘干净形状（自愈，无需批量迁移）。
+ */
+export function hydrateSessionMetadata(value: unknown): Record<string, unknown> {
+  if (!isRecord(value)) return {};
+  const hydrated: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if ((RESERVED_SESSION_METADATA_KEYS as readonly string[]).includes(key)) continue;
+    hydrated[key] = entry;
+  }
+  return hydrated;
+}
+
 export function normalizeSessionTeamSnapshot(value: unknown): SessionTeamSnapshot {
   // 退役工具名归一在 SessionTeamSnapshotSchema 的 preprocess 里完成，parse 结果恒为现名形态。
   return SessionTeamSnapshotSchema.parse(value) as SessionTeamSnapshot;
+}
+
+/**
+ * 读取汇点水合（形态归一层）：NULL 是 team 快照特性前的存量未锚定形状，
+ * 原样透传 null，交由首次 ensureSession 锚定回填收敛；其余形状仍严格校验。
+ */
+export function hydrateSessionTeamSnapshot(value: unknown): SessionTeamSnapshot | null {
+  return value == null ? null : normalizeSessionTeamSnapshot(value);
+}
+
+/**
+ * 执行链断言：会话必须已锚定 team 快照。存量未锚定行在进入执行前会经
+ * ensureSession 回填，走到这里仍为 null 说明绕过了会话入口闸门——按
+ * 缺失显式报错，不做静默兜底。
+ */
+export function requireSessionTeamSnapshot(session: SessionInfo): SessionTeamSnapshot {
+  if (!session.team_snapshot) {
+    throw new Error(`session team snapshot not anchored: ${session.session_id}`);
+  }
+  return session.team_snapshot;
 }

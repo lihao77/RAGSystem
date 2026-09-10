@@ -66,6 +66,10 @@ export const SessionDetailSchema = CreatedSessionSchema.extend({
   tenant_id: z.string().min(1),
   /** 列表投影标题（首条消息截断，或异步 LLM 生成后的回写值）。 */
   title: z.string(),
+  /** null = team 快照特性前的存量未锚定会话（首次活动时锚定回填）。 */
+  team_name: z.string().min(1).nullable(),
+  team_revision: z.string().min(1).nullable(),
+  entry_agent_name: z.string().min(1).nullable(),
   created_at: z.string(),
   updated_at: z.string(),
 }).strict();

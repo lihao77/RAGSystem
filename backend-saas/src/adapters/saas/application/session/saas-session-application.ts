@@ -35,6 +35,7 @@ export class SaaSSessionApplication implements SessionApplication, ExecutionSess
       getSession: (sessionId) => repository.getSession(sessionId),
       createSession: (input) => repository.createSession(input),
       updateSessionMetadata: (sessionId, patch) => repository.updateSessionMetadata(sessionId, patch),
+      anchorSessionTeamSnapshot: (sessionId, snapshot) => repository.anchorSessionTeamSnapshot(sessionId, snapshot),
     });
   }
   ensureSession(input: Parameters<SessionApplication["ensureSession"]>[0]) {

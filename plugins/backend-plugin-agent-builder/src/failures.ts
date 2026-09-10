@@ -142,9 +142,9 @@ export async function collectTeamFailures(
       if (seenSessions.has(row.session_id)) continue;
       seenSessions.add(row.session_id);
       const session = await runtime.sessionApplication.getSession(row.session_id);
-      if (!session || session.team_snapshot.team_name !== teamName) continue;
+      if (!session || session.team_snapshot?.team_name !== teamName) continue; // 存量未锚定会话无法归队，跳过
       sessionIds.push(row.session_id);
-      sessionRevisions.set(row.session_id, session.team_snapshot.team_revision ?? null);
+      sessionRevisions.set(row.session_id, session.team_snapshot?.team_revision ?? null);
       if (sessionIds.length >= MAX_SESSIONS_PER_TEAM) break;
     }
     const sessionsTruncated = sessionIds.length >= MAX_SESSIONS_PER_TEAM;

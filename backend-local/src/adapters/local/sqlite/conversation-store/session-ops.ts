@@ -5,6 +5,7 @@ import type {
   SessionListProjection,
   SessionListProjectionPage,
   SessionListQuery,
+  SessionTeamSnapshot,
 } from "@ragsystem/backend-core/contracts/session/session.js";
 import { normalizeSessionMetadata, normalizeSessionTeamSnapshot } from "@ragsystem/backend-core/contracts/session/session.js";
 import type { PermissionMode } from "@ragsystem/backend-core/contracts/runtime/permissions.js";
@@ -57,9 +58,9 @@ export class SessionOps {
       || persisted.origin_id !== input.originId
       || persisted.origin_channel !== input.originChannel
       || persisted.workspace_id !== input.workspaceId
-      || persisted.team_snapshot.team_name !== teamSnapshot.team_name
-      || persisted.team_snapshot.team_revision !== teamSnapshot.team_revision
-      || persisted.team_snapshot.entry_agent_name !== teamSnapshot.entry_agent_name;
+      || persisted.team_snapshot?.team_name !== teamSnapshot.team_name
+      || persisted.team_snapshot?.team_revision !== teamSnapshot.team_revision
+      || persisted.team_snapshot?.entry_agent_name !== teamSnapshot.entry_agent_name;
     if (identityConflict) throw new Error(`Session immutable identity conflict: ${input.sessionId}`);
     if (Number(result.changes) > 0) this.projector.rebuildSessionListProjection(input.sessionId);
   }
@@ -100,6 +101,15 @@ export class SessionOps {
   updateSessionPermissionMode(sessionId: string, mode: PermissionMode): boolean {
     const result = this.db.prepare("UPDATE sessions SET permission_mode=?, updated_at=CURRENT_TIMESTAMP WHERE session_id=?")
       .run(mode, sessionId);
+    return Number(result.changes) > 0;
+  }
+
+  /** 锚定回填：仅命中仍未锚定的存量行（team_snapshot IS NULL），幂等。 */
+  anchorSessionTeamSnapshot(sessionId: string, snapshot: SessionTeamSnapshot): boolean {
+    const teamSnapshot = normalizeSessionTeamSnapshot(snapshot);
+    const result = this.db.prepare(
+      "UPDATE sessions SET team_snapshot=?, updated_at=CURRENT_TIMESTAMP WHERE session_id=? AND team_snapshot IS NULL",
+    ).run(stringifyJson(teamSnapshot), sessionId);
     return Number(result.changes) > 0;
   }
 

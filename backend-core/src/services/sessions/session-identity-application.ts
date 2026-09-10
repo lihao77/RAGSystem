@@ -1,4 +1,4 @@
-import { normalizeSessionMetadata, normalizeSessionTeamSnapshot, type CreateSessionRecordInput, type SessionIdentity, type SessionInfo } from "../../contracts/session/session.js";
+import { normalizeSessionMetadata, normalizeSessionTeamSnapshot, type CreateSessionRecordInput, type SessionIdentity, type SessionInfo, type SessionTeamSnapshot } from "../../contracts/session/session.js";
 import { assertSafeSessionId } from "../../contracts/session/session-id.js";
 import type { TenantId } from "../../identity/types.js";
 
@@ -6,6 +6,11 @@ export interface SessionIdentityStoragePort {
   getSession(sessionId: string): Promise<SessionInfo | null>;
   createSession(input: CreateSessionRecordInput): Promise<void>;
   updateSessionMetadata(sessionId: string, patch: Record<string, unknown>): Promise<Record<string, unknown> | null>;
+  /**
+   * 锚定回填：仅对 team_snapshot 仍为 NULL 的存量行生效（形态驱动、幂等），
+   * 返回是否实际回填。新行与已锚定行不触碰。
+   */
+  anchorSessionTeamSnapshot(sessionId: string, snapshot: SessionTeamSnapshot): Promise<boolean>;
 }
 
 /** Shared tenant-owned session lifecycle used by externally initiated runs. */
@@ -44,8 +49,14 @@ export class TenantSessionIdentityApplication {
       || existing.origin_type !== input.originType
       || existing.origin_id !== input.originId
       || existing.origin_channel !== input.originChannel
-      || existing.workspace_id !== input.workspaceId
-      || existing.team_snapshot.team_name !== teamSnapshot.team_name
+      || existing.workspace_id !== input.workspaceId) {
+      throw new Error(`session immutable identity mismatch: ${input.sessionId}`);
+    }
+    if (existing.team_snapshot === null) {
+      // team 快照特性前的存量未锚定行：以本次运行解析出的快照锚定收敛，
+      // 之后恢复与新建行一致的不可变身份比对。
+      await this.storage.anchorSessionTeamSnapshot(input.sessionId, teamSnapshot);
+    } else if (existing.team_snapshot.team_name !== teamSnapshot.team_name
       || existing.team_snapshot.team_revision !== teamSnapshot.team_revision
       || existing.team_snapshot.entry_agent_name !== teamSnapshot.entry_agent_name) {
       throw new Error(`session immutable identity mismatch: ${input.sessionId}`);

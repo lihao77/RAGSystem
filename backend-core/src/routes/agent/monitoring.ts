@@ -220,7 +220,7 @@ export const registerMonitoringRoutes: FastifyPluginAsync<RouteOptions> = async 
           sessionFiles: request.container.sessionFiles,
           ...(executionPaths ? { executionPaths } : {}),
           ...(shellEnvironment ? { shellEnvironment } : {}),
-          ...(sessionInfo ? { sessionIdentity: toSessionIdentity(sessionInfo) } : {}),
+          ...(sessionInfo ? { sessionIdentity: toSessionIdentity({ ...sessionInfo, team_snapshot: sessionInfo.team_snapshot ?? teamSnapshot }) } : {}),
           ...(request.container.contextSourceFactories
             ? { frontContextSources: request.container.contextSourceFactories }
             : {}),

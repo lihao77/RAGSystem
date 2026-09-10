@@ -119,7 +119,7 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
     modelProviders: modelAdapter,
     getAgentLlmTiers: async (sessionId) => {
       const session = await conversationRepository.getSession(sessionId);
-      if (!session) return null;
+      if (!session?.team_snapshot) return null; // 存量未锚定会话：无入口锚点，回落系统 LLM
       const agent = agentConfig.getConfig(session.team_snapshot.entry_agent_name, {
         teamName: session.team_snapshot.team_name,
       });

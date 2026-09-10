@@ -16,8 +16,9 @@ import type {
   SessionListProjectionPage,
   SessionListQuery,
   SessionMessageListSnapshot,
+  SessionTeamSnapshot,
 } from "@ragsystem/backend-core/contracts/session/session.js";
-import { normalizeSessionMetadata, normalizeSessionTeamSnapshot } from "@ragsystem/backend-core/contracts/session/session.js";
+import { hydrateSessionMetadata, hydrateSessionTeamSnapshot, normalizeSessionMetadata, normalizeSessionTeamSnapshot } from "@ragsystem/backend-core/contracts/session/session.js";
 import type { AsyncConversationRepository } from "@ragsystem/backend-core/contracts/storage/async-persistence-ports.js";
 import type { TenantId } from "@ragsystem/backend-core/identity/types.js";
 import type { PostgresExecutor } from "./postgres-executor.js";
@@ -30,7 +31,7 @@ const iso = (value: unknown) => new Date(String(value)).toISOString();
 function session(row: Record<string, unknown>): SessionInfo {
   return {
     session_id: String(row.session_id),
-    team_snapshot: normalizeSessionTeamSnapshot(row.team_snapshot),
+    team_snapshot: hydrateSessionTeamSnapshot(row.team_snapshot),
     tenant_id: row.tenant_id as TenantId,
     owner_user_id: row.owner_user_id == null ? null : String(row.owner_user_id),
     visibility: row.visibility as SessionInfo["visibility"],
@@ -39,7 +40,7 @@ function session(row: Record<string, unknown>): SessionInfo {
     origin_channel: row.origin_channel as SessionInfo["origin_channel"],
     workspace_id: row.workspace_id == null ? null : String(row.workspace_id),
     permission_mode: row.permission_mode as PermissionMode | null,
-    metadata: (row.metadata ?? {}) as Record<string, unknown>,
+    metadata: hydrateSessionMetadata(row.metadata),
     created_at: iso(row.created_at),
     updated_at: iso(row.updated_at),
   };
@@ -164,7 +165,7 @@ export class PostgresConversationRepository implements AsyncConversationReposito
       const current = await executor.query("SELECT metadata FROM conversation_sessions WHERE session_id=$1 FOR UPDATE", [sessionId]);
       if (!current.rows[0]) return null;
       const metadata = normalizeSessionMetadata(deepMergeRecords(
-        (current.rows[0].metadata ?? {}) as Record<string, unknown>,
+        hydrateSessionMetadata(current.rows[0].metadata),
         patch,
       ));
       const updated = await executor.query(
@@ -179,6 +180,16 @@ export class PostgresConversationRepository implements AsyncConversationReposito
     const result = await this.executor.query(
       "UPDATE conversation_sessions SET permission_mode=$1,updated_at=CURRENT_TIMESTAMP WHERE session_id=$2",
       [mode, sessionId],
+    );
+    return Number(result.rowCount ?? 0) > 0;
+  }
+
+  /** 锚定回填：仅命中仍未锚定的存量行（team_snapshot IS NULL），幂等。 */
+  async anchorSessionTeamSnapshot(sessionId: string, snapshot: SessionTeamSnapshot): Promise<boolean> {
+    const teamSnapshot = normalizeSessionTeamSnapshot(snapshot);
+    const result = await this.executor.query(
+      "UPDATE conversation_sessions SET team_snapshot=$1::jsonb,updated_at=CURRENT_TIMESTAMP WHERE session_id=$2 AND team_snapshot IS NULL",
+      [JSON.stringify(teamSnapshot), sessionId],
     );
     return Number(result.rowCount ?? 0) > 0;
   }
@@ -526,7 +537,9 @@ export class PostgresConversationRepository implements AsyncConversationReposito
 }
 
 function sameTeamSnapshot(left: unknown, right: CreateSessionRecordInput["teamSnapshot"]): boolean {
-  const parsed = normalizeSessionTeamSnapshot(left);
+  // 存量未锚定行（NULL）在此处即身份冲突，与 local createSession 的可选链口径一致。
+  const parsed = hydrateSessionTeamSnapshot(left);
+  if (!parsed) return false;
   const expected = normalizeSessionTeamSnapshot(right);
   return parsed.team_name === expected.team_name
     && parsed.team_revision === expected.team_revision

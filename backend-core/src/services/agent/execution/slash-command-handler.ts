@@ -11,7 +11,7 @@ import { resolveReadyAgent } from "./readiness.js";
 import type { AgentExecutionStatusTracker } from "./status-tracker.js";
 import type { TenantId } from "../../../identity/types.js";
 import type { RuntimeStorage } from "../../../contracts/storage/runtime-storage.js";
-import type { SessionIdentity } from "../../../contracts/session/session.js";
+import { requireSessionTeamSnapshot, type SessionIdentity } from "../../../contracts/session/session.js";
 import type { MessageContentPart } from "@ragsystem/agent-protocol";
 import { partsToPlainText } from "@ragsystem/agent-protocol";
 
@@ -209,11 +209,12 @@ export class SlashCommandHandler {
         error: "session_not_found",
       };
     }
+    const teamSnapshot = requireSessionTeamSnapshot(session);
     const ready = resolveReadyAgent(
       this.runtimeCore,
       {
-        agentName: session.team_snapshot.entry_agent_name,
-        teamSnapshot: session.team_snapshot,
+        agentName: teamSnapshot.entry_agent_name,
+        teamSnapshot,
         selectedLlm: input.selectedLlm,
       },
     );

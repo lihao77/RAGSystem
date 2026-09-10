@@ -41,7 +41,7 @@ import {
   toToolResult,
   type DelegationRunResult,
 } from "./results.js";
-import { toSessionIdentity } from "../../../contracts/session/session.js";
+import { requireSessionTeamSnapshot, toSessionIdentity } from "../../../contracts/session/session.js";
 
 interface ChildRunInput {
   tenantId: string;
@@ -234,10 +234,11 @@ export class AgentDelegationService implements DelegationPort, ParticipantRunLif
     ]);
     const runById = new Map(runs.items.map((run) => [run.run_id, run]));
     const rootRun = runs.items.find((run) => run.child_agent_id === null && run.thread_key === "root") ?? null;
+    const teamSnapshot = this.displayTeamSnapshot(session);
     const items = [
       this.toRootParticipant(session, rootRun),
       ...children.items.map((child) => this.toChildParticipant(
-        session.team_snapshot,
+        teamSnapshot,
         child,
         child.last_run_id ? runById.get(child.last_run_id) ?? null : null,
       )),
@@ -256,16 +257,22 @@ export class AgentDelegationService implements DelegationPort, ParticipantRunLif
     const child = await this.store.getChildAgent(sessionId, participantId);
     if (!child) return null;
     const lastRun = child.last_run_id ? await this.store.getRun(sessionId, child.last_run_id) : null;
-    return this.toChildParticipant(session.team_snapshot, child, lastRun);
+    return this.toChildParticipant(this.displayTeamSnapshot(session), child, lastRun);
+  }
+
+  /** 展示路径快照口径：存量未锚定会话以当前默认 team 兜底（与 monitoring 预览同口径）。 */
+  private displayTeamSnapshot(session: SessionInfo): SessionTeamSnapshot {
+    return session.team_snapshot ?? this.runtimeCore.createTeamSnapshot();
   }
 
   private toRootParticipant(
     session: SessionInfo,
     lastRun: RunInfo | null,
   ): SessionParticipant {
+    const teamSnapshot = this.displayTeamSnapshot(session);
     const configured = this.runtimeCore.resolveExecutionConfig({
-      agentName: session.team_snapshot.entry_agent_name,
-      teamSnapshot: session.team_snapshot,
+      agentName: teamSnapshot.entry_agent_name,
+      teamSnapshot,
     }).agent;
     const agentName = normalizeString(lastRun?.agent_name) ?? configured?.agent_name ?? null;
     return {
@@ -669,7 +676,7 @@ export class AgentDelegationService implements DelegationPort, ParticipantRunLif
           metadata: buildChildMetadata(ctx, "agent"),
         });
 
-    const childDisplayName = this.resolveChildDisplayName(targetAgentName, session.team_snapshot);
+    const childDisplayName = this.resolveChildDisplayName(targetAgentName, requireSessionTeamSnapshot(session));
     const initialEnvelopes = !resumedRun ? [buildAgentCallStart({
         sessionId,
         runId: childRunId,
@@ -687,7 +694,7 @@ export class AgentDelegationService implements DelegationPort, ParticipantRunLif
 
     const runInput = this.buildChildRunInput({
       parentAgent,
-      teamSnapshot: session.team_snapshot,
+      teamSnapshot: requireSessionTeamSnapshot(session),
       ctx,
       childAgent: child,
       agentName: targetAgentName,
@@ -844,7 +851,7 @@ export class AgentDelegationService implements DelegationPort, ParticipantRunLif
       });
     }
 
-    const childDisplayName = this.resolveChildDisplayName(child.agent_name, session.team_snapshot);
+    const childDisplayName = this.resolveChildDisplayName(child.agent_name, requireSessionTeamSnapshot(session));
     const childRunId = randomUUID();
     const initialEnvelopes = [buildAgentCallStart({
       sessionId,
@@ -863,7 +870,7 @@ export class AgentDelegationService implements DelegationPort, ParticipantRunLif
 
     const runInput = this.buildChildRunInput({
       parentAgent,
-      teamSnapshot: session.team_snapshot,
+      teamSnapshot: requireSessionTeamSnapshot(session),
       ctx,
       childAgent: child,
       agentName: child.agent_name,

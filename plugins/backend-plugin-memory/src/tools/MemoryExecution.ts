@@ -383,7 +383,7 @@ export class MemoryToolService implements MemoryToolOperations {
   ): Promise<MemoryScopeSpec | { error: string }> {
     const sessionId = normalizeString(context.sessionId);
     const session = sessionId ? await this.sessions.getSession(sessionId) : null;
-    const teamName = normalizeString(context.teamName) ?? session?.team_snapshot.team_name ?? null;
+    const teamName = normalizeString(context.teamName) ?? session?.team_snapshot?.team_name ?? null;
     const workspaceRoot = normalizeString(context.workspaceRoot);
 
     if (scope === "team") {

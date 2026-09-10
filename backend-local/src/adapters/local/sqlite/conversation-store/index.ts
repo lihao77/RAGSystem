@@ -91,6 +91,7 @@ export function createConversationStore(options: ConversationStoreOptions) {
     createSession: sessions.createSession.bind(sessions),
     getSession: sessions.getSession.bind(sessions),
     updateSessionMetadata: sessions.updateSessionMetadata.bind(sessions),
+    anchorSessionTeamSnapshot: sessions.anchorSessionTeamSnapshot.bind(sessions),
     updateSessionPermissionMode: sessions.updateSessionPermissionMode.bind(sessions),
     deleteSession: sessions.deleteSession.bind(sessions),
     listSessions: sessions.listSessions.bind(sessions),
