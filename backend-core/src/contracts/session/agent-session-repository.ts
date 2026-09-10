@@ -1,4 +1,5 @@
 import type { MessageContentPart } from "@ragsystem/agent-protocol";
+import type { MessageRequestStatusPort } from './message-request-status.js';
 import type {
   CreateSessionRecordInput,
   MessageInfo,
@@ -44,7 +45,7 @@ export interface AgentSessionRunRecord {
 }
 
 /** Promise-only persistence boundary used by the Local agent session application. */
-export interface AgentSessionRepositoryPort {
+export interface AgentSessionRepositoryPort extends MessageRequestStatusPort {
   createSession(input: CreateSessionRecordInput): Promise<void>;
   getSession(sessionId: string): Promise<SessionInfo | null>;
   updateSessionMetadata(sessionId: string, patch: Record<string, unknown>): Promise<Record<string, unknown> | null>;
@@ -55,7 +56,8 @@ export interface AgentSessionRepositoryPort {
   getSessionListProjection(sessionId: string): Promise<SessionListProjection | null>;
 
   addMessage(input: AgentSessionMessageInput): Promise<MessageInfo>;
-  listMessages(sessionId: string, limit: number, offset: number, threadKey?: string | null): Promise<SessionMessageListSnapshot>;
+  /** runIds scopes execution-history reads by consumed_by_run_id ?? run_id; [] selects no rows. */
+  listMessages(sessionId: string, limit: number, offset: number, threadKey?: string | null, runIds?: readonly string[]): Promise<SessionMessageListSnapshot>;
   listVisibleMessages(sessionId: string, threadKey: string, limit: number, offset: number): Promise<SessionMessageListSnapshot>;
   getMessageBySeq(sessionId: string, seq: number): Promise<MessageInfo | null>;
   getMessageById(sessionId: string, messageId: string): Promise<MessageInfo | null>;

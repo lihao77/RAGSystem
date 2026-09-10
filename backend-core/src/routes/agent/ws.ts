@@ -14,6 +14,7 @@ import { isRecord } from "../../utils/guards.js";
 import type { SessionRuntimePayload } from "../../contracts/events.js";
 import { assertSessionExecutable } from "../session-owner.js";
 import { ensureRequestApplications } from "../../app/request-applications.js";
+import { trackMessageRequest } from '../../services/sessions/message-request-tracker.js';
 
 interface SessionWsParams {
   sessionId: string;
@@ -361,7 +362,7 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<SessionWebSocketR
                 // onAccepted 未触发（前置校验失败）→ 维持同步 NACK；
                 // 已 ACK 后的异步失败 → error 帧补偿（携带 request_id，前端 toast）。
                 let sendAckSent = false;
-                applications.execution.startStream(
+                trackMessageRequest(applications.sessions, { sessionId, requestId, content: payload.task }, () => applications.execution.startStream(
                     {
                       task: payload.task,
                       session_id: sessionId,
@@ -383,7 +384,7 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<SessionWebSocketR
                         });
                       },
                     },
-                  )
+                  ))
                   .then((result) => {
                     const accepted = result.started || result.kind === "command";
                     if (!sendAckSent) {

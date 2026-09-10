@@ -31,6 +31,7 @@ export type RagChatEndpointName =
   | "listSessionParticipantRuns"
   | "getParticipantRunSteps"
   | "listMessages"
+  | "listMessageRequestStatuses"
   | "getMessageExecution"
   | "listMessageFeedback"
   | "setMessageFeedback"

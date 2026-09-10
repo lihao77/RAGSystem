@@ -5,6 +5,7 @@ import type { MessageFeedbackValue } from "@ragsystem/backend-core/contracts/con
 import { isParticipantConversationMessageVisible } from "@ragsystem/backend-core/contracts/session/message-visibility.js";
 import { stripPrivateMessageFields } from "@ragsystem/backend-core/services/sessions/index.js";
 import { synthesizeExecutionEnvelopes } from "@ragsystem/backend-core/services/sessions/execution-synthesis.js";
+import { executionRunId, getExecutionCarrierIds, groupExecutionRowsByBoundary } from "@ragsystem/backend-core/services/sessions/execution-boundaries.js";
 import type { CreateSessionRecordInput, MessageInfo, SessionCreateInput, SessionIdentity, SessionInfo, SessionMessageListSnapshot, SessionTeamSnapshotResolver } from "@ragsystem/backend-core/contracts/session/session.js";
 import { normalizeSessionMetadata } from "@ragsystem/backend-core/contracts/session/session.js";
 import { assertSafeSessionId } from "@ragsystem/backend-core/contracts/session/session-id.js";
@@ -18,6 +19,10 @@ import type { ExecutionSessionPort, SessionApplication, SessionParticipantRunSum
 import type { WorkspaceRepositoryPort } from "@ragsystem/backend-core/contracts/workspace/workspace-repository.js";
 
 export class SaaSSessionApplication implements SessionApplication, ExecutionSessionPort {
+  beginMessageRequest(sessionId: string, requestId: string, content: string) { return this.repository.beginMessageRequest(sessionId, requestId, content); }
+  renewMessageRequest(sessionId: string, requestId: string) { return this.repository.renewMessageRequest(sessionId, requestId); }
+  settleMessageRequest(sessionId: string, requestId: string, status: 'queued' | 'consumed' | 'failed', error?: string | null) { return this.repository.settleMessageRequest(sessionId, requestId, status, error); }
+  listMessageRequestStatuses(sessionId: string, requestIds?: readonly string[]) { return this.repository.listMessageRequestStatuses(sessionId, requestIds); }
   private readonly sessionIdentities: TenantSessionIdentityApplication;
 
   constructor(
@@ -133,9 +138,11 @@ export class SaaSSessionApplication implements SessionApplication, ExecutionSess
       input.limit ?? 20,
       input.offset ?? 0,
     );
+    const executionCarriers = await getExecutionCarrierIds(data.items,
+      (limit, offset, runIds) => this.repository.listMessages(input.sessionId, limit, offset, threadKey, runIds));
     data.items = data.items.map((item) => ({
       ...stripPrivateMessageFields(item),
-      has_execution: shouldExposeExecutionCarrier(item) && item.metadata.execution_history_discarded !== true,
+      has_execution: executionCarriers.has(item.id),
     }));
     return data;
   }
@@ -212,20 +219,10 @@ export class SaaSSessionApplication implements SessionApplication, ExecutionSess
   ): Promise<Envelope[]> {
     const page = await this.repository.listMessages(sessionId, 10_000, 0, threadKey);
     const runRows = page.items
-      .filter((row) => row.metadata?.run_id === runId)
+      .filter((row) => executionRunId(row) === runId)
       .sort((a, b) => a.seq - b.seq);
     if (!boundaryMessageId) return synthesizeExecutionEnvelopes(runRows, { sessionId, runId });
-    const userRows = runRows.filter((row) => row.role === "user");
-    const segmentRows = runRows.filter((row) => {
-      const marker = row.metadata?.boundary_message_id;
-      if (typeof marker === "string" && marker) return marker === boundaryMessageId;
-      let owner: string | null = userRows[0]?.id ?? null;
-      for (const userRow of userRows) {
-        if (userRow.seq <= row.seq) owner = userRow.id;
-        else break;
-      }
-      return owner === boundaryMessageId;
-    });
+    const segmentRows = groupExecutionRowsByBoundary(runRows).get(boundaryMessageId) ?? [];
     return synthesizeExecutionEnvelopes(segmentRows, { sessionId, runId });
   }
 
@@ -389,17 +386,6 @@ function isParticipantRun(run: RunInfo, participantId: string): boolean {
   return participantId === "root"
     ? run.child_agent_id == null && run.thread_key === "root"
     : run.child_agent_id === participantId;
-}
-
-function executionRunId(message: Pick<MessageInfo, "metadata">): string | null {
-  const metadata = message.metadata ?? {};
-  const runId = metadata.consumed_by_run_id ?? metadata.run_id;
-  return typeof runId === "string" && runId.trim() ? runId : null;
-}
-
-function shouldExposeExecutionCarrier(message: MessageInfo): boolean {
-  return (message.role === "user" || message.role === "assistant")
-    && executionRunId(message) != null;
 }
 
 

@@ -15,6 +15,15 @@ import type { MessageInfo } from "../../contracts/session/session.js";
 import { MSG_TYPE } from "../../contracts/message-kinds.js";
 import { toEnvelopeTimestamp } from "../../contracts/storage/runtime-finalization.js";
 
+/** 与下方合成分支保持一致：纯用户输入、最终正文和生命周期不构成执行步骤。 */
+export function hasExecutionRowContent(row: MessageInfo): boolean {
+  if (row.role === "assistant") {
+    return Boolean(row.tool_calls?.length
+      || row.content_parts?.find((part) => part.type === "thinking")?.text);
+  }
+  return row.role === "tool" && row.metadata?.msg_type === MSG_TYPE.OBSERVATION && Boolean(row.tool_call_id);
+}
+
 /** 从一个 run 的消息行合成执行树 envelope 流（内部按 seq 排序）。 */
 export function synthesizeExecutionEnvelopes(
   rows: readonly MessageInfo[],

@@ -1,5 +1,6 @@
 import type { PostgresExecutor } from "./postgres-executor.js";
 import { POSTGRES_CONVERSATION_MIGRATIONS } from "./conversation-schema.js";
+import { hydrateMessageRequestSchema } from './message-request-hydration.js';
 
 export async function runPostgresConversationMigrations(executor: PostgresExecutor): Promise<{ current_version: number; applied_versions: number[] }> {
   return executor.transaction(async (tx) => {
@@ -15,6 +16,7 @@ export async function runPostgresConversationMigrations(executor: PostgresExecut
       await tx.query(migration.sql);
       await tx.query("INSERT INTO ragsystem_conversation_schema_migrations(version,name) VALUES($1,$2)", [migration.version, migration.name]);
     }
+    await hydrateMessageRequestSchema(tx);
     return { current_version: POSTGRES_CONVERSATION_MIGRATIONS.length, applied_versions: pending.map((m) => m.version) };
   });
 }

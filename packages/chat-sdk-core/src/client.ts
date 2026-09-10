@@ -12,6 +12,7 @@ import type {
   SessionListResponse,
   SessionWorkspacePreviewResponse,
   SessionMessageListResponse,
+  MessageRequestStatusListResponse,
   SessionMessageExecutionResponse,
   SessionParticipantListResponse,
   SessionParticipantRunListResponse,
@@ -303,6 +304,12 @@ export class RagChatClient {
     });
     if (options.participantId) query.set("participant_id", options.participantId);
     return this.request<SessionMessageListResponse>("listMessages", { context: { sessionId }, query, ...(options.signal ? { signal: options.signal } : {}) });
+  }
+
+  async listMessageRequestStatuses(sessionId: string, requestIds: readonly string[] = [], options: { signal?: AbortSignal } = {}): Promise<MessageRequestStatusListResponse> {
+    const query = new URLSearchParams();
+    for (const requestId of requestIds) query.append('request_ids', requestId);
+    return this.request<MessageRequestStatusListResponse>('listMessageRequestStatuses', { context: { sessionId }, query, ...(options.signal ? { signal: options.signal } : {}) });
   }
 
   async listSessionParticipants(sessionId: string, options: { signal?: AbortSignal } = {}): Promise<SessionParticipantListResponse> {
@@ -763,6 +770,7 @@ function defaultEndpoint(name: RagChatEndpointName, context: Record<string, unkn
     case "listSessionParticipantRuns": return `/api/agent/sessions/${sessionId}/participants/${encodeURIComponent(String(context.participantId ?? ""))}/runs`;
     case "getParticipantRunSteps": return `/api/agent/sessions/${sessionId}/participants/${encodeURIComponent(String(context.participantId ?? ""))}/runs/${encodeURIComponent(String(context.runId ?? ""))}/steps`;
     case "listMessages": return `/api/agent/sessions/${sessionId}/messages`;
+    case "listMessageRequestStatuses": return `/api/agent/sessions/${sessionId}/message-requests`;
     case "getMessageExecution": return `/api/agent/sessions/${sessionId}/messages/${encodeURIComponent(String(context.messageId ?? ""))}/execution`;
     case "listMessageFeedback": return `/api/agent/sessions/${sessionId}/messages/feedback`;
     case "setMessageFeedback": return `/api/agent/sessions/${sessionId}/messages/${encodeURIComponent(String(context.messageId ?? ""))}/feedback`;

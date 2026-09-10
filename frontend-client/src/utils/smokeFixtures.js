@@ -136,12 +136,12 @@ const smokeExecutionEvents = [
   },
 ];
 
-export function createSmokeArtifactMessages() {
+export function createSmokeArtifactMessages({ consecutiveInputs = false } = {}) {
   const executionTree = buildProtocolExecutionTree(smokeExecutionEvents);
   const assistant = {
     role: 'assistant',
     id: 'smoke-assistant-1',
-    seq: 2,
+    seq: consecutiveInputs ? 4 : 2,
     content: '这是前端 smoke fixture，用于验证聊天页内联产物和按需运行中心布局。',
     content_parts: [
       { type: 'text', text: '这是前端 smoke fixture，用于验证聊天页内联产物和按需运行中心布局。' },
@@ -153,11 +153,11 @@ export function createSmokeArtifactMessages() {
       },
       { type: 'text', text: '产物下方应继续显示文本内容，移动端和桌面端都不能出现横向溢出。' },
     ],
-    executionTree,
+    executionTree: { root: null, steps: [] },
     status: [],
     finished: true,
     stopped: false,
-    has_execution: true,
+    has_execution: false,
     executionStepsLoaded: true,
     executionStepsLoading: false,
     executionStepsLoadError: '',
@@ -170,17 +170,29 @@ export function createSmokeArtifactMessages() {
     _execState: null,
   };
 
-  return [
+  const users = [
     {
       role: 'user',
       id: 'smoke-user-1',
       seq: 1,
       content: '生成一张水位趋势图，并展示执行过程。',
       attachments: [],
-      metadata: {},
+      run_id: 'smoke-run',
+      has_execution: false,
+      metadata: { run_id: 'smoke-run' },
     },
-    assistant,
   ];
+  if (consecutiveInputs) {
+    users.push(...['使用最近一周的数据。', '完成后附上数据文件。'].map((content, index) => ({
+      role: 'user', id: `smoke-user-${index + 2}`, seq: index + 2, content,
+      attachments: [], run_id: 'smoke-run', has_execution: false, metadata: { run_id: 'smoke-run' },
+    })));
+  }
+  Object.assign(users[users.length - 1], {
+    executionTree, has_execution: true, executionStepsLoaded: true,
+    executionStepsLoading: false, executionStepsLoadError: '', finished: true,
+  });
+  return [...users, assistant];
 }
 
 /**

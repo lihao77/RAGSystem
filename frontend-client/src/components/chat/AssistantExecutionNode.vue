@@ -186,7 +186,6 @@ const isAgentNode = computed(() => props.node.type === 'agent_call' || isAgentOp
 const hasChildren = computed(() => Array.isArray(props.node.children) && props.node.children.length > 0);
 const detailTask = computed(() => {
   if (props.node.type === 'agent_call') return cleanText(props.node.description || '');
-  if (props.node.type === 'injection' || props.node.type === 'agent_message') return cleanText(props.node.content || '');
   return '';
 });
 const detailResult = computed(() => cleanText(props.node.result_summary || ''));
@@ -214,14 +213,11 @@ const reasoningLineStyle = computed(() => ({ '--reasoning-line-left': `${props.d
 
 const iconKind = computed(() => {
   if (isAgentNode.value) return 'agent';
-  if (props.node.type === 'agent_message' || props.node.type === 'injection') return 'input';
   if (props.node.type === 'tool_call') return getToolIconKind(props.node.tool_name);
   return 'step';
 });
 const iconLabel = computed(() => {
   if (isAgentNode.value) return 'Agent';
-  if (props.node.type === 'agent_message') return 'Agent 消息';
-  if (props.node.type === 'injection') return '用户补充';
   return '工具';
 });
 const titleText = computed(() => {
@@ -229,8 +225,6 @@ const titleText = computed(() => {
     return props.node.agent_display_name || props.node.agent_name || 'Agent';
   }
   if (isAgentOperation.value) return getAgentOperationTitle(props.node);
-  if (props.node.type === 'agent_message') return props.node.message_kind || 'Agent 消息';
-  if (props.node.type === 'injection') return '用户补充';
   if (props.node.type === 'tool_call') return getToolDisplayName(props.node);
   return '执行步骤';
 });

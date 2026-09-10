@@ -7,6 +7,16 @@ import type {
 
 /** Adapts the synchronous SQLite conversation facade to the shared async port. */
 export class LocalAgentSessionRepository implements AgentSessionRepositoryPort {
+  async beginMessageRequest(sessionId: string, requestId: string, content: string) {
+    return this.store.beginMessageRequest(sessionId, requestId, content);
+  }
+  async renewMessageRequest(sessionId: string, requestId: string) { this.store.renewMessageRequest(sessionId, requestId); }
+  async settleMessageRequest(sessionId: string, requestId: string, status: 'queued' | 'consumed' | 'failed', error?: string | null) {
+    this.store.settleMessageRequest(sessionId, requestId, status, error);
+  }
+  async listMessageRequestStatuses(sessionId: string, requestIds?: readonly string[]) {
+    return this.store.listMessageRequestStatuses(sessionId, requestIds);
+  }
   constructor(private readonly store: ConversationStore) {}
 
   async createSession(input: Parameters<AgentSessionRepositoryPort["createSession"]>[0]) { this.store.createSession(input); }
@@ -21,9 +31,9 @@ export class LocalAgentSessionRepository implements AgentSessionRepositoryPort {
   async getSessionListProjection(sessionId: string) { return this.store.getSessionListProjection(sessionId); }
 
   async addMessage(input: AgentSessionMessageInput) { return this.store.addMessage(input); }
-  async listMessages(sessionId: string, limit: number, offset: number, threadKey?: string | null) {
+  async listMessages(sessionId: string, limit: number, offset: number, threadKey?: string | null, runIds?: readonly string[]) {
     return this.store.runInTransaction((tx) => ({
-      ...tx.listMessages(sessionId, limit, offset, threadKey),
+      ...tx.listMessages(sessionId, limit, offset, threadKey, runIds),
       outbox_watermark: tx.getSessionOutboxWatermark(sessionId),
     }));
   }

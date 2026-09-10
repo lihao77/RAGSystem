@@ -29,12 +29,13 @@ function run(runId: string, overrides: Partial<{
 
 
 describe("AgentSessionApplication participant Run steps", () => {
-  it("exposes visible input boundaries but not the terminal assistant as execution carriers", async () => {
+  it("exposes only input boundaries with execution content, including steps hidden from chat", async () => {
     const messages = [
       { id: "initial", role: "user", metadata: { run_id: "root-run", consumed_by_run_id: "root-run", execution_kind: "agent_stream" } },
       { id: "followup-source", role: "user", metadata: { run_id: "root-run", source: "running_session" } },
       { id: "followup-kind", role: "user", metadata: { run_id: "root-run", execution_kind: "session_followup" } },
       { id: "agent-message", role: "user", metadata: { run_id: "root-run", agent_message: true } },
+      { id: "empty-followup", role: "user", metadata: { run_id: "root-run", consumed_by_run_id: "root-run" } },
       { id: "assistant", role: "assistant", metadata: { run_id: "root-run" } },
     ];
     const repository = {
@@ -43,6 +44,17 @@ describe("AgentSessionApplication participant Run steps", () => {
         total: messages.length,
         limit: 20,
         offset: 0,
+        has_more: false,
+      })),
+      listMessages: vi.fn(async () => ({
+        items: [
+          ...messages.map((message, seq) => ({ ...message, seq })),
+          ...messages.slice(0, 4).map((message, index) => ({
+            id: `step-${index}`, seq: 10 + index, role: "assistant",
+            metadata: { run_id: "root-run", boundary_message_id: message.id, hidden: true },
+            tool_calls: [{ id: `call-${index}`, type: "function", function: { name: "read", arguments: "{}" } }],
+          })),
+        ],
         has_more: false,
       })),
     } as unknown as AgentSessionRepositoryPort;
@@ -55,8 +67,10 @@ describe("AgentSessionApplication participant Run steps", () => {
       ["followup-source", true],
       ["followup-kind", true],
       ["agent-message", true],
+      ["empty-followup", false],
       ["assistant", false],
     ]);
+    expect(repository.listMessages).toHaveBeenCalledWith("session-1", 1000, 0, "root", ["root-run"]);
   });
 
   it("lists every Run owned by the selected participant", async () => {

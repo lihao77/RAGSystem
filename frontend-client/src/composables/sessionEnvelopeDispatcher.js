@@ -123,7 +123,10 @@ export function createSessionEnvelopeDispatcher({
 
   /** @param {string | null | undefined} requestId */
   const finishRequest = (requestId) => {
-    if (requestId) finishPendingCommand(requestId);
+    if (requestId) {
+      finishPendingCommand(requestId);
+      deps.removePendingFollowup?.(currentSessionId.value, requestId);
+    }
   };
 
   /** @param {import('./sessionCoreTypes.js').SessionMessage} message */
@@ -196,12 +199,9 @@ export function createSessionEnvelopeDispatcher({
       ...(eventData.consumed_by_run_id ? { consumed_by_run_id: eventData.consumed_by_run_id } : {}),
       ...(eventData.mailbox_message_id ? { mailbox_message_id: eventData.mailbox_message_id } : {}),
     };
-    if (target.role === 'user'
-      && (target.run_id || target.metadata?.run_id || target.metadata?.consumed_by_run_id)) {
-      target.has_execution = true;
-    } else {
-      target.has_execution = false;
-    }
+    // 认领/落库只绑定身份；入口由历史可用性或实际执行事件决定。
+    target.has_execution = target.role === 'user'
+      && Boolean(target.has_execution || target.executionTree?.root);
     if (target.role === 'user') target.finished = true;
     if (Number.isSafeInteger(target.seq)) reorderMessages();
     deps.cacheMessages(sessionId, messages.value);
@@ -212,6 +212,7 @@ export function createSessionEnvelopeDispatcher({
   const handleConsumedUserMessage = (event, sessionId) => {
     const payload = event.payload || {};
     const metadata = payload.metadata && typeof payload.metadata === 'object' ? payload.metadata : {};
+    if (payload.target_child_agent_id || payload.target_thread_key?.startsWith('child:')) return false;
     const isConsumedUserMessage = Boolean(metadata.mailbox_message_id)
       && metadata.agent_message !== true
       && metadata.visible_to_user !== false;
@@ -225,7 +226,8 @@ export function createSessionEnvelopeDispatcher({
       run_id: metadata.consumed_by_run_id || event.run_id || null,
       task_id: metadata.task_id || null,
       round_index: metadata.round_index,
-      content_parts: payload.content_parts,
+      content_parts: Array.isArray(payload.content_parts) ? payload.content_parts
+        : [{ type: 'text', text: payload.content || '' }],
       metadata,
     };
     const requestId = eventData.request_id;
@@ -236,7 +238,7 @@ export function createSessionEnvelopeDispatcher({
       target = messages.value.find(message => message?.role === 'user' && message.id === eventData.message_id) || null;
     }
     if (!target) {
-      const parts = normalizeMessageContentParts(payload.content_parts);
+      const parts = normalizeMessageContentParts(eventData.content_parts);
       const content = getCanonicalUserContent(parts);
       const message = createUserMessage(content, [], {
         ...metadata,
@@ -256,8 +258,13 @@ export function createSessionEnvelopeDispatcher({
       // 按消息 id 排除认领行本身：applyMessageSaved 触发的 reorder 可能换掉列表内
       // 的行对象，引用比较不可靠。
       const claimedId = target?.id ?? null;
+      const claimedIndex = messages.value.findIndex(message => message.id === claimedId);
       for (const message of messages.value) {
-        if (message?.role === 'user' && message.id !== claimedId && getMessageRunId(message) === eventData.run_id) {
+        const precedesClaimed = Number.isSafeInteger(message?.seq) && Number.isSafeInteger(target?.seq)
+          ? message.seq < target.seq
+          : messages.value.indexOf(message) < claimedIndex;
+        if (message?.role === 'user' && message.id !== claimedId && precedesClaimed
+          && getMessageRunId(message) === eventData.run_id) {
           message.execution_superseded = true;
         }
       }
@@ -296,7 +303,6 @@ export function createSessionEnvelopeDispatcher({
         message.metadata = { ...(message.metadata || {}), run_id: runId };
       }
       message.finished = true;
-      message.has_execution = true;
       return message;
     }
     return carrier?.role === 'user' ? carrier : null;
@@ -307,10 +313,16 @@ export function createSessionEnvelopeDispatcher({
     if (!runId) return;
     const pending = pendingBoundaryEvents.get(runId);
     if (!pending?.length) return;
-    const boundary = findExecutionBoundaryMessage(null, runId);
-    if (!boundary) return;
     pendingBoundaryEvents.delete(runId);
-    for (const event of pending) deps.applyEnvelopeToMessage(boundary, event);
+    const remaining = [];
+    for (const event of pending) {
+      const boundary = event.boundary_message_id
+        ? messages.value.find(message => message.role === 'user' && message.id === event.boundary_message_id)
+        : findExecutionBoundaryMessage(null, runId);
+      if (boundary) deps.applyEnvelopeToMessage(boundary, event);
+      else remaining.push(event);
+    }
+    if (remaining.length) pendingBoundaryEvents.set(runId, remaining);
   };
 
   /** @param {import('./sessionCoreTypes.js').SessionMessage} carrier @param {import('./sessionCoreTypes.js').SessionEnvelope} event */
@@ -464,10 +476,24 @@ export function createSessionEnvelopeDispatcher({
 
   /** @param {import('./sessionCoreTypes.js').SessionEnvelope} event @param {string} sessionId */
   const handleEnvelope = (event, sessionId) => {
-    if (sessionId !== currentSessionId.value) return;
-
     const eventType = event.type;
     const payload = event.payload || {};
+    // 请求结果按事件所属会话归一；迟到事实不能被当前视图过滤，也不能写入另一会话的消息列表。
+    const metadata = payload.metadata || {};
+    const saved = payload.ref || {};
+    const isRootConsumedUser = eventType === 'agent_message'
+      && metadata.mailbox_message_id && metadata.agent_message !== true && metadata.visible_to_user !== false
+      && !payload.target_child_agent_id && !payload.target_thread_key?.startsWith('child:');
+    const isSavedRootUser = eventType === 'state_sync' && payload.category === 'message_saved'
+      && saved.role === 'user' && saved.metadata?.agent_message !== true
+      && !event.participant_id && !payload.lineage?.parent_call_id;
+    const completedRequestId = eventType === 'error'
+      || (eventType === 'ack' && payload.category === 'send' && !payload.ok)
+      ? payload.request_id
+      : isRootConsumedUser ? metadata.request_id || payload.request_id
+        : isSavedRootUser ? saved.request_id || saved.metadata?.request_id : null;
+    if (completedRequestId) deps.removePendingFollowup?.(sessionId, completedRequestId);
+    if (sessionId !== currentSessionId.value) return;
 
     if (eventType === 'heartbeat') return;
     if (eventType === 'session.runtime') {
@@ -495,7 +521,10 @@ export function createSessionEnvelopeDispatcher({
       return;
     }
 
-    if (runtime.handleInactiveDurableReplayEvent(event, sessionId)) return;
+    // 消费/落库事实必须先落入消息列表；已有终态回答不能吞掉迟到或重放的插嘴。
+    const isCanonicalMessage = eventType === 'agent_message'
+      || (eventType === 'state_sync' && payload.category === 'message_saved');
+    if (!isCanonicalMessage && runtime.handleInactiveDurableReplayEvent(event, sessionId)) return;
 
     // 插件扩展帧：交给插件事件状态中心（image-tools 识别进度等），默认不参与消息投影。
     if (eventType === 'plugin_event') {
@@ -543,9 +572,10 @@ export function createSessionEnvelopeDispatcher({
 
     if (eventType === 'error') {
       const currentMsg = messages.value[activeRun.assistantMsgIndex];
-      if (currentMsg) currentMsg.status.push({ type: 'error', content: payload.message || '' });
+      if (currentMsg) (currentMsg.status ||= []).push({ type: 'error', content: payload.message || '' });
       // send 前置 ACK（phase=received）后的异步失败补偿：带 request_id 的 error 帧 → toast。
       if (payload.request_id) {
+        finishRequest(payload.request_id);
         deps.showToast(payload.message || '发送失败', 'warning');
       }
       return;
@@ -635,6 +665,7 @@ export function createSessionEnvelopeDispatcher({
       const category = payload.category;
       if (category === 'message_saved') {
         const ref = { ...(payload.ref || {}), ...(event.run_id ? { run_id: event.run_id } : {}) };
+        ref.request_id ||= ref.metadata?.request_id;
         // 子 run 的 assistant 落库帧属于参与者线程（useMessageExecution 承接），根列表
         // 一律不收——此前仅按"run_id ≠ 活跃 run"过滤，activeRunId 为空时子答案会整块
         // 泄漏进根视图。子身份以顶层 participant_id / payload.lineage 判定。
@@ -776,7 +807,8 @@ export function createSessionEnvelopeDispatcher({
       if (terminalStatus === 'suspended') return;
       if (currentMsg) {
         currentMsg.finished = true;
-        currentMsg.has_execution = currentMsg.role === 'user';
+        currentMsg.has_execution = currentMsg.role === 'user'
+          && Boolean(currentMsg.has_execution || currentMsg.executionTree?.root);
         if (eventRunId) {
           currentMsg.run_id = eventRunId;
           currentMsg.metadata = { ...(currentMsg.metadata || {}), run_id: eventRunId };

@@ -1,4 +1,5 @@
 import type { MessageContentPart } from "@ragsystem/agent-protocol";
+import type { MessageRequestStatusPort } from '../session/message-request-status.js';
 import type { PaginatedResult } from "../common.js";
 import type {
   AddMessageInput,
@@ -28,7 +29,7 @@ import type {
 } from "../session/session.js";
 import type { TenantId } from "../../identity/types.js";
 
-export interface AsyncConversationRepository {
+export interface AsyncConversationRepository extends MessageRequestStatusPort {
   createSession(input: CreateSessionRecordInput): Promise<void>;
   getSession(sessionId: string): Promise<SessionInfo | null>;
   updateSessionMetadata(sessionId: string, patch: Record<string, unknown>): Promise<Record<string, unknown> | null>;
@@ -41,7 +42,8 @@ export interface AsyncConversationRepository {
   /** 单会话列表投影（title 回显等轻量读取）。 */
   getSessionListProjection(sessionId: string): Promise<SessionListProjection | null>;
   addMessage(input: AddMessageInput): Promise<MessageInfo>;
-  listMessages(sessionId: string, limit?: number, offset?: number, threadKey?: string | null): Promise<PaginatedResult<MessageInfo>>;
+  /** runIds scopes execution-history reads by consumed_by_run_id ?? run_id; [] selects no rows. */
+  listMessages(sessionId: string, limit?: number, offset?: number, threadKey?: string | null, runIds?: readonly string[]): Promise<PaginatedResult<MessageInfo>>;
   listVisibleMessagesSnapshot(tenantId: TenantId, sessionId: string, threadKey: string, limit?: number, offset?: number): Promise<SessionMessageListSnapshot>;
   getMessageBySeq(sessionId: string, seq: number): Promise<MessageInfo | null>;
   getMessageById(sessionId: string, id: string): Promise<MessageInfo | null>;

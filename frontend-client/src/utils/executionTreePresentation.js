@@ -12,7 +12,6 @@ export function getExecutionNodeKey(node) {
   if (!node) return ''
   if (node.call_id) return `call:${node.call_id}`
   if (node.task_id) return `task:${node.task_id}`
-  if (node.message_id) return `message:${node.message_id}`
   const identity = node.tool_name || node.agent_name || node.agent || node.agent_display_name || node.intent || node.description || ''
   return `${node.type || 'node'}:${node.round || ''}:${String(identity).slice(0, 80)}`
 }

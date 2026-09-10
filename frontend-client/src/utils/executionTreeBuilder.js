@@ -11,8 +11,6 @@
  * 只把 child 引用附加到工具节点。未匹配的 child 作为独立 agent_call 追加，不按名称猜测。
  */
 
-import { parseTaskNotificationContent } from './message-render.js';
-
 const mapStatus = (status) => {
   if (status === 'running') return 'running';
   if (status === 'failed') return 'error';
@@ -71,38 +69,8 @@ const createToolNode = (toolCall, linkedAgent = null) => {
   };
 };
 
-// 注入节点：run 进行中到达的 followup(用户插话)。
-// 非协议事件,不进 core execution-tree；仅前端 TreeNode 层呈现,挂 root agent children 末尾(final answer 之前)。
-// background_notification 的 notifications 字段为通道 B 预留:当前 INJECTION_SOURCES 只 running_session
-// (通知走通道 A 顶层 UserMessage 渲染);待后端 refresh 激活通道 B(通知注入当前 run)后扩展启用。
-const createInjectionNode = (msg) => {
-  const source = msg.metadata?.source || '';
-  return {
-    type: 'injection',
-    injection_kind: source,
-    message_id: msg.id || null,
-    seq: typeof msg.seq === 'number' ? msg.seq : null,
-    content: msg.content || '',
-    status: 'success',
-    // 通道 B 预留(当前 INJECTION_SOURCES 未含 background_notification,不触发)。
-    notifications: source === 'background_notification'
-      ? parseTaskNotificationContent(msg.content)
-      : null,
-  };
-};
-
-const createAgentMessageNode = (message) => ({
-  type: 'agent_message',
-  message_id: message.messageId,
-  message_kind: message.kind,
-  content: message.content || '',
-  source_run_id: message.sourceRunId || null,
-  source_agent_call_id: message.sourceAgentCallId || null,
-  correlation_id: message.correlationId || null,
-  reply_to_message_id: message.replyToMessageId || null,
-  metadata: message.metadata || {},
-  status: 'success',
-});
+// 注：run 进行中到达的 followup（用户插话）不再内联为树节点——由 dispatcher 的
+// 顶层用户消息行渲染（见 sessionEnvelopeDispatcher.handleConsumedUserMessage）。
 
 const createAgentCallNode = (agent, toolCall = null) => ({
   type: 'agent_call',
@@ -140,13 +108,12 @@ export function getAgentOperationTitle(node) {
 
 /**
  * 构建一个 agent 的子节点：rounds → thought(intent) + tool_call/agent_call；未消费 children → agent_call。
- * 轮次保持隐式（不造"轮次 N"行，归属靠思考节点 + injection 位置体现）。
+ * 轮次保持隐式（不造"轮次 N"行，归属靠思考节点体现）。
  * 树只承载过程——最终答案由消息槽 assistant 行渲染，不在树内重复建节点。
  * consumedChildIds 追踪当前 agent.children 的消费（避免 agent 合并后重复出现）。
  */
-function buildAgentChildren(agent, consumedChildIds, injections = []) {
+function buildAgentChildren(agent, consumedChildIds) {
   const children = [];
-  const pendingInjections = injections ? [...injections] : [];
   const childByInvocationCallId = new Map();
   for (const child of agent.children || []) {
     const invocationCallId = child.invocationCallId;
@@ -201,17 +168,6 @@ function buildAgentChildren(agent, consumedChildIds, injections = []) {
     } else {
       children.push(...roundChildren);
     }
-    // 该 round 之后:插入 round_index 匹配的 injection(followup 到达于此 round,agent 后续 round 才响应)。
-    for (let i = pendingInjections.length - 1; i >= 0; i--) {
-      if (pendingInjections[i].metadata?.round_index === round.round) {
-        children.push(createInjectionNode(pendingInjections[i]));
-        pendingInjections.splice(i, 1);
-      }
-    }
-  }
-
-  for (const message of agent.messages || []) {
-    children.push(createAgentMessageNode(message));
   }
 
   // 未被 agent 合并消费的 child agent：作为独立 agent_call 追加
@@ -221,10 +177,6 @@ function buildAgentChildren(agent, consumedChildIds, injections = []) {
       children.push(createAgentCallNode(child));
     }
   }
-  // 剩余 injection(无 round_index 或 round 未匹配,如历史回放老数据):挂末尾(final answer 前)。
-  for (const msg of pendingInjections) {
-    children.push(createInjectionNode(msg));
-  }
   return children;
 }
 
@@ -232,10 +184,7 @@ function buildAgentChildren(agent, consumedChildIds, injections = []) {
  * @param {Object} executionTree - core ExecutionTree { root: ExecutionAgent|null, steps }
  * @returns {Array} TreeNode[]
  */
-export function buildExecutionTree(executionTree, injections = []) {
-  // 无执行树(assistant 纯文本回复/还没工具调用)但有注入:仍渲染 injection 节点,不因 tree 空丢失。
-  if (!executionTree?.root) {
-    return (injections || []).map(createInjectionNode);
-  }
-  return buildAgentChildren(executionTree.root, new Set(), injections);
+export function buildExecutionTree(executionTree) {
+  if (!executionTree?.root) return [];
+  return buildAgentChildren(executionTree.root, new Set());
 }

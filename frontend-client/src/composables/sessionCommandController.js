@@ -115,6 +115,7 @@ export function createSessionCommandController({
     }
 
     if (!startsDraftSession) beginPendingCommand(isRunningFollowup ? 'followup' : 'send', requestId);
+    if (isRunningFollowup) deps.queueFollowup?.(sessionId, requestId, content);
     if (!startsDraftSession) {
       lastFailedSendContent.value = content;
       deps.inputMessage.value = '';
@@ -143,17 +144,33 @@ export function createSessionCommandController({
       const result = sdkResponse?.data || sdkResponse || {};
       if (!result.started) {
         if (result.kind === 'command') {
+          deps.removePendingFollowup?.(sessionId, requestId);
           scheduleCommandFallback(sessionId);
           return false;
         }
         throw new Error(result.error || '启动执行失败');
       }
-      if (result.kind === 'command') scheduleCommandFallback(sessionId, 60000);
+      if (result.kind === 'command') {
+        deps.removePendingFollowup?.(sessionId, requestId);
+        scheduleCommandFallback(sessionId, 60000);
+      } else if (isRunningFollowup) {
+        // ACK 只确认接收；待处理卡片留到 canonical 消费事件，不继续阻塞发送状态。
+        deps.markFollowupQueued?.(sessionId, requestId);
+        if (currentSessionId.value === sessionId) finishPendingCommand(requestId);
+      }
       deps.onMessageSent?.(sessionId, content);
       return true;
     } catch (error) {
       console.error('Error sending message:', error);
       finishPendingCommand(requestId);
+      // A late transport timeout cannot override a durable receipt or canonical consumption.
+      if (deps.hasAcceptedFollowup?.(sessionId, requestId)) return true;
+      // 断线后的 SDK 失败不证明服务端拒收；保留原文，避免把未知结果当成可安全重试。
+      if (deps.isFollowupUnconfirmed?.(sessionId, requestId)) {
+        deps.showToast('连接中断，补充消息状态待确认', 'warning');
+        return false;
+      }
+      deps.removePendingFollowup?.(sessionId, requestId);
       deps.showToast('消息发送失败', async () => {
         if (!lastFailedSendContent.value) return;
         deps.inputMessage.value = lastFailedSendContent.value;

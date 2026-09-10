@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { hydrateMessageRequestStatus } from '@ragsystem/backend-core/contracts/session/message-request-status.js';
 
 import { partsToPlainText } from "@ragsystem/agent-protocol";
 import type { PaginatedResult } from "@ragsystem/backend-core/contracts/common.js";
@@ -93,6 +94,58 @@ export class PostgresConversationRepository implements AsyncConversationReposito
   private readonly sessionTitleNotifiers = new Map<TenantId, (sessionId: string, messageText: string) => void>();
 
   constructor(private readonly executor: PostgresExecutor) {}
+
+  async beginMessageRequest(sessionId: string, requestId: string, content: string): Promise<boolean> {
+    const result = await this.executor.query(`INSERT INTO session_message_requests(session_id, request_id, content, status)
+      VALUES($1, $2, $3, 'processing') ON CONFLICT(session_id, request_id) DO NOTHING RETURNING request_id`, [sessionId, requestId, content]);
+    return result.rows.length > 0;
+  }
+
+  async settleMessageRequest(sessionId: string, requestId: string, status: 'queued' | 'consumed' | 'failed', error?: string | null): Promise<void> {
+    await this.executor.query(`UPDATE session_message_requests SET status=$3, error=$4, updated_at=CURRENT_TIMESTAMP
+      WHERE session_id=$1 AND request_id=$2 AND status='processing'`, [sessionId, requestId, status, error ?? null]);
+  }
+
+  async renewMessageRequest(sessionId: string, requestId: string): Promise<void> {
+    await this.executor.query("UPDATE session_message_requests SET updated_at=CURRENT_TIMESTAMP WHERE session_id=$1 AND request_id=$2 AND status='processing'", [sessionId, requestId]);
+  }
+
+  async listMessageRequestStatuses(sessionId: string, requestIds: readonly string[] = []) {
+    await this.executor.query(`UPDATE session_message_requests r SET status='failed', error='发送处理已中断，请重新发送', updated_at=CURRENT_TIMESTAMP
+      WHERE session_id=$1 AND status='processing' AND updated_at<CURRENT_TIMESTAMP-INTERVAL '2 minutes'
+        AND NOT EXISTS (SELECT 1 FROM conversation_messages m WHERE m.session_id=r.session_id AND m.role='user' AND m.thread_key='root' AND m.metadata->>'request_id'=r.request_id)
+        AND NOT EXISTS (SELECT 1 FROM agent_mailbox_messages b WHERE b.session_id=r.session_id AND b.target_thread_key='root'
+          AND b.input_type='user_message' AND b.metadata->>'request_id'=r.request_id)`, [sessionId]);
+    await this.executor.query(`INSERT INTO session_message_requests(session_id, request_id, content, status, updated_at)
+      SELECT session_id, metadata->>'request_id',
+        COALESCE((SELECT string_agg(part->>'text', E'\\n') FROM jsonb_array_elements(content_parts) part WHERE part->>'type'='text'), ''),
+        CASE WHEN EXISTS (SELECT 1 FROM conversation_messages m WHERE m.session_id=agent_mailbox_messages.session_id AND m.role='user'
+          AND m.thread_key='root' AND m.metadata->>'request_id'=agent_mailbox_messages.metadata->>'request_id')
+          THEN 'consumed' ELSE 'queued' END, updated_at FROM agent_mailbox_messages
+      WHERE session_id=$1 AND target_thread_key='root' AND input_type='user_message' AND visible_to_user=TRUE
+        AND status IN ('queued', 'claimed') AND jsonb_typeof(metadata->'request_id')='string'
+        AND metadata->>'request_id'!=''
+      ON CONFLICT(session_id, request_id) DO UPDATE SET
+        status=CASE WHEN session_message_requests.status IN ('processing', 'queued', 'consumed', 'failed')
+          THEN session_message_requests.status ELSE excluded.status END,
+        content=COALESCE(NULLIF(session_message_requests.content, ''), excluded.content),
+        updated_at=COALESCE(session_message_requests.updated_at, excluded.updated_at)
+      WHERE session_message_requests.status NOT IN ('processing', 'queued', 'consumed', 'failed') OR session_message_requests.status IS NULL
+        OR session_message_requests.content IS NULL OR session_message_requests.content=''
+        OR session_message_requests.updated_at IS NULL`, [sessionId]);
+    const result = await this.executor.query(`SELECT r.request_id, r.content,
+      CASE WHEN m.id IS NOT NULL OR r.status='consumed' THEN 'consumed' WHEN r.status='failed' OR b.status='expired' THEN 'failed'
+        WHEN b.status IN ('queued', 'claimed') THEN 'queued' ELSE r.status END AS status,
+      m.id AS message_id, CASE WHEN b.status='expired' THEN COALESCE(b.last_error, '排队消息已过期') ELSE r.error END AS error, r.updated_at
+      FROM session_message_requests r
+      LEFT JOIN LATERAL (SELECT id FROM conversation_messages WHERE session_id=r.session_id
+        AND role='user' AND thread_key='root' AND metadata->>'request_id'=r.request_id ORDER BY seq LIMIT 1) m ON TRUE
+      LEFT JOIN LATERAL (SELECT status, last_error FROM agent_mailbox_messages WHERE session_id=r.session_id
+        AND target_thread_key='root' AND input_type='user_message' AND metadata->>'request_id'=r.request_id ORDER BY seq LIMIT 1) b ON TRUE
+      WHERE r.session_id=$1 AND ((r.status IN ('processing', 'queued') AND m.id IS NULL AND (b.status IS NULL OR b.status!='expired')) OR r.request_id=ANY($2::text[]))
+      ORDER BY r.updated_at, r.request_id`, [sessionId, [...requestIds]]);
+    return result.rows.map(hydrateMessageRequestStatus);
+  }
 
   registerSessionTitleNotifier(tenantId: TenantId, notifier: (sessionId: string, messageText: string) => void): void {
     this.sessionTitleNotifiers.set(tenantId, notifier);
@@ -350,12 +403,19 @@ export class PostgresConversationRepository implements AsyncConversationReposito
     `, [sessionId, title]);
   }
 
-  async listMessages(sessionId: string, limit = 10_000, offset = 0, threadKey?: string | null): Promise<PaginatedResult<MessageInfo>> {
+  async listMessages(sessionId: string, limit = 10_000, offset = 0, threadKey?: string | null, runIds?: readonly string[]): Promise<PaginatedResult<MessageInfo>> {
+    if (runIds?.length === 0) return { items: [], total: 0, limit, offset, has_more: false };
     const params: unknown[] = [sessionId, threadKey?.trim() || null];
-    const where = "session_id=$1 AND ($2::text IS NULL OR thread_key=$2)";
+    let where = "session_id=$1 AND ($2::text IS NULL OR thread_key=$2)";
+    if (runIds) {
+      // JSONB 比较保留字符串类型；JSON null 与字段缺失都回退到 run_id。
+      where += " AND COALESCE(NULLIF(metadata->'consumed_by_run_id', 'null'::jsonb), metadata->'run_id') = ANY($3::jsonb[])";
+      params.push(runIds.map((runId) => JSON.stringify(runId)));
+    }
     const total = await this.executor.query(`SELECT COUNT(*) AS total FROM conversation_messages WHERE ${where}`, params);
+    const limitParam = params.length + 1;
     params.push(limit, offset);
-    const rows = await this.executor.query(`SELECT * FROM conversation_messages WHERE ${where} ORDER BY seq DESC LIMIT $3 OFFSET $4`, params);
+    const rows = await this.executor.query(`SELECT * FROM conversation_messages WHERE ${where} ORDER BY seq DESC LIMIT $${limitParam} OFFSET $${limitParam + 1}`, params);
     const count = Number(total.rows[0]?.total ?? 0);
     return { items: rows.rows.map(message).reverse(), total: count, limit, offset, has_more: offset + limit < count };
   }

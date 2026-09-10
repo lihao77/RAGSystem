@@ -4,6 +4,11 @@
     aria-label="待处理交互"
     aria-live="polite"
   >
+    <PendingFollowups
+      v-if="pendingFollowups.length"
+      :items="pendingFollowups"
+      class="mb-2 rounded-xl border bg-muted px-4 py-1"
+    />
     <WorkPanelUserInput
       v-if="pendingUserInput"
       :input-data="pendingUserInput.data"
@@ -24,8 +29,10 @@
 <script setup>
 import WorkPanelApproval from '../workpanel/WorkPanelApproval.vue';
 import WorkPanelUserInput from '../workpanel/WorkPanelUserInput.vue';
+import PendingFollowups from './PendingFollowups.vue';
 
 defineProps({
+  pendingFollowups: { type: Array, default: () => [] },
   approvalQueue: { type: Array, default: () => [] },
   approvalSubmittingId: { type: String, default: '' },
   pendingUserInput: { type: Object, default: null },

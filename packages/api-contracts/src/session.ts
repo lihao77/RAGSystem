@@ -239,6 +239,16 @@ export const SessionMetadataResponseSchema = successResponseSchema(z.object({
   metadata: z.record(z.string(), z.unknown()),
 }).strict());
 export const SessionMessageListResponseSchema = successResponseSchema(SessionMessageListDataSchema);
+export const MessageRequestStatusSchema = z.object({
+  request_id: z.string().min(1),
+  status: z.enum(['processing', 'queued', 'consumed', 'failed', 'unknown']),
+  content: z.string(),
+  message_id: z.string().nullable(),
+  error: z.string().nullable(),
+  updated_at: z.string(),
+}).strict();
+export const MessageRequestStatusListResponseSchema = successResponseSchema(z.object({ items: z.array(MessageRequestStatusSchema) }).strict());
+export type MessageRequestStatusListResponse = z.infer<typeof MessageRequestStatusListResponseSchema>;
 export const SessionMessageExecutionDataSchema = z.object({
   message_id: z.string().min(1),
   items: z.array(ServerToClientEnvelopeSchema),

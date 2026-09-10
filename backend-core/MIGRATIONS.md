@@ -69,6 +69,18 @@ create/update 路径复用其中的 `canonicalizeProviderConfig` / `normalizePro
 
 ## 其他持久化机制（不在本清单管辖，列出以免混淆）
 
+- **发送请求回执**：Local `conversation-store/message-request-ops.ts` 与 SaaS
+  `postgres/message-request-hydration.ts` 的永久形态守卫在加载存储时创建缺失的
+  `session_message_requests` 表，并补齐半迁移记录表的 content/status/error/updated_at 列，
+  不依赖 schema 版本。读取请求状态时，将存量 root 用户 mailbox 队列幂等补入回执表，
+  独立补全缺失原文与时间，并保留已有合法状态（包括 consumed / failed 终态）；
+  实际消费以 canonical user 消息为准，并在同一事务内由消息写入触发器固化为 consumed，
+  避免回退删除消息后已消费请求重新成为排队请求；过期以 mailbox 状态为准。
+  processing 请求每 30 秒续写 updated_at；查询将超过 2 分钟未续期且没有 mailbox / canonical
+  消息的孤立请求归为 failed，避免进程退出后永久处理中。
+  `contracts/session/message-request-status.ts` 的 `hydrateMessageRequestStatus` 同时处理
+  新写入回读和恢复备份中的缺失/非法字段，非法状态收敛为 unknown，不推断成功。
+
 - **sqlite DDL**：各插件 `src/storage/*/sqlite-migrations.ts`，编号 + 版本表
   （`ragsystem_plugin_schema_migrations`）。
 - **backend-local 会话库**：`backend-local/src/adapters/local/sqlite/conversation-store/migrations.ts`，

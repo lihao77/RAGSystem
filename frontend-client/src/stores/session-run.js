@@ -1,4 +1,4 @@
-import { computed, reactive, ref } from 'vue';
+import { computed, reactive, ref, watch } from 'vue';
 import { defineStore } from 'pinia';
 
 export const createActiveRunState = () => ({
@@ -154,6 +154,54 @@ export const useSessionRunStore = defineStore('session-run', () => {
   const sessionRuntime = ref(null);
   // 只表示客户端请求尚未被服务端事实事件确认，不参与消息或 Run 投影。
   const pendingCommands = ref([]);
+  // 已发送、尚未进入上下文的用户补充。按会话保存，切换视图不会串到另一会话。
+  const pendingFollowups = ref([]);
+  const settledFollowups = new Set();
+  const acceptedFollowups = new Set();
+  const followupKey = (sessionId, requestId) => JSON.stringify([sessionId, requestId]);
+  const markFollowupAccepted = (sessionId, requestId) => acceptedFollowups.add(followupKey(sessionId, requestId));
+  const hasAcceptedFollowup = (sessionId, requestId) => acceptedFollowups.has(followupKey(sessionId, requestId));
+  const currentPendingFollowups = computed(() => pendingFollowups.value
+    .filter(item => item.session_id === currentSessionId.value));
+  const queueFollowup = (sessionId, requestId, content) => {
+    if (settledFollowups.has(followupKey(sessionId, requestId))) return;
+    if (pendingFollowups.value.some(item => item.session_id === sessionId && item.request_id === requestId)) return;
+    pendingFollowups.value.push({ session_id: sessionId, request_id: requestId, content, status: 'sending' });
+  };
+  const markFollowupQueued = (sessionId, requestId) => {
+    markFollowupAccepted(sessionId, requestId);
+    const item = pendingFollowups.value.find(item => item.session_id === sessionId && item.request_id === requestId);
+    if (item?.status === 'sending') item.status = 'queued';
+  };
+  const markFollowupsUnconfirmed = (sessionId) => {
+    if (!sessionId) return;
+    for (const item of pendingFollowups.value) {
+      if (item.session_id === sessionId) item.status = 'unconfirmed';
+    }
+  };
+  const isFollowupUnconfirmed = (sessionId, requestId) => pendingFollowups.value.some(item => (
+    item.session_id === sessionId && item.request_id === requestId && item.status === 'unconfirmed'
+  ));
+  const removePendingFollowup = (sessionId, requestId) => {
+    if (!requestId) return;
+    settledFollowups.add(followupKey(sessionId, requestId));
+    pendingFollowups.value = pendingFollowups.value.filter(item => (
+      item.session_id !== sessionId || item.request_id !== requestId
+    ));
+  };
+  const reconcilePendingFollowups = (sessionId, items) => {
+    for (const message of items) {
+      if (message?.role !== 'user' || !message.id || message.metadata?.agent_message === true) continue;
+      const requestId = message.metadata?.request_id;
+      if (requestId) {
+        markFollowupAccepted(sessionId, requestId);
+        removePendingFollowup(sessionId, requestId);
+      }
+    }
+  };
+  watch(currentSessionId, (_sessionId, previousSessionId) => {
+    markFollowupsUnconfirmed(previousSessionId);
+  }, { flush: 'sync' });
   // The source is intentionally kept with the value so the UI can distinguish
   // a snapshot/estimate from a provider measurement or a prediction.
   const contextUsage = ref({ used: 0, max: 0, source: 'none' });
@@ -389,6 +437,16 @@ export const useSessionRunStore = defineStore('session-run', () => {
     sessionRuntime,
     runtimeObservability,
     pendingCommands,
+    pendingFollowups,
+    markFollowupAccepted,
+    hasAcceptedFollowup,
+    currentPendingFollowups,
+    queueFollowup,
+    markFollowupQueued,
+    markFollowupsUnconfirmed,
+    isFollowupUnconfirmed,
+    removePendingFollowup,
+    reconcilePendingFollowups,
     contextUsage,
     activeRun,
     llmRetryState,

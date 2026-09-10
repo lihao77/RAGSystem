@@ -2,6 +2,7 @@ import { createConversationDb } from "./shared/db.js";
 import { runInTransaction } from "./shared/transaction.js";
 import { SessionOps } from "./session-ops.js";
 import { MessageOps, DEFAULT_MESSAGE_LIST_LIMIT } from "./message-ops.js";
+import { MessageRequestOps } from './message-request-ops.js';
 import { RunOps } from "./run-ops.js";
 import { ChildAgentOps } from "./child-agent-ops.js";
 import { OutboxOps } from "./outbox-ops.js";
@@ -32,6 +33,7 @@ export function createConversationStore(options: ConversationStoreOptions) {
   const projector = new SessionListProjector(db);
   const sessions = new SessionOps(db, projector);
   const messages = new MessageOps(db, projector);
+  const messageRequests = new MessageRequestOps(db);
   const workspaces = new WorkspaceOps(db);
   const runs = new RunOps(db);
   const childAgents = new ChildAgentOps(db);
@@ -85,6 +87,10 @@ export function createConversationStore(options: ConversationStoreOptions) {
 
   return {
     close: () => db.close(),
+    beginMessageRequest: messageRequests.beginMessageRequest.bind(messageRequests),
+    renewMessageRequest: messageRequests.renewMessageRequest.bind(messageRequests),
+    settleMessageRequest: messageRequests.settleMessageRequest.bind(messageRequests),
+    listMessageRequestStatuses: messageRequests.listMessageRequestStatuses.bind(messageRequests),
     agentMailbox,
 
     // session

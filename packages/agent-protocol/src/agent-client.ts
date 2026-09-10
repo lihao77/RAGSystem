@@ -172,18 +172,6 @@ export interface ExecutionRound {
   toolCalls: ExecutionToolCall[];
 }
 
-export interface ExecutionAgentMessage {
-  messageId: string;
-  kind: "progress" | "request" | "response" | "result";
-  content: string;
-  sourceRunId?: string | null;
-  sourceAgentCallId?: string | null;
-  correlationId?: string | null;
-  replyToMessageId?: string | null;
-  metadata?: Record<string, unknown>;
-  receivedAt: number;
-}
-
 /**
  * 执行体（一个 agent 的 ReAct 轮次集合；可嵌套子 agent）。
  * root agent（orchestrator）的 rounds 即主对话执行步骤；children 为子 agent 任务树。
@@ -208,7 +196,6 @@ export interface ExecutionAgent {
   endedAt?: number;
   rounds: ExecutionRound[];
   children: ExecutionAgent[];
-  messages?: ExecutionAgentMessage[];
   parentCallId?: string;
 }
 

@@ -13,6 +13,7 @@
       <ChatInput
         ref="chatInputRef"
         :model-value="modelValue"
+        :placeholder="pendingFollowups.length ? '继续输入以排队/后续修改' : ''"
         :attachments="attachments"
         :session-id="sessionId"
         :can-send="canSend"
@@ -27,6 +28,9 @@
         @removeAttachment="emit('removeAttachment', $event)"
         @pasteFiles="emit('pasteFiles', $event)"
       >
+        <template v-if="pendingFollowups.length" #pending>
+          <PendingFollowups :items="pendingFollowups" />
+        </template>
         <template v-if="!hasMessages" #context>
           <TaskLauncher
             :workspace-root="workspaceRoot"
@@ -133,6 +137,7 @@
 <script setup>
 import { computed, onUnmounted, ref } from 'vue';
 import ChatInput from '../ChatInput.vue';
+import PendingFollowups from './PendingFollowups.vue';
 import LLMSelector from '../LLMSelector.vue';
 import ThinkingLevelSelector from '../ThinkingLevelSelector.vue';
 import PermissionModeSelector from '../PermissionModeSelector.vue';
@@ -143,6 +148,7 @@ import { formatTokenCount } from '../../utils/format.js';
 
 const props = defineProps({
   modelValue: { type: String, default: '' },
+  pendingFollowups: { type: Array, default: () => [] },
   attachments: { type: Array, default: () => [] },
   canSend: { type: Boolean, default: false },
   canStop: { type: Boolean, default: false },

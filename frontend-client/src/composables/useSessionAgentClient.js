@@ -1,4 +1,4 @@
-import { getCurrentInstance, onUnmounted } from 'vue';
+import { getCurrentInstance, onUnmounted, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useSessionRunStore } from '../stores/session-run.js';
 import { useRunRuntime } from './useRunRuntime.js';
@@ -6,6 +6,7 @@ import { createSessionInteractionController } from './sessionInteractionControll
 import { createSessionRunRecovery } from './sessionRunRecovery.js';
 import { createSessionCommandController } from './sessionCommandController.js';
 import { createSessionEnvelopeDispatcher } from './sessionEnvelopeDispatcher.js';
+import { createSessionFollowupRecovery } from './sessionFollowupRecovery.js';
 
 export { createRequestId, serializeAttachmentForSend } from './sessionCommandController.js';
 
@@ -67,7 +68,19 @@ export function useSessionAgentClient(deps) {
   const sdk = deps.chatSdkClient;
   if (!sdk) throw new Error('Chat SDK 未初始化');
   const sdkEventCursors = new Map();
+  const followupRecovery = createSessionFollowupRecovery({
+    sdk,
+    store: sessionRunStore,
+    loadMessages: (...args) => deps.loadSessionMessages(...args),
+    showToast: (...args) => deps.showToast(...args),
+  });
+  const stopFollowupWatch = watch(() => sessionRunStore.currentPendingFollowups.map(item => `${item.request_id}:${item.status}`).join('|'),
+    () => followupRecovery.schedule());
+  const markDisconnectedFollowups = () => {
+    sessionRunStore.markFollowupsUnconfirmed(sdk.sessionId || currentSessionId.value);
+  };
   const handleDisconnect = () => {
+    markDisconnectedFollowups();
     clearCommandFallback();
     envelopeDispatcher?.resetInteractionPresentation();
     deps.resetApprovalState();
@@ -84,7 +97,11 @@ export function useSessionAgentClient(deps) {
     if (sessionId) envelopeDispatcher?.handleEnvelope(event, sessionId);
   }));
   sdkUnsubscribers.push(sdk.on('status', (status) => {
-    if (status.state === 'reconnecting') clearCommandFallback();
+    if (status.state === 'connected') void followupRecovery.refresh();
+    if (status.state === 'reconnecting') {
+      markDisconnectedFollowups();
+      clearCommandFallback();
+    }
     if (status.state === 'disconnected') {
       handleDisconnect();
       if (status.reason === 'max retries exceeded' && currentSessionId.value && activeRun.active) {
@@ -97,6 +114,9 @@ export function useSessionAgentClient(deps) {
   const dispose = () => {
     if (disposed) return;
     disposed = true;
+    stopFollowupWatch();
+    followupRecovery.dispose();
+    markDisconnectedFollowups();
     for (const unsubscribe of sdkUnsubscribers.splice(0)) unsubscribe?.();
     clearCommandFallback();
     envelopeDispatcher?.resetInteractionPresentation();
@@ -112,6 +132,7 @@ export function useSessionAgentClient(deps) {
       && sdk.sessionId === sessionId
       && sdk.isConnected === true
     ) {
+      void followupRecovery.refresh();
       return;
     }
     const afterEventSeq = sdkEventCursors.get(sessionId);
@@ -119,16 +140,22 @@ export function useSessionAgentClient(deps) {
       ...(afterEventSeq !== undefined ? { afterEventSeq } : {}),
       ...(options.historySnapshot ? { historySnapshot: true } : {}),
     });
+    void followupRecovery.refresh();
   };
   const reconnectSessionWS = async (sessionId, options = {}) => {
+    markDisconnectedFollowups();
     sdk.disconnect();
     const afterEventSeq = sdkEventCursors.get(sessionId);
     await sdk.connect(sessionId, {
       ...(afterEventSeq !== undefined ? { afterEventSeq } : {}),
       ...(options.historySnapshot ? { historySnapshot: true } : {}),
     });
+    void followupRecovery.refresh();
   };
-  const disconnectSessionWS = () => sdk.disconnect();
+  const disconnectSessionWS = () => {
+    markDisconnectedFollowups();
+    sdk.disconnect();
+  };
   const getLastEventSeq = (sessionId = currentSessionId.value) => sdkEventCursors.get(sessionId) || 0;
   const initializeSessionEventCursor = (sessionId, afterEventSeq) => {
     if (sessionId === currentSessionId.value) {
@@ -143,7 +170,13 @@ export function useSessionAgentClient(deps) {
   });
 
   const commandController = createSessionCommandController({
-    deps,
+    deps: Object.assign(Object.create(deps), {
+      queueFollowup: sessionRunStore.queueFollowup,
+      markFollowupQueued: sessionRunStore.markFollowupQueued,
+      removePendingFollowup: sessionRunStore.removePendingFollowup,
+      isFollowupUnconfirmed: sessionRunStore.isFollowupUnconfirmed,
+      hasAcceptedFollowup: sessionRunStore.hasAcceptedFollowup,
+    }),
     currentSessionId,
     isLoading,
     allowsRuntimeAction,
@@ -164,7 +197,7 @@ export function useSessionAgentClient(deps) {
   const stop = commandController.stop;
 
   envelopeDispatcher = createSessionEnvelopeDispatcher({
-    deps,
+    deps: Object.assign(Object.create(deps), { removePendingFollowup: sessionRunStore.removePendingFollowup }),
     state: {
       currentSessionId,
       messages,

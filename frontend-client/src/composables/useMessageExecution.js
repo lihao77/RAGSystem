@@ -80,7 +80,7 @@ const createAgentMessageFromEvent = (event, participantId, consumedUserMessage =
     content,
     content_parts: [{ type: 'text', text: content }],
     finished: true,
-    has_execution: Boolean(consumedRunId),
+    has_execution: false,
     executionTree: { root: null, steps: [] },
     executionStepsLoaded: false,
     executionStepsLoading: false,
@@ -112,16 +112,15 @@ export const normalizeAssistantExecutionState = (msg) => {
   const metadata = msg.metadata || {};
   if (!msg.executionTree) msg.executionTree = { root: null, steps: [] };
   if (msg._execState === undefined) msg._execState = null;
+  // run_id 仅用于路由；不能把服务端明确的无执行内容重新水合成懒加载入口。
   msg.has_execution = Boolean(
     msg.has_execution
-    || msg.run_id
-    || metadata.run_id
     || executionTreeHasContent(msg.executionTree)
   );
   msg.executionStepsLoaded = Boolean(msg.executionStepsLoaded);
   msg.executionStepsLoading = Boolean(msg.executionStepsLoading);
   msg.executionStepsLoadError = msg.executionStepsLoadError || '';
-  msg.run_id = msg.run_id || metadata.run_id || null;
+  msg.run_id = msg.run_id || metadata.consumed_by_run_id || metadata.run_id || null;
   return msg;
 };
 
@@ -263,10 +262,9 @@ export function useMessageExecution(deps) {
     'stream_output',
     'tool_call',
     'tool_result',
-    'agent_message',
   ]);
   const applyParticipantEnvelope = (message, event) => {
-    if (liveExecutionEventTypes.has(event.type) && event.type !== 'agent_message') {
+    if (liveExecutionEventTypes.has(event.type)) {
       applyEnvelopeToMessage(message, event);
     }
     if (event.type === 'run_ended') {
@@ -275,7 +273,7 @@ export function useMessageExecution(deps) {
       message.run_failed = status === 'failed';
       message.stopped = status === 'interrupted';
       message.metadata = { ...(message.metadata || {}), terminal_status: status };
-    } else if (event.type !== 'agent_message' && message.role === 'assistant') {
+    } else if (message.role === 'assistant') {
       message.finished = false;
     }
   };
@@ -362,6 +360,9 @@ export function useMessageExecution(deps) {
     if (event.type === 'agent_message') {
       const targetParticipantId = event?.payload?.target_child_agent_id || 'root';
       participantByRun.set(runKey(sessionId, runId), targetParticipantId);
+      // 根用户插嘴由 dispatcher 统一插入、排序和结束请求；两位写入者会令
+      // 缺 seq 的消费消息先落到 assistant 后方，随后找不到正确的执行边界。
+      if (targetParticipantId === 'root' && isConsumedUserMessage) return;
       deps.syncParticipantMessage?.(
         targetParticipantId,
         createAgentMessageFromEvent(event, targetParticipantId, isConsumedUserMessage),

@@ -12,6 +12,7 @@ import {
   SessionListResponseSchema,
   SessionWorkspacePreviewResponseSchema,
   SessionMessageListResponseSchema,
+  MessageRequestStatusListResponseSchema,
   SessionMessageExecutionResponseSchema,
   SessionParticipantRunListResponseSchema,
   SessionParticipantRunStepsResponseSchema,
@@ -351,6 +352,16 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
       }, "获取参与者执行步骤成功"));
     },
   );
+
+  app.get<{ Params: SessionParams }>("/sessions/:sessionId/message-requests", async (request) => {
+    const sessions = await resolveSessionApplication(options, request);
+    await loadReadableSession(request, request.params.sessionId, sessions);
+    const query = z.object({ request_ids: z.union([z.string(), z.array(z.string())]).optional() }).parse(request.query);
+    const requestIds = z.array(z.string().min(1).max(2000)).max(100).parse(
+      query.request_ids === undefined ? [] : Array.isArray(query.request_ids) ? query.request_ids : [query.request_ids]);
+    const items = await sessions.listMessageRequestStatuses(request.params.sessionId, requestIds);
+    return validateResponse(MessageRequestStatusListResponseSchema, ok({ items }, '获取发送状态成功'));
+  });
 
   app.get<{ Params: SessionParams }>("/sessions/:sessionId/messages", async (request) => {
     const sessions = await resolveSessionApplication(options, request);

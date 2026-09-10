@@ -68,6 +68,7 @@
             :approval-queue="chatApprovalQueue"
             :approval-submitting-id="approvalSubmittingId"
             :pending-user-input="pendingUserInput"
+            :pending-followups="isRootParticipant ? currentPendingFollowups : []"
             :response-allowed="canRespondInteraction"
             @approval-submit="({ approvalId, approved, message }) => submitApproval(approvalId, approved, message, currentSessionId)"
             @user-input-submit="handleUserInputSubmit"
@@ -78,6 +79,7 @@
             key="composer"
             ref="chatComposerRef"
             v-model="inputMessage"
+            :pending-followups="currentPendingFollowups"
             :attachments="pendingAttachments"
             :can-send="canSendMessage"
             :can-stop="canStopRun"
@@ -234,6 +236,7 @@ const {
   runtimeObservability,
   contextUsage,
   pendingCommands,
+  currentPendingFollowups,
   selectedParticipantId,
 } = storeToRefs(sessionRunStore);
 
@@ -815,7 +818,12 @@ watch(
       invalidateActiveStream();
       clearExecutionState();
       currentSessionId.value = 'smoke-artifact-session';
-      messages.value = createSmokeArtifactMessages();
+      messages.value = createSmokeArtifactMessages({ consecutiveInputs: route.query.__consecutive === '1' });
+      if (route.query.__pendingFollowup === '1') {
+        sessionRunStore.queueFollowup(currentSessionId.value, 'smoke-followup-1', '请先检查异常站点，再补充最近一周的数据。');
+        sessionRunStore.markFollowupQueued(currentSessionId.value, 'smoke-followup-1');
+        sessionRunStore.queueFollowup(currentSessionId.value, 'smoke-followup-2', '结果中请保留原始站点名称。');
+      }
       contextUsage.value = { used: 1840, max: 8192 };
       await nextTick();
       scrollToBottom(true);

@@ -695,7 +695,7 @@ describe("Session runtime snapshot invariants", () => {
     expect(sessionLoadStrategyRestoresActiveRun("attach_resume")).toBe(true);
   });
 
-  it("projects durable agent messages without treating them as root output", () => {
+  it("执行树忽略 agent_message（消息行走消息行通道渲染，不进 ReAct 投影）", () => {
     const state = createExecutionTreeState();
     applyEnvelope(state, ServerToClientEnvelopeSchema.parse({
       type: "agent_started",
@@ -725,51 +725,10 @@ describe("Session runtime snapshot invariants", () => {
       },
     }));
     const tree = getExecutionTree(state);
+    expect(tree.root?.callId).toBe("parent-call");
     expect(tree.root?.output).toBeUndefined();
-    expect(tree.root?.messages).toEqual(expect.arrayContaining([
-      expect.objectContaining({ messageId: "message-1", kind: "result", content: "child finished" }),
-    ]));
-  });
-
-  it("keeps a mailbox message visible under a continuation root", () => {
-    const state = createExecutionTreeState();
-    applyEnvelope(state, ServerToClientEnvelopeSchema.parse({
-      type: "agent_started",
-      session_id: "session-1",
-      run_id: "continuation-run",
-      call_id: "continuation-call",
-      agent_id: "parent",
-      payload: { phase: "start", task: "continue" },
-    }));
-    applyEnvelope(state, ServerToClientEnvelopeSchema.parse({
-      type: "agent_message",
-      session_id: "session-1",
-      run_id: "continuation-run",
-      message_id: "message-continuation",
-      payload: {
-        kind: "result",
-        message_id: "message-continuation",
-        target_agent_call_id: "old-parent-call",
-        target_agent_name: "parent",
-        source_run_id: "child-run",
-        source_agent_call_id: "child-call",
-        target_parent_agent_call_id: "continuation-call",
-        content: "child finished after restart",
-      },
-    }));
-
-    const root = getExecutionTree(state).root;
-    expect(root?.callId).toBe("continuation-call");
-    expect(root?.children).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        callId: "old-parent-call",
-        agentId: "parent",
-        parentCallId: "continuation-call",
-        messages: expect.arrayContaining([
-          expect.objectContaining({ messageId: "message-continuation" }),
-        ]),
-      }),
-    ]));
+    expect(tree.root?.rounds).toHaveLength(0);
+    expect((tree.root as Record<string, unknown>).messages).toBeUndefined();
   });
 });
 

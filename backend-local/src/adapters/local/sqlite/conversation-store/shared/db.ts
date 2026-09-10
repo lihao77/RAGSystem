@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { runMigrations } from "../migrations.js";
+import { hydrateMessageRequestSchema } from '../message-request-ops.js';
 
 const require = createRequire(import.meta.url);
 const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
@@ -38,6 +39,7 @@ export function createConversationDb(options: {
   db.exec("PRAGMA busy_timeout = 5000");
   try {
     runMigrations(db);
+    hydrateMessageRequestSchema(db);
   } catch (error) {
     db.close();
     throw error;

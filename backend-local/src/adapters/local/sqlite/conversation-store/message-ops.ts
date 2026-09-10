@@ -154,20 +154,30 @@ export class MessageOps {
     return this.addMessage(messageInput);
   }
 
-  listMessages(sessionId: string, limit = DEFAULT_MESSAGE_LIST_LIMIT, offset = 0, threadKey?: string | null): PaginatedResult<MessageInfo> {
+  listMessages(sessionId: string, limit = DEFAULT_MESSAGE_LIST_LIMIT, offset = 0, threadKey?: string | null, runIds?: readonly string[]): PaginatedResult<MessageInfo> {
+    if (runIds?.length === 0) return { items: [], total: 0, limit, offset, has_more: false };
     const resolvedThreadKey = threadKey?.trim() || null;
+    const params: SqlInputValue[] = [sessionId, resolvedThreadKey, resolvedThreadKey];
+    let where = "session_id=? AND (? IS NULL OR thread_key=?)";
+    if (runIds) {
+      // 与 executionRunId 的 nullish 优先级一致；旧行可能只写 consumed_by_run_id。
+      where += ` AND COALESCE(NULLIF(json_type(metadata, '$.consumed_by_run_id'), 'null'), json_type(metadata, '$.run_id')) = 'text'
+        AND COALESCE(json_extract(metadata, '$.consumed_by_run_id'), json_extract(metadata, '$.run_id'))
+          IN (SELECT value FROM json_each(?))`;
+      params.push(JSON.stringify(runIds));
+    }
     const totalRow = this.db
-      .prepare("SELECT COUNT(1) AS cnt FROM messages WHERE session_id=? AND (? IS NULL OR thread_key=?)")
-      .get(sessionId, resolvedThreadKey, resolvedThreadKey) as { cnt: number };
+      .prepare(`SELECT COUNT(1) AS cnt FROM messages WHERE ${where}`)
+      .get(...params) as { cnt: number };
     const rows = this.db
       .prepare(`
         SELECT seq, id, session_id, role, content_parts, metadata, thread_key, child_agent_id, created_at, provider_state
         FROM messages
-        WHERE session_id=? AND (? IS NULL OR thread_key=?)
+        WHERE ${where}
         ORDER BY seq DESC
         LIMIT ? OFFSET ?
       `)
-      .all(sessionId, resolvedThreadKey, resolvedThreadKey, limit, offset) as unknown as MessageRow[];
+      .all(...params, limit, offset) as unknown as MessageRow[];
 
     const items = rows.map(rowToMessage).reverse();
     return {

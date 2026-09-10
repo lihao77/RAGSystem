@@ -5,7 +5,10 @@
       <div class="window-drop-overlay__desc">仅支持文件，不接收文件夹</div>
     </div>
   </Teleport>
-  <div class="chat-input-area">
+  <div class="chat-input-area" :class="{ 'chat-input-area--queued': $slots.pending }">
+    <div v-if="$slots.pending" class="composer-pending">
+      <slot name="pending" />
+    </div>
     <div class="input-container" :class="{ 'is-drag-over': isDragOver }">
       <div v-if="$slots.context" class="composer-context">
         <slot name="context" />
@@ -154,6 +157,10 @@ const props = defineProps({
     type: String,
     default: ''
   },
+  placeholder: {
+    type: String,
+    default: ''
+  },
   canSend: {
     type: Boolean,
     default: true
@@ -189,7 +196,7 @@ const isDragOver = ref(false);
 const sendDisabled = computed(() => !props.canSend || (!inputText.value.trim() && !props.attachments.length));
 const composerPlaceholder = computed(() => props.canResume
   ? '可先写下补充说明；继续运行后再发送'
-  : '描述你想让 Agent 完成的任务...');
+  : props.placeholder || '描述你想让 Agent 完成的任务...');
 
 watch(() => props.modelValue, (newValue) => {
   inputText.value = newValue;
@@ -342,6 +349,18 @@ defineExpose({ focus, extractClipboardFiles, extractDroppedFiles, canAcceptDragg
   max-width: var(--content-max-width);
   margin: 0 auto;
   position: relative;
+  --composer-radius: 18px;
+}
+
+.chat-input-area--queued {
+  background: var(--color-bg-secondary);
+  border-radius: var(--composer-radius);
+  box-shadow: inset 0 0 0 1px var(--color-border);
+}
+
+.composer-pending {
+  padding: 4px 16px;
+  min-width: 0;
 }
 
 .window-drop-overlay {
@@ -378,7 +397,7 @@ defineExpose({ focus, extractClipboardFiles, extractDroppedFiles, canAcceptDragg
 .input-container {
   background: var(--color-bg-elevated);
   border: 1px solid var(--color-border);
-  border-radius: 18px;
+  border-radius: var(--composer-radius);
   padding: 6px 8px;
   transition: all var(--transition-normal);
   box-shadow: none;
@@ -609,8 +628,11 @@ textarea::placeholder {
 }
 
 @media (max-width: 640px) {
+  .chat-input-area {
+    --composer-radius: 24px;
+  }
+
   .input-container {
-    border-radius: 24px;
     padding: 8px;
   }
 

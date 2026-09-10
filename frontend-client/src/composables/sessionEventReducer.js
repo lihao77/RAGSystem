@@ -246,8 +246,6 @@ export function createSessionEventReducer({
       deps.applyEnvelopeToMessage(currentMsg, event);
       runtime.markToolFinished(event);
       syncLlmRetryState();
-    } else if (eventType === 'agent_message') {
-      deps.applyEnvelopeToMessage(currentMsg, event);
     } else if (eventType === 'agent_started') {
       deps.applyEnvelopeToMessage(currentMsg, event);
       if (deps.isMasterEvent(event)) {

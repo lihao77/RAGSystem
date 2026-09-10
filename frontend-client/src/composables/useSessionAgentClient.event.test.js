@@ -179,7 +179,9 @@ function createDeps(overrides = {}) {
     ...overrides,
   };
 
-  return { deps, calls, sessionRunStore };
+  return { deps, calls, sessionRunStore, emitSdkEvent: (event) => {
+    for (const listener of sdkListeners.get('event') || []) listener(event);
+  } };
 }
 
 function withMock(setup, run) {
@@ -488,6 +490,103 @@ test('插嘴被同 run 认领后，旧边界面板让出运行中（execution_su
   assert.equal(followup.execution_superseded, undefined);
 });
 
+test('连续认领的 user 消息只在对应边界收到真实执行事件后出现过程', () => {
+  const { deps } = createDeps();
+  const execution = useMessageExecution({ currentSessionId: deps.currentSessionId, activeRun: deps.activeRun });
+  deps.applyEnvelopeToMessage = execution.applyEnvelopeToMessage;
+  deps.messages.value = [createAssistantMessage({ run_id: 'run-1' })];
+  Object.assign(deps.activeRun, { active: true, runId: 'run-1', assistantMsgIndex: 0 });
+  const stream = useSessionAgentClient(deps);
+  const consume = (id, seq) => stream.handleEnvelope({
+    type: 'agent_message', run_id: 'run-1',
+    payload: {
+      message_id: id, seq, content_parts: [{ type: 'text', text: id }],
+      metadata: { mailbox_message_id: id, consumed_by_run_id: 'run-1', visible_to_user: true },
+    },
+  }, 'session-1');
+  consume('u1', 1);
+  consume('u2', 2);
+  const availability = () => deps.messages.value.filter(message => message.role === 'user')
+    .map(message => [message.id, message.has_execution]);
+  assert.deepEqual(availability(), [['u1', false], ['u2', false]]);
+  stream.handleEnvelope({
+    type: 'stream_output', run_id: 'run-1', call_id: 'root-call', boundary_message_id: 'u2',
+    payload: { phase: 'reasoning_delta', content: '检查补充信息', round: 1 },
+  }, 'session-1');
+  consume('u3', 3);
+  assert.deepEqual(availability(), [['u1', false], ['u2', true], ['u3', false]]);
+  const executed = deps.messages.value.find(message => message.id === 'u2');
+  assert.equal(buildExecutionTree(executed.executionTree).length > 0, true);
+});
+
+test('两个 SDK 监听器同时在场时，无 seq 的用户插嘴只插入一次且后续输出跟随新边界', () => {
+  const { deps, sessionRunStore, emitSdkEvent } = createDeps();
+  const execution = useMessageExecution({
+    currentSessionId: deps.currentSessionId, activeRun: deps.activeRun, chatSdkClient: deps.chatSdkClient,
+    participantMessages: storeToRefs(sessionRunStore).participantMessages,
+    syncParticipantMessage: sessionRunStore.upsertParticipantMessage,
+  });
+  deps.applyEnvelopeToMessage = execution.applyEnvelopeToMessage;
+  deps.messages.value = [
+    { role: 'user', id: 'original', metadata: { run_id: 'run-1' } },
+    createAssistantMessage({ run_id: 'run-1' }),
+  ];
+  Object.assign(deps.activeRun, { active: true, runId: 'run-1', assistantMsgIndex: 1 });
+  useSessionAgentClient(deps);
+  sessionRunStore.queueFollowup('session-1', 'req-followup', '优先解决卡住的问题');
+  const consumed = { type: 'agent_message', session_id: 'session-1', run_id: 'run-1', payload: {
+    message_id: 'followup', content: '优先解决卡住的问题', target_thread_key: 'root',
+    metadata: { mailbox_message_id: 'followup', request_id: 'req-followup', consumed_by_run_id: 'run-1' },
+  } };
+  emitSdkEvent(consumed);
+  emitSdkEvent(consumed);
+  assert.deepEqual(deps.messages.value.map(message => message.id || message.role), ['original', 'followup', 'assistant']);
+  assert.equal(deps.activeRun.assistantMsgIndex, 2);
+  assert.equal(sessionRunStore.currentPendingFollowups.length, 0);
+  emitSdkEvent({ type: 'stream_output', session_id: 'session-1', run_id: 'run-1', call_id: 'root-call',
+    payload: { phase: 'delta', content: '正在检查卡住的位置', round: 1 } });
+  assert.equal(deps.messages.value[1].executionTree.root.rounds[0].text, '正在检查卡住的位置');
+});
+
+test('暂存步骤等待各自的插嘴边界，不被先到的另一条消费消息认领', () => {
+  const { deps } = createDeps();
+  const execution = useMessageExecution({ currentSessionId: deps.currentSessionId, activeRun: deps.activeRun });
+  deps.applyEnvelopeToMessage = execution.applyEnvelopeToMessage;
+  deps.messages.value = [createAssistantMessage({ run_id: 'run-1' })];
+  Object.assign(deps.activeRun, { active: true, runId: 'run-1', assistantMsgIndex: 0 });
+  const stream = useSessionAgentClient(deps);
+  for (const boundary of ['u1', 'u2']) {
+    stream.handleEnvelope({ type: 'stream_output', run_id: 'run-1', call_id: 'root-call', boundary_message_id: boundary,
+      payload: { phase: 'delta', content: `处理 ${boundary}`, round: 1 } }, 'session-1');
+  }
+  for (const boundary of ['u2', 'u1']) {
+    stream.handleEnvelope({ type: 'agent_message', run_id: 'run-1', payload: {
+      message_id: boundary, seq: boundary === 'u1' ? 1 : 2, content: boundary,
+      metadata: { mailbox_message_id: boundary, consumed_by_run_id: 'run-1' },
+    } }, 'session-1');
+  }
+  assert.equal(deps.messages.value[0].executionTree.root.rounds[0].text, '处理 u1');
+  assert.equal(deps.messages.value[1].executionTree.root.rounds[0].text, '处理 u2');
+  assert.notEqual(deps.messages.value[1].execution_superseded, true);
+});
+
+test('终态 run 的回放仍渲染遗漏的插嘴，并移除对应等待卡片', () => {
+  const { deps, sessionRunStore } = createDeps();
+  deps.messages.value = [createAssistantMessage({ run_id: 'run-1', finished: true, seq: 3, content: '已完成' })];
+  sessionRunStore.queueFollowup('session-1', 'req-late', '迟到的补充');
+  const stream = useSessionAgentClient(deps);
+  stream.handleEnvelope({ type: 'session.reconnect', run_id: 'run-1', payload: {
+    phase: 'start', replay_source: 'durable_outbox',
+  } }, 'session-1');
+  stream.handleEnvelope({ type: 'agent_message', run_id: 'run-1', payload: {
+    message_id: 'late', seq: 2, content: '迟到的补充',
+    metadata: { mailbox_message_id: 'late', request_id: 'req-late', consumed_by_run_id: 'run-1' },
+  } }, 'session-1');
+  assert.equal(deps.messages.value[0].content, '迟到的补充');
+  assert.equal(deps.messages.value[1].content, '已完成');
+  assert.equal(sessionRunStore.currentPendingFollowups.length, 0);
+});
+
 test('state_sync(message_saved) 从服务端 canonical content_parts 创建用户消息', () => {
   const { deps, sessionRunStore } = createDeps();
   sessionRunStore.beginPendingCommand('send', 'req-command');
@@ -672,7 +771,7 @@ test('首发消息在 run_started 后由消费事件回填且不重复插入', (
   assert.equal(deps.messages.value[0].seq, 1);
   assert.equal(deps.messages.value[0].metadata.run_id, 'run-first');
   assert.equal(deps.messages.value[0].metadata.consumed_by_run_id, 'run-first');
-  assert.equal(deps.messages.value[0].has_execution, true);
+  assert.equal(deps.messages.value[0].has_execution, false);
   assert.equal(deps.messages.value[1].run_id, 'run-first');
 });
 
@@ -703,7 +802,7 @@ test('边界事件不会搬运 active assistant 的实时执行树', () => {
 
   assert.equal(carrier.executionTree.root.callId, 'root-call');
   const boundary = deps.messages.value.find(message => message.id === 'stop-message');
-  assert.equal(boundary.has_execution, true);
+  assert.equal(boundary.has_execution, false);
   assert.equal(boundary.executionTree.root, null);
 });
 

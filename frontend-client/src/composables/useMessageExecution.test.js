@@ -2,7 +2,26 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { nextTick, reactive, ref } from 'vue';
 
-import { useMessageExecution } from './useMessageExecution.js';
+import { normalizeAssistantExecutionState, useMessageExecution } from './useMessageExecution.js';
+
+test('run identity does not create execution availability during history/cache normalization', () => {
+  for (const identity of [
+    { run_id: 'run-1' },
+    { metadata: { run_id: 'run-1' } },
+    { metadata: { consumed_by_run_id: 'run-1' } },
+  ]) {
+    for (const role of ['user', 'assistant']) {
+      const message = normalizeAssistantExecutionState({ role, has_execution: false, ...identity });
+      assert.equal(message.run_id, 'run-1');
+      assert.equal(message.has_execution, false);
+      assert.equal(normalizeAssistantExecutionState(message).has_execution, false);
+    }
+  }
+  assert.equal(normalizeAssistantExecutionState({ role: 'user', has_execution: true }).has_execution, true);
+  assert.equal(normalizeAssistantExecutionState({
+    role: 'user', has_execution: false, executionTree: { root: { callId: 'run-1' } },
+  }).has_execution, true);
+});
 
 const childStarted = (overrides = {}) => ({
   type: 'agent_started',

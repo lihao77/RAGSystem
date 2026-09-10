@@ -59,6 +59,7 @@ export function useSessionMessages(deps) {
 
   const cacheMessages = (sessionId, list, participantId = 'root') => {
     if (!sessionId) return;
+    if (participantId === 'root') sessionRunStore.reconcilePendingFollowups(sessionId, list);
     const key = cacheKey(sessionId, participantId);
     if (messageCache.value.has(key)) {
       messageCache.value.delete(key);

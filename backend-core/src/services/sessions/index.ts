@@ -15,8 +15,19 @@ import type { ExecutionSessionPort, SessionParticipantRunSummary } from "../../c
 import { SessionItemNotFoundError } from "../../contracts/session/session-application.js";
 import { isParticipantConversationMessageVisible } from "../../contracts/session/message-visibility.js";
 import { synthesizeExecutionEnvelopes } from "./execution-synthesis.js";
+import { executionRunId, getExecutionCarrierIds, groupExecutionRowsByBoundary } from "./execution-boundaries.js";
 
 export class AgentSessionApplication implements ExecutionSessionPort {
+  beginMessageRequest(sessionId: string, requestId: string, content: string) {
+    return this.repository.beginMessageRequest(sessionId, requestId, content);
+  }
+  renewMessageRequest(sessionId: string, requestId: string) { return this.repository.renewMessageRequest(sessionId, requestId); }
+  settleMessageRequest(sessionId: string, requestId: string, status: 'queued' | 'consumed' | 'failed', error?: string | null) {
+    return this.repository.settleMessageRequest(sessionId, requestId, status, error);
+  }
+  listMessageRequestStatuses(sessionId: string, requestIds?: readonly string[]) {
+    return this.repository.listMessageRequestStatuses(sessionId, requestIds);
+  }
   constructor(
     private readonly repository: AgentSessionRepositoryPort,
     private readonly history: SessionHistoryPort | null = null,
@@ -97,9 +108,11 @@ export class AgentSessionApplication implements ExecutionSessionPort {
   }): Promise<SessionMessageListSnapshot> {
     const threadKey = input.threadKey?.trim() || "root";
     const data = await this.repository.listVisibleMessages(input.sessionId, threadKey, input.limit ?? 20, input.offset ?? 0);
+    const executionCarriers = await getExecutionCarrierIds(data.items,
+      (limit, offset, runIds) => this.repository.listMessages(input.sessionId, limit, offset, threadKey, runIds));
     data.items = data.items.map((item) => ({
       ...stripPrivateMessageFields(item),
-      has_execution: shouldExposeExecutionCarrier(item) && item.metadata.execution_history_discarded !== true,
+      has_execution: executionCarriers.has(item.id),
     }));
     return data;
   }
@@ -118,20 +131,10 @@ export class AgentSessionApplication implements ExecutionSessionPort {
   ): Promise<Envelope[]> {
     const thread = await this.repository.listMessages(sessionId, 10_000, 0, threadKey);
     const runRows = thread.items
-      .filter((row) => row.metadata?.run_id === runId)
+      .filter((row) => executionRunId(row) === runId)
       .sort((a, b) => a.seq - b.seq);
     if (!boundaryMessageId) return synthesizeExecutionEnvelopes(runRows, { sessionId, runId });
-    const userRows = runRows.filter((row) => row.role === "user");
-    const segmentRows = runRows.filter((row) => {
-      const marker = row.metadata?.boundary_message_id;
-      if (typeof marker === "string" && marker) return marker === boundaryMessageId;
-      let owner: string | null = userRows[0]?.id ?? null;
-      for (const userRow of userRows) {
-        if (userRow.seq <= row.seq) owner = userRow.id;
-        else break;
-      }
-      return owner === boundaryMessageId;
-    });
+    const segmentRows = groupExecutionRowsByBoundary(runRows).get(boundaryMessageId) ?? [];
     return synthesizeExecutionEnvelopes(segmentRows, { sessionId, runId });
   }
 
@@ -404,16 +407,6 @@ function isVisibleRootMessage(item: MessageInfo): boolean {
 
 function isVisibleParticipantMessage(item: MessageInfo, threadKey: string): boolean {
   return isParticipantConversationMessageVisible(item, threadKey);
-}
-
-function executionRunId(message: Pick<MessageInfo, "metadata">): string | null {
-  const metadata = message.metadata ?? {};
-  const runId = metadata.consumed_by_run_id ?? metadata.run_id;
-  return typeof runId === "string" && runId.trim() ? runId : null;
-}
-
-function shouldExposeExecutionCarrier(message: MessageInfo): boolean {
-  return message.role === "user" && executionRunId(message) != null;
 }
 
 function parseArchivedEnvelope(payload: Record<string, unknown>): Envelope {

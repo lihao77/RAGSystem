@@ -4,6 +4,32 @@ import { createPinia, setActivePinia } from 'pinia';
 
 import { useSessionRunStore } from './session-run.js';
 
+test('待处理插嘴按会话隔离，切回后恢复，历史只清除对应已消费请求', () => {
+  setActivePinia(createPinia());
+  const store = useSessionRunStore();
+  store.currentSessionId = 'session-1';
+  store.queueFollowup('session-1', 'request-1', '补充一');
+  store.queueFollowup('session-1', 'request-2', '补充二');
+  store.queueFollowup('session-2', 'request-3', '另一个会话');
+  store.markFollowupQueued('session-1', 'request-1');
+  store.clearSessionRuntime();
+  store.currentSessionId = 'session-2';
+  assert.deepEqual(store.currentPendingFollowups.map(item => item.content), ['另一个会话']);
+  assert.equal(store.currentPendingFollowups[0].status, 'sending');
+  store.reconcilePendingFollowups('session-1', [{
+    role: 'user', id: 'saved-1', metadata: { request_id: 'request-1' },
+  }]);
+  store.currentSessionId = 'session-1';
+  assert.deepEqual(store.currentPendingFollowups.map(item => item.content), ['补充二']);
+  assert.equal(store.currentPendingFollowups[0].status, 'unconfirmed');
+  store.markFollowupQueued('session-1', 'request-2');
+  assert.equal(store.currentPendingFollowups[0].status, 'unconfirmed');
+  store.reconcilePendingFollowups('session-1', [{
+    role: 'assistant', id: 'answer', metadata: { request_id: 'request-2' },
+  }]);
+  assert.equal(store.currentPendingFollowups.length, 1);
+});
+
 const strategies = {
   idle: 'history',
   running: 'attach_run',
