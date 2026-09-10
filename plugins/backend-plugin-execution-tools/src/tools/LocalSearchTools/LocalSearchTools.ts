@@ -105,6 +105,7 @@ export const LOCAL_SEARCH_TOOLS: RuntimeToolDefinition[] = [
     description: "Search file contents with a ripgrep regular expression and return matching lines grouped by file.",
     usage_contract: [
       "搜索文本优先用 grep，而非 execute_shell 的 grep/rg；pattern 是 ripgrep 正则语法（字面文本也是合法正则）。",
+      "path 可以是目录或单个文件：查\"某文件里 X 在第几行/有没有 X\"时直接把文件路径传给 path，命中行号与 read_file 的行号锚点一致，不必为单文件整读文件。",
       "默认大小写敏感；需要忽略大小写传 case_sensitive=false 或在正则里用 (?i)。",
       "遵循 .gitignore/.ignore 忽略规则并跳过二进制文件（node_modules 等被忽略目录不会命中）；隐藏文件（点开头）会被搜索。",
       "需要匹配行的上下文时传 context_lines，或直接 read 命中文件。",
@@ -121,7 +122,7 @@ export const LOCAL_SEARCH_TOOLS: RuntimeToolDefinition[] = [
         },
         path: {
           type: "string",
-          description: "Optional search root. Relative paths resolve against the workspace; absolute paths may reach uploads or, after approval, directories outside the managed roots.",
+          description: "File or directory to search (dsh/Claude Code convention). Defaults to the workspace; relative paths resolve against it; absolute paths may reach uploads or, after approval, paths outside the managed roots.",
         },
         glob: {
           type: "string",

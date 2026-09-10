@@ -288,6 +288,26 @@ test("search tools run on the ripgrep engine with unified semantics", async () =
     assert.equal(regex.success, true, regex.summary);
     assert.ok(regex.content.matches.some((match) => match.file === "sub/note.md" && match.line.includes("v2")));
 
+    // path 指向单个文件（dsh "File or directory to search"）：只搜该文件，
+    // 命中行号与 read_file 的行号锚点一致；base_path 报告被搜的文件本身
+    const singleFile = await search.grep({ pattern: "needle", path: "case.txt" }, context);
+    assert.equal(singleFile.success, true, singleFile.summary);
+    assert.equal(singleFile.content.matches.length, 1);
+    assert.equal(singleFile.content.matches[0].file, "case.txt");
+    assert.equal(singleFile.content.matches[0].line_number, 2);
+    assert.equal(singleFile.content.matches[0].line, "needle lower");
+    assert.equal(singleFile.content.base_path, path.join(workspace, "case.txt"));
+    // 同一文件用 case_sensitive=false 双命中，行号从 1 计
+    const singleInsensitive = await search.grep({ pattern: "needle", path: "case.txt", caseSensitive: false }, context);
+    assert.deepEqual(
+      singleInsensitive.content.matches.map((match) => match.line_number),
+      [1, 2],
+    );
+    // glob 的文件发现语义不接受文件目标
+    const globOnFile = await search.glob({ pattern: "*.txt", path: "case.txt" }, context);
+    assert.equal(globOnFile.success, false);
+    assert.match(globOnFile.summary, /路径不是目录/);
+
     // 默认大小写敏感；case_sensitive=false 才忽略大小写
     const sensitive = await search.grep({ pattern: "needle", glob: "case.txt" }, context);
     assert.equal(sensitive.success, true, sensitive.summary);

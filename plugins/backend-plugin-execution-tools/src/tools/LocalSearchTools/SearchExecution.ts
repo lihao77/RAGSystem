@@ -71,17 +71,18 @@ export class LocalSearchToolService {
     try {
       const normalized = normalizeGlobInput(input);
       if ("error" in normalized) return toolError(toolName, normalized.error);
-      const baseRoot = this.paths.resolveSearchRoot(normalized.path, context, pathService);
+      // glob 是目录树里的文件发现，目标必须是目录（grep 才接受单文件目标）。
+      const base = this.paths.resolveSearchTarget(normalized.path, context, pathService);
       const argv = ["--files", `--glob=${normalized.pattern}`, "--sort=modified", "--no-ignore", "--hidden"];
       for (const name of VCS_EXCLUDE_GLOBS) {
         argv.push(`--glob=!**/${name}`, `--glob=!**/${name}/**`);
       }
-      argv.push("--", ".");
-      const run = await runRipgrep({ argv, cwd: baseRoot, signal: context.signal });
+      argv.push("--", base.target);
+      const run = await runRipgrep({ argv, cwd: base.cwd, signal: context.signal });
       const all = run.noMatches ? [] : parseGlobOutput(run.stdout);
       const retained = all.slice(0, normalized.maxResults);
       return formatGlobResult(
-        baseRoot,
+        base.resolved,
         normalized,
         retained,
         all.length > retained.length,
@@ -107,7 +108,9 @@ export class LocalSearchToolService {
     try {
       const normalized = normalizeGrepInput(input);
       if ("error" in normalized) return toolError(toolName, normalized.error);
-      const baseRoot = this.paths.resolveSearchRoot(normalized.path, context, pathService);
+      // path 语义对齐 dsh："File or directory to search"——单文件目标直接搜该文件
+      //（"这个文件里 X 在第几行"是高频意图，行号与 read_file 的行号锚点天然配对）。
+      const base = this.paths.resolveSearchTarget(normalized.path, context, pathService, { allowFile: true });
       const argv = ["--json", `--regexp=${normalized.pattern}`];
       if (!normalized.caseSensitive) argv.push("--ignore-case");
       if (normalized.glob !== "**/*") argv.push(`--glob=${normalized.glob}`);
@@ -118,8 +121,8 @@ export class LocalSearchToolService {
       for (const name of VCS_EXCLUDE_GLOBS) {
         argv.push(`--glob=!**/${name}`, `--glob=!**/${name}/**`);
       }
-      argv.push("--", ".");
-      const run = await runRipgrep({ argv, cwd: baseRoot, signal: context.signal });
+      argv.push("--", base.target);
+      const run = await runRipgrep({ argv, cwd: base.cwd, signal: context.signal });
       // 零匹配（exit 1）时 rg 仍输出带 stats.searches 的 summary，照常解析以如实上报扫描数。
       const parsed = parseGrepJsonOutput(run.stdout, normalized.contextLines);
       const retained = parsed.matches.slice(0, normalized.maxResults);
@@ -129,7 +132,7 @@ export class LocalSearchToolService {
         match.after = match.after.map((line) => previewLine(line));
       }
       return formatGrepResult(
-        baseRoot,
+        base.resolved,
         normalized,
         retained,
         parsed.scannedFiles,

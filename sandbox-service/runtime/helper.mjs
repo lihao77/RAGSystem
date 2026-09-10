@@ -2,17 +2,6 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
 
-const operation = process.argv[2] ?? "";
-
-try {
-  const input = operation === "initialize" ? {} : await readInput();
-  const result = await dispatch(operation, input);
-  process.stdout.write(JSON.stringify(result));
-} catch (error) {
-  process.stderr.write(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
-}
-
 async function dispatch(name, input) {
   switch (name) {
     case "initialize": return initialize();
@@ -224,7 +213,9 @@ async function globFiles(input) {
 }
 
 async function grepFiles(input) {
-  const root = await resolveExistingDirectory(requireString(input.root, "root"));
+  // 搜索目标对齐 dsh 语义："File or directory to search"——目录以自身为 cwd、
+  // 单文件以父目录为 cwd + 文件名为 rg 目标（与本地 resolver 同款）。
+  const { cwd, target } = await resolveSearchTarget(requireString(input.root, "root"));
   const pattern = requireString(input.pattern, "pattern");
   if (pattern.length > 1000) throw new Error("grep pattern is too long");
   const fileGlob = validateGlob(requireString(input.glob, "glob"));
@@ -238,8 +229,8 @@ async function grepFiles(input) {
   // 显式包含隐藏文件（受管工作区不是源码仓库），VCS 元数据目录永远排除。
   argv.push("--hidden");
   for (const name of VCS_EXCLUDE_GLOBS) argv.push(`--glob=!**/${name}`, `--glob=!**/${name}/**`);
-  argv.push("--", ".");
-  const run = await runRipgrep(argv, root);
+  argv.push("--", target);
+  const run = await runRipgrep(argv, cwd);
   // 零匹配（exit 1）时 rg 仍输出带 stats.searches 的 summary，照常解析以如实上报扫描数。
   const parsed = parseGrepJson(run.stdout, contextLines);
   return {
@@ -355,6 +346,15 @@ async function resolveExistingDirectory(rawPath) {
   return resolved;
 }
 
+/** grep 的搜索目标：目录或单个文件（文件 → 父目录为 cwd + 文件名为 rg 目标）。 */
+async function resolveSearchTarget(rawPath) {
+  const resolved = await resolveExisting(rawPath, ["/input", "/work"]);
+  const stat = await fs.stat(resolved);
+  if (stat.isDirectory()) return { cwd: resolved, target: "." };
+  if (!stat.isFile()) throw new Error("Sandbox search target is not a file or directory");
+  return { cwd: path.posix.dirname(resolved), target: path.posix.basename(resolved) };
+}
+
 function validateAbsolutePath(rawPath, roots) {
   if (!rawPath.startsWith("/") || rawPath.includes("\0") || rawPath.split("/").includes("..")) {
     throw new Error("Invalid sandbox path");
@@ -434,4 +434,18 @@ async function readInput() {
   }
   if (!chunks.length) return {};
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+}
+
+/* 入口块必须在所有顶层 const（RAW_OUTPUT_MAX_BYTES/VCS_EXCLUDE_GLOBS 等）之后：
+   顶层的 await readInput() 会暂停模块求值，放在文件头部会让 dispatch 抢在
+   const 初始化前执行，grep/glob 撞 TDZ（"Cannot access ... before initialization"）。 */
+const operation = process.argv[2] ?? "";
+
+try {
+  const input = operation === "initialize" ? {} : await readInput();
+  const result = await dispatch(operation, input);
+  process.stdout.write(JSON.stringify(result));
+} catch (error) {
+  process.stderr.write(error instanceof Error ? error.message : String(error));
+  process.exitCode = 1;
 }

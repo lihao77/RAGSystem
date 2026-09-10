@@ -75,11 +75,18 @@ export class ManagedPathResolver {
     return [candidatePath];
   }
 
-  resolveSearchRoot(
+  /**
+   * 解析搜索目标（对齐 dsh grep 的 "File or directory to search" 语义）。
+   * 目录 → cwd=目录、目标 "."（行为与旧 resolveSearchRoot 一致）；allowFile 时
+   * 文件也接受 → cwd=父目录、目标为文件名（rg 原生支持单文件目标，输出路径相对
+   * cwd）。glob 的发现语义只对目录树有意义，不传 allowFile 时文件仍报错。
+   */
+  resolveSearchTarget(
     rawPath: string | null | undefined,
     context: ToolExecContext,
-    pathService?: PathAccessPolicy,
-  ): string {
+    pathService: PathAccessPolicy | undefined,
+    options: { allowFile?: boolean } = {},
+  ): { cwd: string; target: string; resolved: string } {
     const raw = normalizeString(rawPath) ?? ".";
     const roots = this.roots(context);
     const candidate = isAbsolutePathLike(raw)
@@ -92,8 +99,12 @@ export class ManagedPathResolver {
       throw new Error(`路径 '${raw}' 超出允许的执行目录范围；workspace=${roots.workspace}`);
     }
     if (!fs.existsSync(resolved)) throw new Error(`路径不存在: ${raw}`);
-    if (!fs.statSync(resolved).isDirectory()) throw new Error(`路径不是目录: ${raw}`);
-    return resolved;
+    const stat = fs.statSync(resolved);
+    if (stat.isDirectory()) return { cwd: resolved, target: ".", resolved };
+    if (options.allowFile && stat.isFile()) {
+      return { cwd: path.dirname(resolved), target: path.basename(resolved), resolved };
+    }
+    throw new Error(options.allowFile ? `路径不是文件或目录: ${raw}` : `路径不是目录: ${raw}`);
   }
 
   /** 读语义界内根,与 read_file 的 LocalDocumentPathManager.allowedRoots(read) 对齐。 */
