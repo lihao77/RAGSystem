@@ -11,6 +11,8 @@ import type {
 
 export interface FileHistoryStoreOptions {
   dataRoot?: string | undefined;
+  /** 追踪时刻取会话当前最大消息 seq（回退门控用）；缺省时 tracked_seq 记 null，rewind 不冲刷该条。 */
+  maxSeqProvider?: ((sessionId: string) => number | null) | undefined;
 }
 
 export class FileHistoryService {
@@ -22,7 +24,10 @@ export class FileHistoryService {
       throw new Error("FileHistoryService 必须传入已解析的 dataRoot");
     }
     this.dataRoot = path.resolve(options.dataRoot);
+    this.maxSeqProvider = options.maxSeqProvider ?? null;
   }
+
+  private readonly maxSeqProvider: ((sessionId: string) => number | null) | null;
 
   trackEdit(sessionId: string | null | undefined, filePath: string): void {
     const normalizedSessionId = normalizeSessionId(sessionId);
@@ -34,10 +39,12 @@ export class FileHistoryService {
     if (tracked.has(resolvedPath)) {
       return;
     }
+    const trackedSeq = this.maxSeqProvider?.(normalizedSessionId) ?? null;
     if (fs.existsSync(resolvedPath) && fs.statSync(resolvedPath).isFile()) {
       tracked.set(resolvedPath, {
         backup_hash: this.backupFile(normalizedSessionId, resolvedPath),
         action: "modified",
+        tracked_seq: trackedSeq,
       });
       this.savePending(normalizedSessionId, tracked);
       return;
@@ -45,6 +52,7 @@ export class FileHistoryService {
     tracked.set(resolvedPath, {
       backup_hash: null,
       action: "created",
+      tracked_seq: trackedSeq,
     });
     this.savePending(normalizedSessionId, tracked);
   }
@@ -87,8 +95,8 @@ export class FileHistoryService {
       return { success: false, message: "无效的 session_id 或 target_seq", reverted_files: 0 };
     }
     const snapshots = this.loadSnapshots(normalizedSessionId);
-    const pending = new Map(this.getTracked(normalizedSessionId).entries());
-    if (!snapshots.length && !pending.size) {
+    const tracked = this.getTracked(normalizedSessionId);
+    if (!snapshots.length && !tracked.size) {
       return { success: true, message: "无可回退的文件快照（该会话无编辑历史）", reverted_files: 0 };
     }
 
@@ -103,9 +111,17 @@ export class FileHistoryService {
         }
       }
     }
-    for (const [filePath, info] of pending.entries()) {
-      if (!restoreMap.has(filePath)) {
+    // pending 门控：只有 tracked_seq >= targetSeq（编辑发生在锚点消息落库之后）的条目才属于本次
+    // 回退要撤销的范围；锚点之前遗留的编辑（典型：被停止 run 的工作，尚未走到快照边界）必须原样
+    // 留在 pending 等下一个边界归档。无 tracked_seq 的历史存量条目同样只保留不冲刷——宁可漏回退
+    // （文件可见、可手修）不可错回退（静默毁掉无关工作）。
+    const keptPending = new Map<string, FileHistoryTrackedFile>();
+    for (const [filePath, info] of tracked.entries()) {
+      if (restoreMap.has(filePath)) continue;
+      if (info.tracked_seq != null && info.tracked_seq >= targetSeq) {
         restoreMap.set(filePath, info.backup_hash ?? null);
+      } else {
+        keptPending.set(filePath, info);
       }
     }
 
@@ -116,8 +132,15 @@ export class FileHistoryService {
       this.restoreFile(normalizedSessionId, filePath, backupHash);
     }
     this.saveSnapshots(normalizedSessionId, snapshots.filter((snapshot) => snapshot.message_seq <= targetSeq));
-    this.getTracked(normalizedSessionId).clear();
-    this.clearPending(normalizedSessionId);
+    tracked.clear();
+    for (const [filePath, info] of keptPending.entries()) {
+      tracked.set(filePath, info);
+    }
+    if (keptPending.size > 0) {
+      this.savePending(normalizedSessionId, tracked);
+    } else {
+      this.clearPending(normalizedSessionId);
+    }
     return {
       success: true,
       message: `已回退到 seq=${targetSeq}，恢复了 ${restoreMap.size} 个文件`,
@@ -292,10 +315,12 @@ function isTrackedFileEntry(entry: [string, unknown]): entry is [string, FileHis
   }
   // modified 必须带合法 sha256 备份；created 必须无备份。拒掉 pending.json 篡改/损坏注入的非法 hash
   if (value.action === "modified") {
-    return typeof value.backup_hash === "string" && /^[a-f0-9]{64}$/i.test(value.backup_hash);
+    if (!(typeof value.backup_hash === "string" && /^[a-f0-9]{64}$/i.test(value.backup_hash))) return false;
+  } else if (value.action !== "created" || value.backup_hash !== null) {
+    return false;
   }
-  if (value.action === "created") {
-    return value.backup_hash === null;
-  }
-  return false;
+  // tracked_seq 可缺省（历史存量，rewind 门控会跳过）；在场则必须是非负有限整数，防篡改注入。
+  return value.tracked_seq === undefined
+    || value.tracked_seq === null
+    || (typeof value.tracked_seq === "number" && Number.isInteger(value.tracked_seq) && value.tracked_seq >= 0);
 }

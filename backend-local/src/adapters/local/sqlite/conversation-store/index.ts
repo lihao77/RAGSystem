@@ -125,6 +125,7 @@ export function createConversationStore(options: ConversationStoreOptions) {
     listMessagesAfterSeq: messages.listMessagesAfterSeq.bind(messages),
     listMessagesBeforeOrAtSeq: messages.listMessagesBeforeOrAtSeq.bind(messages),
     getRecentMessages: messages.getRecentMessages.bind(messages),
+    getMaxSeq: messages.getMaxSeq.bind(messages),
     deleteMessagesAfter: messages.deleteMessagesAfter.bind(messages),
     updateMessage: messages.updateMessage.bind(messages),
 

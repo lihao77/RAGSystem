@@ -27,4 +27,9 @@ export const POSTGRES_FILE_HISTORY_MIGRATIONS: PostgresFileHistoryMigration[] = 
     CREATE INDEX IF NOT EXISTS file_history_snapshots_session_seq_idx
       ON file_history_snapshots(tenant_id, session_id, message_seq);
   `,
+}, {
+  version: 2,
+  name: "file_history_pending_tracked_seq",
+  // 追踪时刻的最大消息 seq（回退门控）：NULL = 历史存量行，rewind 不冲刷、保留给下个快照边界归档。
+  sql: `ALTER TABLE file_history_pending ADD COLUMN IF NOT EXISTS tracked_seq BIGINT;`,
 }];

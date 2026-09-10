@@ -430,7 +430,10 @@ export class AsyncKernelEventPersister {
         ? { id: result.finalMessage.id, seq: result.finalMessage.seq, contentParts: result.finalMessage.content_parts }
         : null;
       await this.clientEvents.deliver(result.records.map((record) => record.outbox));
-      if (status === "completed" && result.finalMessage) {
+      // 任意终局（含 interrupted/failed）都提交文件快照边界：pending 只允许承载"运行中 run"的编辑。
+      // 只在 completed 关窗时，被停止/失败的 run 的编辑会无限期悬在 pending，之后任何一次无关锚点的
+      // 回退都会把它们冲掉（消息口径保留、文件口径被抹的不对称事故）。
+      if (result.finalMessage) {
         await this.makeFileSnapshot(result.finalMessage.seq);
       }
       return { readyResumeInteractionIds: result.readyResumeInteractionIds };

@@ -12,14 +12,17 @@ import type { ObjectStorage } from "@ragsystem/backend-core/contracts/storage/ob
 /** Tenant-bound file history. Both backup and restored targets are ObjectStorage keys. */
 export class SaaSFileHistoryStorage implements AsyncFileHistoryStore {
   private readonly tenantPrefix: string;
+  private readonly maxSeqProvider: ((sessionId: string) => Promise<number | null>) | null;
 
   constructor(
     private readonly tenantId: string,
     private readonly metadata: AsyncFileHistoryMetadataRepository,
     private readonly objects: ObjectStorage,
+    maxSeqProvider?: ((sessionId: string) => Promise<number | null>) | undefined,
   ) {
     if (!tenantId.trim()) throw new Error("SaaS file history requires a tenant id");
     this.tenantPrefix = `tenants/${encodeURIComponent(tenantId)}/`;
+    this.maxSeqProvider = maxSeqProvider ?? null;
   }
 
   async trackEdit(input: { sessionId: string; fileKey: string; original: Uint8Array | null; contentType?: string | null }): Promise<void> {
@@ -28,14 +31,15 @@ export class SaaSFileHistoryStorage implements AsyncFileHistoryStore {
     if (!fileKey.startsWith(this.tenantPrefix)) throw new Error("file history target must belong to the current tenant");
     const pending = await this.metadata.getPending(this.tenantId, sessionId);
     if (pending[fileKey]) return;
+    const trackedSeq = this.maxSeqProvider ? await this.maxSeqProvider(sessionId) : null;
 
     let tracked: FileHistoryTrackedFile;
     if (input.original === null) {
-      tracked = { action: "created", backup_hash: null, content_type: input.contentType ?? null };
+      tracked = { action: "created", backup_hash: null, content_type: input.contentType ?? null, tracked_seq: trackedSeq };
     } else {
       const hash = createHash("sha256").update(input.original).digest("hex");
       await this.objects.put(this.backupKey(sessionId, hash), input.original, input.contentType ?? null);
-      tracked = { action: "modified", backup_hash: hash, content_type: input.contentType ?? null };
+      tracked = { action: "modified", backup_hash: hash, content_type: input.contentType ?? null, tracked_seq: trackedSeq };
     }
     await this.metadata.putPending(this.tenantId, sessionId, fileKey, tracked);
   }
@@ -64,7 +68,19 @@ export class SaaSFileHistoryStorage implements AsyncFileHistoryStore {
     for (const snapshot of toRevert) {
       for (const [key, tracked] of Object.entries(snapshot.tracked_files)) if (!restore.has(key)) restore.set(key, tracked);
     }
-    for (const [key, tracked] of Object.entries(pending)) if (!restore.has(key)) restore.set(key, tracked);
+    // pending 门控：只有 tracked_seq >= targetSeq（编辑发生在锚点消息落库之后）的条目才被冲刷；
+    // 锚点之前遗留的编辑（被停止 run 的工作）与无戳历史存量行保留原状，等下个快照边界归档。
+    const consumedPendingKeys: string[] = [];
+    for (const [key, tracked] of Object.entries(pending)) {
+      if (restore.has(key)) {
+        consumedPendingKeys.push(key);
+        continue;
+      }
+      if (tracked.tracked_seq != null && tracked.tracked_seq >= targetSeq) {
+        restore.set(key, tracked);
+        consumedPendingKeys.push(key);
+      }
+    }
     for (const [key, tracked] of restore) {
       if (tracked.action === "created" || !tracked.backup_hash) {
         await this.objects.delete(key);
@@ -74,7 +90,12 @@ export class SaaSFileHistoryStorage implements AsyncFileHistoryStore {
       if (!backup) throw new Error(`file history backup not found: ${tracked.backup_hash}`);
       await this.objects.put(key, backup.body, tracked.content_type ?? backup.metadata.contentType);
     }
-    await this.metadata.replaceSnapshots(this.tenantId, sessionId, snapshots.filter((item) => item.message_seq <= targetSeq));
+    await this.metadata.replaceSnapshots(
+      this.tenantId,
+      sessionId,
+      snapshots.filter((item) => item.message_seq <= targetSeq),
+      consumedPendingKeys,
+    );
     return { success: true, message: `restored ${restore.size} object(s) to seq=${targetSeq}`, reverted_files: restore.size };
   }
 

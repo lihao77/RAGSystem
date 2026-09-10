@@ -271,6 +271,14 @@ export class MessageOps {
     return this.listMessages(sessionId, limit, 0, threadKey).items;
   }
 
+  /** 会话当前最大消息 seq（无消息为 0）。文件编辑追踪用它盖 tracked_seq 戳（回退门控）。 */
+  getMaxSeq(sessionId: string): number {
+    const row = this.db
+      .prepare("SELECT COALESCE(MAX(seq), 0) AS max_seq FROM messages WHERE session_id=?")
+      .get(sessionId) as { max_seq: number };
+    return Number(row.max_seq) || 0;
+  }
+
   deleteMessagesAfter(sessionId: string, input: {
     afterSeq?: number | null;
     afterMessageId?: string | null;

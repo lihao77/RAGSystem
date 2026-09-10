@@ -6,20 +6,20 @@ export class PostgresFileHistoryMetadataRepository implements AsyncFileHistoryMe
 
   async putPending(tenantId: string, sessionId: string, fileKey: string, tracked: FileHistoryTrackedFile): Promise<boolean> {
     const result = await this.executor.query(
-      "INSERT INTO file_history_pending(tenant_id,session_id,file_key,action,backup_hash,content_type) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT (tenant_id,session_id,file_key) DO NOTHING",
-      [tenantId, sessionId, fileKey, tracked.action, tracked.backup_hash, tracked.content_type ?? null],
+      "INSERT INTO file_history_pending(tenant_id,session_id,file_key,action,backup_hash,content_type,tracked_seq) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (tenant_id,session_id,file_key) DO NOTHING",
+      [tenantId, sessionId, fileKey, tracked.action, tracked.backup_hash, tracked.content_type ?? null, tracked.tracked_seq ?? null],
     );
     return Number(result.rowCount ?? 0) > 0;
   }
 
   async getPending(tenantId: string, sessionId: string): Promise<Record<string, FileHistoryTrackedFile>> {
-    const result = await this.executor.query("SELECT file_key,action,backup_hash,content_type FROM file_history_pending WHERE tenant_id=$1 AND session_id=$2 ORDER BY created_at,file_key", [tenantId, sessionId]);
+    const result = await this.executor.query("SELECT file_key,action,backup_hash,content_type,tracked_seq FROM file_history_pending WHERE tenant_id=$1 AND session_id=$2 ORDER BY created_at,file_key", [tenantId, sessionId]);
     return Object.fromEntries(result.rows.map((row) => [String(row.file_key), toTracked(row)]));
   }
 
   async commitSnapshot(tenantId: string, sessionId: string, snapshot: FileHistorySnapshot): Promise<boolean> {
     return this.executor.transaction(async (tx) => {
-      const pending = await tx.query("DELETE FROM file_history_pending WHERE tenant_id=$1 AND session_id=$2 RETURNING file_key,action,backup_hash,content_type", [tenantId, sessionId]);
+      const pending = await tx.query("DELETE FROM file_history_pending WHERE tenant_id=$1 AND session_id=$2 RETURNING file_key,action,backup_hash,content_type,tracked_seq", [tenantId, sessionId]);
       if (!pending.rows.length) return false;
       const trackedFiles = Object.fromEntries(pending.rows.map((row) => [String(row.file_key), toTracked(row)]));
       await tx.query(
@@ -41,13 +41,26 @@ export class PostgresFileHistoryMetadataRepository implements AsyncFileHistoryMe
     }));
   }
 
-  async replaceSnapshots(tenantId: string, sessionId: string, snapshots: FileHistorySnapshot[]): Promise<void> {
+  async replaceSnapshots(
+    tenantId: string,
+    sessionId: string,
+    snapshots: FileHistorySnapshot[],
+    consumePendingKeys: string[] = [],
+  ): Promise<void> {
     await this.executor.transaction(async (tx) => {
       await tx.query("DELETE FROM file_history_snapshots WHERE tenant_id=$1 AND session_id=$2", [tenantId, sessionId]);
       for (const snapshot of snapshots) {
         await tx.query("INSERT INTO file_history_snapshots(tenant_id,session_id,snapshot_id,message_seq,tracked_files,created_at) VALUES($1,$2,$3,$4,$5::jsonb,$6::timestamptz)", [tenantId, sessionId, snapshot.snapshot_id, snapshot.message_seq, JSON.stringify(snapshot.tracked_files), snapshot.created_at]);
       }
-      await tx.query("DELETE FROM file_history_pending WHERE tenant_id=$1 AND session_id=$2", [tenantId, sessionId]);
+      // 与快照替换同事务消费 pending（rewind 原子收尾）：拆开会在中间崩溃时留下陈旧行，
+      // 配合 putPending 的 ON CONFLICT DO NOTHING 永久挡住该文件的新备份。
+      // 未列出的行保留——rewind 按 tracked_seq 门控后，锚点之前的编辑必须存活。
+      if (consumePendingKeys.length > 0) {
+        await tx.query(
+          "DELETE FROM file_history_pending WHERE tenant_id=$1 AND session_id=$2 AND file_key = ANY($3)",
+          [tenantId, sessionId, consumePendingKeys],
+        );
+      }
     });
   }
 
@@ -60,9 +73,11 @@ export class PostgresFileHistoryMetadataRepository implements AsyncFileHistoryMe
 }
 
 function toTracked(row: Record<string, unknown>): FileHistoryTrackedFile {
+  const trackedSeq = row.tracked_seq;
   return {
     action: row.action === "modified" ? "modified" : "created",
     backup_hash: row.backup_hash == null ? null : String(row.backup_hash),
     content_type: row.content_type == null ? null : String(row.content_type),
+    tracked_seq: trackedSeq == null ? null : Number(trackedSeq),
   };
 }

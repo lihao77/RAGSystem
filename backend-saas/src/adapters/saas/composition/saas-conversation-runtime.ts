@@ -217,6 +217,13 @@ export async function createSaaSConversationRuntime(
     const backgroundTasks = new PostgresBackgroundTaskRepository(executor);
     const analytics = new PostgresAnalyticsRepository(executor);
     const fileHistory = new PostgresFileHistoryMetadataRepository(executor);
+    // 编辑追踪盖 tracked_seq 戳（回退门控）：会话当前最大消息 seq。session_id 全局唯一（UUID），无租约列。
+    const fileHistoryMaxSeq = (sessionId: string) => executor
+      .query<{ max: string | number | null }>(
+        "SELECT MAX(seq) AS max FROM conversation_messages WHERE session_id=$1",
+        [sessionId],
+      )
+      .then((result) => (result.rows[0]?.max == null ? 0 : Number(result.rows[0].max)));
     const sessionFiles = new PostgresSessionFileMetadataRepository(executor);
     let closePromise: Promise<void> | null = null;
     return {
@@ -249,7 +256,7 @@ export async function createSaaSConversationRuntime(
       createRuntimeStorage: (tenantId) => new PostgresRuntimeStorage(tenantId, executor, runtimeOwnerInstanceId),
       createFileHistoryStorage: (tenantId) => {
         if (!options.objectStorage) throw new Error("SaaS file history requires ObjectStorage");
-        return new SaaSFileHistoryStorage(tenantId, fileHistory, options.objectStorage);
+        return new SaaSFileHistoryStorage(tenantId, fileHistory, options.objectStorage, fileHistoryMaxSeq);
       },
       createSessionFileStorage: (tenantId) => {
         if (!options.objectStorage) throw new Error("SaaS session file storage requires ObjectStorage");
@@ -260,7 +267,7 @@ export async function createSaaSConversationRuntime(
         return new SaaSWorkspaceBlobStorage(
           tenantId,
           options.objectStorage,
-          new SaaSFileHistoryStorage(tenantId, fileHistory, options.objectStorage),
+          new SaaSFileHistoryStorage(tenantId, fileHistory, options.objectStorage, fileHistoryMaxSeq),
         );
       },
       createAgentConfigTeamStore: (tenantId) => new PostgresAgentConfigTeamStore(tenantId, executor),

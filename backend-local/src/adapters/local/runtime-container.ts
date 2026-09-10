@@ -68,7 +68,11 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
   // 产品形态补齐：default team 由产品层 ensure（内核不持有出厂内容）。
   await ensureDefaultTeam(agentConfig);
   const agentMailbox = new LocalAgentMailboxStoreAdapter(conversationStore);
-  const fileHistory = new FileHistoryService({ dataRoot });
+  // maxSeqProvider：编辑追踪盖 tracked_seq 戳，rewind 只冲刷锚点之后的编辑（无关回退误毁中断 run 工作的事故修复）。
+  const fileHistory = new FileHistoryService({
+    dataRoot,
+    maxSeqProvider: (sessionId) => conversationStore.getMaxSeq(sessionId),
+  });
   // 目录服务唯一实例：工具执行、插件上下文、工作区文件读取共用同一权威。
   const executionEnvironment = createLocalExecutionEnvironment(dataRoot);
   const transientResources = new TransientSessionResourceService(dataRoot);

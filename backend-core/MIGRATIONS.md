@@ -93,6 +93,13 @@ create/update 路径复用其中的 `canonicalizeProviderConfig` / `normalizePro
   线程闸门高频查询 `getLatestThreadRun`（§10.4 第七轮）此前只能走 session 前缀
   索引过滤 thread_key，最坏扫会话全部 runs；与 local 端既有的
   `idx_runs_session_thread_created` 对齐。纯索引新增，无数据变更。
+- **SaaS 文件历史表**：`backend-saas/src/adapters/saas/postgres/file-history-schema.ts`
+  版本迁移（版本表 `ragsystem_file_history_schema_migrations`，advisory lock + 事务）。
+  v2 为 `file_history_pending` 增加 `tracked_seq BIGINT`（nullable，
+  `ADD COLUMN IF NOT EXISTS` 幂等）：编辑追踪时盖会话最大消息 seq 戳，rewind 只冲刷
+  锚点之后的 pending 编辑（修复"无关回退冲掉被停止 run 工作"的事故，与 local 端
+  pending.json 的 tracked_seq 字段同语义）。历史行 NULL = 永不冲刷，等下个快照
+  边界归档，无数据回填。
 - **启动补齐（产品形态 ensure）**：default team 与 builder 保留 team 同模式——由**产品层**在启动时
   ensure（存在即跳过、不存在则 `applyTeamPayload` 创建落盘，用户改动永不覆盖）。仓库内两端组合层
   各持自己的产品模板（backend-local / backend-saas 的 `composition/default-team.ts`），桌面产品侧

@@ -19,7 +19,13 @@ export interface AsyncFileHistoryMetadataRepository {
   getPending(tenantId: string, sessionId: string): Promise<Record<string, FileHistoryTrackedFile>>;
   commitSnapshot(tenantId: string, sessionId: string, snapshot: FileHistorySnapshot): Promise<boolean>;
   listSnapshots(tenantId: string, sessionId: string): Promise<FileHistorySnapshot[]>;
-  replaceSnapshots(tenantId: string, sessionId: string, snapshots: FileHistorySnapshot[]): Promise<void>;
+  /** 快照替换与 pending 行消费必须在同一事务（rewind 的原子收尾）；未列出的 pending 行保留。 */
+  replaceSnapshots(
+    tenantId: string,
+    sessionId: string,
+    snapshots: FileHistorySnapshot[],
+    consumePendingKeys?: string[],
+  ): Promise<void>;
   cleanup(tenantId: string, sessionId: string): Promise<void>;
 }
 

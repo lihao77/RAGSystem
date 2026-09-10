@@ -12,6 +12,11 @@ export interface FileHistoryTrackedFile {
   action: "modified" | "created";
   /** Original object content type. Used by async SaaS restore; Local may omit it. */
   content_type?: string | null;
+  /**
+   * 追踪时刻会话已落库的最大消息 seq。rewind 只冲刷 tracked_seq >= targetSeq 的 pending 条目
+   * （编辑发生在锚点之后才该被回退）；缺省（历史存量/无法取 seq）= 不冲刷，留给下个快照边界归档。
+   */
+  tracked_seq?: number | null;
 }
 
 export interface FileHistorySnapshot {

@@ -342,7 +342,11 @@ export class SaaSSessionApplication implements SessionApplication, ExecutionSess
         targetSeq = (await this.repository.getMessageById(input.sessionId, input.afterMessageId))?.seq ?? null;
       }
       if (targetSeq != null && await fileHistory.hasSnapshots(input.sessionId)) {
-        await fileHistory.rewind(input.sessionId, targetSeq);
+        // 锚点归一（与 backend-core AgentSessionApplication 同口径）：rewind 目标必须是可见根
+        // 用户消息 seq，而非原始 afterSeq——startRollbackRetry 传 retrySeq-1，直接用会把
+        // tracked_seq 门控阈值压低一个 seq，残留"崩溃 run 的 pending 编辑被无关回退冲掉"的窗口。
+        const anchor = await this.resolveSnapshotAnchorUserMessage(input.sessionId, targetSeq);
+        if (anchor) await fileHistory.rewind(input.sessionId, anchor.seq);
       }
     }
     return this.repository.deleteMessagesAfter(input.sessionId, {
@@ -350,6 +354,26 @@ export class SaaSSessionApplication implements SessionApplication, ExecutionSess
       afterMessageId: input.afterMessageId ?? null,
       tenantId: this.tenantId,
     });
+  }
+
+  private async resolveSnapshotAnchorUserMessage(sessionId: string, targetSeq: number): Promise<MessageInfo | null> {
+    let targetMessage = await this.repository.getMessageBySeq(sessionId, targetSeq);
+    if (!targetMessage) {
+      targetMessage = await this.repository.getFirstMessageAfterSeq(sessionId, targetSeq);
+    }
+    if (!targetMessage) {
+      return null;
+    }
+    if (targetMessage.role === "user" && isVisibleRootMessage(targetMessage)) {
+      return targetMessage;
+    }
+    const nextUser = (await this.repository.listMessagesAfterSeq(sessionId, targetMessage.seq, 20))
+      .find((message) => message.role === "user" && isVisibleRootMessage(message));
+    if (nextUser) {
+      return nextUser;
+    }
+    return (await this.repository.listMessagesBeforeOrAtSeq(sessionId, targetMessage.seq, 20))
+      .find((message) => message.role === "user" && isVisibleRootMessage(message)) ?? null;
   }
 }
 
