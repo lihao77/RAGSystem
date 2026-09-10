@@ -17,6 +17,14 @@ test("file history migration v2 adds a nullable tracked_seq gate column idempote
   assert.doesNotMatch(v2.sql, /UPDATE/, "no data backfill");
 });
 
+test("file history migration v3 widens message_seq to BIGINT (global BIGSERIAL seq domain)", () => {
+  const v3 = POSTGRES_FILE_HISTORY_MIGRATIONS.find((m) => m.version === 3);
+  assert.ok(v3, "migration v3 must exist");
+  assert.equal(v3.name, "file_history_snapshot_seq_bigint");
+  assert.match(v3.sql, /ALTER TABLE file_history_snapshots ALTER COLUMN message_seq TYPE BIGINT/);
+  assert.doesNotMatch(v3.sql, /UPDATE|INSERT/, "type widening only, no data change");
+});
+
 /** 内存版元数据仓储：putPending 保留 ON CONFLICT DO NOTHING 语义（陈旧行挡新备份）。 */
 function createFakeMetadata() {
   const pending = new Map();

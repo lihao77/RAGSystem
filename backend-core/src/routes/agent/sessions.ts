@@ -499,6 +499,11 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
   app.post<{ Params: SessionParams }>("/sessions/:sessionId/rollback", async (request) => {
     const sessions = await resolveSessionApplication(options, request);
     await loadMutableSession(request, request.params.sessionId, sessions);
+    // 与 rollback-and-retry 同一忙判定：活跃 run 中途回退会在运行中的 agent 脚下删消息、
+    // 回滚文件（并发 trackEdit 与 restore 互踩），必须拒绝。
+    if (await (await ensureRequestApplications(request, options)).execution.isSessionBusy(request.params.sessionId)) {
+      throw new HttpError(409, "session_busy", "该会话正在执行任务，请等待完成或停止当前任务");
+    }
     const payload = RollbackRequestSchema.parse(request.body);
     if (payload.after_seq == null && !payload.after_message_id) {
       throw new HttpError(400, "invalid_request", "请提供 after_seq 或 after_message_id");

@@ -99,7 +99,9 @@ create/update 路径复用其中的 `canonicalizeProviderConfig` / `normalizePro
   `ADD COLUMN IF NOT EXISTS` 幂等）：编辑追踪时盖会话最大消息 seq 戳，rewind 只冲刷
   锚点之后的 pending 编辑（修复"无关回退冲掉被停止 run 工作"的事故，与 local 端
   pending.json 的 tracked_seq 字段同语义）。历史行 NULL = 永不冲刷，等下个快照
-  边界归档，无数据回填。
+  边界归档，无数据回填。v3 将 `file_history_snapshots.message_seq` 放宽为
+  BIGINT（消息 seq 为跨会话全局 BIGSERIAL，INTEGER 在 2^31 后插入即溢出；
+  纯类型放宽，无数据变更）。
 - **启动补齐（产品形态 ensure）**：default team 与 builder 保留 team 同模式——由**产品层**在启动时
   ensure（存在即跳过、不存在则 `applyTeamPayload` 创建落盘，用户改动永不覆盖）。仓库内两端组合层
   各持自己的产品模板（backend-local / backend-saas 的 `composition/default-team.ts`），桌面产品侧

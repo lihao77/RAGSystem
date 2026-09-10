@@ -5,7 +5,7 @@ import type { AgentExecutionServiceApi } from "./index.js";
 export class RuntimeExecutionApplication implements ExecutionApplication {
   constructor(
     private readonly execution: Pick<AgentExecutionServiceApi,
-      "startStream" | "executeSynchronously" | "collaborateSequentially" | "collaborate" | "startRollbackRetry" | "stopSession">,
+      "startStream" | "executeSynchronously" | "collaborateSequentially" | "collaborate" | "startRollbackRetry" | "isSessionBusy" | "stopSession">,
   ) {}
 
   startStream(
@@ -17,5 +17,6 @@ export class RuntimeExecutionApplication implements ExecutionApplication {
   collaborateSequentially(request: Parameters<AgentExecutionServiceApi["collaborateSequentially"]>[0], requestId: string) { return this.execution.collaborateSequentially(request, requestId); }
   collaborate(request: Parameters<AgentExecutionServiceApi["collaborate"]>[0], requestId: string) { return this.execution.collaborate(request, requestId); }
   startRollbackRetry(input: Parameters<AgentExecutionServiceApi["startRollbackRetry"]>[0]) { return this.execution.startRollbackRetry(input); }
+  isSessionBusy(sessionId: string) { return this.execution.isSessionBusy(sessionId); }
   stopSession(sessionId: string) { return this.execution.stopSession(sessionId); }
 }

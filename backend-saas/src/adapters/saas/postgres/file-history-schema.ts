@@ -32,4 +32,10 @@ export const POSTGRES_FILE_HISTORY_MIGRATIONS: PostgresFileHistoryMigration[] = 
   name: "file_history_pending_tracked_seq",
   // 追踪时刻的最大消息 seq（回退门控）：NULL = 历史存量行，rewind 不冲刷、保留给下个快照边界归档。
   sql: `ALTER TABLE file_history_pending ADD COLUMN IF NOT EXISTS tracked_seq BIGINT;`,
+}, {
+  version: 3,
+  name: "file_history_snapshot_seq_bigint",
+  // conversation_messages.seq 是跨会话全局 BIGSERIAL，message_seq 与之同域；INTEGER 在
+  // 序列越过 2^31 后插入快照即溢出报错。纯类型放宽，无数据变更（读取侧早已 Number() 归一）。
+  sql: `ALTER TABLE file_history_snapshots ALTER COLUMN message_seq TYPE BIGINT;`,
 }];

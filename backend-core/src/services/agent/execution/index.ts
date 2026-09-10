@@ -66,6 +66,8 @@ export interface AgentExecutionServiceApi {
     requestId: string,
   ): Promise<{ results: AgentExecuteResult[]; session_id: string; total_tasks: number }>;
   startRollbackRetry(input: RollbackRetryInput): Promise<RollbackRetryStartResult>;
+  /** 独立会话操作（/rollback）的忙判定：与 startRollbackRetry 同一口径（运行中或 durable 活跃 run）。 */
+  isSessionBusy(sessionId: string): Promise<boolean>;
   /** Session idle 时消费后台通知，并在 Goal active 时拉起 continuation system run。 */
   triggerBgNotificationRun(sessionId: string): void;
   triggerAgentMailboxRun(target: AgentMailboxWakeupTarget): void;

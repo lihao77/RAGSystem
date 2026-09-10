@@ -124,6 +124,8 @@ export interface LauncherApi {
   startStream(request: StreamExecuteRequest, requestId: string, options?: ExecutionStartOptions): Promise<AgentRunStartResult>;
   executeSynchronously(request: ExecuteRequest, requestId: string): Promise<AgentExecuteResult>;
   startRollbackRetry(input: RollbackRetryInput): Promise<RollbackRetryStartResult>;
+  /** 独立会话操作（/rollback）的忙判定：与 startRollbackRetry 同一口径（运行中或 durable 活跃 run）。 */
+  isSessionBusy(sessionId: string): Promise<boolean>;
   /** Session idle 检查：消费后台通知，并在 Goal active 时拉起 continuation run。 */
   triggerBgNotificationRun(sessionId: string): void;
   triggerAgentMailboxRun(target: AgentMailboxWakeupTarget): void;
@@ -604,6 +606,21 @@ class AgentLaunchers {
     });
   }
 
+  /**
+   * 独立会话操作（/rollback 消息回退）的忙判定：与 startRollbackRetry 同一口径——
+   * 本实例运行中 run 或 durable 活跃 run 任一命中即忙。活跃 run 中途回退会在运行中的
+   * agent 脚下删消息、回滚文件（并发 trackEdit 与 restore 互踩），必须拒绝。
+   */
+  async isSessionBusy(sessionId: string): Promise<boolean> {
+    const normalized = sessionId.trim();
+    if (!normalized) {
+      return false;
+    }
+    const runningStatus = this.statusTracker.getStatusBySession(normalized);
+    const durableRunId = await this.durableActiveRunId(normalized);
+    return runningStatus?.status === "running" || durableRunId != null;
+  }
+
   async startRollbackRetry(input: RollbackRetryInput): Promise<RollbackRetryStartResult> {
     const sessionId = input.sessionId.trim();
     if (!sessionId) {
@@ -861,6 +878,7 @@ export function createLaunchers(deps: LauncherDeps): LauncherApi {
     startStream: impl.startStream.bind(impl),
     executeSynchronously: impl.executeSynchronously.bind(impl),
     startRollbackRetry: impl.startRollbackRetry.bind(impl),
+    isSessionBusy: impl.isSessionBusy.bind(impl),
     triggerBgNotificationRun: (sessionId) => mailboxConsumer.triggerBgNotificationRun(sessionId),
     triggerAgentMailboxRun: (target) => mailboxConsumer.triggerAgentMailboxRun(target),
     completeAgentMailboxContinuation: (input) => mailboxConsumer.completeAgentMailboxContinuation(input),

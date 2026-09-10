@@ -39,5 +39,7 @@ export interface ExecutionApplication {
     total_tasks: number;
   }>;
   startRollbackRetry(input: RollbackRetryInput): Promise<RollbackRetryStartResult>;
+  /** 独立会话操作（/rollback）的忙判定：与 startRollbackRetry 同一口径（运行中或 durable 活跃 run）。 */
+  isSessionBusy(sessionId: string): Promise<boolean>;
   stopSession(sessionId: string): Promise<boolean>;
 }
