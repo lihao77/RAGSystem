@@ -1,5 +1,5 @@
 import type { ConversationDb } from './shared/db.js';
-import { hydrateMessageRequestStatus, type QueuedMessageRequestMutation } from '@ragsystem/backend-core/contracts/session/message-request-status.js';
+import { hydrateMessageRequestStatus, type QueuedMessageRequestCancellation } from '@ragsystem/backend-core/contracts/session/message-request-status.js';
 import { runInTransaction } from './shared/transaction.js';
 
 /** Shape-driven initialization also runs when an existing database is already at its schema version. */
@@ -36,29 +36,23 @@ export function hydrateMessageRequestSchema(db: ConversationDb): void {
 export class MessageRequestOps {
   constructor(private readonly db: ConversationDb) {}
 
-  mutateQueuedMessageRequest(input: QueuedMessageRequestMutation): boolean {
+  cancelQueuedMessageRequest(input: QueuedMessageRequestCancellation): boolean {
     const now = new Date().toISOString();
     return runInTransaction(this.db, () => {
       // Write first: acquire SQLite's writer lock before inspecting the consumer-owned row.
-      const assignment = input.action === 'edit'
-        ? 'content_parts=?, updated_at=?'
-        : "status='expired', last_error='user_cancelled', updated_at=?";
-      const values = input.action === 'edit' ? [JSON.stringify([{ type: 'text', text: input.content }]), now] : [now];
-      const result = this.db.prepare(`UPDATE agent_mailbox SET ${assignment} WHERE seq=(
+      const result = this.db.prepare(`UPDATE agent_mailbox SET status='expired', last_error='user_cancelled', updated_at=? WHERE seq=(
         SELECT b.seq FROM agent_mailbox b JOIN session_message_requests r
           ON r.session_id=b.session_id AND r.request_id=json_extract(b.metadata, '$.request_id')
         WHERE b.session_id=? AND r.request_id=? AND r.content=? AND r.status IN ('processing', 'queued')
           AND b.target_thread_key='root' AND b.input_type='user_message' AND b.visible_to_user=1
           AND b.status='queued' AND (b.expires_at IS NULL OR b.expires_at>?)
-          ${input.action === 'edit' ? "AND NOT EXISTS (SELECT 1 FROM json_each(b.content_parts) WHERE json_extract(value, '$.type') IS NOT 'text')" : ''}
           AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.session_id=r.session_id AND m.role='user'
             AND m.thread_key='root' AND json_extract(m.metadata, '$.request_id')=r.request_id)
         ORDER BY b.seq LIMIT 1)`)
-        .run(...values, input.sessionId, input.requestId, input.expectedContent, now);
+        .run(now, input.sessionId, input.requestId, input.expectedContent, now);
       if (!result.changes) return false;
-      this.db.prepare(`UPDATE session_message_requests SET content=?, status=?, error=NULL, updated_at=?
-        WHERE session_id=? AND request_id=?`).run(input.action === 'edit' ? input.content : input.expectedContent,
-        input.action === 'edit' ? 'queued' : 'cancelled', now, input.sessionId, input.requestId);
+      this.db.prepare(`UPDATE session_message_requests SET content=?, status='cancelled', error=NULL, updated_at=?
+        WHERE session_id=? AND request_id=?`).run(input.expectedContent, now, input.sessionId, input.requestId);
       return true;
     });
   }
@@ -122,11 +116,7 @@ export class MessageRequestOps {
         WHEN b.status IN ('queued', 'claimed') THEN 'queued' ELSE r.status END AS status,
       m.id AS message_id, CASE WHEN r.status='cancelled' THEN NULL WHEN b.status='expired' THEN COALESCE(b.last_error, '排队消息已过期') ELSE r.error END AS error, r.updated_at,
       CASE WHEN r.status IN ('processing', 'queued') AND m.id IS NULL AND b.status='queued' AND b.visible_to_user=1
-        AND (b.expires_at IS NULL OR b.expires_at>strftime('%Y-%m-%dT%H:%M:%fZ','now')) THEN 1 ELSE 0 END AS can_manage,
-      CASE WHEN r.status IN ('processing', 'queued') AND m.id IS NULL AND b.status='queued' AND b.visible_to_user=1
-        AND (b.expires_at IS NULL OR b.expires_at>strftime('%Y-%m-%dT%H:%M:%fZ','now'))
-        AND NOT EXISTS (SELECT 1 FROM json_each(b.content_parts) WHERE json_extract(value, '$.type') IS NOT 'text')
-        THEN 1 ELSE 0 END AS can_edit
+        AND (b.expires_at IS NULL OR b.expires_at>strftime('%Y-%m-%dT%H:%M:%fZ','now')) THEN 1 ELSE 0 END AS can_manage
       FROM session_message_requests r
       LEFT JOIN messages m ON m.id=(SELECT id FROM messages WHERE session_id=r.session_id
         AND role='user' AND thread_key='root' AND json_extract(metadata, '$.request_id')=r.request_id ORDER BY seq LIMIT 1)

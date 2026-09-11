@@ -247,9 +247,7 @@ export const MessageRequestStatusSchema = z.object({
   error: z.string().nullable(),
   updated_at: z.string(),
   can_manage: z.boolean().default(false),
-  can_edit: z.boolean().default(false),
 }).strict();
-export const EditQueuedMessageRequestSchema = z.object({ content: z.string().trim().min(1).max(100_000), expected_content: z.string().max(100_000) }).strict();
 export const CancelQueuedMessageRequestSchema = z.object({ expected_content: z.string().max(100_000) }).strict();
 export const MessageRequestMutationResponseSchema = successResponseSchema(z.object({ item: MessageRequestStatusSchema }).strict());
 export type MessageRequestMutationResponse = z.infer<typeof MessageRequestMutationResponseSchema>;

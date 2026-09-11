@@ -53,9 +53,7 @@ export function createSessionFollowupRecovery({ sdk, store, loadMessages, showTo
           const queued = store.pendingFollowups.find(entry => entry.session_id === sessionId && entry.request_id === item.request_id);
           if (queued) {
             queued.status = item.status;
-            queued.content = item.content;
             queued.can_manage = item.can_manage === true;
-            queued.can_edit = item.can_edit === true;
           }
         }
       }

@@ -1,5 +1,5 @@
 import type { MessageContentPart } from "@ragsystem/agent-protocol";
-import type { MessageRequestStatusPort, MessageRequestMutationPort } from '../session/message-request-status.js';
+import type { MessageRequestStatusPort, MessageRequestCancellationPort } from '../session/message-request-status.js';
 import type { PaginatedResult } from "../common.js";
 import type {
   AddMessageInput,
@@ -29,7 +29,7 @@ import type {
 } from "../session/session.js";
 import type { TenantId } from "../../identity/types.js";
 
-export interface AsyncConversationRepository extends MessageRequestStatusPort, MessageRequestMutationPort {
+export interface AsyncConversationRepository extends MessageRequestStatusPort, MessageRequestCancellationPort {
   createSession(input: CreateSessionRecordInput): Promise<void>;
   getSession(sessionId: string): Promise<SessionInfo | null>;
   updateSessionMetadata(sessionId: string, patch: Record<string, unknown>): Promise<Record<string, unknown> | null>;

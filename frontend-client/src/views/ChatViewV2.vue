@@ -842,7 +842,7 @@ watch(
       if (route.query.__pendingFollowup === '1') {
         sessionRunStore.queueFollowup(currentSessionId.value, 'smoke-followup-1', '请先检查异常站点，再补充最近一周的数据。');
         sessionRunStore.markFollowupQueued(currentSessionId.value, 'smoke-followup-1');
-        Object.assign(sessionRunStore.currentPendingFollowups[0], { can_manage: true, can_edit: true });
+        Object.assign(sessionRunStore.currentPendingFollowups[0], { can_manage: true });
         sessionRunStore.queueFollowup(currentSessionId.value, 'smoke-followup-2', '结果中请保留原始站点名称。');
       }
       contextUsage.value = { used: 1840, max: 8192 };

@@ -964,12 +964,11 @@ async function setupShotMocks(client, shot) {
     ],
   });
 
-  let pendingReceipt = { request_id: 'smoke-followup-1', content: '请先检查异常站点，再补充最近一周的数据。', status: 'queued', can_manage: true, can_edit: true, error: null, message_id: null, updated_at: '' };
+  let pendingReceipt = { request_id: 'smoke-followup-1', content: '请先检查异常站点，再补充最近一周的数据。', status: 'queued', can_manage: true, error: null, message_id: null, updated_at: '' };
   client.on('Fetch.requestPaused', async (event) => {
     if (mockArtifactApi && event.request?.url?.includes('/smoke-artifact-session/message-requests')) {
       const method = event.request.method;
-      if (method === 'PATCH') pendingReceipt = { ...pendingReceipt, content: JSON.parse(event.request.postData).content };
-      if (method === 'DELETE') pendingReceipt = { ...pendingReceipt, status: 'cancelled', can_manage: false, can_edit: false };
+      if (method === 'DELETE') pendingReceipt = { ...pendingReceipt, status: 'cancelled', can_manage: false };
       const data = method === 'GET'
         ? { items: shot.path.includes('__pendingFollowup=1') && pendingReceipt.status !== 'cancelled' ? [pendingReceipt] : [] }
         : { item: pendingReceipt };

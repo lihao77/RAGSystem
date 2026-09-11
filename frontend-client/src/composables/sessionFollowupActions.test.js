@@ -9,7 +9,7 @@ function setup(t) {
   setActivePinia(createPinia());
   const store = useSessionRunStore();
   store.currentSessionId = 's1';
-  let receipt = { request_id: 'r1', status: 'queued', content: '原文', can_manage: true, can_edit: true };
+  let receipt = { request_id: 'r1', status: 'queued', content: '原文', can_manage: true };
   const calls = [];
   const sdk = {
     listMessageRequestStatuses: async () => ({ data: { items: [receipt] } }),
@@ -45,7 +45,7 @@ test('a query issued before taking back cannot restore the previous row', async 
   const reading = recovery.refresh();
   const editing = actions.takeBack({ ...store.currentPendingFollowups[0] });
   await Promise.resolve();
-  resolveRead({ data: { items: [{ request_id: 'r1', status: 'queued', content: '原文', can_manage: true, can_edit: true }] } });
+  resolveRead({ data: { items: [{ request_id: 'r1', status: 'queued', content: '原文', can_manage: true }] } });
   await Promise.all([reading, editing]);
   assert.equal(store.currentPendingFollowups.length, 0);
 });

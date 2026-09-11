@@ -80,7 +80,7 @@ create/update 路径复用其中的 `canonicalizeProviderConfig` / `normalizePro
   修复触发器引入前的旧回执，以及原消息已被回退删除但仍有消费记录的旧请求；归一结果持久化且幂等。
   processing 请求每 30 秒续写 updated_at；查询将超过 2 分钟未续期且没有 mailbox / canonical
   消息的孤立请求归为 failed，避免进程退出后永久处理中。
-  待处理消息编辑与删除只允许 mailbox 仍为 queued、回执未终结且原文匹配时发生，
+  待处理消息删除只允许 mailbox 仍为 queued、回执未终结且原文匹配时发生，
   同一事务更新 mailbox 与回执。取消保留 cancelled 回执，并将 mailbox 标为 expired / user_cancelled，
   永久归一层识别 cancelled 且不回退到 queued；加载时将半恢复状态中仍 queued 的已取消输入归为 expired，防止再次消费。
   旧记录缺少可操作标识时默认不可操作，读取按当前队列形态计算 can_manage。

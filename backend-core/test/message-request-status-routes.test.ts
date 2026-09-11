@@ -28,14 +28,14 @@ it('authorizes receipt queries before reading and preserves repeated request IDs
   } finally { await app.close(); }
 });
 
-it('only session owners can edit/cancel queued inputs and consumed conflicts never report success', async () => {
+it('only session owners can cancel queued inputs and consumed conflicts never report success', async () => {
   const tenantId = createTenantId('tnt_test');
-  const mutate = vi.fn(async () => true);
+  const cancel = vi.fn(async () => true);
   let status = 'queued';
   const application = {
     getSession: async () => ({ tenant_id: tenantId, owner_user_id: 'usr_test', visibility: 'tenant' }),
     listMessageRequestStatuses: async () => [{ request_id: 'r1', status, content: '原文', error: null, message_id: null, updated_at: '', can_manage: status === 'queued' }],
-    mutateQueuedMessageRequest: mutate,
+    cancelQueuedMessageRequest: cancel,
   } as unknown as SessionApplication;
   const app = Fastify();
   let userId = createUserId('usr_other');
@@ -46,14 +46,12 @@ it('only session owners can edit/cancel queued inputs and consumed conflicts nev
   await app.register(registerSessionRoutes, { prefix: '/api/agent', resolveSessionApplication: async () => application } as unknown as AgentRouteOptions);
   const url = '/api/agent/sessions/s1/message-requests/r1';
   try {
-    for (const method of ['PATCH', 'DELETE'] as const) {
-      expect((await app.inject({ method, url, payload: { expected_content: '原文', ...(method === 'PATCH' ? { content: '新内容' } : {}) } })).statusCode).toBe(403);
-    }
-    expect(mutate).not.toHaveBeenCalled();
+    expect((await app.inject({ method: 'DELETE', url, payload: { expected_content: '原文' } })).statusCode).toBe(403);
+    expect(cancel).not.toHaveBeenCalled();
     userId = createUserId('usr_test');
-    expect((await app.inject({ method: 'PATCH', url, payload: { expected_content: '原文', content: ' 新内容 ' } })).statusCode).toBe(200);
-    expect(mutate).toHaveBeenLastCalledWith({ sessionId: 's1', requestId: 'r1', expectedContent: '原文', action: 'edit', content: '新内容' });
-    mutate.mockResolvedValue(false);
+    expect((await app.inject({ method: 'DELETE', url, payload: { expected_content: '原文' } })).statusCode).toBe(200);
+    expect(cancel).toHaveBeenLastCalledWith({ sessionId: 's1', requestId: 'r1', expectedContent: '原文' });
+    cancel.mockResolvedValue(false);
     status = 'consumed';
     expect((await app.inject({ method: 'DELETE', url, payload: { expected_content: '原文' } })).statusCode).toBe(409);
     status = 'cancelled';

@@ -1,5 +1,5 @@
 import type { MessageContentPart } from "@ragsystem/agent-protocol";
-import type { MessageRequestStatusPort, MessageRequestMutationPort } from './message-request-status.js';
+import type { MessageRequestStatusPort, MessageRequestCancellationPort } from './message-request-status.js';
 import type {
   CreateSessionRecordInput,
   MessageInfo,
@@ -45,7 +45,7 @@ export interface AgentSessionRunRecord {
 }
 
 /** Promise-only persistence boundary used by the Local agent session application. */
-export interface AgentSessionRepositoryPort extends MessageRequestStatusPort, MessageRequestMutationPort {
+export interface AgentSessionRepositoryPort extends MessageRequestStatusPort, MessageRequestCancellationPort {
   createSession(input: CreateSessionRecordInput): Promise<void>;
   getSession(sessionId: string): Promise<SessionInfo | null>;
   updateSessionMetadata(sessionId: string, patch: Record<string, unknown>): Promise<Record<string, unknown> | null>;

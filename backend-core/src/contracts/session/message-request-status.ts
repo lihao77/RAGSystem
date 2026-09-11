@@ -8,17 +8,16 @@ export interface MessageRequestStatus {
   error: string | null;
   updated_at: string;
   can_manage: boolean;
-  can_edit: boolean;
 }
 
-export type QueuedMessageRequestMutation = {
+export interface QueuedMessageRequestCancellation {
   sessionId: string;
   requestId: string;
   expectedContent: string;
-} & ({ action: 'edit'; content: string } | { action: 'cancel' });
+}
 
-export interface MessageRequestMutationPort {
-  mutateQueuedMessageRequest(input: QueuedMessageRequestMutation): Promise<boolean>;
+export interface MessageRequestCancellationPort {
+  cancelQueuedMessageRequest(input: QueuedMessageRequestCancellation): Promise<boolean>;
 }
 
 /** Durable receipt for a send, independent of the WebSocket that submitted it. */
@@ -40,6 +39,5 @@ export function hydrateMessageRequestStatus(row: Record<string, unknown>): Messa
     error: typeof row.error === 'string' ? row.error : null,
     updated_at: row.updated_at instanceof Date ? row.updated_at.toISOString() : String(row.updated_at ?? ''),
     can_manage: row.can_manage === true || row.can_manage === 1,
-    can_edit: row.can_edit === true || row.can_edit === 1,
   };
 }

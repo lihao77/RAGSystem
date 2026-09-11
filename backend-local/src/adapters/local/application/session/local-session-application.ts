@@ -1,4 +1,4 @@
-import type { QueuedMessageRequestMutation } from '@ragsystem/backend-core/contracts/session/message-request-status.js';
+import type { QueuedMessageRequestCancellation } from '@ragsystem/backend-core/contracts/session/message-request-status.js';
 import type { PermissionMode } from "@ragsystem/backend-core/contracts/runtime/permissions.js";
 import type { SessionApplication } from "@ragsystem/backend-core/contracts/session/session-application.js";
 import type { TenantId } from "@ragsystem/backend-core/identity/types.js";
@@ -92,7 +92,7 @@ export class LocalSessionApplication implements SessionApplication {
   async updateSessionPermissionMode(sessionId: string, mode: PermissionMode) { return this.conversations.updateSessionPermissionMode(sessionId, mode); }
   async deleteSession(sessionId: string) { return this.sessions.deleteSession(sessionId); }
   async listMessages(input: Parameters<SessionApplication["listMessages"]>[0]) { return this.sessions.listMessages(input); }
-  async mutateQueuedMessageRequest(input: QueuedMessageRequestMutation) { return this.sessions.mutateQueuedMessageRequest(input); }
+  async cancelQueuedMessageRequest(input: QueuedMessageRequestCancellation) { return this.sessions.cancelQueuedMessageRequest(input); }
   beginMessageRequest(sessionId: string, requestId: string, content: string) { return this.sessions.beginMessageRequest(sessionId, requestId, content); }
   renewMessageRequest(sessionId: string, requestId: string) { return this.sessions.renewMessageRequest(sessionId, requestId); }
   settleMessageRequest(sessionId: string, requestId: string, status: 'queued' | 'consumed' | 'failed', error?: string | null) { return this.sessions.settleMessageRequest(sessionId, requestId, status, error); }

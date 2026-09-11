@@ -23,43 +23,38 @@ async function queued(store, requestId, content = '原文', sessionId = 'session
   store.settleMessageRequest(sessionId, requestId, 'queued');
 }
 
-test('editing and cancelling pending inputs update the actual mailbox atomically and survive reopen', async () => {
+test('cancelling pending inputs updates the actual mailbox atomically and survives reopen', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'rag-request-actions-'));
   const options = { dbPath: join(directory, 'conversation.db'), dataRoot: directory };
   let store = createConversationStore(options);
   try {
     session(store);
     session(store, 'session-2');
-    await queued(store, 'edit');
+    await queued(store, 'keep');
     await queued(store, 'delete');
-    await queued(store, 'edit', '另一会话', 'session-2');
+    await queued(store, 'keep', '另一会话', 'session-2');
     assert.ok(store.listMessageRequestStatuses('session-1').every(row => row.can_manage));
-    const edit = { sessionId: 'session-1', requestId: 'edit', expectedContent: '原文', action: 'edit', content: '修改后的消息' };
-    assert.equal(store.mutateQueuedMessageRequest(edit), true);
-    assert.equal(store.mutateQueuedMessageRequest({ ...edit, content: '旧页面的覆盖' }), false);
-    assert.equal(store.mutateQueuedMessageRequest({ ...edit, action: 'cancel' }), false);
-    assert.equal((await store.agentMailbox.get('session-1', 'session-1:edit')).content_parts[0].text, '修改后的消息');
-    assert.equal((await store.agentMailbox.get('session-2', 'session-2:edit')).content_parts[0].text, '另一会话');
-    assert.equal(store.mutateQueuedMessageRequest({ sessionId: 'session-1', requestId: 'delete', expectedContent: '原文', action: 'cancel' }), true);
+    const input = { sessionId: 'session-1', requestId: 'delete', expectedContent: '原文' };
+    assert.equal(store.cancelQueuedMessageRequest(input), true);
+    assert.equal(store.cancelQueuedMessageRequest(input), false);
+    assert.equal((await store.agentMailbox.get('session-2', 'session-2:keep')).content_parts[0].text, '另一会话');
     store.close();
     store = createConversationStore(options);
-    assert.deepEqual(store.listMessageRequestStatuses('session-1').map(row => row.content), ['修改后的消息']);
+    assert.deepEqual(store.listMessageRequestStatuses('session-1').map(row => row.request_id), ['keep']);
     const cancelled = store.listMessageRequestStatuses('session-1', ['delete']).find(row => row.request_id === 'delete');
     assert.equal(cancelled.status, 'cancelled');
     assert.equal(cancelled.error, null);
     assert.equal(cancelled.can_manage, false);
     const claimed = await store.agentMailbox.claim({ sessionId: 'session-1', targetThreadKey: 'root', claimId: 'claim', consumerId: 'consumer' });
-    assert.deepEqual(claimed.map(row => row.message_id), ['session-1:edit']);
-    assert.equal(claimed[0].content_parts[0].text, '修改后的消息');
+    assert.deepEqual(claimed.map(row => row.message_id), ['session-1:keep']);
     assert.equal(store.listMessageRequestStatuses('session-1')[0].can_manage, false);
-    assert.equal(store.mutateQueuedMessageRequest({ ...edit, expectedContent: '修改后的消息', action: 'cancel' }), false);
-    assert.equal(store.mutateQueuedMessageRequest({ ...edit, expectedContent: '修改后的消息' }), false);
+    assert.equal(store.cancelQueuedMessageRequest({ sessionId: 'session-1', requestId: 'keep', expectedContent: '原文' }), false);
     await store.agentMailbox.ack({ sessionId: 'session-1', messageId: claimed[0].message_id, claimId: 'claim' });
     assert.deepEqual(store.listMessageRequestStatuses('session-1'), []);
   } finally { store.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
-test('a receipt write failure rolls back the queue mutation', async () => {
+test('a receipt write failure rolls back the queue cancellation', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'rag-request-atomic-'));
   const options = { dbPath: join(directory, 'conversation.db'), dataRoot: directory };
   const store = createConversationStore(options);
@@ -69,16 +64,14 @@ test('a receipt write failure rolls back the queue mutation', async () => {
     const raw = new DatabaseSync(options.dbPath);
     raw.exec("CREATE TRIGGER fail_receipt BEFORE UPDATE ON session_message_requests BEGIN SELECT RAISE(ABORT, 'test failure'); END");
     raw.close();
-    for (const action of [{ action: 'edit', content: '不会保存' }, { action: 'cancel' }]) {
-      assert.throws(() => store.mutateQueuedMessageRequest({ sessionId: 'session-1', requestId: 'r1', expectedContent: '原文', ...action }), /test failure/);
-      const mailbox = await store.agentMailbox.get('session-1', 'session-1:r1');
-      assert.equal(mailbox.status, 'queued');
-      assert.equal(mailbox.content_parts[0].text, '原文');
-    }
+    assert.throws(() => store.cancelQueuedMessageRequest({ sessionId: 'session-1', requestId: 'r1', expectedContent: '原文' }), /test failure/);
+    const mailbox = await store.agentMailbox.get('session-1', 'session-1:r1');
+    assert.equal(mailbox.status, 'queued');
+    assert.equal(mailbox.content_parts[0].text, '原文');
   } finally { store.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
-test('structured pending inputs can be deleted without allowing a text edit to discard their payload', async () => {
+test('structured pending inputs can be cancelled without touching their payload', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'rag-request-structured-'));
   const options = { dbPath: join(directory, 'conversation.db'), dataRoot: directory };
   const store = createConversationStore(options);
@@ -91,10 +84,7 @@ test('structured pending inputs can be deleted without allowing a text edit to d
     raw.close();
     const receipt = store.listMessageRequestStatuses('session-1')[0];
     assert.equal(receipt.can_manage, true);
-    assert.equal(receipt.can_edit, false);
-    const input = { sessionId: 'session-1', requestId: 'command', expectedContent: '/review' };
-    assert.equal(store.mutateQueuedMessageRequest({ ...input, action: 'edit', content: '纯文本' }), false);
-    assert.equal(store.mutateQueuedMessageRequest({ ...input, action: 'cancel' }), true);
+    assert.equal(store.cancelQueuedMessageRequest({ sessionId: 'session-1', requestId: 'command', expectedContent: '/review' }), true);
     assert.deepEqual(await store.agentMailbox.claim({ sessionId: 'session-1', targetThreadKey: 'root', claimId: 'claim', consumerId: 'consumer' }), []);
   } finally { store.close(); rmSync(directory, { recursive: true, force: true }); }
 });

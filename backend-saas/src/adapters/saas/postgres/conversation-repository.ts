@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { hydrateMessageRequestStatus, type QueuedMessageRequestMutation } from '@ragsystem/backend-core/contracts/session/message-request-status.js';
+import { hydrateMessageRequestStatus, type QueuedMessageRequestCancellation } from '@ragsystem/backend-core/contracts/session/message-request-status.js';
 
 import { partsToPlainText } from "@ragsystem/agent-protocol";
 import type { PaginatedResult } from "@ragsystem/backend-core/contracts/common.js";
@@ -95,14 +95,13 @@ export class PostgresConversationRepository implements AsyncConversationReposito
 
   constructor(private readonly executor: PostgresExecutor) {}
 
-  async mutateQueuedMessageRequest(input: QueuedMessageRequestMutation): Promise<boolean> {
+  async cancelQueuedMessageRequest(input: QueuedMessageRequestCancellation): Promise<boolean> {
     return this.executor.transaction(async tx => {
-      // Lock in consumer order (mailbox, then receipt). Separate reads see concurrent edits after waiting.
+      // Lock in consumer order (mailbox, then receipt). Separate reads see concurrent cancels after waiting.
       const mailbox = await tx.query(`SELECT b.seq FROM agent_mailbox_messages b
         WHERE b.session_id=$1 AND b.metadata->>'request_id'=$2 AND b.target_thread_key='root'
           AND b.input_type='user_message' AND b.visible_to_user=TRUE AND b.status='queued'
           AND (b.expires_at IS NULL OR b.expires_at>CURRENT_TIMESTAMP)
-          ${input.action === 'edit' ? "AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(b.content_parts) part WHERE part->>'type' IS DISTINCT FROM 'text')" : ''}
           AND NOT EXISTS (SELECT 1 FROM conversation_messages m WHERE m.session_id=b.session_id AND m.role='user'
             AND m.thread_key='root' AND m.metadata->>'request_id'=$2)
         ORDER BY b.seq LIMIT 1 FOR UPDATE OF b`, [input.sessionId, input.requestId]);
@@ -111,15 +110,9 @@ export class PostgresConversationRepository implements AsyncConversationReposito
         WHERE session_id=$1 AND request_id=$2 FOR UPDATE`, [input.sessionId, input.requestId]);
       const current = receipt.rows[0];
       if (!current || current.content !== input.expectedContent || !['processing', 'queued'].includes(String(current.status))) return false;
-      if (input.action === 'edit') {
-        await tx.query('UPDATE agent_mailbox_messages SET content_parts=$2::jsonb, updated_at=CURRENT_TIMESTAMP WHERE seq=$1',
-          [mailbox.rows[0].seq, JSON.stringify([{ type: 'text', text: input.content }])]);
-      } else {
-        await tx.query("UPDATE agent_mailbox_messages SET status='expired', last_error='user_cancelled', updated_at=CURRENT_TIMESTAMP WHERE seq=$1", [mailbox.rows[0].seq]);
-      }
-      await tx.query(`UPDATE session_message_requests SET content=$3, status=$4, error=NULL, updated_at=CURRENT_TIMESTAMP
-        WHERE session_id=$1 AND request_id=$2`, [input.sessionId, input.requestId,
-        input.action === 'edit' ? input.content : input.expectedContent, input.action === 'edit' ? 'queued' : 'cancelled']);
+      await tx.query("UPDATE agent_mailbox_messages SET status='expired', last_error='user_cancelled', updated_at=CURRENT_TIMESTAMP WHERE seq=$1", [mailbox.rows[0].seq]);
+      await tx.query(`UPDATE session_message_requests SET content=$3, status='cancelled', error=NULL, updated_at=CURRENT_TIMESTAMP
+        WHERE session_id=$1 AND request_id=$2`, [input.sessionId, input.requestId, input.expectedContent]);
       return true;
     });
   }
@@ -177,14 +170,11 @@ export class PostgresConversationRepository implements AsyncConversationReposito
         WHEN b.status IN ('queued', 'claimed') THEN 'queued' ELSE r.status END AS status,
       m.id AS message_id, CASE WHEN r.status='cancelled' THEN NULL WHEN b.status='expired' THEN COALESCE(b.last_error, '排队消息已过期') ELSE r.error END AS error, r.updated_at,
       (r.status IN ('processing', 'queued') AND m.id IS NULL AND b.status='queued' AND b.visible_to_user=TRUE
-        AND (b.expires_at IS NULL OR b.expires_at>CURRENT_TIMESTAMP)) AS can_manage,
-      (r.status IN ('processing', 'queued') AND m.id IS NULL AND b.status='queued' AND b.visible_to_user=TRUE
-        AND (b.expires_at IS NULL OR b.expires_at>CURRENT_TIMESTAMP)
-        AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(b.content_parts) part WHERE part->>'type' IS DISTINCT FROM 'text')) AS can_edit
+        AND (b.expires_at IS NULL OR b.expires_at>CURRENT_TIMESTAMP)) AS can_manage
       FROM session_message_requests r
       LEFT JOIN LATERAL (SELECT id FROM conversation_messages WHERE session_id=r.session_id
         AND role='user' AND thread_key='root' AND metadata->>'request_id'=r.request_id ORDER BY seq LIMIT 1) m ON TRUE
-      LEFT JOIN LATERAL (SELECT status, last_error, visible_to_user, expires_at, content_parts, sent_at, created_at FROM agent_mailbox_messages WHERE session_id=r.session_id
+      LEFT JOIN LATERAL (SELECT status, last_error, visible_to_user, expires_at, sent_at, created_at FROM agent_mailbox_messages WHERE session_id=r.session_id
         AND target_thread_key='root' AND input_type='user_message' AND metadata->>'request_id'=r.request_id ORDER BY seq LIMIT 1) b ON TRUE
       WHERE r.session_id=$1 AND ((r.status IN ('processing', 'queued') AND m.id IS NULL AND (b.status IS NULL OR b.status NOT IN ('acked', 'expired'))) OR r.request_id=ANY($2::text[]))
       ORDER BY COALESCE(b.sent_at, b.created_at, r.updated_at), r.request_id`, [sessionId, [...requestIds]]);

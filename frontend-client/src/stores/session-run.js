@@ -190,9 +190,9 @@ export const useSessionRunStore = defineStore('session-run', () => {
       item.session_id !== sessionId || item.request_id !== requestId
     ));
   };
-  const beginFollowupMutation = (sessionId, requestId, editing = false) => {
+  const beginFollowupMutation = (sessionId, requestId) => {
     const item = pendingFollowups.value.find(item => item.session_id === sessionId && item.request_id === requestId);
-    if (!item || !item.can_manage || (editing && !item.can_edit) || item.mutating || item.status === 'unconfirmed') return false;
+    if (!item || !item.can_manage || item.mutating || item.status === 'unconfirmed') return false;
     followupRevision.value++;
     item.mutating = true;
     return true;

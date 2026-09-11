@@ -2,7 +2,7 @@
 export function createSessionFollowupActions({ sdk, store, recovery, showToast }) {
   const mutate = async (item) => {
     const { session_id: sessionId, request_id: requestId } = item;
-    if (store.currentSessionId !== sessionId || !store.beginFollowupMutation(sessionId, requestId, false)) return false;
+    if (store.currentSessionId !== sessionId || !store.beginFollowupMutation(sessionId, requestId)) return false;
     let succeeded = false;
     try {
       const response = await sdk.cancelQueuedMessageRequest(sessionId, requestId, item.content);
