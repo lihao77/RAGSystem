@@ -8,12 +8,27 @@
       </svg>
       <span>Background Task Notification</span>
     </div>
-    <div class="task-notification-body">
-      <div v-for="item in parseTaskNotifications(msg)" :key="item.taskId" class="task-notification-item">
+    <div
+      ref="notificationBodyEl"
+      class="task-notification-body"
+      :class="{ 'is-clampable': notificationClampable, 'is-clamped': notificationClampable && !notificationExpanded }"
+    >
+      <div v-for="item in taskNotifications" :key="item.taskId" class="task-notification-item">
         <span class="tn-status" :class="item.status">{{ item.status }}</span>
         <code class="tn-task-id">{{ item.taskId.slice(0, 8) }}</code>
         <span v-if="item.resultType" class="tn-type">{{ item.resultType }}</span>
       </div>
+      <button
+        v-if="notificationClampable"
+        type="button"
+        class="bubble-clamp-toggle"
+        :class="{ 'is-expanded': notificationExpanded }"
+        :aria-label="notificationExpanded ? '收起通知列表' : '展开全部通知'"
+        :title="notificationExpanded ? '收起通知列表' : '展开全部通知'"
+        @click="toggleNotificationClamp"
+      >
+        <ChevronDown :size="14" />
+      </button>
     </div>
   </div>
 
@@ -34,7 +49,22 @@
 
   <div v-else-if="messageContext.editingMessage !== msg" class="user-bubble-wrapper message-view-mode">
     <div v-if="isAgentMessage" class="agent-message-label">{{ agentMessageLabel }}</div>
-    <div v-if="displayText" class="user-text">{{ displayText }}</div>
+    <div
+      v-if="displayText"
+      ref="userTextEl"
+      class="user-text"
+      :class="{ 'is-clampable': textClampable, 'is-clamped': textClampable && !textExpanded }"
+    >{{ displayText }}<button
+      v-if="textClampable"
+      type="button"
+      class="bubble-clamp-toggle"
+      :class="{ 'is-expanded': textExpanded }"
+      :aria-label="textExpanded ? '收起' : '展开'"
+      :title="textExpanded ? '收起' : '展开'"
+      @click="toggleTextClamp"
+    >
+      <ChevronDown :size="14" />
+    </button></div>
     <div v-if="msg.attachments?.length" class="user-attachments">
       <div v-if="imageAttachments.length" class="user-attachment-images">
         <div
@@ -113,8 +143,9 @@ import AuthenticatedImage from '../common/AuthenticatedImage.vue';
 import { formatAttachmentMeta, isImageAttachment } from '../../utils/sessionAttachments.js';
 import { parseTaskNotifications } from '../../utils/message-render.js';
 import { getImageDescriptionMap, getUserDisplayText } from '../../utils/messageContentParts.js';
-import { computed, inject } from 'vue';
-import { ScanText } from 'lucide-vue-next';
+import { useClampedExpand } from '../../composables/useClampedExpand.js';
+import { computed, inject, ref } from 'vue';
+import { ChevronDown, ScanText } from 'lucide-vue-next';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover/index';
 
 const props = defineProps({
@@ -125,6 +156,15 @@ const emit = defineEmits(['update:editingDraft']);
 const messageContext = inject('messageContext');
 const imageAttachments = computed(() => (props.msg.attachments || []).filter(isImageAttachment));
 const fileAttachments = computed(() => (props.msg.attachments || []).filter((attachment) => !isImageAttachment(attachment)));
+// 超高气泡折叠（含智能体消息正文）：正文/通知列表钉住钳高渐隐，气泡内底部悬浮
+// 图标胶囊按钮展开/收起。附件缩略图与状态标签不进钳高。
+const userTextEl = ref(null);
+const { expanded: textExpanded, clampable: textClampable, toggle: toggleTextClamp } = useClampedExpand(userTextEl, { clamp: 120 });
+const notificationBodyEl = ref(null);
+const { expanded: notificationExpanded, clampable: notificationClampable, toggle: toggleNotificationClamp } = useClampedExpand(notificationBodyEl, { clamp: 132 });
+const taskNotifications = computed(() => (
+  props.msg.metadata?.source === 'background_notification' ? parseTaskNotifications(props.msg) : []
+));
 const isAgentMessage = computed(() => props.msg.metadata?.agent_message === true);
 const agentMessageLabel = computed(() => {
   const metadata = props.msg.metadata || {};

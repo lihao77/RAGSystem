@@ -1227,6 +1227,101 @@
   font-size: var(--font-size-xs);
   opacity: 0.5;
 }
+/* ===== 超高气泡折叠（useClampedExpand 驱动内联 max-height）===== */
+/* is-clampable：超高已确认，常驻 overflow 裁剪（含展开过渡期，避免内容溢出气泡外）；
+   is-clamped：折叠态，底部渐隐由透明过渡入场，随收起过渡淡入。 */
+.user-text.is-clampable,
+.task-notification-body.is-clampable {
+  position: relative;
+  overflow: hidden;
+}
+
+.task-notification-body.is-clampable {
+  transition: max-height var(--edit-transition-duration) var(--edit-transition-ease);
+}
+
+.user-text.is-clampable::after,
+.task-notification-body.is-clampable::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 40px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 180ms ease;
+  background: linear-gradient(to bottom, transparent, var(--color-bg-message-user));
+}
+
+.user-text.is-clamped::after,
+.task-notification-body.is-clamped::after {
+  opacity: 1;
+}
+
+.message.user.message--agent-message .user-text.is-clampable::after {
+  background: linear-gradient(to bottom, transparent, var(--color-bg-secondary));
+}
+
+.task-notification-body.is-clampable::after {
+  background: linear-gradient(to bottom, transparent, var(--glass-bg, rgba(255, 255, 255, 0.04)));
+}
+
+/* 悬浮展开/收起按钮：气泡内部底部居中的纯图标胶囊，浮在渐隐遮罩之上，箭头随
+   展开态翻转 180°。底色由气泡底色向页面背景混入一小步（暗色下约降一档到
+   secondary），保持"孔洞"层次又不与气泡割裂。 */
+.bubble-clamp-toggle {
+  position: absolute;
+  left: 50%;
+  bottom: 8px;
+  transform: translateX(-50%);
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--color-border-hover);
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--color-bg-primary) 30%, var(--color-bg-message-user));
+  color: var(--color-text-muted);
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
+  transition: color 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+
+/* 智能体消息气泡底色是 secondary，混色基准跟随各自的气泡底 */
+.message.user.message--agent-message .bubble-clamp-toggle {
+  background: color-mix(in srgb, var(--color-bg-primary) 30%, var(--color-bg-secondary));
+}
+
+/* 玻璃通知卡：与半透明玻璃底混色，胶囊略深于卡片 */
+.task-notification-body .bubble-clamp-toggle {
+  background: color-mix(in srgb, var(--color-bg-primary) 30%, var(--glass-bg, rgba(255, 255, 255, 0.04)));
+}
+
+.bubble-clamp-toggle:hover {
+  color: var(--color-text-primary);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.26);
+}
+
+.bubble-clamp-toggle svg {
+  transition: transform 200ms ease;
+}
+
+.bubble-clamp-toggle.is-expanded svg {
+  transform: rotate(180deg);
+}
+
+/* 展开态：按钮转入文档流、居中沉到正文下方，不再遮住文字（收起时回到悬浮位，
+ * 与文档流位置恰好重合，随高度动画平滑收回）。 */
+.is-clampable:not(.is-clamped) > .bubble-clamp-toggle {
+  position: static;
+  display: flex;
+  margin: 6px auto 0;
+  transform: none;
+}
 /* ===== User 消息气泡容器 ===== */
 .user-bubble-wrapper {
   display: flex;
