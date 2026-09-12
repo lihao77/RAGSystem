@@ -39,7 +39,7 @@ import {
   UpdateMessageRequestSchema,
   SessionOriginTypeSchema,
 } from "../../contracts/session/session.js";
-import { CreateWorkspaceRequestSchema, WorkspaceResponseSchema } from "@ragsystem/api-contracts";
+import { CreateWorkspaceRequestSchema, UpdateWorkspaceRequestSchema, WorkspaceResponseSchema } from "@ragsystem/api-contracts";
 import { HttpError, httpErrorFrom } from "../../utils/errors.js";
 import { SessionItemNotFoundError } from "../../contracts/session/session-application.js";
 import { ensureRequestApplications } from "../../app/request-applications.js";
@@ -223,6 +223,19 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
       }
       throw error;
     }
+  });
+
+  app.patch<{ Params: WorkspaceParams }>("/workspaces/:workspaceId", async (request) => {
+    const payload = UpdateWorkspaceRequestSchema.parse(request.body);
+    const application = await resolveSessionApplication(options, request);
+    const workspace = await application.renameWorkspace(request.params.workspaceId, payload.display_name);
+    if (!workspace) throw new HttpError(404, "not_found", "项目不存在");
+    const data = {
+      workspace_id: workspace.workspace_id,
+      display_name: workspace.display_name,
+      root_path: request.container.deploymentKind === "local" ? workspace.root_path : null,
+    };
+    return validateResponse(WorkspaceResponseSchema, ok(data, "项目重命名成功"));
   });
 
   app.delete<{ Params: WorkspaceParams }>("/workspaces/:workspaceId", async (request) => {

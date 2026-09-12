@@ -131,7 +131,7 @@
         <div class="session-filter-panel__section">
           <div class="session-filter-panel__heading">
             <FolderOpen class="size-3.5" aria-hidden="true" />
-            <span>工作区</span>
+            <span>项目</span>
           </div>
           <DropdownMenuRadioGroup
             :model-value="selectedWorkspaceKey"
@@ -146,7 +146,7 @@
               >
                 <Folders class="session-filter-item__icon" aria-hidden="true" />
                 <span class="min-w-0 flex-1 truncate" :class="cn(!filters.workspaceId && 'font-medium')">
-                  全部工作区
+                  全部项目
                 </span>
               </DropdownMenuRadioItem>
               <DropdownMenuRadioItem
@@ -364,7 +364,7 @@ const sourceLabel = computed(() => {
   return '全部来源';
 });
 
-const workspaceLabel = computed(() => selectedWorkspace.value?.display_name || '全部工作区');
+const workspaceLabel = computed(() => selectedWorkspace.value?.display_name || '全部项目');
 
 /** 按钮只显示短文案，完整条件放 title / 面板里 */
 const triggerLabel = computed(() => {
@@ -378,7 +378,7 @@ const ariaLabel = computed(() => {
   if (!hasFilters.value) return '筛选会话';
   const parts = [];
   if (hasSourceFilter.value) parts.push(`来源 ${sourceLabel.value}`);
-  if (hasWorkspaceFilter.value) parts.push(`工作区 ${workspaceLabel.value}`);
+  if (hasWorkspaceFilter.value) parts.push(`项目 ${workspaceLabel.value}`);
   return `筛选会话：${parts.join('，')}`;
 });
 

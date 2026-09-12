@@ -119,6 +119,7 @@ export function createConversationStore(options: ConversationStoreOptions) {
     listWorkspacesByIds: workspaces.listByIds.bind(workspaces),
     listAllWorkspaces: workspaces.listAll.bind(workspaces),
     removeWorkspace: workspaces.remove.bind(workspaces),
+    renameWorkspace: workspaces.rename.bind(workspaces),
     updateLocalWorkspacePath: workspaces.updateLocalPath.bind(workspaces),
 
     // message

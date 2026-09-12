@@ -21,6 +21,7 @@ import type {
   WorkspaceListResponse,
   WorkspaceResponse,
   UpdateSessionPermissionModeRequest,
+  UpdateWorkspaceRequest,
 } from "@ragsystem/api-contracts";
 import type {
   AgentClient,
@@ -247,6 +248,10 @@ export class RagChatClient {
 
   async createWorkspace(rootPath: string): Promise<WorkspaceResponse> {
     return this.request<WorkspaceResponse>("createWorkspace", { method: "POST", body: { root_path: rootPath } });
+  }
+
+  async updateWorkspace(workspaceId: string, displayName: UpdateWorkspaceRequest["display_name"]): Promise<WorkspaceResponse> {
+    return this.request<WorkspaceResponse>("updateWorkspace", { method: "PATCH", body: { display_name: displayName }, context: { workspaceId } });
   }
 
   async removeWorkspace(workspaceId: string): Promise<unknown> {
@@ -764,6 +769,7 @@ function defaultEndpoint(name: RagChatEndpointName, context: Record<string, unkn
     case "listSessionWorkspacePreview": return "/api/agent/sessions/workspace-preview";
     case "listWorkspaces": return "/api/agent/workspaces";
     case "createWorkspace": return "/api/agent/workspaces";
+    case "updateWorkspace": return `/api/agent/workspaces/${workspaceId}`;
     case "removeWorkspace": return `/api/agent/workspaces/${workspaceId}`;
     case "getSessionPermissions": return `/api/agent/sessions/${sessionId}/permissions`;
     case "updateSessionPermissions": return `/api/agent/sessions/${sessionId}/permissions`;

@@ -32,11 +32,18 @@
         @select="selectSession"
         @delete="confirmDeleteSession"
         @select-workspace="handleWorkspaceChange"
+        @rename-workspace="openRenameWorkspace"
         @remove-workspace="confirmRemoveWorkspace"
       />
-        </div>
+      <WorkspaceRenameDialog
+        v-model="renameWorkspaceOpen"
+        :chat-sdk-client="chatSdkClient"
+        :workspace="renameWorkspaceTarget"
+        @renamed="handleWorkspaceRenamed"
+      />
+      </div>
 
-        <div v-else key="admin" class="sidebar-mode">
+      <div v-else key="admin" class="sidebar-mode">
         <div class="admin-nav-list">
           <button
             v-if="canViewAdminOverview"
@@ -137,6 +144,7 @@ import { Button } from '../components/ui/button';
 import UserMenu from '../components/UserMenu.vue';
 import SceneSwitcher from '../components/SceneSwitcher.vue';
 import SessionList from '../components/session-list/SessionList.vue';
+import WorkspaceRenameDialog from '../components/workspace/WorkspaceRenameDialog.vue';
 import { SESSION_BROWSER_VIEWS, UNASSIGNED_WORKSPACE_ID, useWorkspaceStore } from '../stores/workspace.js';
 import { sidebarAdminNavItem, filterManagementNavItems, adminNavGroups, IconPluginView } from '../navigation/adminNavigation';
 import { usePluginStore } from '../stores/plugins.js';
@@ -310,7 +318,7 @@ const confirmRemoveWorkspace = async (workspace) => {
   if (!workspace?.workspace_id) return;
   const accepted = await confirm({
     title: '移除项目',
-    message: `确定要移除项目“${workspace.display_name}”吗？`,
+    message: `确定要移除项目“${workspace.display_name}”吗？已有会话不会删除。`,
     confirmText: '移除',
     danger: true,
   });
@@ -318,8 +326,27 @@ const confirmRemoveWorkspace = async (workspace) => {
   try {
     await workspaceStore.remove(workspace.workspace_id);
     void sessionListStore.loadFacets().catch(() => undefined);
+    // 移除是软删：会话保持与项目的绑定并随之隐藏，重新添加同一路径即恢复；刷新项目分组
+    if (workspaceStore.browserView === SESSION_BROWSER_VIEWS.PROJECT) {
+      void sessionListStore.loadWorkspacePreview().catch(() => undefined);
+    }
   } catch (error) {
     showToast(error.message || '项目移除失败');
+  }
+};
+
+const renameWorkspaceOpen = ref(false);
+const renameWorkspaceTarget = ref(null);
+const openRenameWorkspace = (workspace) => {
+  if (!workspace?.workspace_id) return;
+  renameWorkspaceTarget.value = workspace;
+  renameWorkspaceOpen.value = true;
+};
+const handleWorkspaceRenamed = () => {
+  void sessionListStore.loadFacets().catch(() => undefined);
+  // 会话条目与筛选面板里的项目名快照一并刷新
+  if (workspaceStore.browserView === SESSION_BROWSER_VIEWS.PROJECT) {
+    void sessionListStore.loadWorkspacePreview().catch(() => undefined);
   }
 };
 

@@ -84,6 +84,8 @@ export interface SessionApplication extends MessageRequestStatusPort, MessageReq
   listWorkspacesByIds(workspaceIds: readonly string[]): Promise<WorkspaceRecord[]>;
   listWorkspaces(): Promise<WorkspaceRecord[]>;
   removeWorkspace(workspaceId: string): Promise<boolean>;
+  /** 重命名项目（仅 display_name）。项目不存在或已移除时返回 null。 */
+  renameWorkspace(workspaceId: string, displayName: string): Promise<WorkspaceRecord | null>;
   resolveWorkspace(input: { kind: "local_path"; root_path: string } | { kind: "existing"; workspace_id: string } | null | undefined): Promise<string | null>;
   getSession(sessionId: string): Promise<SessionInfo | null>;
   resolveWorkspaceRoot(sessionId: string): Promise<string | null>;

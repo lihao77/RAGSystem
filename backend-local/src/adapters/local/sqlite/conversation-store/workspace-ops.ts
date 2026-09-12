@@ -55,6 +55,7 @@ export class WorkspaceOps {
 
   remove(tenantId: TenantId, workspaceId: string): boolean {
     return runInTransaction(this.db, () => {
+      // 会话保持与项目的绑定：有会话则软删（重添同一文件夹即复活），无会话直接硬删
       const deleted = this.db.prepare(`
         DELETE FROM workspaces
         WHERE tenant_id=? AND workspace_id=? AND removed_at IS NULL
@@ -71,6 +72,14 @@ export class WorkspaceOps {
       `).run(tenantId, workspaceId);
       return Number(removed.changes) > 0;
     });
+  }
+
+  rename(tenantId: TenantId, workspaceId: string, displayName: string): WorkspaceRecord | null {
+    const result = this.db.prepare(`
+      UPDATE workspaces SET display_name=?, updated_at=CURRENT_TIMESTAMP
+      WHERE tenant_id=? AND workspace_id=? AND removed_at IS NULL
+    `).run(displayName, tenantId, workspaceId);
+    return Number(result.changes) > 0 ? this.getById(tenantId, workspaceId) : null;
   }
 
   updateLocalPath(input: {

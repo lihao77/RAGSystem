@@ -36,7 +36,7 @@
             <span class="session-meta-value">{{ entryAgent }}</span>
           </div>
           <div v-if="workspaceDisplay" class="session-meta-item">
-            <span class="session-meta-label">工作区</span>
+            <span class="session-meta-label">项目</span>
             <span class="session-meta-value session-meta-value--path" :title="workspaceDisplay">{{ workspaceDisplay }}</span>
           </div>
           <div v-if="workspaceRoot" class="session-meta-item">
@@ -114,7 +114,7 @@ const summaryTitle = computed(() => {
   const lines = [];
   if (props.team) lines.push(`Team: ${props.team}`);
   if (props.entryAgent) lines.push(`Agent: ${props.entryAgent}`);
-  if (props.workspaceDisplay) lines.push(`工作区: ${props.workspaceDisplay}`);
+  if (props.workspaceDisplay) lines.push(`项目: ${props.workspaceDisplay}`);
   if (props.workspaceRoot) lines.push(`目录: ${props.workspaceRoot}`);
   if (showStatusChip.value) lines.push(`状态: ${props.executionStatusText || '空闲'}`);
   return lines.join('\n') || '会话信息';

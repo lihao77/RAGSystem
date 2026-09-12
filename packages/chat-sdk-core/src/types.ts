@@ -21,6 +21,7 @@ export type RagChatEndpointName =
   | "listSessionWorkspacePreview"
   | "listWorkspaces"
   | "createWorkspace"
+  | "updateWorkspace"
   | "removeWorkspace"
   | "getSessionPermissions"
   | "updateSessionPermissions"

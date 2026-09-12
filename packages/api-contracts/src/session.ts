@@ -132,6 +132,9 @@ export const WorkspaceListDataSchema = z.object({
 export const CreateWorkspaceRequestSchema = z.object({
   root_path: z.string().trim().min(1),
 }).strict();
+export const UpdateWorkspaceRequestSchema = z.object({
+  display_name: z.string().trim().min(1).max(120),
+}).strict();
 export const WorkspaceResponseSchema = successResponseSchema(SessionWorkspaceSchema);
 
 export const SessionPermissionDataSchema = z.object({
@@ -342,6 +345,7 @@ export type SessionWorkspacePreviewResponse = z.infer<typeof SessionWorkspacePre
 export type WorkspaceListItem = z.infer<typeof WorkspaceListItemSchema>;
 export type WorkspaceListResponse = z.infer<typeof WorkspaceListResponseSchema>;
 export type CreateWorkspaceRequest = z.infer<typeof CreateWorkspaceRequestSchema>;
+export type UpdateWorkspaceRequest = z.infer<typeof UpdateWorkspaceRequestSchema>;
 export type WorkspaceResponse = z.infer<typeof WorkspaceResponseSchema>;
 export type SessionPermissionResponse = z.infer<typeof SessionPermissionResponseSchema>;
 export type SessionMetadataResponse = z.infer<typeof SessionMetadataResponseSchema>;

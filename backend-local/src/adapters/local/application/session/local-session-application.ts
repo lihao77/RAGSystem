@@ -61,6 +61,9 @@ export class LocalSessionApplication implements SessionApplication {
   async removeWorkspace(workspaceId: string) {
     return this.conversations.removeWorkspace(this.tenantId, workspaceId);
   }
+  async renameWorkspace(workspaceId: string, displayName: string) {
+    return this.conversations.renameWorkspace(this.tenantId, workspaceId, displayName);
+  }
   async resolveWorkspace(input: { kind: "local_path"; root_path: string } | { kind: "existing"; workspace_id: string } | null | undefined): Promise<string | null> {
     if (!input) return null;
     if (input.kind === "existing") {

@@ -74,6 +74,7 @@ export class PostgresWorkspaceRepository implements WorkspaceRepositoryPort {
 
   async remove(tenantId: TenantId, workspaceId: string): Promise<boolean> {
     return this.executor.transaction(async (transaction) => {
+      // 会话保持与项目的绑定：有会话则软删（重添同一文件夹即复活），无会话直接硬删
       const target = await transaction.query<{ has_sessions: boolean }>(
         `SELECT EXISTS(
            SELECT 1 FROM conversation_sessions s
@@ -98,6 +99,16 @@ export class PostgresWorkspaceRepository implements WorkspaceRepositoryPort {
         );
       return (result.rowCount ?? 0) > 0;
     });
+  }
+
+  async rename(tenantId: TenantId, workspaceId: string, displayName: string): Promise<WorkspaceRecord | null> {
+    const result = await this.executor.query(
+      `UPDATE conversation_workspaces SET display_name=$3, updated_at=CURRENT_TIMESTAMP
+       WHERE tenant_id=$1 AND workspace_id=$2 AND removed_at IS NULL
+       RETURNING *`,
+      [tenantId, workspaceId, displayName],
+    );
+    return result.rows[0] ? workspace(result.rows[0]) : null;
   }
 
   async updateLocalPath(input: {

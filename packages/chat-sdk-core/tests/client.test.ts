@@ -506,4 +506,16 @@ describe("RagChatClient", () => {
       expect.objectContaining({ method: "DELETE" }),
     );
   });
+
+  it("renames a workspace via PATCH with the display name body", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ success: true, message: "ok" }), { status: 200 }));
+    const client = createRagChatClient({ baseUrl: "https://rag.example.test", fetch: fetchMock });
+
+    await client.updateWorkspace("workspace/1", "新名称");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://rag.example.test/api/agent/workspaces/workspace%2F1",
+      expect.objectContaining({ method: "PATCH", body: JSON.stringify({ display_name: "新名称" }) }),
+    );
+  });
 });

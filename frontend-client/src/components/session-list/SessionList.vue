@@ -61,7 +61,7 @@
           <Empty v-else-if="viewMode !== 'project' && !items.length && hasFilters" key="filtered-empty" class="py-8">
             <EmptyHeader>
               <EmptyTitle>没有符合条件的会话</EmptyTitle>
-              <EmptyDescription>当前来源或工作区筛选下没有结果。</EmptyDescription>
+              <EmptyDescription>当前来源或项目筛选下没有结果。</EmptyDescription>
             </EmptyHeader>
             <EmptyContent>
               <Button variant="outline" size="sm" @click="clearFilters">清除筛选</Button>
@@ -75,28 +75,54 @@
             </EmptyHeader>
           </Empty>
 
-          <Empty v-else-if="viewMode === 'project' && !projectGroups.length" key="project-empty" class="py-8">
+          <Empty v-else-if="viewMode === 'project' && !workspaceItems.length && !items.length" key="project-empty" class="py-8">
             <EmptyHeader>
               <EmptyTitle>还没有项目对话</EmptyTitle>
-              <EmptyDescription>选择一个项目后，从上方新聊天开始。</EmptyDescription>
+              <EmptyDescription>添加一个本地项目，或直接开始聊天。</EmptyDescription>
             </EmptyHeader>
           </Empty>
 
           <div v-else key="list" class="flex flex-col gap-0.5">
-            <template v-if="viewMode === 'project'">
+            <TransitionGroup
+              v-if="viewMode === 'project'"
+              name="project-group"
+              tag="div"
+              class="project-groups"
+              @dragover.prevent
+              @drop.prevent="onGroupsDrop"
+            >
               <section v-for="group in projectGroups" :key="group.id" class="project-session-group">
                 <div
                   class="project-session-group__header"
-                  :class="{ 'is-selected': group.id === currentWorkspaceId }"
+                  :class="{
+                    'is-selected': group.id === currentWorkspaceId,
+                    'is-dragging': dragState.id === group.id,
+                  }"
+                  :draggable="Boolean(group.workspace)"
+                  :aria-label="group.workspace ? `拖拽可调整「${group.name}」的顺序` : undefined"
+                  @dragstart="onGroupDragStart($event, group)"
+                  @drag="onGroupDrag"
+                  @dragover="onGroupDragOver($event, group)"
+                  @dragend="onGroupDragEnd"
                 >
+                  <button
+                    type="button"
+                    class="project-session-group__toggle"
+                    :aria-expanded="!isCollapsed(group.id)"
+                    :aria-label="isCollapsed(group.id) ? `展开 ${group.name}` : `折叠 ${group.name}`"
+                    :title="isCollapsed(group.id) ? `展开 ${group.name}` : `折叠 ${group.name}`"
+                    @click.stop="toggleCollapsed(group.id)"
+                  >
+                    <FolderOpen v-if="!isCollapsed(group.id)" class="project-session-group__icon" aria-hidden="true" />
+                    <Folder v-else class="project-session-group__icon" aria-hidden="true" />
+                  </button>
                   <button
                     type="button"
                     class="project-session-group__select"
                     @click="$emit('select-workspace', group.workspace)"
                   >
-                    <FolderOpen class="project-session-group__icon" aria-hidden="true" />
                     <span class="min-w-0 flex-1 truncate">{{ group.name }}</span>
-                    <span class="project-session-group__count">{{ group.items.length || '' }}</span>
+                    <span class="project-session-group__count">{{ (group.workspace?.session_count ?? group.items.length) || '' }}</span>
                   </button>
                   <DropdownMenu v-if="group.workspace">
                     <DropdownMenuTrigger as-child>
@@ -114,6 +140,13 @@
                       <DropdownMenuGroup>
                         <DropdownMenuItem
                           :disabled="removingWorkspaceId === group.id"
+                          @select="$emit('rename-workspace', group.workspace)"
+                        >
+                          <Pencil />
+                          重命名项目
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          :disabled="removingWorkspaceId === group.id"
                           @select="$emit('remove-workspace', group.workspace)"
                         >
                           <FolderMinus />
@@ -123,32 +156,34 @@
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>
-                <div v-if="group.items.length" class="project-session-group__items">
-                  <SessionListItem
-                    v-for="item in group.items"
-                    :key="item.session_id"
-                    :item="item"
-                    :active="item.session_id === activeSessionId"
-                    :now="now"
-                    compact
-                    @select="$emit('select', item)"
-                    @delete="$emit('delete', item)"
-                  />
-                </div>
-                <div v-else-if="!workspaceHasMore(group.id)" class="project-session-group__empty">暂无对话</div>
-                <button
-                  v-if="workspaceHasMore(group.id)"
-                  type="button"
-                  class="project-session-group__more"
-                  :disabled="Boolean(loadingWorkspaceIds[group.id])"
-                  @click="loadGroupMore(group)"
-                >
-                  <template v-if="loadingWorkspaceIds[group.id]">加载中…</template>
-                  <template v-else-if="groupErrors[group.id]">加载失败 · 点击重试</template>
-                  <template v-else>加载更多</template>
-                </button>
+                <GroupCollapseBody :open="!isCollapsed(group.id)">
+                  <div v-if="group.items.length" class="project-session-group__items">
+                    <SessionListItem
+                      v-for="item in group.items"
+                      :key="item.session_id"
+                      :item="item"
+                      :active="item.session_id === activeSessionId"
+                      :now="now"
+                      compact
+                      @select="$emit('select', item)"
+                      @delete="$emit('delete', item)"
+                    />
+                  </div>
+                  <div v-else-if="!workspaceHasMore(group.id)" class="project-session-group__empty">暂无对话</div>
+                  <button
+                    v-if="workspaceHasMore(group.id)"
+                    type="button"
+                    class="project-session-group__more"
+                    :disabled="Boolean(loadingWorkspaceIds[group.id])"
+                    @click="loadGroupMore(group)"
+                  >
+                    <template v-if="loadingWorkspaceIds[group.id]">加载中…</template>
+                    <template v-else-if="groupErrors[group.id]">加载失败 · 点击重试</template>
+                    <template v-else>加载更多</template>
+                  </button>
+                </GroupCollapseBody>
               </section>
-            </template>
+            </TransitionGroup>
 
             <TransitionGroup v-else name="session-list" tag="div" class="session-list-items flex flex-col gap-0.5">
               <SessionListItem
@@ -181,7 +216,7 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import type { SessionListItem as SessionListItemData } from '@ragsystem/api-contracts';
-import { Ellipsis, FolderMinus, FolderOpen } from 'lucide-vue-next';
+import { Ellipsis, Folder, FolderMinus, FolderOpen, Pencil } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -199,10 +234,11 @@ import {
 } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useSessionListStore } from '@/stores/session-list.js';
-import { useWorkspaceStore } from '@/stores/workspace.js';
+import { UNASSIGNED_WORKSPACE_ID, useWorkspaceStore } from '@/stores/workspace.js';
 import { useSessionListTime } from '@/composables/useSessionListTime.js';
 import SessionListItem from './SessionListItem.vue';
 import SessionListToolbar from './SessionListToolbar.vue';
+import GroupCollapseBody from './GroupCollapseBody.vue';
 import SessionBrowserViewToggle from '@/components/workspace/SessionBrowserViewToggle.vue';
 import WorkspacePicker from '@/components/workspace/WorkspacePicker.vue';
 
@@ -217,6 +253,7 @@ defineEmits<{
   delete: [item: SessionListItemData];
   'update:view-mode': [view: string];
   'select-workspace': [workspace: { workspace_id: string; display_name: string; root_path?: string | null } | null];
+  'rename-workspace': [workspace: { workspace_id: string; display_name: string; root_path?: string | null }];
   'remove-workspace': [workspace: { workspace_id: string; display_name: string; root_path?: string | null }];
 }>();
 
@@ -235,6 +272,7 @@ const {
 } = storeToRefs(store);
 /** setup store 的动作是闭包，解构不丢响应式上下文 */
 const workspaceHasMore = store.workspaceHasMore;
+const { isCollapsed, toggleCollapsed } = workspaceStore;
 const { items: workspaceItems, currentWorkspaceId, removingWorkspaceId } = storeToRefs(workspaceStore);
 const now = useSessionListTime();
 const scrollContainer = ref<HTMLElement | null>(null);
@@ -250,25 +288,154 @@ const isSoftRefreshing = computed(() => loadingInitial.value && items.value.leng
 /** 仅冷启动或筛空后的加载才用骨架 */
 const showSkeleton = computed(() => loadingInitial.value && items.value.length === 0);
 
-/** 项目视图分组：组 id 即工作区 id（未归属组为 __unassigned__），已加载条目全部直接渲染 */
+/** 组头拖拽排序状态：id=被拖组；previewIds=实时预览顺序；originIds=拖起前顺序（未变则不持久化）；wasCollapsed=拖起前的折叠态（释放后恢复） */
+const dragState = ref<{ id: string | null; previewIds: string[] | null; originIds: string[] | null; wasCollapsed: boolean }>({
+  id: null,
+  previewIds: null,
+  originIds: null,
+  wasCollapsed: false,
+});
+
+/** 拖起即折叠被拖分组（内容收起、列表变短），释放后按拖起前的状态恢复展开。 */
+function collapseForDrag(id: string) {
+  const wasCollapsed = isCollapsed(id);
+  if (!wasCollapsed) toggleCollapsed(id);
+  return wasCollapsed;
+}
+
+function restoreAfterDrag(id: string | null, wasCollapsed: boolean) {
+  if (id && !wasCollapsed && isCollapsed(id)) toggleCollapsed(id);
+}
+
+function onGroupDragStart(event: DragEvent, group: { id: string; workspace?: unknown }) {
+  if (!group.workspace) {
+    event.preventDefault();
+    return;
+  }
+  const wasCollapsed = collapseForDrag(group.id);
+  const originIds = workspaceItems.value.map(item => item.workspace_id);
+  dragState.value = {
+    id: group.id,
+    previewIds: originIds,
+    originIds,
+    wasCollapsed,
+  };
+  event.dataTransfer?.setData('text/plain', group.id);
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move';
+    // 隐藏原生拖影，改用自制幽灵：横向锁定在原位，仅纵向跟随
+    event.dataTransfer.setDragImage(ensureEmptyDragImage(), 0, 0);
+  }
+  mountDragGhost(event);
+}
+
+/** 自制拖拽幽灵：克隆被拖组头，position fixed，left 恒为拖起时的原位。 */
+let dragGhost: HTMLElement | null = null;
+let dragGhostGrabOffsetY = 0;
+let emptyDragImageEl: HTMLCanvasElement | null = null;
+
+function ensureEmptyDragImage(): HTMLCanvasElement {
+  if (!emptyDragImageEl) emptyDragImageEl = document.createElement('canvas');
+  return emptyDragImageEl;
+}
+
+function mountDragGhost(event: DragEvent) {
+  const header = event.currentTarget as HTMLElement;
+  const rect = header.getBoundingClientRect();
+  dragGhostGrabOffsetY = event.clientY - rect.top;
+  const ghost = header.cloneNode(true) as HTMLElement;
+  ghost.classList.add('project-drag-ghost');
+  ghost.style.position = 'fixed';
+  ghost.style.left = `${rect.left}px`;
+  ghost.style.top = `${rect.top}px`;
+  ghost.style.width = `${rect.width}px`;
+  ghost.style.margin = '0';
+  ghost.style.pointerEvents = 'none';
+  document.body.appendChild(ghost);
+  dragGhost = ghost;
+}
+
+/** drag 事件持续携带指针坐标：只更新 top（仅纵向移动），left 永不变。 */
+function onGroupDrag(event: DragEvent) {
+  if (!dragGhost || (!event.clientY && !event.clientX)) return;
+  dragGhost.style.top = `${event.clientY - dragGhostGrabOffsetY}px`;
+}
+
+function removeDragGhost() {
+  dragGhost?.remove();
+  dragGhost = null;
+}
+
+/** 悬停到目标分组：按指针在组头的上/下半区决定插入到其前/后，实时更新预览顺序。 */
+function onGroupDragOver(event: DragEvent, group: { id: string; workspace?: unknown }) {
+  const draggedId = dragState.value.id;
+  if (!draggedId || !group.workspace || group.id === draggedId) return;
+  event.preventDefault();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+  const ids = [...(dragState.value.previewIds ?? [])];
+  const from = ids.indexOf(draggedId);
+  if (from < 0) return;
+  ids.splice(from, 1);
+  const target = ids.indexOf(group.id);
+  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+  const before = event.clientY <= rect.top + rect.height / 2;
+  if (target < 0) ids.push(draggedId);
+  else if (before) ids.splice(target, 0, draggedId);
+  else ids.splice(target + 1, 0, draggedId);
+  if (ids.join('\u0000') !== (dragState.value.previewIds ?? []).join('\u0000')) {
+    dragState.value = { ...dragState.value, previewIds: ids };
+  }
+}
+
+/**
+ * 容器级 drop：预览排序后鼠标下方往往是被拖分组自己的占位（其组头未 preventDefault，
+ * 浏览器不视为有效目标），因此整个分组容器统一作为放置区，这里一次提交预览顺序。
+ */
+function onGroupsDrop() {
+  removeDragGhost();
+  const { id, previewIds, originIds, wasCollapsed } = dragState.value;
+  if (!id) return;
+  dragState.value = { id: null, previewIds: null, originIds: null, wasCollapsed: false };
+  // 原地释放（未移动位置）不固化自定义顺序，保持默认的名称排序模式
+  if (previewIds?.length && previewIds.join('\u0000') !== originIds?.join('\u0000')) {
+    workspaceStore.reorder(previewIds);
+  }
+  restoreAfterDrag(id, wasCollapsed);
+}
+
+/** dragend 兜底取消场景（Esc、拖出列表释放）：移除幽灵、还原预览顺序并恢复展开。 */
+function onGroupDragEnd() {
+  removeDragGhost();
+  const { id, wasCollapsed } = dragState.value;
+  if (!id) return;
+  dragState.value = { id: null, previewIds: null, originIds: null, wasCollapsed: false };
+  restoreAfterDrag(id, wasCollapsed);
+}
+
+/**
+ * 项目视图分组：组 id 即工作区 id（未归属组为 __unassigned__），已加载条目全部直接渲染。
+ * 未归属组常驻末位——即使暂无未归属会话，也能一键切回“不指定项目”。
+ * 拖拽期间按 previewIds 实时预览排序，其他分组游动让位。
+ */
 const projectGroups = computed(() => {
   if (props.viewMode !== 'project') return [];
+  const previewRank = dragState.value.previewIds?.length
+    ? new Map(dragState.value.previewIds.map((id, index) => [id, index]))
+    : null;
+  const orderedWorkspaces = previewRank
+    ? [...workspaceItems.value].sort((a, b) => (
+      (previewRank.get(a.workspace_id) ?? workspaceItems.value.length)
+        - (previewRank.get(b.workspace_id) ?? workspaceItems.value.length)
+    ))
+    : workspaceItems.value;
   const groups = new Map();
-  for (const workspace of workspaceItems.value) {
+  for (const workspace of orderedWorkspaces) {
     groups.set(workspace.workspace_id, { id: workspace.workspace_id, name: workspace.display_name, workspace, items: [] });
   }
+  groups.set(UNASSIGNED_WORKSPACE_ID, { id: UNASSIGNED_WORKSPACE_ID, name: '未归属项目', workspace: null, items: [] });
   for (const item of items.value) {
-    const id = item.workspace?.workspace_id || '__unassigned__';
-    if (!groups.has(id) && id === '__unassigned__') {
-      groups.set(id, {
-        id,
-        name: '未归属项目',
-        workspace: null,
-        items: [],
-      });
-    }
-    if (!groups.has(id)) continue;
-    groups.get(id).items.push(item);
+    const group = groups.get(item.workspace?.workspace_id || UNASSIGNED_WORKSPACE_ID);
+    if (group) group.items.push(item);
   }
   return Array.from(groups.values());
 });
@@ -374,13 +541,16 @@ watch(filters, () => {
 }
 
 .project-session-group__header {
+  position: relative;
   display: flex;
   min-width: 0;
   width: 100%;
   align-items: center;
   gap: 8px;
   min-height: 32px;
-  padding: 2px 3px 2px 0;
+  /* 左内边距对齐「新聊天」按钮图标起点（侧栏 8px 容器 + 8px 按钮内边距 = 16px） */
+  padding: 2px 3px 2px 8px;
+  border: 1px dashed transparent;
   border-radius: 6px;
   background: transparent;
   color: var(--color-text-secondary);
@@ -398,6 +568,60 @@ watch(filters, () => {
   font-weight: 600;
 }
 
+/* 折叠开关即文件夹图标本身：展开=FolderOpen，折叠=Folder（无 hover 反馈，避免与组头选中态抢焦点） */
+.project-session-group__toggle {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 24px;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+/* 拖拽排序反馈：被拖分组留在原列表中作为占位（虚线框 + 半透明），其余分组游动让位 */
+.project-session-group__header[draggable='true'] {
+  cursor: grab;
+}
+
+.project-session-group__header.is-dragging {
+  opacity: 0.55;
+  border-color: var(--color-border);
+  border-style: dashed;
+}
+
+/* TransitionGroup FLIP：预览顺序变化时其余分组平滑游动 */
+.project-groups {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.project-group-move {
+  transition: transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.project-group-leave-active {
+  position: absolute;
+  left: 0;
+  right: 0;
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+
+/* 自制拖拽幽灵：悬浮阴影 + 不透明底，left 由内联样式锁定在拖起时的原位（仅纵向移动） */
+.project-drag-ghost {
+  z-index: 1000;
+  background: var(--surface-sidebar);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  opacity: 0.92;
+  will-change: top;
+}
+
 .project-session-group__select {
   display: flex;
   min-width: 0;
@@ -405,7 +629,7 @@ watch(filters, () => {
   align-items: center;
   gap: 8px;
   min-height: 28px;
-  padding: 3px 4px 3px 7px;
+  padding: 3px 4px 3px 0;
   border: 0;
   background: transparent;
   color: inherit;
@@ -429,16 +653,17 @@ watch(filters, () => {
   text-align: right;
 }
 
+/* 会话条目缩进对齐项目名（项目名文字 = 内容区 8px + 组头 8px 内边距 + 图标 14px + 间距 8px = 38px；条目根节点与按钮各带 4px 内边距，共 8px） */
 .project-session-group__items {
   display: flex;
   min-width: 0;
   flex-direction: column;
   gap: 1px;
-  padding-left: 21px;
+  padding-left: 22px;
 }
 
 .project-session-group__empty {
-  padding: 5px 8px 7px 31px;
+  padding: 5px 8px 7px 30px;
   color: var(--color-text-muted);
   font-size: 12px;
 }
@@ -450,7 +675,7 @@ watch(filters, () => {
   align-items: center;
   gap: 4px;
   margin: 1px 0 2px;
-  padding: 4px 6px 5px 10px;
+  padding: 4px 6px 5px 30px;
   border: 0;
   border-radius: 6px;
   background: transparent;
@@ -545,6 +770,7 @@ watch(filters, () => {
 
 @media (prefers-reduced-motion: reduce) {
   .session-list-scroll,
+  .project-group-move,
   .session-stage-enter-active,
   .session-stage-leave-active,
   .session-list-move,

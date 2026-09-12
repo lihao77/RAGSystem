@@ -101,6 +101,9 @@ export class SaaSSessionApplication implements SessionApplication, ExecutionSess
   removeWorkspace(workspaceId: string) {
     return this.workspaces?.remove(this.tenantId, workspaceId) ?? Promise.resolve(false);
   }
+  renameWorkspace(workspaceId: string, displayName: string) {
+    return this.workspaces?.rename(this.tenantId, workspaceId, displayName) ?? Promise.resolve(null);
+  }
   async resolveWorkspace(input: { kind: "local_path"; root_path: string } | { kind: "existing"; workspace_id: string } | null | undefined): Promise<string | null> {
     if (!input) return null;
     if (input.kind === "local_path") throw new Error("SaaS 不支持服务器本地路径 Workspace");

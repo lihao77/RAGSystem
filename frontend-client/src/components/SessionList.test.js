@@ -24,8 +24,8 @@ test('filters collapse into a single compact trigger button', () => {
 test('single panel contains both source and workspace filters', () => {
   assert.match(toolbarSource, /session-filter-panel/);
   assert.match(toolbarSource, />来源</);
-  assert.match(toolbarSource, />工作区</);
-  assert.match(toolbarSource, /全部工作区/);
+  assert.match(toolbarSource, />项目</);
+  assert.match(toolbarSource, /全部项目/);
   assert.match(toolbarSource, /FolderOpen/);
   assert.match(toolbarSource, /MessageSquare/);
   assert.match(toolbarSource, /Bot/);
@@ -72,11 +72,44 @@ test('filter refresh keeps list content with soft transition instead of hard ske
   assert.match(listSource, /is-soft-refreshing/);
 });
 
-test('project view only groups sessions from active workspaces', () => {
-  assert.match(listSource, /if \(!groups\.has\(id\)\) continue/);
-  assert.match(listSource, /id === '__unassigned__'/);
+test('project view pins the unassigned group last for switching back to no project', () => {
+  assert.match(listSource, /groups\.set\(UNASSIGNED_WORKSPACE_ID/);
+  assert.match(listSource, /未归属项目/);
   assert.match(listSource, /remove-workspace/);
   assert.match(listSource, /移除项目/);
+});
+
+test('project group menu offers rename next to remove', () => {
+  assert.match(listSource, /rename-workspace/);
+  assert.match(listSource, /重命名项目/);
+});
+
+test('project groups support drag reorder with collapse, live preview and expand-on-drop', () => {
+  assert.match(listSource, /:draggable="Boolean\(group\.workspace\)"/);
+  assert.match(listSource, /name="project-group"/);
+  assert.match(listSource, /workspaceStore\.reorder\(previewIds\)/);
+  assert.match(listSource, /collapseForDrag\(group\.id\)/);
+  assert.match(listSource, /restoreAfterDrag\(id, wasCollapsed\)/);
+  assert.match(listSource, /dragState\.value\.previewIds/);
+  assert.match(listSource, /\.project-group-move/);
+});
+
+test('drag ghost is custom and locked to vertical movement only', () => {
+  assert.match(listSource, /setDragImage\(ensureEmptyDragImage\(\), 0, 0\)/);
+  assert.match(listSource, /project-drag-ghost/);
+  assert.match(listSource, /@drag="onGroupDrag"/);
+  // 只更新 top，left 恒为拖起时的原位
+  assert.match(listSource, /dragGhost\.style\.top = /);
+  assert.doesNotMatch(listSource, /dragGhost\.style\.left = \$\{.*clientX/);
+  assert.match(listSource, /removeDragGhost\(\)/);
+});
+
+test('project group folder icon doubles as the collapse toggle', () => {
+  assert.match(listSource, /project-session-group__toggle/);
+  assert.match(listSource, /aria-expanded="!isCollapsed\(group\.id\)"/);
+  assert.match(listSource, /<FolderOpen v-if="!isCollapsed\(group\.id\)"/);
+  assert.match(listSource, /<Folder v-else class="project-session-group__icon"/);
+  assert.doesNotMatch(listSource, /ChevronDown/);
 });
 
 test('timeline items show workspace context while project items stay compact', () => {
@@ -105,6 +138,11 @@ test('each project group pages from its own workspace cursor via the group butto
   assert.match(listSource, /store\.loadWorkspace\(group\.id\)/);
   assert.match(listSource, />加载中…</);
   assert.match(listSource, /加载失败 · 点击重试/);
+});
+
+test('project group collapse reuses the execution-node height animation', () => {
+  assert.match(listSource, /GroupCollapseBody/);
+  assert.match(listSource, /:open="!isCollapsed\(group\.id\)"/);
 });
 
 test('project view first screen is seeded by the workspace preview endpoint', () => {

@@ -15,7 +15,7 @@
       <DialogContent class="workspace-dialog">
         <DialogHeader>
           <DialogTitle>添加本地项目</DialogTitle>
-          <DialogDescription>选择一个本地文件夹。项目下创建的所有新聊天都会复用这个工作空间。</DialogDescription>
+          <DialogDescription>选择一个本地文件夹作为项目。</DialogDescription>
         </DialogHeader>
         <FieldGroup>
           <Field>

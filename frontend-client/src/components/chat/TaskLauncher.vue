@@ -21,7 +21,23 @@
           <DialogTitle class="project-picker-title">选择项目</DialogTitle>
           <DialogDescription class="sr-only">选择新会话使用的本地项目</DialogDescription>
         </DialogHeader>
-        <ul v-if="workspaces.length" class="project-list" aria-label="项目列表">
+        <ul class="project-list" aria-label="项目列表">
+          <li>
+            <button
+              type="button"
+              class="project-option project-option--unassigned"
+              :class="{ 'is-selected': isUnassigned }"
+              :aria-pressed="isUnassigned"
+              @click="selectWorkspace(UNASSIGNED_WORKSPACE_ID)"
+            >
+              <FolderX class="project-option-icon" aria-hidden="true" />
+              <span class="project-option-copy">
+                <span class="project-option-name">不指定项目</span>
+                <span class="project-option-path">新会话不绑定项目</span>
+              </span>
+              <Check v-if="isUnassigned" class="project-option-check" aria-hidden="true" />
+            </button>
+          </li>
           <li v-for="workspace in workspaces" :key="workspace.workspace_id">
             <button
               type="button"
@@ -39,7 +55,7 @@
             </button>
           </li>
         </ul>
-        <p v-else class="project-list-empty">暂无项目</p>
+        <p v-if="!workspaces.length" class="project-list-empty">暂无项目，可从侧栏添加本地文件夹</p>
       </DialogContent>
     </Dialog>
   </div>
@@ -48,10 +64,10 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
-import { Check, ChevronDown, FolderKanban, FolderOpen } from 'lucide-vue-next';
+import { Check, ChevronDown, FolderKanban, FolderOpen, FolderX } from 'lucide-vue-next';
 import { Button } from '../ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '../ui/dialog';
-import { useWorkspaceStore } from '../../stores/workspace.js';
+import { UNASSIGNED_WORKSPACE_ID, useWorkspaceStore } from '../../stores/workspace.js';
 
 const props = defineProps({
   workspaceRoot: { type: String, default: '' },
@@ -67,9 +83,12 @@ const {
 } = storeToRefs(workspaceStore);
 const projectDialogOpen = ref(false);
 
+const isUnassigned = computed(() => currentWorkspaceId.value === UNASSIGNED_WORKSPACE_ID);
+
 const projectLabel = computed(() => {
   if (workspaceLoading.value) return '加载项目…';
   if (currentWorkspace.value) return currentWorkspace.value.display_name;
+  if (isUnassigned.value) return '未指定项目';
   return '选择项目';
 });
 
@@ -130,6 +149,13 @@ watch(currentWorkspace, (workspace) => {
   padding: 0;
   overflow-y: auto;
   list-style: none;
+}
+
+/* “不指定项目”置顶并与具体项目分组隔开 */
+.project-list > li:first-child {
+  margin-bottom: 2px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--color-border);
 }
 
 .project-option {
