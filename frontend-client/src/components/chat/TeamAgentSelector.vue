@@ -18,7 +18,7 @@
         :key="t.value"
         @update:open="(open) => open && ensureTeamAgents(t.value)"
       >
-        <!-- 点击 team 行 = 选该 team 及其默认入口 Agent；hover 展开子菜单可另选 Agent -->
+        <!-- 点击 team 行 = 选该 team 及其默认入口 Agent（已加载时按名落库）；hover 展开子菜单可另选 Agent -->
         <DropdownMenuSubTrigger class="ta-team" @click="selectTeam(t.value)">
           <span class="ta-team-label">{{ t.value }}</span>
           <span v-if="t.isActive" class="ta-tag">默认</span>
@@ -122,8 +122,11 @@ const displayText = computed(() => {
 
 const disabled = computed(() => props.teamLoading || props.teamOptions.length === 0);
 
+// 点击团队行 = 选中该团队及其默认入口 Agent（与 Oceanx 端同语义）：名单已加载时按名
+// 落库（选中态与触发器文案随之命中具体 Agent），未加载完成时留空由运行期解析团队默认入口。
 const selectTeam = (team) => {
-  emit('update:selection', { team, entryAgent: '' });
+  const defaultEntry = teamState(team).items.find((item) => item.defaultEntry)?.value || '';
+  emit('update:selection', { team, entryAgent: defaultEntry });
   menuOpen.value = false;
 };
 
