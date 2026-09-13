@@ -19,6 +19,7 @@ import type {
   SessionParticipantRunStepsResponse,
   SessionPermissionResponse,
   WorkspaceListResponse,
+  WorkspacePurgeResponse,
   WorkspaceResponse,
   UpdateSessionPermissionModeRequest,
   UpdateWorkspaceRequest,
@@ -254,8 +255,9 @@ export class RagChatClient {
     return this.request<WorkspaceResponse>("updateWorkspace", { method: "PATCH", body: { display_name: displayName }, context: { workspaceId } });
   }
 
-  async removeWorkspace(workspaceId: string): Promise<unknown> {
-    return this.request("removeWorkspace", { method: "DELETE", context: { workspaceId } });
+  async removeWorkspace(workspaceId: string, options: { deleteSessions?: boolean } = {}): Promise<WorkspacePurgeResponse | null> {
+    const query = options.deleteSessions ? new URLSearchParams({ delete_sessions: "true" }) : undefined;
+    return this.request("removeWorkspace", { method: "DELETE", context: { workspaceId }, ...(query ? { query } : {}) });
   }
 
   async getSessionPermissions(sessionId: string): Promise<SessionPermissionResponse> {

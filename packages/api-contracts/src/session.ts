@@ -137,6 +137,17 @@ export const UpdateWorkspaceRequestSchema = z.object({
 }).strict();
 export const WorkspaceResponseSchema = successResponseSchema(SessionWorkspaceSchema);
 
+/** DELETE /workspaces/:id?delete_sessions=true 的逐条结果：权限不足等原因导致未删的会话逐项列出。 */
+export const WorkspacePurgeFailedItemSchema = z.object({
+  session_id: z.string().min(1),
+  reason: z.string().min(1),
+}).strict();
+export const WorkspacePurgeDataSchema = z.object({
+  deleted_session_ids: z.array(z.string().min(1)),
+  failed: z.array(WorkspacePurgeFailedItemSchema),
+}).strict();
+export const WorkspacePurgeResponseSchema = successResponseSchema(WorkspacePurgeDataSchema);
+
 export const SessionPermissionDataSchema = z.object({
   mode: PermissionModeSchema,
 }).strict();
@@ -311,6 +322,9 @@ export type SessionVisibility = z.infer<typeof SessionVisibilitySchema>;
 export type SessionOriginChannel = z.infer<typeof SessionOriginChannelSchema>;
 export type SessionOrigin = z.infer<typeof SessionOriginSchema>;
 export type SessionWorkspace = z.infer<typeof SessionWorkspaceSchema>;
+export type WorkspacePurgeFailedItem = z.infer<typeof WorkspacePurgeFailedItemSchema>;
+export type WorkspacePurgeData = z.infer<typeof WorkspacePurgeDataSchema>;
+export type WorkspacePurgeResponse = z.infer<typeof WorkspacePurgeResponseSchema>;
 export type UpdateSessionPermissionModeRequest = z.infer<typeof UpdateSessionPermissionModeRequestSchema>;
 export type UpdateSessionMetadataRequest = z.infer<typeof UpdateSessionMetadataRequestSchema>;
 export type CreatedSession = z.infer<typeof CreatedSessionSchema>;

@@ -155,14 +155,14 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       creating.value = false;
     }
   }
-  async function remove(workspaceId) {
+  async function remove(workspaceId, options = {}) {
     const id = String(workspaceId || '').trim();
     if (!id) throw new Error('项目 ID 不能为空');
     if (!client) throw new Error('Chat SDK 未初始化');
     removingWorkspaceId.value = id;
     error.value = '';
     try {
-      await client.removeWorkspace(id);
+      const response = await client.removeWorkspace(id, { deleteSessions: Boolean(options.deleteSessions) });
       const index = items.value.findIndex(item => item.workspace_id === id);
       if (index >= 0) items.value.splice(index, 1);
       // 顺手清理排序/折叠存储里已移除项目的 id，避免缓慢累积
@@ -175,7 +175,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       if (currentWorkspaceId.value === id) {
         select(items.value[0]?.workspace_id || UNASSIGNED_WORKSPACE_ID);
       }
-      return true;
+      return options.deleteSessions ? (response?.data ?? { deleted_session_ids: [], failed: [] }) : true;
     } catch (cause) {
       error.value = cause?.message || '项目移除失败';
       throw cause;

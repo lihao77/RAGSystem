@@ -39,7 +39,7 @@ import {
   UpdateMessageRequestSchema,
   SessionOriginTypeSchema,
 } from "../../contracts/session/session.js";
-import { CreateWorkspaceRequestSchema, UpdateWorkspaceRequestSchema, WorkspaceResponseSchema } from "@ragsystem/api-contracts";
+import { CreateWorkspaceRequestSchema, UpdateWorkspaceRequestSchema, WorkspacePurgeResponseSchema, WorkspaceResponseSchema } from "@ragsystem/api-contracts";
 import { HttpError, httpErrorFrom } from "../../utils/errors.js";
 import { SessionItemNotFoundError } from "../../contracts/session/session-application.js";
 import { ensureRequestApplications } from "../../app/request-applications.js";
@@ -239,7 +239,41 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
   });
 
   app.delete<{ Params: WorkspaceParams }>("/workspaces/:workspaceId", async (request) => {
+    const query = request.query as { delete_sessions?: string };
     const application = await resolveSessionApplication(options, request);
+    // ?delete_sessions=true：移除项目前先删光其下（当前主体可见的）全部会话。
+    // 逐条走 deleteSession 服务链，保留文件历史/资源清理与 session.deleted 事件语义；
+    // 权限不足等逐项失败不阻断整体，最后 removeWorkspace 按既有语义软删/硬删。
+    const deleteSessionsFlag = String(query.delete_sessions ?? "").trim().toLowerCase();
+    if (deleteSessionsFlag === "true" || deleteSessionsFlag === "1") {
+      const deletedSessionIds: string[] = [];
+      const failed: Array<{ session_id: string; reason: string }> = [];
+      const access = sessionListAccess(request);
+      let cursor: Parameters<SessionApplication["listSessions"]>[0]["cursor"] = null;
+      do {
+        const page = await application.listSessions({ access, limit: 200, workspaceId: request.params.workspaceId, cursor });
+        for (const item of page.items) {
+          const session = await application.getSession(item.session_id);
+          if (!session) continue;
+          try {
+            await assertSessionMutable(request, session);
+          } catch (error) {
+            if (!(error instanceof HttpError)) throw error;
+            failed.push({ session_id: item.session_id, reason: error.message });
+            continue;
+          }
+          // 并发下已被他人删掉（deleteSession 返回 false）：目标状态已达成，两侧都不记
+          if (await application.deleteSession(item.session_id)) deletedSessionIds.push(item.session_id);
+        }
+        cursor = page.nextCursor;
+      } while (cursor);
+      const removed = await application.removeWorkspace(request.params.workspaceId);
+      if (!removed) throw new HttpError(404, "not_found", "项目不存在");
+      return validateResponse(
+        WorkspacePurgeResponseSchema,
+        ok({ deleted_session_ids: deletedSessionIds, failed }, "项目移除成功"),
+      );
+    }
     const removed = await application.removeWorkspace(request.params.workspaceId);
     if (!removed) throw new HttpError(404, "not_found", "项目不存在");
     return ok(undefined, "项目移除成功");

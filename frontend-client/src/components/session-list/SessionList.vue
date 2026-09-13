@@ -153,6 +153,15 @@
                           移除项目
                         </DropdownMenuItem>
                       </DropdownMenuGroup>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        class="text-destructive focus:text-destructive"
+                        :disabled="removingWorkspaceId === group.id"
+                        @select="$emit('purge-workspace', group.workspace)"
+                      >
+                        <Trash2 />
+                        移除项目并删除会话
+                      </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>
@@ -216,13 +225,14 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import type { SessionListItem as SessionListItemData } from '@ragsystem/api-contracts';
-import { Ellipsis, Folder, FolderMinus, FolderOpen, Pencil } from 'lucide-vue-next';
+import { Ellipsis, Folder, FolderMinus, FolderOpen, Pencil, Trash2 } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
@@ -255,6 +265,7 @@ defineEmits<{
   'select-workspace': [workspace: { workspace_id: string; display_name: string; root_path?: string | null } | null];
   'rename-workspace': [workspace: { workspace_id: string; display_name: string; root_path?: string | null }];
   'remove-workspace': [workspace: { workspace_id: string; display_name: string; root_path?: string | null }];
+  'purge-workspace': [workspace: { workspace_id: string; display_name: string; root_path?: string | null; session_count?: number }];
 }>();
 
 const store = useSessionListStore();

@@ -34,6 +34,7 @@
         @select-workspace="handleWorkspaceChange"
         @rename-workspace="openRenameWorkspace"
         @remove-workspace="confirmRemoveWorkspace"
+        @purge-workspace="confirmPurgeWorkspace"
       />
       <WorkspaceRenameDialog
         v-model="renameWorkspaceOpen"
@@ -329,6 +330,40 @@ const confirmRemoveWorkspace = async (workspace) => {
     // 移除是软删：会话保持与项目的绑定并随之隐藏，重新添加同一路径即恢复；刷新项目分组
     if (workspaceStore.browserView === SESSION_BROWSER_VIEWS.PROJECT) {
       void sessionListStore.loadWorkspacePreview().catch(() => undefined);
+    }
+  } catch (error) {
+    showToast(error.message || '项目移除失败');
+  }
+};
+
+const confirmPurgeWorkspace = async (workspace) => {
+  if (!workspace?.workspace_id) return;
+  const count = Number(workspace.session_count ?? 0);
+  const scopeText = count > 0 ? `及其下 ${count} 个会话` : '及其下全部会话';
+  const accepted = await confirm({
+    title: '移除项目并删除会话',
+    message: `确定要移除项目“${workspace.display_name}”${scopeText}吗？会话删除后不可恢复。`,
+    confirmText: '移除并删除',
+    danger: true,
+  });
+  if (!accepted) return;
+  try {
+    const result = await workspaceStore.remove(workspace.workspace_id, { deleteSessions: true });
+    const deletedIds = result?.deleted_session_ids ?? [];
+    deletedIds.forEach((id) => sessionListStore.remove(id));
+    void sessionListStore.loadFacets().catch(() => undefined);
+    // 项目分组视图整组消失，刷新预览与游标
+    if (workspaceStore.browserView === SESSION_BROWSER_VIEWS.PROJECT) {
+      void sessionListStore.loadWorkspacePreview().catch(() => undefined);
+    }
+    if (activeSessionId.value && deletedIds.includes(activeSessionId.value)) {
+      await startNewChat();
+    }
+    const failedCount = result?.failed?.length ?? 0;
+    if (failedCount > 0) {
+      showToast(`已移除项目，删除 ${deletedIds.length} 个会话，${failedCount} 个会话无权限删除`);
+    } else {
+      showToast(`已移除项目并删除 ${deletedIds.length} 个会话`, 'success');
     }
   } catch (error) {
     showToast(error.message || '项目移除失败');
