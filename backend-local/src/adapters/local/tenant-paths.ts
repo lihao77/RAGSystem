@@ -20,7 +20,6 @@ export class TenantPaths {
   sessionRoot(sessionId: string): string { return path.join(this.dataRoot, "sessions", sessionId); }
   sessionWorkspace(sessionId: string): string { return path.join(this.sessionRoot(sessionId), "workspace"); }
   sessionUploads(sessionId: string): string { return path.join(this.sessionRoot(sessionId), "uploads"); }
-  sessionSandbox(sessionId: string): string { return path.join(this.sessionRoot(sessionId), "sandbox"); }
   fileHistorySession(sessionId: string): string { return path.join(this.dataRoot, "file-history", sessionId); }
   configApp(): string { return path.join(this.dataRoot, "config", "app", "config.yaml"); }
   configMcp(): string { return path.join(this.dataRoot, "config", "mcp", "mcp_servers.yaml"); }
