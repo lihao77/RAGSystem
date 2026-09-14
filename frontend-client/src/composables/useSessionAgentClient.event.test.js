@@ -15,7 +15,7 @@ function createAssistantMessage(overrides = {}) {
     role: 'assistant',
     content: '',
     status: [],
-    executionTree: { root: null, steps: [] },
+    executionTree: { root: null },
     _execState: null,
     finished: false,
     metadata: {},
@@ -313,7 +313,7 @@ test('已送达但由顶层处理的事件会推进 seq，避免后续输出误�
     attachments: [],
     status: [],
     finished: false,
-    executionTree: { root: null, steps: [] },
+    executionTree: { root: null },
     _execState: null,
   }, createAssistantMessage()];
   deps.activeRun.assistantMsgIndex = 1;
@@ -778,7 +778,7 @@ test('首发消息在 run_started 后由消费事件回填且不重复插入', (
 test('边界事件不会搬运 active assistant 的实时执行树', () => {
   const { deps } = createDeps();
   const carrier = createAssistantMessage({ content: '已有工具输出' });
-  carrier.executionTree = { root: { callId: 'root-call' }, steps: [] };
+  carrier.executionTree = { root: { callId: 'root-call' } };
   deps.messages.value = [carrier];
   Object.assign(deps.activeRun, { active: true, assistantMsgIndex: 0, runId: 'run-1' });
 
@@ -1899,7 +1899,7 @@ test('stream_output(delta) 追加内容并在缺少 first token 事件时兜底 
     attachments: [],
     status: [],
     finished: false,
-    executionTree: { root: null, steps: [] },
+    executionTree: { root: null },
     _execState: null,
   }, createAssistantMessage()];
   deps.activeRun.active = true;

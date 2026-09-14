@@ -91,7 +91,7 @@ export class RagChatClient {
   private readonly eventEmitter = new RagChatEventEmitter();
   private readonly fallbackStatus = new ObservableValue<ConnectionStatus>({ state: "idle" });
   private readonly fallbackEvents = new EventStream();
-  private readonly fallbackTree = new ObservableValue<ExecutionTree>({ root: null, steps: [] });
+  private readonly fallbackTree = new ObservableValue<ExecutionTree>({ root: null });
   private readonly fallbackRuntime = new ObservableValue<SessionRuntimePayload>(EMPTY_RUNTIME);
   private readonly fallbackRunStatus = new ObservableValue<RunStatus>({ runId: null, state: "idle" });
   private readonly fallbackPending = new ObservableValue<PendingInteraction[]>([]);
@@ -511,7 +511,7 @@ export class RagChatClient {
     this.sessionClient = null;
     this.sessionIdValue = null;
     this.interactionRequests.clear();
-    this.fallbackTree.set({ root: null, steps: [] });
+    this.fallbackTree.set({ root: null });
     this.fallbackRuntime.set(EMPTY_RUNTIME);
     this.fallbackRunStatus.set({ runId: null, state: "idle" });
     this.fallbackPending.set([]);

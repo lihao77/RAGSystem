@@ -212,7 +212,7 @@ test('participant history reconciliation preserves a real user execution boundar
     run_id: 'child-run-live',
     content: '继续处理',
     has_execution: true,
-    executionTree: { root: { agentId: 'worker', rounds: [] }, steps: [] },
+    executionTree: { root: { agentId: 'worker', rounds: [] } },
     _execState: { live: true },
     metadata: { run_id: 'child-run-live', child_agent_id: 'child-1' },
   });

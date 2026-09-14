@@ -20,7 +20,7 @@ export const createUserMessage = (content, attachments, metadata = {}) => ({
   attachments,
   finished: true,
   has_execution: false,
-  executionTree: { root: null, steps: [] },
+  executionTree: { root: null },
   executionStepsLoaded: false,
   executionStepsLoading: false,
   executionStepsLoadError: '',

@@ -226,7 +226,6 @@ test('回滚接口返回前已收到流式事件时保留执行树投影', async
         streamedAssistant.content = 'partial output';
         streamedAssistant.executionTree = {
           root: { callId: 'call-root', status: 'running' },
-          steps: [{ type: 'tool_call', callId: 'call-tool' }],
         };
         deps.messages.value = [
           { role: 'user', id: 'msg-retry', seq: 1, content: 'question', metadata: { request_id: options.requestId } },
@@ -258,7 +257,7 @@ test('回滚接口返回前已收到流式事件时保留执行树投影', async
   assert.ok(streamedAssistant);
   const projectedAssistant = deps.messages.value.at(-1);
   assert.equal(projectedAssistant.content, 'partial output');
-  assert.deepEqual(projectedAssistant.executionTree.steps, [{ type: 'tool_call', callId: 'call-tool' }]);
+  assert.deepEqual(projectedAssistant.executionTree.root, { callId: 'call-root', status: 'running' });
   assert.equal(projectedAssistant.run_id, 'run-retry');
   assert.equal(activeRun.runId, 'run-retry');
   assert.equal(activeRun.active, true);

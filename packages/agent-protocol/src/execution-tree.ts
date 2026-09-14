@@ -31,7 +31,6 @@ export interface ExecutionTreeState {
   agentsByCallId: Map<string, ExecutionAgent>;
   toolsByCallId: Map<string, ExecutionToolCall>;
   pendingAgentsByParent: Map<string, ExecutionAgent[]>;
-  raw: Envelope[];
 }
 
 export function createExecutionTreeState(): ExecutionTreeState {
@@ -39,7 +38,6 @@ export function createExecutionTreeState(): ExecutionTreeState {
     agentsByCallId: new Map(),
     toolsByCallId: new Map(),
     pendingAgentsByParent: new Map(),
-    raw: [],
   };
 }
 
@@ -420,7 +418,6 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
 
 /** 将一条 envelope 投影进状态机。 */
 export function applyEnvelope(state: ExecutionTreeState, env: Envelope): void {
-  state.raw.push(env);
   const payload = asRecord(env.payload);
   switch (env.type) {
     case "agent_started": {
@@ -502,12 +499,12 @@ export function applyEnvelope(state: ExecutionTreeState, env: Envelope): void {
 export function buildExecutionTree(envs: Iterable<Envelope>): ExecutionTree {
   const state = createExecutionTreeState();
   for (const env of envs) applyEnvelope(state, env);
-  return { root: resolveRoot(state), steps: state.raw };
+  return { root: resolveRoot(state) };
 }
 
 /** 从已增量投影的 state 取当前执行树（applyEnvelope 后调用，无需重建）。 */
 export function getExecutionTree(state: ExecutionTreeState): ExecutionTree {
-  return { root: resolveRoot(state), steps: state.raw };
+  return { root: resolveRoot(state) };
 }
 
 /** 选 root：优先无 parent_call_id 的 agent；全都有 parent 时回退隐式 root。 */

@@ -60,7 +60,7 @@ test('historical child execution loads by its real message boundary', async () =
     run_id: 'child-run',
     child_agent_id: 'child-1',
     has_execution: true,
-    executionTree: { root: null, steps: [] },
+    executionTree: { root: null },
   };
   const execution = useMessageExecution({
     currentSessionId: ref('session-1'),
@@ -102,7 +102,7 @@ test('root agent result uses its target thread instead of source child metadata'
       consumed_by_run_id: 'root-run',
     },
     has_execution: true,
-    executionTree: { root: null, steps: [] },
+    executionTree: { root: null },
   };
   const execution = useMessageExecution({
     currentSessionId: ref('session-1'),
@@ -176,7 +176,7 @@ test('child envelopes project onto the durable boundary while the run carrier st
     run_id: 'child-run',
     child_agent_id: 'child-1',
     has_execution: true,
-    executionTree: { root: null, steps: [] },
+    executionTree: { root: null },
   });
   participantMessages.value = { 'child-1': [durableMessage, afterStart[0]] };
   await nextTick();
@@ -374,7 +374,7 @@ test('child execution events keep a durable user boundary finished like the root
     child_agent_id: 'child-1',
     finished: true,
     has_execution: true,
-    executionTree: { root: null, steps: [] },
+    executionTree: { root: null },
   });
   useMessageExecution({
     currentSessionId: ref('session-1'),
@@ -405,7 +405,7 @@ test('child projection removes only the external parent of its Run root', async 
     run_id: 'child-run',
     child_agent_id: 'child-1',
     has_execution: true,
-    executionTree: { root: null, steps: [] },
+    executionTree: { root: null },
   };
   const envelopes = [
     childStarted({
@@ -443,7 +443,7 @@ test('child message boundary beginning at model_request does not create an exter
     run_id: 'child-run',
     child_agent_id: 'child-1',
     has_execution: true,
-    executionTree: { root: null, steps: [] },
+    executionTree: { root: null },
   };
   const execution = useMessageExecution({
     currentSessionId: ref('session-1'),
@@ -604,4 +604,109 @@ test('root-targeted agent messages upsert a realtime root conversation message',
   assert.equal(synced[0].message.id, 'mailbox-root');
   assert.equal(synced[0].message.run_id, null);
   assert.equal(synced[0].message.metadata.mailbox_kind, 'result');
+});
+
+test('streaming deltas coalesce into one rAF publish per frame', () => {
+  const message = reactive({
+    role: 'user',
+    id: 'child-message',
+    run_id: 'child-run',
+    child_agent_id: 'child-1',
+    has_execution: true,
+    executionTree: { root: null },
+  });
+  const execution = useMessageExecution({
+    currentSessionId: ref('session-1'),
+    selectedParticipantId: ref('child-1'),
+    participantMessages: ref({ 'child-1': [message] }),
+    activeRun: { runId: 'root-run', rootCallId: 'root-call' },
+    chatSdkClient: { on() { return () => {}; } },
+  });
+
+  const reasoningDelta = content => ({
+    type: 'stream_output',
+    session_id: 'session-1',
+    run_id: 'child-run',
+    call_id: 'child-call',
+    payload: { phase: 'reasoning_delta', content, round: 0 },
+  });
+
+  const rafCallbacks = [];
+  let rafCount = 0;
+  const originalRaf = globalThis.requestAnimationFrame;
+  const originalCancelRaf = globalThis.cancelAnimationFrame;
+  globalThis.requestAnimationFrame = cb => { rafCount += 1; rafCallbacks.push(cb); return rafCount; };
+  globalThis.cancelAnimationFrame = () => {};
+  try {
+    execution.applyEnvelopeToMessage(message, childStarted());
+    // 高频 delta 只入队：一帧内多次到达只请求一次 rAF，树在冲刷前保持上一发布态。
+    execution.applyEnvelopeToMessage(message, reasoningDelta('先'));
+    execution.applyEnvelopeToMessage(message, reasoningDelta('想'));
+    execution.applyEnvelopeToMessage(message, reasoningDelta('一步'));
+    assert.equal(rafCount, 1);
+    assert.equal(message.executionTree.root.rounds.length, 0);
+
+    rafCallbacks.shift()();
+    assert.equal(message.executionTree.root.rounds[0].reasoning, '先想一步');
+
+    // 冲刷后再次流式会重新排帧，而不是复用已消费的回调。
+    execution.applyEnvelopeToMessage(message, reasoningDelta('。'));
+    assert.equal(rafCount, 2);
+    rafCallbacks.shift()();
+    assert.equal(message.executionTree.root.rounds[0].reasoning, '先想一步。');
+  } finally {
+    globalThis.requestAnimationFrame = originalRaf;
+    globalThis.cancelAnimationFrame = originalCancelRaf;
+  }
+});
+
+test('non-delta events flush queued deltas first to preserve tree order', () => {
+  const message = reactive({
+    role: 'user',
+    id: 'child-message',
+    run_id: 'child-run',
+    child_agent_id: 'child-1',
+    has_execution: true,
+    executionTree: { root: null },
+  });
+  const execution = useMessageExecution({
+    currentSessionId: ref('session-1'),
+    selectedParticipantId: ref('child-1'),
+    participantMessages: ref({ 'child-1': [message] }),
+    activeRun: { runId: 'root-run', rootCallId: 'root-call' },
+    chatSdkClient: { on() { return () => {}; } },
+  });
+
+  const rafCallbacks = [];
+  const originalRaf = globalThis.requestAnimationFrame;
+  const originalCancelRaf = globalThis.cancelAnimationFrame;
+  globalThis.requestAnimationFrame = cb => { rafCallbacks.push(cb); return rafCallbacks.length; };
+  globalThis.cancelAnimationFrame = () => {};
+  try {
+    const textDelta = content => ({
+      type: 'stream_output',
+      session_id: 'session-1',
+      run_id: 'child-run',
+      call_id: 'child-call',
+      payload: { phase: 'delta', content, round: 0 },
+    });
+    execution.applyEnvelopeToMessage(message, childStarted());
+    execution.applyEnvelopeToMessage(message, textDelta('正在'));
+    execution.applyEnvelopeToMessage(message, textDelta('检查'));
+    // tool_call 立即落地：必须先冲刷同帧排队的 delta，工具才能挂在文本之后。
+    execution.applyEnvelopeToMessage(message, childToolCall());
+
+    assert.equal(message.executionTree.root.rounds[0].text, '正在检查');
+    assert.equal(message.executionTree.root.rounds[0].toolCalls[0].callId, 'tool-1');
+    // 新 delta 只入队不落地；被消费过的帧回调已失效，需重新排帧。
+    execution.applyEnvelopeToMessage(message, textDelta('！'));
+    assert.equal(message.executionTree.root.rounds.length, 1);
+    rafCallbacks.shift()();
+    // 工具之后的正文增量按 ReAct 语义开启新轮，且顺序在工具之后。
+    assert.equal(message.executionTree.root.rounds[1].text, '！');
+    assert.equal(message.executionTree.root.rounds[0].toolCalls[0].callId, 'tool-1');
+  } finally {
+    globalThis.requestAnimationFrame = originalRaf;
+    globalThis.cancelAnimationFrame = originalCancelRaf;
+  }
 });

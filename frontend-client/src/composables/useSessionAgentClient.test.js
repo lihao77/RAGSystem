@@ -18,7 +18,7 @@ function createConnectionDeps(chatSdkClient) {
     isCompressing,
     activeRun: sessionRunStore.activeRun,
     createAssistantMessage: () => ({
-      role: 'assistant', content: '', status: [], executionTree: { root: null, steps: [] }, finished: false, metadata: {},
+      role: 'assistant', content: '', status: [], executionTree: { root: null }, finished: false, metadata: {},
     }),
     cacheMessages: noop,
     deleteMessageCache: noop,

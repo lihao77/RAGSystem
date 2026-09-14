@@ -201,10 +201,8 @@ export interface ExecutionAgent {
 
 /** SDK 消费事件流后产出的执行树投影（消费 tool_call/tool_result/stream_output/agent_started/agent_ended）。 */
 export interface ExecutionTree {
-  /** root 执行体（orchestrator agent）；无事件时为 null。 */
+  /** root 执行体（orchestrator agent）；无事件时为 null。原始帧流不随树保留（历史回放走 getMessageExecution）。 */
   root: ExecutionAgent | null;
-  /** 扁平原始帧流，保留顺序（供调试 / 自定义渲染）。 */
-  steps: Envelope[];
 }
 
 /**

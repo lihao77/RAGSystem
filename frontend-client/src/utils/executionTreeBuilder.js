@@ -181,7 +181,7 @@ function buildAgentChildren(agent, consumedChildIds) {
 }
 
 /**
- * @param {Object} executionTree - core ExecutionTree { root: ExecutionAgent|null, steps }
+ * @param {Object} executionTree - core ExecutionTree { root: ExecutionAgent|null }
  * @returns {Array} TreeNode[]
  */
 export function buildExecutionTree(executionTree) {

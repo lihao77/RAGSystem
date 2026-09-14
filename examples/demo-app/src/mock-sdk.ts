@@ -72,7 +72,7 @@ export class MockAgentClient implements AgentClient {
 
   readonly status = new Box<ConnectionStatus>({ state: "idle" });
   readonly events = new Box<Envelope>(PLACEHOLDER_ENVELOPE);
-  readonly executionTree = new Box<ExecutionTree>({ root: null, steps: [] });
+  readonly executionTree = new Box<ExecutionTree>({ root: null });
   readonly runtime = new Box<SessionRuntimePayload>(EMPTY_RUNTIME);
   readonly runStatus = new Box<RunStatus>({ runId: null, state: "idle" });
   readonly pendingInteractions = new Box<PendingInteraction[]>([]);

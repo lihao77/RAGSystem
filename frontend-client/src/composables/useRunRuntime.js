@@ -298,7 +298,7 @@ export function useRunRuntime(deps) {
     const currentMsg = messages.value[activeRun.assistantMsgIndex];
     if (!currentMsg || (runId && messageRunId(currentMsg) && messageRunId(currentMsg) !== runId)) return;
     currentMsg.content = '';
-    currentMsg.executionTree = { root: null, steps: [] };
+    currentMsg.executionTree = { root: null };
     currentMsg._execState = null;
     currentMsg.has_execution = false;
     currentMsg.finished = false;

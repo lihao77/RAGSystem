@@ -190,7 +190,7 @@ export function useSessionMessages(deps) {
             content_parts: agentMessage ? [{ type: 'text', text: content }] : contentParts,
             finished: true,
             has_execution: Boolean(item.has_execution),
-            executionTree: { root: null, steps: [] },
+            executionTree: { root: null },
             executionStepsLoaded: false,
             executionStepsLoading: false,
             executionStepsLoadError: '',

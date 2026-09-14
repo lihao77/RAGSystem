@@ -791,7 +791,6 @@ describe("agent-protocol plugin_event extension frame", () => {
       payload: { plugin_id: "image-tools", event: "vision.progress", data: { percent: 40 } },
     }));
     expect(getExecutionTree(state).root).toBeNull();
-    expect(getExecutionTree(state).steps).toHaveLength(1);
   });
 });
 

@@ -11,7 +11,7 @@ export const createAssistantMessage = (overrides = {}) => ({
   role: 'assistant',
   content: '',
   content_parts: [],
-  executionTree: { root: null, steps: [] },
+  executionTree: { root: null },
   status: [],
   finished: false,
   has_execution: false,
@@ -81,7 +81,7 @@ const createAgentMessageFromEvent = (event, participantId, consumedUserMessage =
     content_parts: [{ type: 'text', text: content }],
     finished: true,
     has_execution: false,
-    executionTree: { root: null, steps: [] },
+    executionTree: { root: null },
     executionStepsLoaded: false,
     executionStepsLoading: false,
     executionStepsLoadError: '',
@@ -110,7 +110,7 @@ const executionTreeHasContent = (executionTree) => Boolean(executionTree?.root);
 export const normalizeAssistantExecutionState = (msg) => {
   if (!msg || (msg.role !== 'assistant' && msg.role !== 'user')) return msg;
   const metadata = msg.metadata || {};
-  if (!msg.executionTree) msg.executionTree = { root: null, steps: [] };
+  if (!msg.executionTree) msg.executionTree = { root: null };
   if (msg._execState === undefined) msg._execState = null;
   // run_id 仅用于路由；不能把服务端明确的无执行内容重新水合成懒加载入口。
   msg.has_execution = Boolean(
@@ -211,11 +211,60 @@ export function useMessageExecution(deps) {
   };
 
   // 实时投影：把一条 Envelope 喂进 core 状态机，刷新 msg.executionTree。
-  const applyEnvelopeToMessage = (msg, envelope) => {
+  // 流式高频帧（正文/思考 delta）按动画帧合批：每个 rAF 只 apply + 发布一次执行树，
+  // 避免逐 delta 触发整棵执行视图重建与重渲染（思考块 DOM 文本本身已是 rAF 尾追加，
+  // 见 AssistantExecutionNode）。非 delta 事件（final/tool/agent 边界等）到达时先同步
+  // 冲刷该消息的待投队列再落地，保证树内事件相对顺序不变；会话切换与作用域销毁同样
+  // 冲刷/丢弃。无 rAF 环境（node 测试）退化为同步直投，调用方的同步断言语义不变。
+  const DEFERRED_STREAM_PHASES = new Set(['delta', 'reasoning_delta']);
+  const pendingStreamEvents = new Map();
+  let streamFlushRaf = 0;
+
+  const publishExecutionTree = (msg) => {
+    msg.executionTree = getExecutionTree(msg._execState);
+    if (executionTreeHasContent(msg.executionTree)) msg.has_execution = true;
+  };
+  const applyProjectedEnvelope = (msg, envelope) => {
     const state = ensureExecutionTreeState(msg);
     applyEnvelope(state, projectEnvelopeForMessage(msg, envelope));
-    msg.executionTree = getExecutionTree(state);
-    if (executionTreeHasContent(msg.executionTree)) msg.has_execution = true;
+  };
+  const flushMessageStreamEvents = (msg) => {
+    const queued = pendingStreamEvents.get(msg);
+    if (!queued) return;
+    pendingStreamEvents.delete(msg);
+    for (const envelope of queued) applyProjectedEnvelope(msg, envelope);
+    publishExecutionTree(msg);
+  };
+  const flushAllStreamEvents = () => {
+    for (const msg of [...pendingStreamEvents.keys()]) flushMessageStreamEvents(msg);
+  };
+  const cancelScheduledStreamFlush = () => {
+    if (!streamFlushRaf) return;
+    if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(streamFlushRaf);
+    streamFlushRaf = 0;
+  };
+  const scheduleStreamFlush = () => {
+    if (streamFlushRaf) return;
+    if (typeof requestAnimationFrame !== 'function') {
+      flushAllStreamEvents();
+      return;
+    }
+    streamFlushRaf = requestAnimationFrame(() => {
+      streamFlushRaf = 0;
+      flushAllStreamEvents();
+    });
+  };
+
+  const applyEnvelopeToMessage = (msg, envelope) => {
+    if (envelope?.type === 'stream_output' && DEFERRED_STREAM_PHASES.has(envelope.payload?.phase)) {
+      const queued = pendingStreamEvents.get(msg) || [];
+      queued.push(envelope);
+      pendingStreamEvents.set(msg, queued);
+      return scheduleStreamFlush();
+    }
+    flushMessageStreamEvents(msg);
+    applyProjectedEnvelope(msg, envelope);
+    publishExecutionTree(msg);
   };
 
   const ensureExecutionStepsLoaded = async (msg) => {
@@ -239,6 +288,8 @@ export function useMessageExecution(deps) {
       if (deps.currentSessionId.value !== sessionId) return;
       const payload = result?.data || result;
       const envelopes = Array.isArray(payload?.items) ? payload.items : [];
+      // 历史回放整树重建：丢弃该消息在途的流式 delta 队列（回放 envelopes 已含其内容）。
+      pendingStreamEvents.delete(msg);
       const state = createExecutionTreeState();
       for (const env of envelopes) applyEnvelope(state, projectEnvelopeForMessage(msg, env));
       msg.executionTree = getExecutionTree(state);
@@ -407,8 +458,12 @@ export function useMessageExecution(deps) {
     participantByRun.clear();
     pendingEnvelopesByRun.clear();
     seenEnvelopeIds.clear();
+    cancelScheduledStreamFlush();
+    pendingStreamEvents.clear();
   });
   if (getCurrentScope()) onScopeDispose(() => {
+    cancelScheduledStreamFlush();
+    flushAllStreamEvents();
     unsubscribe?.();
   });
 
@@ -421,7 +476,7 @@ export function useMessageExecution(deps) {
       seq: item.seq,
       content: partsToPlainText(item.content_parts),
       content_parts: Array.isArray(item.content_parts) ? item.content_parts : [],
-      executionTree: { root: null, steps: [] },
+      executionTree: { root: null },
       status: item.status || [],
       finished: true,
       stopped: interrupted,
@@ -477,6 +532,7 @@ export function useMessageExecution(deps) {
     hasExecutionContent,
     ensureExecutionTreeState,
     applyEnvelopeToMessage,
+    flushMessageExecution: flushAllStreamEvents,
     ensureExecutionStepsLoaded,
     createAssistantMessageFromHistory,
     isRootEvent,

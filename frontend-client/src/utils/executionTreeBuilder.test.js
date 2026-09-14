@@ -28,7 +28,6 @@ const treeWith = (toolCalls, children) => ({
     rounds: [{ round: 0, intent: 'delegate', toolCalls }],
     children,
   },
-  steps: [],
 });
 
 test('keeps repeated delegation tools and links children by invocation call id', () => {

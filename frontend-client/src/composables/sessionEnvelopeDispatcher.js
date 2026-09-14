@@ -888,7 +888,7 @@ export function createSessionEnvelopeDispatcher({
         finished: false,
         status: [],
         metadata: {},
-        executionTree: { root: null, steps: [] },
+        executionTree: { root: null },
       }, sessionId);
     }
   };

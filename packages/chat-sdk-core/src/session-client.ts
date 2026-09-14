@@ -167,7 +167,7 @@ export class SessionAgentClient implements AgentClient {
     this.cancelAguiRun = options.cancelAguiRun;
     this.statusValue = new ObservableValue<ConnectionStatus>({ state: "idle" });
     this.eventsValue = new EventStream();
-    this.treeValue = new ObservableValue<ExecutionTree>({ root: null, steps: [] });
+    this.treeValue = new ObservableValue<ExecutionTree>({ root: null });
     this.runtimeValue = new ObservableValue<SessionRuntimePayload>(emptyRuntimeSnapshot());
     this.runStatusValue = new ObservableValue<RunStatus>({ runId: null, state: "idle" });
     this.pendingValue = new ObservableValue<PendingInteraction[]>([]);
