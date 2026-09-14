@@ -4,7 +4,7 @@
       <button
         type="button"
         class="ta-trigger"
-        :class="{ open: menuOpen, disabled: disabled }"
+        :class="{ open: menuOpen, disabled: disabled, field: variant === 'field', placeholder: isPlaceholder }"
         :disabled="disabled"
         :title="displayText"
       >
@@ -12,7 +12,11 @@
         <IconChevronDown class="arrow-icon" :class="{ rotate: menuOpen }" :size="14" />
       </button>
     </DropdownMenuTrigger>
-    <DropdownMenuContent class="ta-menu" align="start" side="top" :side-offset="8">
+    <DropdownMenuContent class="ta-menu" align="start" :side="side" :side-offset="8">
+      <DropdownMenuItem v-if="allowDefault" class="ta-agent" @select="selectDefault">
+        <span class="ta-agent-label">默认</span>
+        <IconCheck v-if="!team" :size="14" class="ta-check" />
+      </DropdownMenuItem>
       <DropdownMenuSub
         v-for="t in teamOptions"
         :key="t.value"
@@ -66,6 +70,12 @@ const props = defineProps({
   teamOptions: { type: Array, default: () => [] },
   teamLoading: { type: Boolean, default: false },
   entryAgent: { type: String, default: '' },
+  /** ghost=聊天底栏透明样式；field=表单控件样式（带边框、撑满宽度）。 */
+  variant: { type: String, default: 'ghost' },
+  /** 菜单相对触发器的弹出方向（聊天底栏在底部用 top，表单里用 bottom）。 */
+  side: { type: String, default: 'top' },
+  /** 是否提供「默认（跟随当前激活团队）」清空选项；定时任务等场景保留 team=null 语义。 */
+  allowDefault: { type: Boolean, default: false },
 });
 
 const emit = defineEmits(['update:selection']);
@@ -113,12 +123,18 @@ const agentLabel = (items, value) => items.find(item => item.value === value)?.l
 const displayText = computed(() => {
   if (props.teamLoading) return '加载 Team…';
   const team = props.team.trim();
-  if (!team) return '选择 Team / Agent';
+  if (!team) {
+    if (props.entryAgent) return `默认团队 / ${props.entryAgent}`;
+    return props.allowDefault ? '默认' : '选择 Team / Agent';
+  }
   const items = teamState(team).items;
   if (props.entryAgent) return `${team} / ${agentLabel(items, props.entryAgent)}`;
   const defaultEntry = items.find(item => item.defaultEntry);
   return `${team} / ${defaultEntry ? defaultEntry.label : '默认 Agent'}`;
 });
+
+// 未落到具体 team/agent 时按 placeholder 弱化显示
+const isPlaceholder = computed(() => !props.teamLoading && !props.team.trim() && !props.entryAgent);
 
 const disabled = computed(() => props.teamLoading || props.teamOptions.length === 0);
 
@@ -132,6 +148,12 @@ const selectTeam = (team) => {
 
 const selectAgent = (team, entryAgent) => {
   emit('update:selection', { team, entryAgent });
+  menuOpen.value = false;
+};
+
+// 回到 team=null / entry_agent=null：运行期由后端解析租户当前激活团队及其默认入口 Agent
+const selectDefault = () => {
+  emit('update:selection', { team: '', entryAgent: '' });
   menuOpen.value = false;
 };
 
@@ -193,6 +215,33 @@ watch(() => props.team, (team) => { void ensureTeamAgents(team); }, { immediate:
 .ta-trigger.disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+/* field 变体：表单控件样式（定时任务等 Dialog 表单），对齐 CustomSelect 触发器 token */
+.ta-trigger.field {
+  width: 100%;
+  max-width: none;
+  height: var(--control-height-md);
+  padding: 0 30px 0 12px;
+  border-color: var(--color-border);
+  background: var(--color-bg-elevated);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+}
+
+.ta-trigger.field:hover:not(.disabled) {
+  border-color: var(--color-border-hover);
+}
+
+.ta-trigger.field.open,
+.ta-trigger.field:focus-visible {
+  border-color: var(--color-brand-accent);
+  background: var(--color-bg-elevated);
+  box-shadow: 0 0 0 3px rgba(var(--color-brand-accent-rgb), 0.12);
+}
+
+.ta-trigger.field.placeholder .selected-text {
+  color: var(--color-text-muted);
 }
 
 .selected-text {

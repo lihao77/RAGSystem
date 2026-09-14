@@ -111,8 +111,17 @@
             <Textarea id="scheduler-task" v-model="form.task" rows="4" placeholder="到点交给 Agent 执行的任务描述" />
           </div>
           <div class="form-item">
-            <label>入口 Agent</label>
-            <CustomSelect v-model="form.entry_agent" :options="agentOptions" :disabled="agentLoading" placeholder="使用默认 Agent" />
+            <label>团队 / 入口 Agent</label>
+            <TeamAgentSelector
+              :team="form.team"
+              :team-options="teamOptions"
+              :team-loading="teamLoading"
+              :entry-agent="form.entry_agent"
+              variant="field"
+              side="bottom"
+              allow-default
+              @update:selection="onTeamAgentSelection"
+            />
           </div>
           <div class="form-item">
             <label>权限模式</label>
@@ -183,11 +192,12 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue';
+import { onMounted, reactive, ref } from 'vue';
 import { History, RefreshCw } from 'lucide-vue-next';
 import PageLayout from '../components/PageLayout.vue';
 import EmptyState from '../components/EmptyState.vue';
 import CustomSelect from '../components/ui/CustomSelect.vue';
+import TeamAgentSelector from '../components/chat/TeamAgentSelector.vue';
 import IconEdit from '../components/icons/IconEdit.vue';
 import IconPlay from '../components/icons/IconPlay.vue';
 import IconPlus from '../components/icons/IconPlus.vue';
@@ -211,8 +221,9 @@ const { confirm } = useConfirm();
 const dictStore = useDictionariesStore();
 
 const tasks = ref([]);
-const agentNames = ref([]);
-const agentLoading = ref(false);
+const teamOptions = ref([]);
+const teamLoading = ref(false);
+const activeTeam = ref('');
 const loadError = ref('');
 const editDialogOpen = ref(false);
 const historyDialogOpen = ref(false);
@@ -224,10 +235,6 @@ const triggerBusyId = ref('');
 
 const form = reactive(createEmptyForm());
 
-const agentOptions = computed(() => [
-  { value: '', label: '使用默认 Agent' },
-  ...agentNames.value.map(name => ({ value: name, label: name })),
-]);
 const permissionModeOptions = [
   { value: 'standard', label: '标准（中高风险需审批）' },
   { value: 'relaxed', label: '宽松（自动化推荐）' },
@@ -240,7 +247,7 @@ const deliveryChannelOptions = [
 
 function createEmptyForm() {
   return {
-    task_id: '', cron: '0 9 * * 1-5', task: '', entry_agent: '', permission_mode: 'relaxed',
+    task_id: '', cron: '0 9 * * 1-5', task: '', team: '', entry_agent: '', permission_mode: 'relaxed',
     session_id: '', delivery_channel: '', delivery_target: '', delivery_bot_id: '', enabled: true,
   };
 }
@@ -254,16 +261,25 @@ const loadAction = useAsyncAction(async () => {
   }
 });
 
-const loadAgents = async () => {
-  agentLoading.value = true;
+const loadTeams = async () => {
+  teamLoading.value = true;
   try {
-    const configs = await dictStore.ensureAgents();
-    agentNames.value = Object.keys(configs || {});
+    const result = await dictStore.ensureTeams();
+    const teams = Array.isArray(result?.teams) ? result.teams : [];
+    activeTeam.value = result?.active_team || '';
+    teamOptions.value = teams.map(team => {
+      const isActive = team.team_name === activeTeam.value;
+      return {
+        value: team.team_name,
+        label: isActive ? `${team.team_name}（默认）` : team.team_name,
+        isActive,
+      };
+    });
   } catch (error) {
-    console.warn('加载 Agent 列表失败:', error);
-    agentNames.value = [];
+    console.warn('加载 Team 列表失败:', error);
+    teamOptions.value = [];
   } finally {
-    agentLoading.value = false;
+    teamLoading.value = false;
   }
 };
 
@@ -321,7 +337,7 @@ async function toggleEnabled(task, value) {
 
 function openCreate() {
   editingTaskId.value = '';
-  Object.assign(form, createEmptyForm());
+  Object.assign(form, createEmptyForm(), { team: activeTeam.value || '' });
   editDialogOpen.value = true;
 }
 
@@ -331,6 +347,7 @@ function openEdit(task) {
     task_id: task.task_id,
     cron: task.cron,
     task: task.task,
+    team: task.team || '',
     entry_agent: task.entry_agent || '',
     permission_mode: task.permission_mode || 'relaxed',
     session_id: task.session_id || '',
@@ -353,12 +370,18 @@ function buildPayload() {
   return {
     cron: form.cron.trim(),
     task: form.task.trim(),
+    team: form.team.trim() || null,
     entry_agent: form.entry_agent || null,
     permission_mode: form.permission_mode || 'relaxed',
     session_id: form.session_id.trim() || null,
     delivery,
     enabled: Boolean(form.enabled),
   };
+}
+
+function onTeamAgentSelection({ team, entryAgent }) {
+  form.team = team || '';
+  form.entry_agent = entryAgent || '';
 }
 
 function resultSummary(task) {
@@ -373,7 +396,7 @@ function formatRunTime(unixSeconds) {
 
 onMounted(() => {
   void loadAction.run();
-  void loadAgents();
+  void loadTeams();
 });
 </script>
 
