@@ -139,6 +139,9 @@ function stripInternalMessageFields(message: LlmRequest["messages"][number]): Re
   const {
     reasoning_blocks: _reasoningBlocks,
     provider_continuation,
+    // name（tool 消息的工具名）是 OpenAI 已弃用的可选字段，调用关联靠 tool_call_id 即可；
+    // 严格网关（opencode Console Go 等）对其直接 400，统一不下发。Gemini 原生方言仍需该值，仅在彼处消费。
+    name: _name,
     ...wireMessage
   } = message;
   const assistantFields = message.role === "assistant" && provider_continuation?.protocol === "openai_chat"

@@ -320,6 +320,22 @@ test("OpenAI chat 兼容通道循环内每条 assistant 各自回显 reasoning �
   assert.equal("provider_continuation" in assistants[1], false);
 });
 
+test("tool 消息的 name 字段不进 wire（弃用的可选字段，严格网关 400），tool_call_id 保留", () => {
+  const body = buildChatBody({
+    provider: { key: "oc", name: "Console Go", provider_type: "openai_chat", api_key: "k" },
+    model: "glm-5.3-flash",
+    messages: [
+      { role: "user", content: "glob the workspace" },
+      { role: "assistant", content: "", tool_calls: [toolCall("call-1")] },
+      { role: "tool", tool_call_id: "call-1", name: "glob", content: "result" },
+    ],
+  });
+
+  const toolMessage = body.messages.find((message) => message.role === "tool");
+  assert.equal(toolMessage.tool_call_id, "call-1");
+  assert.equal("name" in toolMessage, false);
+});
+
 test("codec：纯文字轮 continuation（空 toolCallIds）往返解析", () => {
   const anthropicTextRound = parseProviderContinuationState({
     protocol: "anthropic_messages",
