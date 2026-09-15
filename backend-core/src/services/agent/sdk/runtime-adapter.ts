@@ -8,7 +8,7 @@ import { mailboxRetryBackoffMs } from "../../../contracts/storage/agent-mailbox-
  * deployment-neutral persister 完成 message/run/step/outbox 写入，并翻译 KernelEvent 推送 Envelope。
  */
 import { buildFullSystemPrompt, buildTool, createRuntime, createToolRegistry, estimateTokens, prepareTool, RecoverableInterrupt, resolveToolInstructionMode, throwIfAborted, type CreateRuntimeOptions } from "@ragsystem/agent-sdk";
-import type { Tool, ToolExecContext, ToolExecutionResult, ToolRegistry, MessageRefreshResult, MessageRefresher, KernelResult, KernelEvent } from "@ragsystem/agent-sdk";
+import type { Tool, ToolExecContext, ToolExecutionResult, ToolImageSink, ToolRegistry, MessageRefreshResult, MessageRefresher, KernelResult, KernelEvent } from "@ragsystem/agent-sdk";
 import type { ChatMessage, ThinkingLevel, TokenUsage } from "@ragsystem/agent-llm";
 import { translateKernelEvent, type WireTranslationContext } from "./event-translation.js";
 import type { AsyncTerminalSalvage } from "./async-event-persister.js";
@@ -75,6 +75,8 @@ export interface SdkRuntimeAdapterDeps {
   /** backend 压缩服务（run 内 round.before 触发 + /compact 共用）；A3 压缩外移。 */
   compressionService?: AgentCompressionService;
   sessionFiles?: SessionFileLookupPort | null;
+  /** 工具图片持久化端口（透传 createRuntime；null 时 SDK 走临时文件通道）。 */
+  toolImageSink?: ToolImageSink | null;
   executionEnvironment?: ExecutionEnvironmentCapability | null;
   /** 插件贡献的前置对话 source 工厂（上下文组装时实例化，产物排在 history 之前）。 */
   contextSourceFactories?: readonly BackendContextSourceFactory[];
@@ -969,6 +971,7 @@ export async function executeRunWithSdk(
       deps.hooks?.(hookRegistry);
     },
     ...(waitForToolResult ? { waitForToolResult } : {}),
+    ...(deps.toolImageSink ? { toolImageSink: deps.toolImageSink } : {}),
     emitDelegateCall: (sdkInput) => orderedDelegateCalls.emit(sdkInput),
     refresher,
     onEvent: (event) => {

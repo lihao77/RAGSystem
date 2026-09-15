@@ -6,6 +6,7 @@ import type { BackendRuntimeContributions } from "@ragsystem/backend-core/plugin
 import { CapabilityRegistry } from "@ragsystem/backend-core/plugins/capability-registry.js";
 import { EXECUTION_ENVIRONMENT_CAPABILITY, createSaaSExecutionEnvironment } from "@ragsystem/backend-core/contracts/execution/execution-environment.js";
 import { IMAGE_REQUEST_NORMALIZER_CAPABILITY } from "@ragsystem/backend-core/contracts/images/image-request.js";
+import { SaaSToolImageSink } from "./tool-image-sink.js";
 import { CoreImageRequestNormalizer } from "@ragsystem/backend-core/services/images/image-request-normalizer.js";
 
 import type { RuntimeContainer, SaaSRuntimeContainer } from "@ragsystem/backend-core/contracts/runtime/runtime-container.js";
@@ -79,6 +80,8 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
   });
   const fileHistory = conversationRuntime.createFileHistoryStorage(tenantId);
   const sessionFiles = conversationRuntime.createSessionFileStorage(tenantId);
+  // 工具图片（view_image/MCP/媒体生成等 media）统一走会话附件通道（对象存储）。
+  const toolImageSink = new SaaSToolImageSink(sessionFiles);
   const lifecycle = options.lifecycleEvents
     ? { tenantId, publish: options.lifecycleEvents }
     : null;
@@ -196,6 +199,7 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
     tenantId,
     pluginCapabilities,
     dataRoot,
+    toolImageSink,
     ...(options.logger ? { logger: options.logger } : {}),
     hooks: (registry: HookRegistry) => {
       options.hooks?.(registry);

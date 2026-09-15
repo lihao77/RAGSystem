@@ -69,6 +69,15 @@ create/update 路径复用其中的 `canonicalizeProviderConfig` / `normalizePro
 
 ## 其他持久化机制（不在本清单管辖，列出以免混淆）
 
+- **工具图片引用（tool_result_media 扩展）**：2026-09 起工具图片（view_image/MCP/
+  媒体生成等一切 ToolExecutionResult.media）经消费端注入的 ToolImageSink 存入会话附件
+  通道（与用户上传同管线：持久、随会话清理、投影读取经请求变体归一化），扩展条目在
+  stored_path/mime/original_name 之外**新增可选 file_id**。旧记录无 file_id，且其
+  stored_path 指向的 transient 临时文件随 TTL/重启消失、不可迁移——读取侧
+  （`context/extensions/tool-result-media-projector.ts`）为永久双读守卫：file_id 优先经
+  附件管线读取，缺失或读取失败回退 stored_path 同步磁盘读，再失败降级为文字提示。
+  无注册步骤、无应用戳（投影层读侧守卫，非持久层水合）。
+
 - **发送请求回执**：Local `conversation-store/message-request-ops.ts` 与 SaaS
   `postgres/message-request-hydration.ts` 的永久形态守卫在加载存储时创建缺失的
   `session_message_requests` 表，并补齐半迁移记录表的 content/status/error/updated_at 列，

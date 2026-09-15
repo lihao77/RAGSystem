@@ -11,7 +11,7 @@ import type {
   StreamExecuteRequest,
 } from "../../../contracts/execution/execution.js";
 import type { ModelProviderConfig } from "../../../contracts/integrations/model-adapter.js";
-import type { HookRegistry } from "@ragsystem/agent-sdk";
+import type { HookRegistry, ToolImageSink } from "@ragsystem/agent-sdk";
 import type { BackendToolFactory, BackendContextSourceFactory } from "../../../plugins/backend-plugin.js";
 import type { ExecutionSessionPort } from "../../../contracts/session/session-application.js";
 import type { BackgroundTaskService } from "../../runtime/background-task-service.js";
@@ -102,6 +102,8 @@ export interface AgentExecutionServiceParams {
   goalStore?: GoalStore | null;
   backgroundTasks?: BackgroundTaskService | null;
   sessionFiles?: SessionFileLookupPort | null;
+  /** 工具图片持久化端口（部署注入；null 时工具媒体回退 SDK 临时文件通道）。 */
+  toolImageSink?: ToolImageSink | null;
   outboxDispatcher: Pick<OutboxDispatcher, "dispatchRows">;
   clientEvents: ClientEventPublisher;
  /** 已加载的 provider 列表提供者（SDK 投影层解析 tier.provider 引用用）。 */
@@ -188,6 +190,7 @@ export function createAgentExecutionService(
     params.executionEnvironment ?? null,
     params.systemConfig ?? null,
     params.contextSourceFactories ?? null,
+    params.toolImageSink ?? null,
   );
   const invocationService = new AgentInvocationService(runEngine, statusTracker);
   const launchers = createLaunchers({

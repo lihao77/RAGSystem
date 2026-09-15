@@ -12,6 +12,7 @@ import { CoreImageRequestNormalizer } from "@ragsystem/backend-core/services/ima
 import { FileIndexService } from "../dist/adapters/local/files/file-index-service.js";
 import { ImageRequestVariantStore } from "../dist/adapters/local/files/image-request-variants.js";
 import { LocalSessionFileLookup } from "../dist/adapters/local/files/session-file-lookup.js";
+import { LocalToolImageSink } from "../dist/adapters/local/files/tool-image-sink.js";
 import { LocalSessionFileApplication } from "../dist/adapters/local/application/session-file/local-session-file-application.js";
 
 /* ── 测试夹具 ── */
@@ -349,6 +350,135 @@ test("stale crash-leftover tmp files are swept on the next cache miss", async ()
 
     await lookup.read("session-1", record.id, { imageRequest: policy }); // miss → sweep
     assert.equal(fs.existsSync(stale), false);
+  } finally {
+    files.close();
+    fs.rmSync(dataRoot, { recursive: true, force: true });
+  }
+});
+
+test("tool image sink persists media as session attachments and returns request-adapted bytes", async () => {
+  const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-tool-image-sink-"));
+  const files = new FileIndexService({ dbPath: ":memory:", dataRoot });
+  const sink = new LocalToolImageSink(files, normalizer);
+
+  try {
+    // 小图：原样落盘 + 直通字节
+    const small = await sharp({
+      create: { width: 20, height: 10, channels: 3, background: "#336699" },
+    }).png().toBuffer();
+    const passthrough = await sink.save({
+      bytes: small,
+      mimeType: "image/png",
+      toolName: "mcp_fetch",
+      sessionId: "session-9",
+      name: "icon.png",
+    });
+    assert.ok(passthrough);
+    assert.equal(passthrough.mimeType, "image/png");
+    assert.deepEqual([...passthrough.bytes], [...small]);
+    const record = files.get(passthrough.fileId, "session", "session-9");
+    assert.ok(record, "attachment record must exist in the session file index");
+    assert.equal(record.mime, "image/png");
+    assert.equal(record.original_name, "icon.png");
+    assert.ok(record.stored_path.startsWith(path.join(files.getSessionUploadsRoot("session-9"))));
+
+    // 大图：原始字节落盘，in-band 拿到归一化字节（换码 + 缩放）
+    const big = await noiseImage(3000, 2200, { lossless: false });
+    const adapted = await sink.save({
+      bytes: big,
+      mimeType: "image/jpeg",
+      toolName: "view_image",
+      sessionId: "session-9",
+    });
+    assert.ok(adapted);
+    assert.equal(adapted.storedSize, big.byteLength);
+    assert.ok(adapted.bytes.byteLength < big.byteLength);
+    const meta = await sharp(adapted.bytes).metadata();
+    assert.ok(Math.max(meta.width ?? 0, meta.height ?? 0) <= DEFAULT_IMAGE_REQUEST_POLICY.maxDimension);
+    // 无 name 时用工具名做展示名
+    const named = files.get(adapted.fileId, "session", "session-9");
+    assert.equal(named.original_name, "view_image-image.jpg");
+  } finally {
+    files.close();
+    fs.rmSync(dataRoot, { recursive: true, force: true });
+  }
+});
+
+test("tool image sink dedupes identical bytes per session and re-persists after deletion", async () => {
+  const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-tool-image-sink-"));
+  const files = new FileIndexService({ dbPath: ":memory:", dataRoot });
+  const sink = new LocalToolImageSink(files, normalizer);
+  const application = new LocalSessionFileApplication(files);
+
+  try {
+    const bytes = await noiseImage(600, 400, { lossless: false });
+
+    // 串行重复保存：同字节同 file_id，附件列表只有一条工具图记录
+    const first = await sink.save({ bytes, mimeType: "image/jpeg", toolName: "view_image", sessionId: "session-d", name: "same.jpg" });
+    const second = await sink.save({ bytes, mimeType: "image/jpeg", toolName: "view_image", sessionId: "session-d", name: "same.jpg" });
+    assert.equal(second.fileId, first.fileId);
+    assert.equal(second.storedPath, first.storedPath);
+    assert.equal(files.list({ scopeType: "session", scopeId: "session-d" }).length, 1);
+
+    // 并发重复保存：in-flight 去重，仍只有一条记录
+    const [a, b] = await Promise.all([
+      sink.save({ bytes, mimeType: "image/jpeg", toolName: "view_image", sessionId: "session-d" }),
+      sink.save({ bytes, mimeType: "image/jpeg", toolName: "view_image", sessionId: "session-d" }),
+    ]);
+    assert.equal(a.fileId, first.fileId);
+    assert.equal(b.fileId, first.fileId);
+    assert.equal(files.list({ scopeType: "session", scopeId: "session-d" }).length, 1);
+
+    // 不同字节：新记录
+    const other = await noiseImage(610, 400, { lossless: false });
+    const third = await sink.save({ bytes: other, mimeType: "image/jpeg", toolName: "view_image", sessionId: "session-d" });
+    assert.notEqual(third.fileId, first.fileId);
+
+    // 跨会话：同字节也是独立附件（会话隔离）
+    const crossSession = await sink.save({ bytes, mimeType: "image/jpeg", toolName: "view_image", sessionId: "session-e" });
+    assert.notEqual(crossSession.fileId, first.fileId);
+
+    // 删除附件后：索引指向的记录失效，重新落盘并更新索引
+    await application.delete("session-d", first.fileId);
+    const revived = await sink.save({ bytes, mimeType: "image/jpeg", toolName: "view_image", sessionId: "session-d" });
+    assert.notEqual(revived.fileId, first.fileId);
+    assert.ok(files.get(revived.fileId, "session", "session-d"));
+
+    // 新 sink 实例（模拟重启）：索引持久生效，去重跨实例保留
+    const reborn = new LocalToolImageSink(files, normalizer);
+    const afterRestart = await reborn.save({ bytes: other, mimeType: "image/jpeg", toolName: "view_image", sessionId: "session-d" });
+    assert.equal(afterRestart.fileId, third.fileId);
+  } finally {
+    files.close();
+    fs.rmSync(dataRoot, { recursive: true, force: true });
+  }
+});
+
+test("tool image index converges after a lost concurrent update strips an entry", async () => {
+  const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-tool-image-sink-"));
+  const files = new FileIndexService({ dbPath: ":memory:", dataRoot });
+  const sink = new LocalToolImageSink(files, normalizer);
+
+  try {
+    const bytesA = await noiseImage(500, 300, { lossless: false });
+    const bytesB = await noiseImage(501, 300, { lossless: false });
+    const a = await sink.save({ bytes: bytesA, mimeType: "image/jpeg", toolName: "t", sessionId: "session-rm" });
+    const b = await sink.save({ bytes: bytesB, mimeType: "image/jpeg", toolName: "t", sessionId: "session-rm" });
+
+    // 模拟并发读-改-写丢条目：索引只剩 B 的映射
+    const indexPath = path.join(files.getSessionUploadsRoot("session-rm"), ".tool-images.json");
+    const index = JSON.parse(fs.readFileSync(indexPath, "utf8"));
+    const stripped = Object.fromEntries(Object.entries(index).filter(([, fileId]) => fileId !== a.fileId));
+    assert.equal(Object.keys(stripped).length, Object.keys(index).length - 1);
+    fs.writeFileSync(indexPath, `${JSON.stringify(stripped)}\n`);
+
+    // 再存 A：索引未命中 → 重新落盘并回填索引；B 的映射不受影响
+    const revived = await sink.save({ bytes: bytesA, mimeType: "image/jpeg", toolName: "t", sessionId: "session-rm" });
+    assert.notEqual(revived.fileId, a.fileId);
+    assert.ok(files.get(revived.fileId, "session", "session-rm"));
+    const recovered = JSON.parse(fs.readFileSync(indexPath, "utf8"));
+    assert.ok(Object.values(recovered).includes(revived.fileId));
+    assert.ok(Object.values(recovered).includes(b.fileId));
   } finally {
     files.close();
     fs.rmSync(dataRoot, { recursive: true, force: true });

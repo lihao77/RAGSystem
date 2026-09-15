@@ -13,6 +13,7 @@ import type {
   ToolProvider,
   ToolExecContext,
   ToolExecutionResult,
+  ToolImageSink,
   ToolWaitRequest,
   ToolWaitResult,
 } from "../contracts.js";
@@ -33,6 +34,8 @@ export interface RuntimeToolProviderOptions {
   hooks?: HookRegistry;
   /** 后台任务等待回调（消费端注入）。 */
   waitForToolResult?: (request: ToolWaitRequest, ctx: ToolExecContext) => ToolWaitResult | Promise<ToolWaitResult>;
+  /** 工具图片持久化端口（消费端注入；不提供则工具媒体回退临时文件通道）。 */
+  toolImageSink?: ToolImageSink;
 }
 
 export class RuntimeToolProvider implements ToolProvider {
@@ -42,6 +45,7 @@ export class RuntimeToolProvider implements ToolProvider {
   private readonly events: EventSink;
   private readonly hooks: HookRegistry | undefined;
   private readonly waitForToolResultFn: ((request: ToolWaitRequest, ctx: ToolExecContext) => ToolWaitResult | Promise<ToolWaitResult>) | undefined;
+  private readonly toolImageSink: ToolImageSink | undefined;
 
   constructor(options: RuntimeToolProviderOptions) {
     this.registry = options.registry;
@@ -50,6 +54,7 @@ export class RuntimeToolProvider implements ToolProvider {
     this.events = options.events;
     this.hooks = options.hooks;
     this.waitForToolResultFn = options.waitForToolResult;
+    this.toolImageSink = options.toolImageSink;
   }
 
   async executeRound(
@@ -70,6 +75,7 @@ export class RuntimeToolProvider implements ToolProvider {
       events: this.events,
       ...(this.hooks ? { hooks: this.hooks } : {}),
       ...(this.waitForToolResultFn ? { waitForToolResult: this.waitForToolResultFn } : {}),
+      ...(this.toolImageSink ? { toolImageSink: this.toolImageSink } : {}),
     }, previousResults);
   }
 }

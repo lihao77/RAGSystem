@@ -5,7 +5,7 @@ import type { AgentConfig } from "../../../contracts/agent/agent-config.js";
 import type { AgentExecuteResult, AgentRunStartResult, ExecutionTaskStatus } from "../../../contracts/execution/execution.js";
 import type { ModelProviderConfig } from "../../../contracts/integrations/model-adapter.js";
 import type { ExecutionSessionPort } from "../../../contracts/session/session-application.js";
-import { RecoverableInterrupt, type HookRegistry } from "@ragsystem/agent-sdk";
+import { RecoverableInterrupt, type HookRegistry, type ToolImageSink } from "@ragsystem/agent-sdk";
 import type { BackgroundTaskService } from "../../runtime/background-task-service.js";
 import { executeRunWithSdk } from "../sdk/runtime-adapter.js";
 import type { BackendToolsDeps } from "../../../tools/registry.js";
@@ -72,6 +72,7 @@ export class AgentRunEngine {
     private readonly executionEnvironment: ExecutionEnvironmentCapability | null = null,
     private readonly systemConfig: SystemConfigPort | null = null,
     private readonly contextSourceFactories: readonly BackendContextSourceFactory[] | null = null,
+    private readonly toolImageSink: ToolImageSink | null = null,
   ) {}
 
   startRun(input: {
@@ -526,6 +527,7 @@ export class AgentRunEngine {
           executionEnvironment: this.executionEnvironment,
           ...(this.systemConfig ? { systemConfig: this.systemConfig } : {}),
           ...(this.contextSourceFactories ? { contextSourceFactories: this.contextSourceFactories } : {}),
+          ...(this.toolImageSink ? { toolImageSink: this.toolImageSink } : {}),
         },
         {
           sessionId: input.sessionId,

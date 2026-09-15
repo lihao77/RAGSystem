@@ -20,6 +20,7 @@ import { FileIndexService } from "./files/file-index-service.js";
 import { LocalSessionFileLookup } from "./files/session-file-lookup.js";
 import { CoreImageRequestNormalizer } from "@ragsystem/backend-core/services/images/image-request-normalizer.js";
 import { ImageRequestVariantStore } from "./files/image-request-variants.js";
+import { LocalToolImageSink } from "./files/tool-image-sink.js";
 import { BackgroundTaskService } from "@ragsystem/backend-core/services/runtime/background-task-service.js";
 import { createCoreRuntimeContainer } from "@ragsystem/backend-core/services/runtime/core-runtime-container.js";
 import { createPendingInteractionBinding } from "@ragsystem/backend-core/services/runtime/pending-interaction-binding.js";
@@ -212,6 +213,8 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
     "@ragsystem/backend-local",
   );
   const imageRequestVariants = new ImageRequestVariantStore(fileIndex, imageRequestNormalizer);
+  // 工具图片（view_image/MCP/媒体生成等 media）统一走会话附件通道，与用户上传同管线。
+  const toolImageSink = new LocalToolImageSink(fileIndex, imageRequestNormalizer);
   const localAnalytics = new LocalAnalyticsApplication(conversationStore);
   const localMonitoring = new LocalMonitoringApplication(conversationStore);
   const localSessionFiles = new LocalSessionFileApplication(fileIndex);
@@ -238,6 +241,7 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
     modelAdapter,
     systemConfig,
     sessionFiles: new LocalSessionFileLookup(fileIndex, imageRequestVariants),
+    toolImageSink,
     runtimeStorage,
     executionStorage: options.executionStorage
       ?? options.executionStorageFactory?.({ tenantId: options.tenantId, runtimeStorage, clientEvents })

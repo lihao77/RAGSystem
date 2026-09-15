@@ -1,4 +1,4 @@
-import type { HookRegistry, Tool } from "@ragsystem/agent-sdk";
+import type { HookRegistry, Tool, ToolImageSink } from "@ragsystem/agent-sdk";
 import type {
   BackendContextSourceFactory,
   BackendPluginRuntimeHandle,
@@ -131,6 +131,8 @@ interface CoreRuntimeDependenciesBase {
   modelAdapter: ModelAdapterService;
   systemConfig: SystemConfigService;
   sessionFiles: SessionFileLookupPort;
+  /** 工具图片持久化端口（部署注入；未注入时工具媒体回退 SDK 临时文件通道）。 */
+  toolImageSink?: ToolImageSink | null;
   executionStorage: ExecutionStorage;
   pathAccessPolicyFactory: () => PathAccessPolicy;
   backgroundTasks: BackgroundTaskService;

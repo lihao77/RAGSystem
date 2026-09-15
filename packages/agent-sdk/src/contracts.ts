@@ -84,6 +84,36 @@ export interface ToolResultMedia {
   detail?: "auto" | "low" | "high";
 }
 
+/** ToolImageSink.save 的持久化产物。 */
+export interface ToolImagePersisted {
+  /** 会话附件的稳定 file_id（tool_result_media 引用与后续轮次投影的读取键）。 */
+  fileId: string;
+  /** 持久化落点（存展示/回退读取用）。 */
+  storedPath: string;
+  /** 落盘字节数（原始字节，非请求适配字节）。 */
+  storedSize: number;
+  /** 请求适配字节（消费端可能已按预算归一化，编码可能不同于入参）与对应 mime——用于本轮 in-band 投影。 */
+  bytes: Uint8Array;
+  mimeType: ToolResultMedia["mimeType"];
+}
+
+/**
+ * 工具图片持久化端口（消费端注入）。物化层优先经它把工具图片（view_image、MCP、
+ * 媒体生成等一切 ToolExecutionResult.media）存入会话附件通道，与用户上传同管线
+ * （持久、随会话清理、投影读取可归一化）。返回 null 或未注入时回退旧临时文件通道
+ * （os.tmpdir + transient TTL）。
+ */
+export interface ToolImageSink {
+  save(input: {
+    bytes: Uint8Array;
+    mimeType: ToolResultMedia["mimeType"];
+    toolName: string;
+    sessionId: string;
+    /** 展示名（如 view_image 的文件名、MCP 图像的 alt）。 */
+    name?: string;
+  }): Promise<ToolImagePersisted | null>;
+}
+
 /** outputType 封闭枚举：呈现类型（渲染排版 + UI 视图选择的依据），不是数据的一部分。
  * - text: content 为字符串，原样进 observation
  * - json: content 为对象/数组，json 围栏排版（默认兜底）

@@ -17,8 +17,9 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { Buffer } from "node:buffer";
 import type { ContentPart, ProviderConfig } from "@ragsystem/agent-llm";
-import type { ToolFile, ToolExecutionResult, ToolResultMedia } from "../contracts.js";
+import type { ToolFile, ToolExecutionResult, ToolImagePersisted, ToolImageSink, ToolResultMedia } from "../contracts.js";
 import type { ObservationPolicy } from "../prompt/tool-types.js";
 import { renderSemanticBlock } from "../llm-protocol/xml/rendering.js";
 
@@ -68,11 +69,16 @@ export async function buildToolMediaModelContent(input: {
   observation: string;
   provider: ProviderConfig;
   dataRoot: string;
+  /** 会话 id：与 imageSink 同时存在时启用会话附件通道。 */
+  sessionId?: string | null;
+  /** 消费端注入的会话附件持久化端口；未注入或保存失败时回退临时文件通道。 */
+  imageSink?: ToolImageSink;
 }): Promise<ContentPart[] | null> {
   const media = input.result.media?.slice(0, MAX_TOOL_IMAGES) ?? [];
   if (!media.length) return null;
   const parts: ContentPart[] = [{ type: "text", text: input.observation }];
   const materialized: ToolResultMedia[] = [];
+  const persistedFileIds: Array<string | null> = [];
   const rejectedReasons: string[] = [];
   let totalBytes = 0;
 
@@ -88,19 +94,64 @@ export async function buildToolMediaModelContent(input: {
         continue;
       }
       totalBytes += bytes.length;
-      const file = await saveToolImageFile({
-        toolName: input.result.toolName,
-        mimeType: item.mimeType,
-        bytes,
-        ttlSeconds: FILE_TTL_SECONDS,
-      });
-      input.result.files.push(file);
-      materialized.push({ ...item, source: { type: "file", path: file.path } });
-      if (input.provider.supports_vision === true) {
-        parts.push({
-          type: "image_url",
-          image_url: { url: `data:${item.mimeType};base64,${bytes.toString("base64")}`, detail: item.detail ?? "auto" },
+      // 会话附件通道优先：与用户上传同管线（持久、随会话清理、后续轮次投影可归一化）。
+      let persisted: ToolImagePersisted | null = null;
+      if (input.imageSink && input.sessionId) {
+        try {
+          persisted = await input.imageSink.save({
+            bytes,
+            mimeType: item.mimeType,
+            toolName: input.result.toolName,
+            sessionId: input.sessionId,
+            ...(item.alt ? { name: item.alt } : {}),
+          });
+        } catch {
+          persisted = null;
+        }
+      }
+      if (persisted) {
+        // files/metadata/materialized 描述 storedPath 上的原始字节（mime 保留入参值）；
+        // 只有本轮 in-band data URL 用 sink 的请求适配字节与其 mime（可能换码）。
+        input.result.files.push({
+          fileType: "image",
+          path: persisted.storedPath,
+          mimeType: item.mimeType,
+          size: persisted.storedSize,
+          metadata: {
+            tool_name: input.result.toolName,
+            created_at: Date.now() / 1000,
+            lifecycle: "session",
+            file_id: persisted.fileId,
+            reason: "observation_media",
+          },
         });
+        materialized.push({ ...item, source: { type: "file", path: persisted.storedPath } });
+        persistedFileIds.push(persisted.fileId);
+        if (input.provider.supports_vision === true) {
+          parts.push({
+            type: "image_url",
+            image_url: {
+              url: `data:${persisted.mimeType};base64,${Buffer.from(persisted.bytes).toString("base64")}`,
+              detail: item.detail ?? "auto",
+            },
+          });
+        }
+      } else {
+        const file = await saveToolImageFile({
+          toolName: input.result.toolName,
+          mimeType: item.mimeType,
+          bytes,
+          ttlSeconds: FILE_TTL_SECONDS,
+        });
+        input.result.files.push(file);
+        materialized.push({ ...item, source: { type: "file", path: file.path } });
+        persistedFileIds.push(null);
+        if (input.provider.supports_vision === true) {
+          parts.push({
+            type: "image_url",
+            image_url: { url: `data:${item.mimeType};base64,${bytes.toString("base64")}`, detail: item.detail ?? "auto" },
+          });
+        }
       }
     } catch {
       rejectedReasons.push("materialization_failed");
@@ -109,10 +160,11 @@ export async function buildToolMediaModelContent(input: {
   if ((input.result.media?.length ?? 0) > media.length) rejectedReasons.push("image_count_limit_exceeded");
   input.result.media = materialized;
   if (materialized.length) {
-    input.result.metadata.tool_result_media = materialized.map((item) => ({
+    input.result.metadata.tool_result_media = materialized.map((item, index) => ({
       kind: "image",
       stored_path: item.source.type === "file" ? item.source.path : "",
       mime: item.mimeType,
+      ...(persistedFileIds[index] ? { file_id: persistedFileIds[index] as string } : {}),
       ...(item.alt ? { original_name: item.alt } : {}),
     }));
   }

@@ -14,6 +14,7 @@ import { RecoverableInterrupt } from "../recoverable-interrupt.js";
 import type {
   ToolExecutionResult,
   ToolExecContext,
+  ToolImageSink,
   ToolWaitRequest,
   ToolWaitResult,
 } from "../contracts.js";
@@ -66,6 +67,8 @@ export interface ToolRoundExecutorOptions {
   hooks?: HookRegistry;
   /** 后台任务等待回调（消费端注入；不提供则忽略 suggest_wait 信号）。 */
   waitForToolResult?: (request: ToolWaitRequest, ctx: ToolExecContext) => ToolWaitResult | Promise<ToolWaitResult>;
+  /** 工具图片持久化端口（消费端注入；不提供则工具媒体回退临时文件通道）。 */
+  toolImageSink?: ToolImageSink;
 }
 
 export async function executeToolCallRound(
@@ -350,6 +353,8 @@ async function resolveToolObservation(input: {
           observation: "",
           provider: input.opts.provider,
           dataRoot: input.opts.dataRoot,
+          sessionId: input.opts.toolContext.sessionId ?? null,
+          ...(input.opts.toolImageSink ? { imageSink: input.opts.toolImageSink } : {}),
         }) ?? undefined;
       } catch {
         input.result.media = [];

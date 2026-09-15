@@ -90,7 +90,8 @@ export class RecentMessagesContextSource implements AgentContextSource {
     restoreActiveProviderContinuation(conversation, originals, this.providerIdentity, degradedThinking);
     closeOrphanedToolCalls(conversation, originals);
     // Canonical message content first, then metadata-only context extensions.
-    // 附件图片可缓存；tool 图片每次读盘以遵守 transient TTL。两者都不把图片字节写入 SQLite。
+    // 附件与 file_id 工具图片共用缓存读取（工具图片已统一持久化到会话附件通道）；
+    // 旧记录的 stored_path 工具图片仍走同步读盘（transient TTL 语义）。字节都不进 SQLite。
     const attachmentCache = new Map<string, Promise<{ body: Uint8Array; contentType: string | null } | null>>();
     await projectCanonicalMessageContent(conversation, originals, {
       sessionId: request.sessionId,

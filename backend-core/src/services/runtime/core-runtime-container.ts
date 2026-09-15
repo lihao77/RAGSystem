@@ -100,6 +100,7 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
     providersProvider: () => modelAdapter.listProviders(),
     backgroundTasks,
     sessionFiles,
+    toolImageSink: dependencies.toolImageSink ?? null,
     outboxDispatcher: eventDispatcher,
     clientEvents,
     permissionPolicy,

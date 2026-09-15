@@ -36,7 +36,7 @@ export type { ToolValidationResult, ToolValidationSuccess, ToolValidationFailure
 // Preparer
 export { prepareTool } from "./tools/preparer.js";
 export type { PreparedTool, PrepareResult, ToolPreparerOptions } from "./tools/preparer.js";
-export type { ToolExecContext, ToolExecutionPaths, ShellEnvironment, ToolWaitRequest, ToolWaitResult, ToolFile } from "./contracts.js";
+export type { ToolExecContext, ToolExecutionPaths, ShellEnvironment, ToolWaitRequest, ToolWaitResult, ToolFile, ToolImageSink, ToolImagePersisted } from "./contracts.js";
 export type { RuntimeToolDefinition, RuntimeToolReturns, RuntimeToolExample } from "./prompt/tool-types.js";
 // Prompt 模块（system prompt 构建——与内核 makeContextPort 同源）
 export { buildFullSystemPrompt, getAgentBaseSystemPrompt } from "./prompt/prompt-builder.js";
