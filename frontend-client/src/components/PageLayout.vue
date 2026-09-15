@@ -10,11 +10,7 @@
           title="打开菜单"
           @click="openMobileSidebar"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="3" y1="12" x2="21" y2="12" />
-            <line x1="3" y1="6" x2="21" y2="6" />
-            <line x1="3" y1="18" x2="21" y2="18" />
-          </svg>
+          <Menu :size="20" />
         </Button>
         <div class="page-header__meta">
           <h1 class="page-header__title">{{ title }}</h1>
@@ -32,11 +28,7 @@
           title="打开菜单"
           @click="openMobileSidebar"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="3" y1="12" x2="21" y2="12" />
-            <line x1="3" y1="6" x2="21" y2="6" />
-            <line x1="3" y1="18" x2="21" y2="18" />
-          </svg>
+          <Menu :size="20" />
         </Button>
         <div class="page-mobile-nav__copy">
           <span class="page-mobile-nav__title">{{ mobileTitle || title }}</span>
@@ -51,12 +43,7 @@
               aria-label="更多操作"
               title="更多操作"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
-                fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="5" r="1" fill="currentColor" />
-                <circle cx="12" cy="12" r="1" fill="currentColor" />
-                <circle cx="12" cy="19" r="1" fill="currentColor" />
-              </svg>
+              <MoreVertical :size="20" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent class="page-mobile-menu__list min-w-[220px]" align="end" :side-offset="4">
@@ -83,11 +70,7 @@
                       aria-label="更多操作"
                       title="更多操作"
                     >
-                      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <circle cx="12" cy="5" r="1" fill="currentColor" />
-                        <circle cx="12" cy="12" r="1" fill="currentColor" />
-                        <circle cx="12" cy="19" r="1" fill="currentColor" />
-                      </svg>
+                      <MoreVertical :size="18" />
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent class="page-header__menu-list min-w-[220px]" align="end" :side-offset="8">
@@ -106,6 +89,7 @@
 
 <script setup>
 import { computed, inject, ref, useSlots } from 'vue';
+import { Menu, MoreVertical } from 'lucide-vue-next';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent } from './ui/dropdown-menu';
 import { Button } from './ui/button';
 

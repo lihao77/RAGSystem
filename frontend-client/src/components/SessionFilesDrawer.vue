@@ -15,11 +15,7 @@
           <input ref="fileInputRef" type="file" multiple style="display:none" @change="onFileChange" />
           <button type="button" class="ctx-dropzone" :disabled="uploading" @click="fileInputRef?.click()">
             <span class="ctx-dropzone-icon" aria-hidden="true">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                <polyline points="17 8 12 3 7 8" />
-                <line x1="12" y1="3" x2="12" y2="15" />
-              </svg>
+              <Upload />
             </span>
             <span class="ctx-dropzone-title">{{ uploading ? '处理中...' : '点击选择图片或文件' }}</span>
             <span class="ctx-dropzone-sub">支持多选，也可直接拖拽文件到窗口任意位置</span>
@@ -107,6 +103,7 @@ import { Dialog, DialogContent, DialogTitle } from './ui/dialog';
 import EmptyState from './EmptyState.vue';
 import { formatAttachmentSize, getSessionFileDownloadUrl, isImageAttachment, isLocalAttachment } from '../utils/sessionAttachments';
 import IconFile from './icons/IconFile.vue';
+import { Upload } from 'lucide-vue-next';
 import IconClose from './icons/IconClose.vue';
 import IconPlus from './icons/IconPlus.vue';
 import IconTrash from './icons/IconTrash.vue';

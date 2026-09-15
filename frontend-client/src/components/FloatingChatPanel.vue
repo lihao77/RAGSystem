@@ -9,7 +9,7 @@
             <span class="panel-title">智能对话</span>
           </div>
           <Button variant="ghost" size="icon" aria-label="收起" title="收起" @click.stop="toggleCollapse(true)">
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+            <IconChevronRight :size="14" />
           </Button>
         </div>
 
@@ -55,6 +55,7 @@ import { computed, ref, watch, nextTick } from 'vue';
 import MarkdownContent from './chat/MarkdownContent.vue';
 import MessageContentParts from './chat/MessageContentParts.vue';
 import IconSend from './icons/IconSend.vue';
+import IconChevronRight from './icons/IconChevronRight.vue';
 import { Button } from './ui/button';
 
 const props = defineProps({

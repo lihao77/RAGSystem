@@ -2,10 +2,7 @@
   <div class="message-actions" :class="{ visible }">
     <template v-if="msg.role === 'user' && messageContext.editingMessage !== msg">
       <Button v-if="messageContext.canReviseMessage(msg)" variant="ghost" size="icon-xs" :disabled="messageContext.isLoading" aria-label="编辑" title="编辑" @click="messageContext.startEditMessage(msg)">
-        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
-          <path d="m15 5 4 4" />
-        </svg>
+        <Pen :size="14" />
       </Button>
       <Button variant="ghost" size="icon-xs" :aria-label="copied ? '已复制' : '复制'" :title="copied ? '已复制' : '复制'" @click="onCopy(msg)">
         <IconCheck v-if="copied" :size="14" />
@@ -28,10 +25,7 @@
           :title="feedbackOf(msg) === 'up' ? '取消点赞' : '点赞'"
           @click="onRate(msg, 'up')"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" :fill="feedbackOf(msg) === 'up' ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M7 10v12" />
-            <path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z" />
-          </svg>
+          <ThumbsUp :size="14" :fill="feedbackOf(msg) === 'up' ? 'currentColor' : 'none'" />
         </Button>
         <Button
           v-if="messageContext.rateMessage"
@@ -42,10 +36,7 @@
           :title="feedbackOf(msg) === 'down' ? '取消点踩' : '点踩'"
           @click="onRate(msg, 'down')"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" :fill="feedbackOf(msg) === 'down' ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M17 14V2" />
-            <path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22a3.13 3.13 0 0 1-3-3.88Z" />
-          </svg>
+          <ThumbsDown :size="14" :fill="feedbackOf(msg) === 'down' ? 'currentColor' : 'none'" />
         </Button>
         <Button
           v-if="retryMessage"
@@ -56,12 +47,7 @@
           title="重试"
           @click="messageContext.rollbackAndRetry(retryMessage)"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-            <path d="M3 3v5h5" />
-            <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
-            <path d="M16 16h5v5" />
-          </svg>
+          <RefreshCcw :size="14" />
         </Button>
         <span
           v-if="getMessageExecutionTimeText(msg)"
@@ -78,6 +64,7 @@
 <script setup>
 import IconCopy from '../icons/IconCopy.vue';
 import IconCheck from '../icons/IconCheck.vue';
+import { Pen, RefreshCcw, ThumbsDown, ThumbsUp } from 'lucide-vue-next';
 import { Button } from '../ui/button';
 import {
   getMessageExecutionTimeText,

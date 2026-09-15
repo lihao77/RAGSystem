@@ -56,11 +56,7 @@
                             <div class="row-actions">
                                 <Button variant="action-neutral" size="action" title="编辑"
                                     @click="openEditModelProviderDialog(p)">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24"
-                                        fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                                        stroke-linejoin="round">
-                                        <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
-                                    </svg>
+                                    <Pencil :size="13" />
                                 </Button>
                                 <Button variant="action-danger" size="action" title="删除"
                                     :disabled="deletingModelProviderKey === p.provider_key"
@@ -119,6 +115,7 @@
 import IconRefresh from '../icons/IconRefresh.vue';
 import IconPlus from '../icons/IconPlus.vue';
 import IconTrash from '../icons/IconTrash.vue';
+import { Pencil } from 'lucide-vue-next';
 import EmptyState from '../EmptyState.vue';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
 import CustomSelect from '../ui/CustomSelect.vue';

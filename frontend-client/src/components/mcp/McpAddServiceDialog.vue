@@ -183,8 +183,8 @@
               <Button size="sm" variant="default" :disabled="!item.installable || installingRegistry" @click="handleRegistryInstall(item)">{{ quickInstallButtonText(item) }}</Button>
               <Button size="sm" variant="secondary" :disabled="!item.install_options?.length" @click="openRegistryInstallDialog(item)">配置安装</Button>
               <div class="registry-links">
-                <a v-if="item.website_url" class="ext-link" @click.prevent="openExternalLink(item.website_url)" href="#"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>官网</a>
-                <a v-if="item.repository_url" class="ext-link" @click.prevent="openExternalLink(item.repository_url)" href="#"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19c-5 1.5-5-2.5-7 3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>源码</a>
+                <a v-if="item.website_url" class="ext-link" @click.prevent="openExternalLink(item.website_url)" href="#"><Globe :size="13" />官网</a>
+                <a v-if="item.repository_url" class="ext-link" @click.prevent="openExternalLink(item.repository_url)" href="#"><Github :size="13" />源码</a>
               </div>
             </div>
           </article>
@@ -210,7 +210,7 @@
 // 「添加 MCP 服务」弹窗：手动配置 + Registry 搜索安装两种方式。
 // 手动配置内联实时校验（blur 或首次提交后展示错误）；校验通过后才会调用父级 submitManualInstall。
 import { computed, reactive, ref } from 'vue';
-import { Globe, Package, Rss, Terminal } from 'lucide-vue-next';
+import { Github, Globe, Package, Rss, Terminal } from 'lucide-vue-next';
 import CustomSelect from '../ui/CustomSelect.vue';
 import NumberInput from '../NumberInput.vue';
 import EntityListLayout from '../admin/EntityListLayout.vue';

@@ -22,12 +22,7 @@
                     </div>
                     <EmptyState v-else-if="vectorizers.length === 0" title="暂无向量化器，添加后即可在「知识库管理」中建立索引。">
                         <template #icon>
-                            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none"
-                                stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                                <ellipse cx="12" cy="5" rx="9" ry="3" />
-                                <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
-                                <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
-                            </svg>
+                            <Database :size="48" :stroke-width="1.5" />
                         </template>
                         <Button class="primary-action-button" variant="default" size="sm" @click="openAddVectorizerDialog">新增向量化器</Button>
                     </EmptyState>
@@ -65,12 +60,7 @@
                                             <Button variant="action-neutral" size="action"
                                                 :disabled="vectorizers.length < 2" @click="openMigrateDialog(v)"
                                                 title="迁移数据">
-                                                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13"
-                                                    viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                                    <path d="M5 12h14" />
-                                                    <path d="M12 5l7 7-7 7" />
-                                                </svg>
+                                                <ArrowRight :size="13" />
                                             </Button>
                                             <Button variant="action-danger" size="action"
                                                 :disabled="deletingVectorizer === v.vectorizer_key"
@@ -91,6 +81,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 
 import IconRefresh from '../icons/IconRefresh.vue';
+import { ArrowRight, Database } from 'lucide-vue-next';
 import IconPlus from '../icons/IconPlus.vue';
 import IconSearch from '../icons/IconSearch.vue';
 import IconTrash from '../icons/IconTrash.vue';

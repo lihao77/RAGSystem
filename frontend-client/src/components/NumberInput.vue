@@ -22,10 +22,7 @@
       @click="adjustValue(-1)"
       tabindex="-1"
     >
-      <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24"
-        fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-        <line x1="5" y1="12" x2="19" y2="12"/>
-      </svg>
+      <Minus :size="12" :stroke-width="2.5" />
     </button>
 
     <button
@@ -35,14 +32,14 @@
       @click="adjustValue(1)"
       tabindex="-1"
     >
-      <IconPlus :size="12" :stroke-width="2.5" />
+      <Plus :size="12" :stroke-width="2.5" />
     </button>
   </div>
 </template>
 
 <script setup>
 import { computed } from 'vue';
-import IconPlus from './icons/IconPlus.vue';
+import { Minus, Plus } from 'lucide-vue-next';
 
 const props = defineProps({
   modelValue: { type: Number, default: 0 },

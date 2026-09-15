@@ -40,9 +40,7 @@
     </div>
     <div class="msg-edit-action-bar">
       <Button variant="ghost" size="sm" :disabled="submitting" @click="$emit('openAttachments')">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-            <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
-          </svg>
+        <Paperclip :size="14" />
         <span>附件</span>
       </Button>
       <div class="msg-edit-hint">
@@ -70,6 +68,7 @@ import { getSessionFileDownloadUrl, isImageAttachment, isLocalAttachment } from 
 import IconCheck from './icons/IconCheck.vue';
 import IconClose from './icons/IconClose.vue';
 import IconFile from './icons/IconFile.vue';
+import { Paperclip } from 'lucide-vue-next';
 import AuthenticatedImage from './common/AuthenticatedImage.vue';
 import { Button } from './ui/button';
 

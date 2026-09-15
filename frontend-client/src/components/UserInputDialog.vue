@@ -61,18 +61,11 @@
             <!-- Footer -->
             <DialogFooter class="input-footer">
               <Button class="btn-stop" variant="ghost" @click="handleCancel">
-                <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24"
-                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <rect x="3" y="3" width="18" height="18" rx="2"/>
-                  </svg>
+                <Square :size="13" />
                 <span>停止任务</span>
               </Button>
               <Button class="btn-send" variant="default" :disabled="!canSubmit || submitting" @click="handleSubmit">
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
-                    fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                    <line x1="22" y1="2" x2="11" y2="13"/>
-                    <polygon points="22 2 15 22 11 13 2 9 22 2"/>
-                  </svg>
+                <Send :size="14" :stroke-width="2.5" />
                 <span>{{ submitting ? '发送中' : '发送' }}</span>
               </Button>
             </DialogFooter>
@@ -103,6 +96,7 @@ import InputRendererText from './input-renderers/InputRendererText.vue';
 import InputRendererSelect from './input-renderers/InputRendererSelect.vue';
 import IconInfo from './icons/IconInfo.vue';
 import IconChevronDown from './icons/IconChevronDown.vue';
+import { Send, Square } from 'lucide-vue-next';
 import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogTitle, DialogFooter } from './ui/dialog';
 
