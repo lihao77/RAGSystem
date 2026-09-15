@@ -3,6 +3,7 @@ import path from "node:path";
 
 import type { SessionFileApplication, SessionFileReadResult } from "@ragsystem/backend-core/contracts/application/session-file-application.js";
 import type { FileIndexService } from "../../files/file-index-service.js";
+import { removeFileVariants } from "../../files/image-request-variants.js";
 
 export class LocalSessionFileApplication implements SessionFileApplication {
   constructor(private readonly files: FileIndexService) {}
@@ -54,6 +55,8 @@ export class LocalSessionFileApplication implements SessionFileApplication {
     if (record.storage_kind !== "linked_local") {
       await removeFile(record.stored_path, this.files.getSessionUploadsRoot(sessionId));
     }
+    // 请求变体（含负缓存 meta）一并清理；失败静默——残留孤儿只是磁盘占用，随会话整删消失。
+    await removeFileVariants(this.files.getSessionUploadsRoot(sessionId), record.id);
     return record;
   }
 

@@ -21,6 +21,7 @@ import {
   EXECUTION_ENVIRONMENT_CAPABILITY,
   type ExecutionEnvironmentCapability,
 } from "../../contracts/execution/execution-environment.js";
+import { DEFAULT_IMAGE_REQUEST_POLICY } from "../../contracts/images/image-request.js";
 
 /** Assemble deployment-provided services into the shared agent runtime. */
 export function createCoreRuntimeContainer(dependencies: LocalCoreRuntimeDependencies): LocalRuntimeContainer;
@@ -132,8 +133,10 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
           systemConfig,
           clientEvents,
           readAttachment: async (fileId) => {
-            const record = sessionFiles ? await sessionFiles.read(input.sessionId, fileId) : null;
-            return record?.body ?? null;
+            const record = sessionFiles
+              ? await sessionFiles.read(input.sessionId, fileId, { imageRequest: DEFAULT_IMAGE_REQUEST_POLICY })
+              : null;
+            return record ? { body: record.body, contentType: record.contentType } : null;
           },
         }) ?? null,
     } : {}),

@@ -64,7 +64,7 @@ function transformerInput(overrides = {}) {
     tenantId: "tenant-1",
     contentParts: [textPart(), imagePart()],
     attachments: [{ file_id: "file-1", original_name: "photo.png", stored_name: "photo.png", mime: "image/png", size: 42, kind: "image" }],
-    readAttachment: async () => new Uint8Array([1, 2, 3]),
+    readAttachment: async () => ({ body: new Uint8Array([1, 2, 3]), contentType: "image/png" }),
     modelAdapter: modelAdapterWith(visionProvider),
     systemConfig: systemConfigWith(),
     ...overrides,
@@ -528,4 +528,133 @@ test("toProviderConfig derives supports_vision from the model entry input modali
   // 未指定模型时不注入能力位（旧 provider 级残留也被剥离）
   const noEntry = toProviderConfig(provider);
   assert.equal("supports_vision" in noEntry, false);
+});
+
+/* ── view_image 请求归一化（capability 提供的 normalizer） ── */
+
+import { CapabilityRegistry } from "@ragsystem/backend-core/plugins/capability-registry.js";
+import { IMAGE_REQUEST_NORMALIZER_CAPABILITY } from "@ragsystem/backend-core/contracts/images/image-request.js";
+
+function normalizerRegistry(result) {
+  const registry = new CapabilityRegistry();
+  registry.provide(
+    IMAGE_REQUEST_NORMALIZER_CAPABILITY,
+    {
+      normalize: async () => result,
+    },
+    "test",
+  );
+  return registry;
+}
+
+test("view_image normalizes media through the image request normalizer capability", async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "image-tools-"));
+  const png = Buffer.from("89504e470d0a1a0a0000000d49484452", "hex");
+  fs.writeFileSync(path.join(tmp, "photo.png"), png);
+  const normalizedBytes = Buffer.from("normalized-webp-bytes");
+  const registry = normalizerRegistry({
+    kind: "normalized",
+    data: normalizedBytes,
+    mime: "image/webp",
+    width: 400,
+    height: 300,
+    originalWidth: 4000,
+    originalHeight: 3000,
+  });
+  try {
+    const [tool] = buildViewImageTool([VIEW_IMAGE_TOOL_NAME], { capabilities: registry });
+    const result = await tool.call({ file_path: "photo.png" }, { workspaceRoot: tmp, tenantId: "tenant-1" });
+    assert.equal(result.success, true);
+    assert.equal(result.media[0].mimeType, "image/webp");
+    assert.equal(result.media[0].source.data, normalizedBytes.toString("base64"));
+    assert.equal(result.content.mime, "image/webp");
+    assert.equal(result.content.size, normalizedBytes.byteLength);
+    // 坐标换算提示：x 与 y 比例一致时给单一乘数
+    assert.match(result.llmHint, /downscaled from 4000x3000 px/);
+    assert.match(result.llmHint, /multiply coordinates by 10\.00/);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("view_image lets oversized images through when the normalizer shrinks them", async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "image-tools-"));
+  // png 头 + 11MB 填充：超过 10MB 原始上限
+  const oversized = Buffer.concat([
+    Buffer.from("89504e470d0a1a0a0000000d49484452", "hex"),
+    Buffer.alloc(11 * 1024 * 1024),
+  ]);
+  fs.writeFileSync(path.join(tmp, "big.png"), oversized);
+  const small = Buffer.from("shrunk");
+  const registry = normalizerRegistry({ kind: "normalized", data: small, mime: "image/jpeg", width: 100, height: 50 });
+  try {
+    const [tool] = buildViewImageTool([VIEW_IMAGE_TOOL_NAME], { capabilities: registry });
+    const result = await tool.call({ file_path: "big.png" }, { workspaceRoot: tmp, tenantId: "tenant-1" });
+    assert.equal(result.success, true);
+    assert.equal(result.media[0].mimeType, "image/jpeg");
+    // 未缩放（无 original 尺寸）时提示保持干净
+    assert.ok(!result.llmHint.includes("downscaled"));
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("view_image keeps the hard size limit for passthrough or missing normalizers", async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "image-tools-"));
+  const oversized = Buffer.concat([
+    Buffer.from("89504e470d0a1a0a0000000d49484452", "hex"),
+    Buffer.alloc(11 * 1024 * 1024),
+  ]);
+  fs.writeFileSync(path.join(tmp, "big.png"), oversized);
+  try {
+    // passthrough：归一化不适用（如动图），维持原字节 → 硬上限生效
+    const passthrough = buildViewImageTool([VIEW_IMAGE_TOOL_NAME], {
+      capabilities: normalizerRegistry({ kind: "passthrough" }),
+    });
+    const rejected = await passthrough[0].call({ file_path: "big.png" }, { workspaceRoot: tmp, tenantId: "tenant-1" });
+    assert.equal(rejected.success, false);
+    assert.match(rejected.summary, /10 MB/);
+
+    // 无 normalizer（未提供 capability）：行为与旧版一致
+    const bare = buildViewImageTool([VIEW_IMAGE_TOOL_NAME]);
+    const bareResult = await bare[0].call({ file_path: "big.png" }, { workspaceRoot: tmp, tenantId: "tenant-1" });
+    assert.equal(bareResult.success, false);
+    assert.match(bareResult.summary, /10 MB/);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("transformer describes with the variant content type instead of the upload-declared mime", async () => {
+  // 归一化变体可能换编码（png→webp）：描述请求必须按字节真实编码声明，
+  // 否则视觉端点按 mime 解码失败，描述静默缺失。
+  const seen = [];
+  const input = transformerInput({
+    systemConfig: systemConfigWith({ enabled: true, provider: "vision", model_name: "gpt-4o" }),
+    readAttachment: async () => ({ body: new Uint8Array([9, 9, 9]), contentType: "image/webp" }),
+  });
+  const result = await describeUserMessageImagesWithHelper(input, () => ({
+    describeImage: async ({ bytes, mime }) => {
+      seen.push({ bytes, mime });
+      return "a description";
+    },
+  }));
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].mime, "image/webp");
+  assert.equal(seen[0].bytes.byteLength, 3);
+  assert.equal(result.some((part) => part.type === "image_description"), true);
+
+  // contentType 缺失或非图片值时回退上传声明
+  const fallback = transformerInput({
+    systemConfig: systemConfigWith({ enabled: true, provider: "vision", model_name: "gpt-4o" }),
+    readAttachment: async () => ({ body: new Uint8Array([9]), contentType: null }),
+  });
+  const fallbackSeen = [];
+  await describeUserMessageImagesWithHelper(fallback, () => ({
+    describeImage: async ({ mime }) => {
+      fallbackSeen.push(mime);
+      return "d";
+    },
+  }));
+  assert.equal(fallbackSeen[0], "image/png");
 });

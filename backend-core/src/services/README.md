@@ -13,6 +13,9 @@ surfaces belong in `src/contracts`; plugin runtime factories receive those contr
 - `config/`: Core system configuration projection and extension lifecycle.
 - `integrations/`: Generic model-provider administration and model transport adapters.
 - `identity/`: Deployment-neutral identity and authentication primitives.
+- `images/`: Deployment-neutral image request normalization (EXIF orientation, budget
+  scaling, quality-ladder re-encode) shared by local and SaaS; variant caching is
+  deployment-owned storage.
 
 Persistence and deployment-specific implementations are outside Core in `backend-local`,
 `backend-saas`, or a domain plugin. Knowledge, Memory, Skills, Artifacts, MCP, Daemon/Feishu,

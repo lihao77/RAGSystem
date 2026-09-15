@@ -74,7 +74,9 @@ async function projectParts(
         renderedText.push(`[图片加载失败:${part.original_name}]`);
         continue;
       }
-      const mime = normalizeImageMime(part.mime) ?? normalizeImageMime(source.contentType) ?? "image/png";
+      // 读取结果的 contentType 优先：归一化变体可能换编码（如 png→jpeg/webp），
+      // part.mime 只是上传时的原始声明；两者都缺时兜底 png。
+      const mime = normalizeImageMime(source.contentType) ?? normalizeImageMime(part.mime) ?? "image/png";
       images.push({
         type: "image_url",
         image_url: { url: `data:${mime};base64,${Buffer.from(source.body).toString("base64")}`, detail: "auto" },

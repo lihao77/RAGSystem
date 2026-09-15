@@ -5,6 +5,8 @@ import { RunSandboxManager } from "@ragsystem/sandbox-runtime";
 import type { BackendRuntimeContributions } from "@ragsystem/backend-core/plugins/backend-plugin.js";
 import { CapabilityRegistry } from "@ragsystem/backend-core/plugins/capability-registry.js";
 import { EXECUTION_ENVIRONMENT_CAPABILITY, createSaaSExecutionEnvironment } from "@ragsystem/backend-core/contracts/execution/execution-environment.js";
+import { IMAGE_REQUEST_NORMALIZER_CAPABILITY } from "@ragsystem/backend-core/contracts/images/image-request.js";
+import { CoreImageRequestNormalizer } from "@ragsystem/backend-core/services/images/image-request-normalizer.js";
 
 import type { RuntimeContainer, SaaSRuntimeContainer } from "@ragsystem/backend-core/contracts/runtime/runtime-container.js";
 import type { TenantId } from "@ragsystem/backend-core/identity/types.js";
@@ -179,6 +181,13 @@ export async function createSaaSRuntimeContainer(options: SaaSRuntimeContainerOp
   pluginCapabilities.provide(
     EXECUTION_ENVIRONMENT_CAPABILITY,
     executionEnvironment,
+    "@ragsystem/backend-saas",
+  );
+  // 图片请求归一化（内核共享实现）：view_image 等插件工具经 capability 消费；
+  // 会话附件读取（SaaS 存储形态）暂走原字节，变体缓存由存储侧后续按需接入。
+  pluginCapabilities.provide(
+    IMAGE_REQUEST_NORMALIZER_CAPABILITY,
+    new CoreImageRequestNormalizer(),
     "@ragsystem/backend-saas",
   );
 

@@ -6,6 +6,11 @@ import { buildTool, type Tool, type ToolAccessDecision, type ToolExecContext, ty
 import type { MessageContentPart } from "@ragsystem/agent-protocol";
 import { isAbsolutePathLike, isPathUnder, resolvePathLike } from "@ragsystem/backend-core/tools/shared/paths.js";
 import type { PathAccessPolicy } from "@ragsystem/backend-core/contracts/runtime/path-access-policy.js";
+import {
+  DEFAULT_IMAGE_REQUEST_POLICY,
+  IMAGE_REQUEST_NORMALIZER_CAPABILITY,
+  type ImageRequestNormalizer,
+} from "@ragsystem/backend-core/contracts/images/image-request.js";
 import type {
   BackendPlugin,
   BackendToolDescriptor,
@@ -55,6 +60,12 @@ function emitImageEvent(
 }
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024; // 10 MB
+
+/** 读取结果的 contentType 是字节真实编码（归一化变体可能换编码）；非图片值回退上传声明。 */
+function imageMimeOr(contentType: string | null | undefined, fallback: string): string {
+  const mime = contentType?.trim();
+  return mime && /^image\/[a-z0-9.+-]+$/i.test(mime) ? mime : fallback;
+}
 const IMAGE_MIME_BY_EXT: Readonly<Record<string, ToolResultMedia["mimeType"]>> = {
   ".png": "image/png",
   ".jpg": "image/jpeg",
@@ -128,9 +139,15 @@ export async function describeUserMessageImagesWithHelper(
     // 多图并行读取与描述（互不依赖，串行会让最后一张图最坏 N×超时 才落库）；
     // 结果按下标对齐，保证描述 part 仍紧跟各自 attachment_ref 持久化。
     const descriptions = await Promise.all(imageParts.map(async (part, index) => {
-      const bytes = await input.readAttachment(part.file_id);
-      const text = bytes && bytes.length > 0
-        ? await helper.describeImage({ bytes, mime: part.mime, signal: input.signal ?? null })
+      const source = await input.readAttachment(part.file_id);
+      const text = source && source.body.length > 0
+        ? await helper.describeImage({
+            bytes: source.body,
+            // 读取结果的 contentType 是字节的真实编码（归一化变体可能 png→webp/jpeg，
+            // 与投影层同源优先），缺失或非图片值时回退上传声明。
+            mime: imageMimeOr(source.contentType, part.mime),
+            signal: input.signal ?? null,
+          })
         : null;
       if (text) described += 1;
       else failed += 1;
@@ -172,6 +189,8 @@ export async function describeUserMessageImagesWithHelper(
 
 function createViewImageTools(context: BackendToolFactoryContext): Tool[] {
   if (!(context.agent.tools.enabled_tools ?? []).includes(VIEW_IMAGE_TOOL_NAME)) return [];
+  // 部署提供的图片请求归一化（local 基于 sharp）：无实现时保持原字节 + 硬上限行为。
+  const imageRequestNormalizer = context.capabilities?.get(IMAGE_REQUEST_NORMALIZER_CAPABILITY) ?? null;
   return [
     buildTool({
       name: VIEW_IMAGE_TOOL_NAME,
@@ -194,15 +213,27 @@ function createViewImageTools(context: BackendToolFactoryContext): Tool[] {
         if (candidates.length) return { action: "allow", signals: { candidatePaths: candidates } };
         return { action: "allow" };
       },
-      call: (input, ctx) => readWorkspaceImage(input.file_path, ctx, context),
+      call: (input, ctx) => readWorkspaceImage(input.file_path, ctx, context, imageRequestNormalizer),
     }),
   ];
+}
+
+/** 归一化缩放说明：给模型坐标换算提示（dsh 同款语义），未缩放返回空串。 */
+function downscaledNote(shape: { width: number; height: number; originalWidth?: number; originalHeight?: number }): string {
+  if (shape.originalWidth === undefined || shape.originalHeight === undefined) return "";
+  const x = (shape.originalWidth / shape.width).toFixed(2);
+  const y = (shape.originalHeight / shape.height).toFixed(2);
+  const advice = x === y
+    ? `multiply coordinates by ${x}`
+    : `multiply x coordinates by ${x} and y coordinates by ${y}`;
+  return ` (downscaled from ${shape.originalWidth}x${shape.originalHeight} px; ${advice} to locate features in the original file)`;
 }
 
 async function readWorkspaceImage(
   filePath: string,
   ctx: ToolExecContext,
   context: BackendToolFactoryContext,
+  imageRequestNormalizer: ImageRequestNormalizer | null,
 ): Promise<ToolExecutionResult> {
   const root = workspaceRoot(ctx);
   if (!root) return imageError("Image path must stay inside the workspace");
@@ -224,23 +255,41 @@ async function readWorkspaceImage(
   } catch {
     return imageError(`Image could not be read: ${filePath}`);
   }
+  // 客户端请求归一化：EXIF 校正/剥元数据/预算缩放（大图从"拒收"变"缩放放行"）；
+  // 归一化不可用或判定 passthrough 时回退原字节，维持旧的硬上限行为。
+  let effectiveMime: ToolResultMedia["mimeType"] = mime;
+  let scaledNote = "";
+  if (imageRequestNormalizer) {
+    let normalized: Awaited<ReturnType<ImageRequestNormalizer["normalize"]>> | null = null;
+    try {
+      normalized = await imageRequestNormalizer.normalize({ data: bytes, mime, policy: DEFAULT_IMAGE_REQUEST_POLICY });
+    } catch {
+      normalized = null;
+    }
+    if (normalized?.kind === "normalized") {
+      bytes = Buffer.from(normalized.data);
+      effectiveMime = normalized.mime;
+      scaledNote = downscaledNote(normalized);
+    }
+  }
   if (bytes.length > MAX_IMAGE_BYTES) return imageError("Image exceeds the 10 MB limit");
 
   // 视觉辅助描述：配置启用时生成，非视觉主模型也能"看懂"图片内容（描述随工具结果消息持久化）。
-  const description = await describeImageIfConfigured(context, bytes, mime, ctx);
+  const description = await describeImageIfConfigured(context, bytes, effectiveMime, ctx);
+  const baseHint = description
+    ? "The returned image may not be visible to this model; rely on the description above."
+    : "Inspect the returned image and describe only relevant visual facts.";
   return {
     success: true,
     toolName: VIEW_IMAGE_TOOL_NAME,
-    summary: `Read image ${filePath}`,
+    summary: `Read image ${filePath}${scaledNote}`,
     answer: description ? `[图片描述]\n${description}` : null,
     outputType: "image",
-    content: { file_path: filePath, mime, size: bytes.length },
+    content: { file_path: filePath, mime: effectiveMime, size: bytes.length },
     metadata: {},
     files: [],
-    media: [{ kind: "image", mimeType: mime, source: { type: "base64", data: bytes.toString("base64") }, alt: filePath }],
-    llmHint: description
-      ? "The returned image may not be visible to this model; rely on the description above."
-      : "Inspect the returned image and describe only relevant visual facts.",
+    media: [{ kind: "image", mimeType: effectiveMime, source: { type: "base64", data: bytes.toString("base64") }, alt: filePath }],
+    llmHint: `${baseHint}${scaledNote ? ` The image was normalized${scaledNote}.` : ""}`,
   };
 }
 

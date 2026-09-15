@@ -206,8 +206,12 @@ export interface UserMessageTransformInput {
    * undefined = 发送时未能解析出主模型（保持原行为，不做猜测）。
    */
   readonly mainModelSupportsVision?: boolean;
-  /** 按 file_id 读取附件字节；未知或不存在的 file_id 返回 null。 */
-  readAttachment(fileId: string): Promise<Uint8Array | null>;
+  /**
+   * 按 file_id 读取附件字节与字节的真实 contentType；未知或不存在的 file_id 返回 null。
+   * contentType 反映读取时实际编码（部署可能返回归一化请求变体，如 png→webp/jpeg），
+   * 消费方构造 data URL 时应优先于上传时声明的 mime。
+   */
+  readAttachment(fileId: string): Promise<{ body: Uint8Array; contentType: string | null } | null>;
   readonly modelAdapter: ModelProviderCatalogPort;
   /** 本租户系统配置（transformer 每次执行实时读取，保证配置修改即时生效）。 */
   readonly systemConfig: SystemConfigPort;

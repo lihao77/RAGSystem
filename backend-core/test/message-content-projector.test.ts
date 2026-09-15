@@ -107,4 +107,36 @@ describe("projectCanonicalMessageContent", () => {
       text: "可用命令",
     }], "system")).toBe(false);
   });
+
+  it("prefers the read result content type over the upload-declared mime for vision image parts", async () => {
+    // 归一化变体可能换编码（png→jpeg/webp）：data URL 的 mime 必须跟随读取结果，
+    // part.mime 只是上传时的原始声明。
+    const conversation: ChatMessage[] = [{ role: "user", content: "" }];
+    const raw = message({
+      role: "user",
+      content_parts: [{
+        type: "attachment_ref",
+        file_id: "file-img",
+        original_name: "photo.png",
+        stored_name: "file-img_photo.png",
+        mime: "image/png",
+        size: 2048,
+        kind: "image",
+        presentation: "inline",
+      }],
+    });
+
+    await projectCanonicalMessageContent(conversation, [raw], {
+      sessionId: "session-1",
+      supportsVision: true,
+      readAttachment: vi.fn().mockResolvedValue({ body: new Uint8Array([1, 2, 3]), contentType: "image/jpeg" }),
+    });
+
+    const content = conversation[0]?.content;
+    expect(Array.isArray(content)).toBe(true);
+    const imagePart = (content as Array<{ type: string; image_url?: { url: string } }>).find(
+      (part) => part.type === "image_url",
+    );
+    expect(imagePart?.image_url?.url.startsWith("data:image/jpeg;base64,")).toBe(true);
+  });
 });

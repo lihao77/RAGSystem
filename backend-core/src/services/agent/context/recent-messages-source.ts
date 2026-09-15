@@ -22,6 +22,7 @@ import type { ChatMessage } from "@ragsystem/agent-llm";
 import type { MessageInfo } from "../../../contracts/session/session.js";
 import type { MessageProviderState } from "../../../contracts/conversation-store/types.js";
 import type { SessionFileLookupPort } from "../../../contracts/session/session-file-storage.js";
+import { DEFAULT_IMAGE_REQUEST_POLICY } from "../../../contracts/images/image-request.js";
 import { projectCanonicalMessageContent } from "./message-content-projector.js";
 
 export class RecentMessagesContextSource implements AgentContextSource {
@@ -119,7 +120,9 @@ export class RecentMessagesContextSource implements AgentContextSource {
     const key = `${sessionId}\0${fileId}`;
     const cached = cache.get(key);
     if (cached) return cached;
-    const pending = this.attachmentFiles.read(sessionId, fileId).catch(() => null);
+    const pending = this.attachmentFiles
+      .read(sessionId, fileId, { imageRequest: DEFAULT_IMAGE_REQUEST_POLICY })
+      .catch(() => null);
     cache.set(key, pending);
     return pending;
   }

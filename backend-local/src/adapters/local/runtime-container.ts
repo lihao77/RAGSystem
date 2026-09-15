@@ -10,6 +10,7 @@ import { SystemConfigService } from "@ragsystem/backend-core/services/config/sys
 import { ModelAdapterService } from "@ragsystem/backend-core/services/integrations/model-adapter-service.js";
 import { CapabilityRegistry } from "@ragsystem/backend-core/plugins/capability-registry.js";
 import { EXECUTION_ENVIRONMENT_CAPABILITY, createLocalExecutionEnvironment } from "@ragsystem/backend-core/contracts/execution/execution-environment.js";
+import { IMAGE_REQUEST_NORMALIZER_CAPABILITY } from "@ragsystem/backend-core/contracts/images/image-request.js";
 import { AgentSessionApplication } from "@ragsystem/backend-core/services/sessions/index.js";
 import { SessionTitleService } from "@ragsystem/backend-core/services/sessions/session-title-service.js";
 import { readSessionRequestOverrides } from "@ragsystem/backend-core/services/agent/execution/session-request-overrides.js";
@@ -17,6 +18,8 @@ import { createConversationStore } from "./sqlite/conversation-store/index.js";
 import { FileHistoryService } from "./files/file-history-service.js";
 import { FileIndexService } from "./files/file-index-service.js";
 import { LocalSessionFileLookup } from "./files/session-file-lookup.js";
+import { CoreImageRequestNormalizer } from "@ragsystem/backend-core/services/images/image-request-normalizer.js";
+import { ImageRequestVariantStore } from "./files/image-request-variants.js";
 import { BackgroundTaskService } from "@ragsystem/backend-core/services/runtime/background-task-service.js";
 import { createCoreRuntimeContainer } from "@ragsystem/backend-core/services/runtime/core-runtime-container.js";
 import { createPendingInteractionBinding } from "@ragsystem/backend-core/services/runtime/pending-interaction-binding.js";
@@ -200,6 +203,15 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
     executionEnvironment,
     "@ragsystem/backend-local",
   );
+  // 图片请求归一化（内核共享实现）：插件工具（view_image）经 capability 消费；
+  // 会话附件的请求变体由 LocalSessionFileLookup 内置的 variant store 缓存复用。
+  const imageRequestNormalizer = new CoreImageRequestNormalizer();
+  pluginCapabilities.provide(
+    IMAGE_REQUEST_NORMALIZER_CAPABILITY,
+    imageRequestNormalizer,
+    "@ragsystem/backend-local",
+  );
+  const imageRequestVariants = new ImageRequestVariantStore(fileIndex, imageRequestNormalizer);
   const localAnalytics = new LocalAnalyticsApplication(conversationStore);
   const localMonitoring = new LocalMonitoringApplication(conversationStore);
   const localSessionFiles = new LocalSessionFileApplication(fileIndex);
@@ -225,7 +237,7 @@ export async function createLocalRuntimeContainer(options: LocalRuntimeContainer
     agentConfig,
     modelAdapter,
     systemConfig,
-    sessionFiles: new LocalSessionFileLookup(fileIndex),
+    sessionFiles: new LocalSessionFileLookup(fileIndex, imageRequestVariants),
     runtimeStorage,
     executionStorage: options.executionStorage
       ?? options.executionStorageFactory?.({ tenantId: options.tenantId, runtimeStorage, clientEvents })
