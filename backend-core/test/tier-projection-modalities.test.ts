@@ -85,6 +85,85 @@ describe("tier projection derives supports_vision from model input modalities", 
   });
 });
 
+describe("default 档引用失效回落系统 LLM（投影层）", () => {
+  const systemLlm = {
+    provider: "openai",
+    provider_type: "openai",
+    model_name: "text-model",
+    extra_params: {},
+  };
+
+  function agentWithTiers(tiers: Record<string, unknown>) {
+    return AgentConfigSchema.parse({
+      agent_name: "agent",
+      display_name: "Agent",
+      enabled: true,
+      default_entry: true,
+      llm_tiers: tiers,
+      custom_params: { behavior: { system_prompt: "You are an agent." } },
+    });
+  }
+
+  it("default 引用悬空（provider 已删除）→ systemLlm 可解析则整体回落", () => {
+    const agent = agentWithTiers({
+      default: { provider: "deleted-provider", provider_type: "openai", model_name: "deleted-model", extra_params: {} },
+    });
+    const tiers = projectAgentProfile({ agent, providers: [provider], systemLlm }).llmTiers;
+    expect(tiers.default?.modelName).toBe("text-model");
+    expect((tiers.default?.provider as unknown as Record<string, unknown>).name).toBe("openai");
+  });
+
+  it("default 的 provider 在但模型已下架 → 同样回落系统 LLM", () => {
+    const agent = agentWithTiers({
+      default: { provider: "openai", provider_type: "openai", model_name: "retired-model", extra_params: {} },
+    });
+    const tiers = projectAgentProfile({ agent, providers: [provider], systemLlm }).llmTiers;
+    expect(tiers.default?.modelName).toBe("text-model");
+  });
+
+  it("未携带 systemLlm（preview 等不调 LLM 的调用方）→ default 保持可缺，不回落", () => {
+    const agent = agentWithTiers({
+      default: { provider: "deleted-provider", provider_type: "openai", model_name: "deleted-model", extra_params: {} },
+    });
+    const tiers = projectAgentProfile({ agent, providers: [provider] }).llmTiers;
+    expect(tiers.default).toBeUndefined();
+  });
+
+  it("systemLlm 自身解析不到 → default 缺，不产出失效兜底", () => {
+    const agent = agentWithTiers({
+      default: { provider: "deleted-provider", provider_type: "openai", model_name: "deleted-model", extra_params: {} },
+    });
+    const tiers = projectAgentProfile({
+      agent,
+      providers: [provider],
+      systemLlm: { ...systemLlm, provider: "unregistered", model_name: "unregistered-model" },
+    }).llmTiers;
+    expect(tiers.default).toBeUndefined();
+  });
+
+  it("default 有效 → systemLlm 不参与；场景档失效 → 回落 default 位置", () => {
+    const agent = agentWithTiers({
+      default: { provider: "openai", provider_type: "openai", model_name: "vision-model", extra_params: {} },
+      fast: { provider: "deleted-provider", provider_type: "openai", model_name: "deleted-model", temperature: 0.1, extra_params: {} },
+    });
+    const tiers = projectAgentProfile({ agent, providers: [provider], systemLlm }).llmTiers;
+    expect(tiers.default?.modelName).toBe("vision-model");
+    // fast 引用失效 → 落到 default 位置（vision-model），fast 自带标量参数仍生效。
+    expect(tiers.fast?.modelName).toBe("vision-model");
+    expect(tiers.fast?.temperature).toBe(0.1);
+  });
+
+  it("default 失效回落系统后，场景档失效同样落到系统 default", () => {
+    const agent = agentWithTiers({
+      default: { provider: "deleted-provider", provider_type: "openai", model_name: "deleted-model", extra_params: {} },
+      fast: { provider: "another-deleted", provider_type: "openai", model_name: "deleted-model", extra_params: {} },
+    });
+    const tiers = projectAgentProfile({ agent, providers: [provider], systemLlm }).llmTiers;
+    expect(tiers.default?.modelName).toBe("text-model");
+    expect(tiers.fast?.modelName).toBe("text-model");
+  });
+});
+
 describe("providerModelSupportsVision（原始 provider + modelName 的同源判定）", () => {
   it("按模型条目 input_modalities 派生；纯文本/条目缺失/未声明模态 → false", () => {
     expect(providerModelSupportsVision(provider, "vision-model")).toBe(true);

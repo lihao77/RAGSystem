@@ -20,6 +20,7 @@ import type { SystemConfigService } from "../../config/system-config-service.js"
 import { HISTORY_SCAN_LIMIT, resolveCompressionView } from "../context/index.js";
 import { hasAgentVisibleMessageContent } from "../context/message-content-projector.js";
 import { projectAgentProfile } from "../sdk/projection.js";
+import { systemLlmAsTier } from "../execution/runtime-core-service.js";
 import { resolveContextCompressionSettings, normalizePreserveTokenBudgets, type ContextCompressionSettings } from "./index.js";
 import { MSG_TYPE } from "../../../contracts/message-kinds.js";
 
@@ -186,6 +187,9 @@ export class AgentCompressionService {
       agent: input.agent,
       providers: this.providersProvider(),
       ...(input.selectedLlm ? { selectedLlm: input.selectedLlm } : {}),
+      // default 档引用失效时回落系统 LLM：摘要候选链 [fast, default] 的 default
+      // 位置与主运行同源，避免 agent 配置失效把压缩整链打成 summary_unavailable。
+      systemLlm: systemLlmAsTier(this.systemConfig.getLlmConfig()),
     });
     const rawSettings = resolveContextCompressionSettings(input.agent, this.systemConfig.getConfig());
     const budgetTokens = resolveContextBudget(profile.llmTiers, input.systemPromptTokens);

@@ -10,16 +10,20 @@ import { asRecord, normalizeString } from "../../../utils/guards.js";
  *   4. extra_params merge：provider extra_params + tier extra_params（tier 覆盖 provider 同名 key）
  *   5. maxContextTokens 解析：tier → provider.max_context_tokens
  *
+ * default 档失效回落：agent default 档引用解析不到（悬空 provider、模型下架、半空
+ * 残壳）时，若调用方携带 systemLlm 且其可解析，则 default 位置整体回落系统 LLM
+ * （与 runtime-core 的「配置失效即回落」策略同判定 providerRefResolves、同口径）。
+ * 回落只发生在投影层，SDK 内核仍零兜底、只读 profile.llmTiers。
+ *
  * 与 backend-ts 旧 resolveTierLlmParams 的差异：
- *   - 删 systemLlm 第三级（SDK 内核零兜底）
- *   - 删 resolveDefaultSource 特殊分支：selectLlm 替换 default 已在此处做完，
- *     resolved.tiers.default 永远是最终真相，readTierParams 只做两级回落
+ *   - selectLlm 替换 default 已在此处做完，resolved.tiers.default 永远是最终真相，
+ *     readTierParams 只做两级回落
  */
 import type { AgentProfile, ResolvedTier, TierMap } from "@ragsystem/agent-sdk";
 import { ALL_THINKING_LEVELS, type ProviderConfig, type ThinkingLevel } from "@ragsystem/agent-llm";
 import type { AgentConfig, AgentLlmConfig } from "../../../contracts/agent/agent-config.js";
 import type { ModelProviderConfig, ProviderModelEntry } from "../../../contracts/integrations/model-adapter.js";
-import { findProviderByRef } from "../../runtime/provider-lookup.js";
+import { findProviderByRef, providerRefResolves } from "../../runtime/provider-lookup.js";
 import { compactRecord } from "../llm-params.js";
 
 export interface ProjectionInput {
@@ -34,6 +38,12 @@ export interface ProjectionInput {
     provider: ModelProviderConfig;
     modelName: string;
   } | null;
+  /**
+   * 系统 LLM 兜底（optional，AgentLlmConfig 同构形态）：agent default 档引用
+   * 解析不到时回落为 default 档。不传 = 本调用方不参与兜底（preview 等不调
+   * LLM 的场景保持 default 可缺）。
+   */
+  systemLlm?: AgentLlmConfig | null;
   /**
    * 请求级思考档位（前端 thinking_level 透传）；优先于 tier 默认档位。
    * undefined = 用 agent tier 配置的默认档位。
@@ -65,10 +75,6 @@ export function projectAgentProfile(input: ProjectionInput): AgentProfile {
   return profile;
 }
 
-/**
- * 取 default 档已内联的 provider + modelName —— createRuntime 的顶层 provider/modelName。
- * 投影保证 tiers.default 恒在（projectAgentProfile 已抛错守卫）。
- */
 // ────────────────────────────── tier 表解析 ──────────────────────────────
 
 function resolveTierMap(input: ProjectionInput): TierMap {
@@ -91,23 +97,29 @@ function resolveTierMap(input: ProjectionInput): TierMap {
 /**
  * default 档解析：
  * - 有 selectedLlm → 整体替换（provider + modelName + provider 自带参数）。
- * - 否则 → 读 agent.llm_tiers.default，provider 引用解析 + provider 参数 merge。
- * - 都没有 → 抛错（契约：default 必填）。
+ * - 否则 → 读 `agent.llm_tiers.default`，引用可解析才采用。
+ * - default 引用失效或缺失 → systemLlm 可解析则回落系统 LLM（配置失效即回落，
+ *   失效标注由 runtime readiness 的 fallback_reason 承担）。
+ * - 都没有 → null（default 可缺，run 守卫 default 必填）。
  */
 function resolveDefaultTier(input: ProjectionInput): ResolvedTier | null {
   if (input.selectedLlm) {
     return buildTierFromProvider(input.selectedLlm.provider, input.selectedLlm.modelName);
   }
   const rawDefault = input.agent.llm_tiers?.default;
-  if (rawDefault) {
+  if (rawDefault && providerRefResolves(input.providers, rawDefault)) {
     return resolveTierWithProviderRef(rawDefault, input.providers);
+  }
+  if (input.systemLlm && providerRefResolves(input.providers, input.systemLlm)) {
+    return resolveTierWithProviderRef(input.systemLlm, input.providers);
   }
   return null;
 }
 
 /**
  * 场景 tier 解析（非 default）：
- * - 解析 provider 引用；引用缺失或解析失败 → fallback 到 default 档（场景 tier 是优化项，不可强求）。
+ * - 引用可解析（provider + 模型均在）→ 解析引用；引用失效（悬空/模型下架/半空）
+ *   → fallback 到 default 档（场景 tier 是优化项，不可强求）。
  * - 标量字段（temperature/maxCompletionTokens/maxContextTokens）tier → default 回落。
  */
 function resolveScenarioTier(
@@ -115,8 +127,10 @@ function resolveScenarioTier(
   providers: ModelProviderConfig[],
   defaultEntry: ResolvedTier | null,
 ): ResolvedTier | null {
-  const resolved = resolveTierWithProviderRef(rawTier, providers);
-  // 场景 tier 无 provider 引用或解析失败：回落 default（不抛错，场景 tier 可缺）。
+  const resolved = providerRefResolves(providers, rawTier)
+    ? resolveTierWithProviderRef(rawTier, providers)
+    : null;
+  // 场景 tier 引用失效或缺档：回落 default（不抛错，场景 tier 可缺）。
   const base = resolved ?? defaultEntry;
   if (!base) {
     return null;

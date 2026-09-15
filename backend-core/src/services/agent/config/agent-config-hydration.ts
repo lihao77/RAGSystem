@@ -21,7 +21,7 @@ export const AGENT_CONFIG_MIGRATION_STEPS: readonly HydrationStep<Map<string, Ag
   },
   {
     id: "strip_empty_llm_tiers",
-    note: "剥除 provider 与 model_name 均为空的零信息 tier 条目（Agent Studio 表单对未配置档位的落盘形态），map 剔空则置 null 以继承系统 LLM；半空（二者之一非空）保留并按缺失显式报错",
+    note: "剥除 provider 与 model_name 均为空的零信息 tier 条目（Agent Studio 表单对未配置档位的落盘形态），map 剔空则置 null 以继承系统 LLM；半空（二者之一非空）保留——运行期 default 档引用失效会回落系统 LLM 并带 fallback_reason 标注，条目留在配置里供前端标注失效",
     run: stripEmptyLlmTiers,
   },
 ];
@@ -62,7 +62,8 @@ function stripStockLlmTiers(teams: Map<string, AgentConfigTeam>): boolean {
 /**
  * 剥除零信息 tier 条目：provider 与 model_name 均为空白视为"未配置"（与 llm_tiers:
  * null 语义等价，继承系统 LLM），剔除后 map 为空同样置 null。半空条目（两个字段只有
- * 一个非空）是真实的配置错误，保留原样交给 readiness 显式报缺失，不做静默兜底。
+ * 一个非空）保留原样：运行期 default 档解析不到会回落系统 LLM（readiness 标注
+ * fallback_reason），条目本身留在配置里供前端做失效标注。
  */
 function stripEmptyLlmTiers(teams: Map<string, AgentConfigTeam>): boolean {
   let changed = false;

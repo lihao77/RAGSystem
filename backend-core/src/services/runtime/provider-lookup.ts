@@ -42,3 +42,42 @@ export function findProviderByRef(
     }) ?? null
   );
 }
+
+/**
+ * 模型是否在 provider 的模型列表中（trim + 小写归一匹配）。readiness 的
+ * model_available 与 tier 引用可解析判定共用，保证两层口径一致——归一匹配是
+ * 就绪判定的口径，勿与投影层 findModelEntry 的精确匹配（参数/能力位）混用。
+ */
+export function isProviderModelAvailable(provider: ModelProviderConfig, modelName: string | null): boolean {
+  if (!modelName) {
+    return false;
+  }
+  const target = normalizeProviderKey(modelName);
+  return provider.models.some((model) => normalizeProviderKey(model.name) === target);
+}
+
+/**
+ * tier / 系统 LLM 配置的同构引用（AgentLlmConfig / SystemLlmConfig 形态，
+ * 字段可空可缺），供引用可解析判定。
+ */
+export type ResolvableProviderRef = {
+  provider?: string | null | undefined;
+  provider_type?: string | null | undefined;
+  model_name?: string | null | undefined;
+};
+
+/**
+ * tier / 系统 LLM 引用是否可解析：provider 能按 (name/key, provider_type) 找到，
+ * 且 model_name 在该 provider 的模型列表中。引用失效（悬空 provider、模型下架、
+ * 半空残壳）统一判 false，是「失效回落系统 LLM」策略的唯一判定点。
+ */
+export function providerRefResolves(
+  providers: ModelProviderConfig[],
+  ref: ResolvableProviderRef,
+): boolean {
+  const provider = findProviderByRef(providers, {
+    provider: ref.provider ?? null,
+    provider_type: ref.provider_type ?? null,
+  });
+  return provider !== null && isProviderModelAvailable(provider, ref.model_name ?? null);
+}

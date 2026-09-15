@@ -139,6 +139,8 @@ describe("RuntimeCoreService system LLM fallback", () => {
         provider_type: "deepseek",
         model_name: "system-model",
         source: "system_config.llm",
+        // 无 tier 继承是常态回落，不标失效。
+        fallback_reason: null,
       },
     });
     expect(resolved.agent?.llm_tiers?.default).toMatchObject({
@@ -167,10 +169,82 @@ describe("RuntimeCoreService system LLM fallback", () => {
       .resolveExecutionConfig({ agentName: "agent" });
 
     expect(resolved.readiness.llm.source).toBe("agent_config.default");
+    expect(resolved.readiness.llm.fallback_reason).toBeNull();
     expect(resolved.agent?.llm_tiers?.default?.temperature).toBe(0.1);
   });
 
-  it("does not use the fallback when the agent has any non-default tier", () => {
+  it("falls back to the system LLM when the agent default tier references a deleted provider", () => {
+    // provider 已删除/改名：tier 引用按 (name/key, provider_type) 均无法解析（悬空引用）。
+    const agent = runtimeAgent({
+      default: {
+        provider: "deleted-provider",
+        provider_type: "deepseek",
+        model_name: "deleted-model",
+        extra_params: {},
+      },
+    });
+
+    const resolved = runtimeCore(new MemoryAgentConfigs({ agent }))
+      .resolveExecutionConfig({ agentName: "agent" });
+
+    expect(resolved.readiness).toMatchObject({
+      configuration_ready: true,
+      llm: {
+        provider: "system",
+        model_name: "system-model",
+        source: "system_config.llm",
+        fallback_reason: "agent_default_tier_unresolved",
+      },
+    });
+    // 兜底注入不覆盖原配置对象：tier 保留原引用供前端标注失效。
+    expect(agent.llm_tiers?.default?.provider).toBe("deleted-provider");
+    expect(resolved.agent?.llm_tiers?.default).toMatchObject({ provider: "system", model_name: "system-model" });
+  });
+
+  it("falls back when the tier provider resolves but its model is no longer listed", () => {
+    const agent = runtimeAgent({
+      default: {
+        provider: "system",
+        provider_type: "deepseek",
+        model_name: "retired-model",
+        extra_params: {},
+      },
+    });
+
+    const resolved = runtimeCore(new MemoryAgentConfigs({ agent }))
+      .resolveExecutionConfig({ agentName: "agent" });
+
+    expect(resolved.readiness.configuration_ready).toBe(true);
+    expect(resolved.readiness.llm).toMatchObject({
+      source: "system_config.llm",
+      model_name: "system-model",
+      fallback_reason: "agent_default_tier_unresolved",
+    });
+  });
+
+  it("falls back when the agent default tier is half-empty", () => {
+    // provider 残留、model_name 空：水合层保留的半空形态，运行期按失效回落。
+    const agent = runtimeAgent({
+      default: {
+        provider: "system",
+        provider_type: "deepseek",
+        model_name: "",
+        extra_params: {},
+      },
+    });
+
+    const resolved = runtimeCore(new MemoryAgentConfigs({ agent }))
+      .resolveExecutionConfig({ agentName: "agent" });
+
+    expect(resolved.readiness.configuration_ready).toBe(true);
+    expect(resolved.readiness.llm).toMatchObject({
+      source: "system_config.llm",
+      fallback_reason: "agent_default_tier_unresolved",
+    });
+  });
+
+  it("falls back (annotated) when the agent has only non-default tiers", () => {
+    // 仅有场景档、无 default：旧策略按显式选择报缺失；现按 default 缺档回落并标注。
     const agent = runtimeAgent({
       fast: {
         provider: "system",
@@ -183,10 +257,125 @@ describe("RuntimeCoreService system LLM fallback", () => {
     const resolved = runtimeCore(new MemoryAgentConfigs({ agent }))
       .resolveExecutionConfig({ agentName: "agent" });
 
-    expect(resolved.readiness.configuration_ready).toBe(false);
-    expect(resolved.readiness.llm.source).toBe("missing");
+    expect(resolved.readiness).toMatchObject({
+      configuration_ready: true,
+      llm: {
+        source: "system_config.llm",
+        model_name: "system-model",
+        fallback_reason: "agent_default_tier_unresolved",
+      },
+    });
+    // 兜底注入只补 default，不丢弃已有的场景档。
     expect(resolved.agent?.llm_tiers).toHaveProperty("fast");
-    expect(resolved.agent?.llm_tiers).not.toHaveProperty("default");
+    expect(resolved.agent?.llm_tiers?.default).toMatchObject({ provider: "system", model_name: "system-model" });
+  });
+
+  it("preserves a resolvable scenario tier when the default tier falls back", () => {
+    const agent = runtimeAgent({
+      default: {
+        provider: "deleted-provider",
+        provider_type: "deepseek",
+        model_name: "deleted-model",
+        extra_params: {},
+      },
+      fast: {
+        provider: "system",
+        provider_type: "deepseek",
+        model_name: "system-model",
+        extra_params: {},
+      },
+    });
+
+    const resolved = runtimeCore(new MemoryAgentConfigs({ agent }))
+      .resolveExecutionConfig({ agentName: "agent" });
+
+    expect(resolved.readiness.llm.source).toBe("system_config.llm");
+    expect(resolved.agent?.llm_tiers?.fast?.provider).toBe("system");
+    expect(resolved.agent?.llm_tiers?.default?.provider).toBe("system");
+  });
+
+  it("reports missing against the agent's raw refs when the system LLM also fails to resolve", () => {
+    const agent = runtimeAgent({
+      default: {
+        provider: "deleted-provider",
+        provider_type: "deepseek",
+        model_name: "deleted-model",
+        extra_params: {},
+      },
+    });
+    const configs = new MemoryAgentConfigs({ agent });
+    const service = new RuntimeCoreService(
+      configs,
+      new MemoryModelProviders(),
+      new (class implements RuntimeSystemConfigPort {
+        getLlmConfig(): SystemLlmConfig {
+          return { ...systemLlm(), provider: "unregistered-system", model_name: "unregistered-model" };
+        }
+      })(),
+    );
+
+    const resolved = service.resolveExecutionConfig({ agentName: "agent" });
+
+    // 系统 LLM 也失效：按 agent 原始引用报缺失，比系统空引用更有排查价值。
+    expect(resolved.readiness.configuration_ready).toBe(false);
+    expect(resolved.readiness.llm).toMatchObject({
+      provider: "deleted-provider",
+      model_name: "deleted-model",
+      source: "missing",
+      fallback_reason: null,
+    });
+    expect(resolved.agent?.llm_tiers?.default?.provider).toBe("deleted-provider");
+  });
+
+  it("does not fall back when the selectedLlm override itself is dangling", () => {
+    // selectedLlm 是本次运行的显式选择：解析不到直接报缺失，不静默换 agent default / 系统 LLM。
+    const agent = runtimeAgent({
+      default: {
+        provider: "system",
+        provider_type: "deepseek",
+        model_name: "system-model",
+        extra_params: {},
+      },
+    });
+
+    const resolved = runtimeCore(new MemoryAgentConfigs({ agent }))
+      .resolveExecutionConfig({ agentName: "agent", selectedLlm: "deleted-provider|deepseek|deleted-model" });
+
+    expect(resolved.readiness.configuration_ready).toBe(false);
+    expect(resolved.readiness.llm).toMatchObject({
+      provider: "deleted-provider",
+      model_name: "deleted-model",
+      source: "selected_llm",
+      fallback_reason: null,
+    });
+    expect(resolved.readiness.requirements).toContainEqual(expect.objectContaining({
+      key: "model_provider_config",
+      satisfied: false,
+    }));
+  });
+
+  it("resolves the agent tier without system fallback when systemConfig is not wired", () => {
+    // 未注入 systemConfig 的部署形态：agent default 有效照常解析；失效则报缺失（无系统可回落）。
+    const configs = new MemoryAgentConfigs({
+      agent: runtimeAgent({
+        default: { provider: "system", provider_type: "deepseek", model_name: "system-model", extra_params: {} },
+      }),
+      dangling: runtimeAgent({
+        default: { provider: "deleted-provider", provider_type: "deepseek", model_name: "deleted-model", extra_params: {} },
+      }),
+    });
+    const service = new RuntimeCoreService(configs, new MemoryModelProviders(), null);
+
+    const valid = service.resolveExecutionConfig({ agentName: "agent" });
+    expect(valid.readiness.llm).toMatchObject({ source: "agent_config.default", model_name: "system-model" });
+
+    const dangling = service.resolveExecutionConfig({ agentName: "dangling" });
+    expect(dangling.readiness.configuration_ready).toBe(false);
+    expect(dangling.readiness.llm).toMatchObject({
+      provider: "deleted-provider",
+      source: "missing",
+      fallback_reason: null,
+    });
   });
 });
 

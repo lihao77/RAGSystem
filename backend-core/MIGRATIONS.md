@@ -25,7 +25,7 @@
 | --- | --- | --- | --- |
 | `strip_dangling_delegation_refs` | `enabled_agents` 引用了本 team 不存在的 agent | 剔除悬空委派引用 | 早期自愈逻辑 |
 | `strip_stock_default_llm_tier` | 内置默认 team 出厂携带的示例 tier（`my`/`deepseek`/`deepseek-chat` 全等副本） | 剥除后继承系统 LLM；用户改过参数或另有档位的不动。已知限制：与出厂常量逐字段全等（含仅 default 档、空 extra_params）的手工配置也会被剥除——provider "my" 实际不存在，误伤面趋近于零 | 2026-08（对应 Oceanx 定时任务 readiness 故障） |
-| `strip_empty_llm_tiers` | 零信息 tier 条目：provider 与 model_name 均为空白（Agent Studio 对未配置档位的落盘形态） | 剔除该档位；map 剔空则整体置 null 以继承系统 LLM。半空条目（两字段仅其一非空）是真实配置错误，保留并按缺失显式报错 | 2026-08（全空 default tier 挡住系统 LLM 兜底导致 readiness 硬失败） |
+| `strip_empty_llm_tiers` | 零信息 tier 条目：provider 与 model_name 均为空白（Agent Studio 对未配置档位的落盘形态） | 剔除该档位；map 剔空则整体置 null 以继承系统 LLM。半空条目（两字段仅其一非空）保留——运行期 default 档引用失效回落系统 LLM（readiness 标注 fallback_reason），条目留在配置供前端标注失效 | 2026-08（全空 default tier 挡住系统 LLM 兜底导致 readiness 硬失败） |
 
 ## 形态归一层
 

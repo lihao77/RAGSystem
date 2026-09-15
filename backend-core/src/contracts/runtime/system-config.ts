@@ -99,5 +99,10 @@ export interface SystemConfigExtension {
 export interface SystemConfigPort {
   getSection(key: string): SystemConfigValue | undefined;
   getToolsConfig(): ToolsConfig;
+  /**
+   * 系统 LLM 兜底配置（agent default 档引用失效回落用）。SystemConfigService
+   * 实装；测试替身/裁剪实现可缺省——缺省时调用方不做系统回落。
+   */
+  getLlmConfig?(): SystemLlmConfig;
   registerExtension(id: string, extension: SystemConfigExtension): () => void;
 }

@@ -31,6 +31,7 @@ import type { BackendToolFactory } from "../../../plugins/backend-plugin.js";
 import type { SystemConfigPort } from "../../../contracts/runtime/system-config.js";
 import type { TaskToolService } from "../../../tools/TaskTools/TaskExecution.js";
 import { projectAgentProfile } from "./projection.js";
+import { systemLlmAsTier } from "../execution/runtime-core-service.js";
 import { buildBackendAgentContext, HISTORY_SCAN_LIMIT, type ConversationHistoryPort, type SessionMetadataPort } from "../context/index.js";
 import type { AgentCompressionService } from "../context-compression/compression-service.js";
 import { readPersistedSessionCacheTotals, RuntimeInputTokenTracker, SESSION_CACHE_TOTALS_METADATA_KEY, type InputTokenTrackerIdentity } from "../context-compression/input-token-tracker.js";
@@ -318,6 +319,9 @@ export async function executeRunWithSdk(
     agent: input.agent,
     providers: deps.providers,
     ...(input.selectedLlm !== undefined ? { selectedLlm: input.selectedLlm } : {}),
+    // default 档引用失效时投影层回落系统 LLM（agent 通常已被 runtime 兜底注入
+    // default，此处是未经 resolveExecutionConfig 的调用面的第二道同口径保障）。
+    ...(deps.systemConfig?.getLlmConfig ? { systemLlm: systemLlmAsTier(deps.systemConfig.getLlmConfig()) } : {}),
     ...(input.thinkingLevel ? { thinkingLevel: input.thinkingLevel } : {}),
   });
   const rootRunId = input.rootRunId ?? input.parentRunId ?? input.runId;

@@ -3,7 +3,7 @@ import type { AgentConfig, AgentLlmConfig } from "../../../contracts/agent/agent
 import type { RuntimeCoreReadiness, RuntimeCoreRequirement } from "../../../contracts/runtime/runtime-core.js";
 import type { ModelProviderConfig } from "../../../contracts/integrations/model-adapter.js";
 import type { SystemLlmConfig } from "../../../contracts/runtime/system-config.js";
-import { findProviderByRef, normalizeProviderKey } from "../../runtime/provider-lookup.js";
+import { findProviderByRef, isProviderModelAvailable, providerRefResolves } from "../../runtime/provider-lookup.js";
 import type { SessionTeamSnapshot } from "../../../contracts/session/session.js";
 
 export interface RuntimeCoreReadinessInput {
@@ -44,6 +44,8 @@ interface ResolvedLlm {
   provider_type: string | null;
   model_name: string | null;
   source: "selected_llm" | "agent_config.default" | "system_config.llm" | "missing";
+  /** default 档引用解析失败（悬空/半空/缺档）而回落系统 LLM 时标注，供前端失效提示。 */
+  fallback_reason: "agent_default_tier_unresolved" | null;
 }
 
 export class RuntimeCoreService {
@@ -88,6 +90,7 @@ export class RuntimeCoreService {
         provider_type: llm.provider_type,
         model_name: llm.model_name,
         source: llm.source,
+        fallback_reason: llm.fallback_reason,
       },
       provider,
       requirements,
@@ -142,40 +145,49 @@ export class RuntimeCoreService {
   private resolveLlm(agent: AgentConfig | null, selectedLlm: string | null | undefined): ResolvedLlm {
     const override = parseSelectedLlm(selectedLlm);
     if (override) {
+      // selectedLlm 是本次运行的显式选择：解析不到直接报缺失，不静默换模型。
       return {
         ...override,
         source: "selected_llm",
+        fallback_reason: null,
       };
     }
 
-    const defaultTier = agent?.llm_tiers?.default;
-    if (defaultTier) {
+    const providers = this.modelProviders.listProviders();
+    const defaultTier = agent?.llm_tiers?.default ?? null;
+    if (defaultTier && providerRefResolves(providers, defaultTier)) {
       return {
         provider: normalizeString(defaultTier.provider),
         provider_type: normalizeString(defaultTier.provider_type),
         model_name: normalizeString(defaultTier.model_name),
         source: "agent_config.default",
+        fallback_reason: null,
       };
     }
 
-    // Keep the fallback intentionally narrow: a system default is inherited only
-    // when the agent has no LLM tier configuration at all. A partially configured
-    // tier map is an explicit agent choice and must remain unresolved.
-    const systemTier = this.resolveSystemLlmFallback(agent);
-    if (systemTier) {
+    // 配置失效即回落：default 档引用解析不到（悬空 provider、模型下架、半空残壳、
+    // 仅有场景档）时回落系统 LLM，由 fallback_reason 标注失效供前端提示，不再硬失败。
+    // 完全没有 llm_tiers 的继承是无标注的常态回落（内置 Agent 的默认形态）。
+    const systemTier = this.systemLlmTier();
+    if (systemTier && providerRefResolves(providers, systemTier)) {
       return {
         provider: normalizeString(systemTier.provider),
         provider_type: normalizeString(systemTier.provider_type),
         model_name: normalizeString(systemTier.model_name),
         source: "system_config.llm",
+        fallback_reason: agentHasTiers(agent) ? "agent_default_tier_unresolved" : null,
       };
     }
 
+    // 系统兜底也不可用：按 agent 配置的原始引用报缺失（比系统空引用更有排查价值）；
+    // agent 完全没配 tier 时按系统 LLM 引用报。
+    const reportFrom = defaultTier ?? systemTier;
     return {
-      provider: null,
-      provider_type: null,
-      model_name: null,
+      provider: normalizeString(reportFrom?.provider),
+      provider_type: normalizeString(reportFrom?.provider_type),
+      model_name: normalizeString(reportFrom?.model_name),
       source: "missing",
+      fallback_reason: null,
     };
   }
 
@@ -183,30 +195,17 @@ export class RuntimeCoreService {
     if (!agent || llm.source !== "system_config.llm") {
       return agent;
     }
-    const systemTier = this.resolveSystemLlmFallback(agent);
+    const systemTier = this.systemLlmTier();
     return systemTier
-      ? { ...agent, llm_tiers: { default: systemTier } }
+      ? { ...agent, llm_tiers: { ...agent.llm_tiers, default: systemTier } }
       : agent;
   }
 
-  private resolveSystemLlmFallback(agent: AgentConfig | null): AgentLlmConfig | null {
-    if (!agent || !this.systemConfig) {
+  private systemLlmTier(): AgentLlmConfig | null {
+    if (!this.systemConfig) {
       return null;
     }
-    const tiers = agent.llm_tiers;
-    if (tiers !== null && tiers !== undefined && Object.keys(tiers).length > 0) {
-      return null;
-    }
-    const systemLlm = this.systemConfig.getLlmConfig();
-    return {
-      provider: systemLlm.provider,
-      provider_type: systemLlm.provider_type,
-      model_name: systemLlm.model_name,
-      temperature: systemLlm.temperature,
-      max_completion_tokens: systemLlm.max_completion_tokens,
-      max_context_tokens: systemLlm.max_context_tokens,
-      extra_params: { ...systemLlm.extra_params },
-    };
+    return systemLlmAsTier(this.systemConfig.getLlmConfig());
   }
 
   private resolveProvider(llm: ResolvedLlm): RuntimeCoreReadiness["provider"] {
@@ -226,7 +225,7 @@ export class RuntimeCoreService {
       provider_key: provider.key ?? null,
       provider_name: provider.name,
       provider_type: provider.provider_type,
-      model_available: isModelAvailable(provider, llm.model_name),
+      model_available: isProviderModelAvailable(provider, llm.model_name),
       api_key_configured: Boolean(String(provider.api_key ?? "").trim()),
     };
   }
@@ -281,11 +280,18 @@ function requirement(
   return item;
 }
 
+/** selectedLlm 字符串解析出的 LLM 引用三元组（不含 source/fallback_reason 等运行时字段）。 */
+export interface SelectedLlmRef {
+  provider: string | null;
+  provider_type: string | null;
+  model_name: string | null;
+}
+
 /**
  * 解析前端 selectedLlm 字符串（"provider|provider_type|model" / "provider|model"）。
  * 单段形态（无 model）返回 provider-only 引用，由调用方按需校验完整性。
  */
-export function parseSelectedLlm(selectedLlm: string | null | undefined): Omit<ResolvedLlm, "source"> | null {
+export function parseSelectedLlm(selectedLlm: string | null | undefined): SelectedLlmRef | null {
   const normalized = selectedLlm?.trim();
   if (!normalized) {
     return null;
@@ -312,12 +318,25 @@ export function parseSelectedLlm(selectedLlm: string | null | undefined): Omit<R
   };
 }
 
-function isModelAvailable(provider: ModelProviderConfig, modelName: string | null): boolean {
-  if (!modelName) {
-    return false;
-  }
-  const target = normalizeProviderKey(modelName);
-  return provider.models.some((model) => normalizeProviderKey(model.name) === target);
+function agentHasTiers(agent: AgentConfig | null): boolean {
+  const tiers = agent?.llm_tiers;
+  return tiers !== null && tiers !== undefined && Object.keys(tiers).length > 0;
+}
+
+/**
+ * 系统 LLM 配置 → AgentLlmConfig 形态（tier 同构）。runtime 兜底注入与投影层
+ * 系统回落共用，保证两层注入的 default 档逐字段一致。
+ */
+export function systemLlmAsTier(systemLlm: SystemLlmConfig): AgentLlmConfig {
+  return {
+    provider: systemLlm.provider,
+    provider_type: systemLlm.provider_type,
+    model_name: systemLlm.model_name,
+    temperature: systemLlm.temperature,
+    max_completion_tokens: systemLlm.max_completion_tokens,
+    max_context_tokens: systemLlm.max_context_tokens,
+    extra_params: { ...systemLlm.extra_params },
+  };
 }
 
 function hasSystemPrompt(agent: AgentConfig | null): boolean {
