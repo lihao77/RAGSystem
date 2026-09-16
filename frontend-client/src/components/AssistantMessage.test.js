@@ -73,6 +73,31 @@ test('消息列表复用 Widget 的紧凑气泡和工具调用视觉结构', asy
   assert.equal(styles.includes('max-width: 80%'), true);
 });
 
+test('输入区与消息区共用同一条左右边界', async () => {
+  const styles = await readFile(new URL('../styles/chat-view.css', import.meta.url), 'utf8');
+  const wrapper = /\.input-area-wrapper \{[\s\S]*?\n\}/.exec(styles)?.[0];
+  const messages = /\.chat-messages \{[\s\S]*?\n\}/.exec(styles)?.[0];
+  assert.ok(wrapper && messages, '应能读到输入区与消息区的规则');
+
+  // 输入区此前固定 16px：宽屏下比消息列窄 32px、窄屏下反而更宽，两处取同一个变量才对齐
+  assert.equal(wrapper.includes('padding: 0 var(--chat-padding-x);'), true);
+  assert.equal(messages.includes('padding: var(--chat-padding-y) var(--chat-padding-x);'), true);
+  assert.equal(styles.includes('--input-area-padding-x'), false);
+});
+
+test('过程行缩进步长由图标尺寸与行内间距推出', async () => {
+  const nodeSource = await readFile(new URL('./chat/AssistantExecutionNode.vue', import.meta.url), 'utf8');
+
+  const iconSize = /\.assistant-step-icon \{[\s\S]*?width: (\d+)px/.exec(nodeSource)?.[1];
+  const rowGap = /\.assistant-step-row \{[\s\S]*?gap: (\d+)px/.exec(nodeSource)?.[1];
+  assert.ok(iconSize && rowGap, '应能读到步骤图标尺寸与行内 gap');
+
+  // 行首 / 展开体 / 思考竖线三个缩进公式都从这两个常量推出；改了样式尺寸这里会拦住
+  assert.equal(nodeSource.includes(`const STEP_ICON_SIZE = ${iconSize};`), true);
+  assert.equal(nodeSource.includes(`const STEP_ROW_GAP = ${rowGap};`), true);
+  assert.equal(nodeSource.includes('* 22'), false);
+});
+
 test('运行概览收进顶栏胶囊,Goal 与后台任务合并在同一概览', async () => {
   const barSource = await readFile(new URL('./chat/SessionContextBar.vue', import.meta.url), 'utf8');
   const capsuleSource = await readFile(new URL('./chat/RuntimeCapsule.vue', import.meta.url), 'utf8');

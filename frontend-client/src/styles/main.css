@@ -293,7 +293,6 @@
     /* 响应式布局变量（桌面默认） */
     --chat-padding-x: var(--spacing-lg);
     --chat-padding-y: var(--spacing-lg);
-    --input-area-padding-x: var(--spacing-md);
     --input-centered-padding-x: var(--spacing-lg);
     --welcome-title-size: 2rem;
     --welcome-subtitle-size: 1rem;
@@ -946,8 +945,6 @@ input[type='number'] {
         --chat-padding-x: var(--spacing-lg);
         --chat-padding-y: var(--spacing-lg);
 
-        --input-area-padding-x: var(--spacing-md);
-
         --welcome-title-size: 2rem;
         --welcome-subtitle-size: 1rem;
     }
@@ -959,8 +956,7 @@ input[type='number'] {
         --chat-padding-x: var(--spacing-md);
         --chat-padding-y: var(--spacing-md);
 
-        --input-area-padding-x: var(--spacing-md);
-        --input-centered-padding-x: var(--spacing-sm);
+            --input-centered-padding-x: var(--spacing-sm);
 
         --welcome-title-size: 1.5rem;
         --welcome-subtitle-size: 0.9rem;
@@ -985,8 +981,7 @@ input[type='number'] {
         --chat-padding-x: var(--spacing-sm);
         --chat-padding-y: var(--spacing-sm);
 
-        --input-area-padding-x: var(--spacing-md);
-        --input-centered-padding-x: var(--spacing-xs);
+            --input-centered-padding-x: var(--spacing-xs);
 
         --welcome-title-size: 1.25rem;
         --welcome-subtitle-size: 0.85rem;

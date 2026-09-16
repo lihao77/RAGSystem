@@ -206,10 +206,16 @@ const agentAccent = computed(() => (
       || props.node.agent_operation?.agent_name,
   }) : ''
 ));
-const indentStyle = computed(() => ({ paddingLeft: `${props.depth * 22}px` }));
-const detailIndentStyle = computed(() => ({ marginLeft: `${props.depth * 22 + 22}px` }));
-// 竖线挂在思考图标（14px）中心的正下方，随节点缩进层级对齐。
-const reasoningLineStyle = computed(() => ({ '--reasoning-line-left': `${props.depth * 22 + 7}px` }));
+// 缩进步长 = 步骤图标宽 + 行内 gap，取值与样式里的 .assistant-step-icon / .assistant-step-row 一致。
+// 三个缩进公式都由它推出：行首、展开体（再让一个步长，与步骤文字对齐）、
+// 思考竖线（落在图标中心，即步长起点 + 半个图标）。
+const STEP_ICON_SIZE = 14;
+const STEP_ROW_GAP = 8;
+const STEP_INDENT = STEP_ICON_SIZE + STEP_ROW_GAP;
+
+const indentStyle = computed(() => ({ paddingLeft: `${props.depth * STEP_INDENT}px` }));
+const detailIndentStyle = computed(() => ({ marginLeft: `${props.depth * STEP_INDENT + STEP_INDENT}px` }));
+const reasoningLineStyle = computed(() => ({ '--reasoning-line-left': `${props.depth * STEP_INDENT + STEP_ICON_SIZE / 2}px` }));
 
 const iconKind = computed(() => {
   if (isAgentNode.value) return 'agent';

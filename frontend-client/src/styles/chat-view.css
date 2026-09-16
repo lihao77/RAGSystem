@@ -925,7 +925,9 @@
   position: relative;
   z-index: calc(var(--z-sticky) + 3);
   background: transparent;
-  padding: 0px var(--input-area-padding-x);
+  /* 左右留白与消息区同源：两处取同一个 --chat-padding-x，输入框与消息列才共用
+     一条左右边界（此前输入区固定 16px，宽屏下比消息列窄 32px、窄屏下反而更宽） */
+  padding: 0 var(--chat-padding-x);
   padding-bottom: var(--spacing-md);
   isolation: isolate;
   width: 100%;
@@ -939,7 +941,7 @@
 }
 
 .input-area-wrapper--new-chat {
-  padding-inline: max(var(--input-area-padding-x), 24px);
+  padding-inline: max(var(--chat-padding-x), 24px);
 }
 
 .input-area-wrapper--new-chat > * {
