@@ -946,6 +946,13 @@
   transition: opacity 220ms var(--edit-transition-ease), transform 220ms var(--edit-transition-ease), filter 220ms var(--edit-transition-ease);
 }
 
+/* 有消息时，底部这一条（输入框卡片所在的带）刷成与聊天区同色。
+   卡片本身只挡住自己那块，卡片下沿到视口底之间原本是透的——正文会从这条缝里露出来，
+   看着像文字钻到输入框底下。空态不加底色：那时输入区是浮在页面中间的卡片，刷底色会露一块矩形。 */
+.chat-main.has-messages .input-area-wrapper {
+  background: var(--surface-shell);
+}
+
 .input-area-wrapper > * {
   pointer-events: auto;
   width: 100%;

@@ -121,6 +121,10 @@ const shots = [
       { type: 'expectText', selector: '.new-chat-start', text: '要不要先休息一下' },
       { type: 'expectText', selector: '.session-setup-panel', text: 'ragsystem' },
       { type: 'expectVisible', selector: '.input-area-wrapper--new-chat' },
+      // 空态的输入区浮在页面中间，底部带不能刷底色（否则露出一块矩形）
+      { type: 'expectExpression',
+        script: "const bg = getComputedStyle(document.querySelector('.input-area-wrapper')).backgroundColor; return bg === 'rgba(0, 0, 0, 0)' || bg === 'transparent'",
+        detail: "return getComputedStyle(document.querySelector('.input-area-wrapper')).backgroundColor;" },
     ],
   },
   {
@@ -392,6 +396,12 @@ const shots = [
         script: "const w = document.querySelector('.chat-messages-wrapper'); return Math.max(0, w.scrollHeight - w.scrollTop - w.clientHeight) <= 4",
         detail: "const w = document.querySelector('.chat-messages-wrapper'); return { scrollTop: w.scrollTop, scrollHeight: w.scrollHeight, clientHeight: w.clientHeight };" },
       { type: 'expectCount', selector: '.scroll-to-bottom-btn', count: 0 },
+      // 底部带与聊天区同色：卡片只挡住自己那块，这条带不实心的话正文会从卡片下方露出来
+      { type: 'expectExpression',
+        script: "const el = document.querySelector('.input-area-wrapper'); const shell = document.querySelector('.layout-main-host'); return !!shell && getComputedStyle(el).backgroundColor === getComputedStyle(shell).backgroundColor",
+        detail: "const el = document.querySelector('.input-area-wrapper'); const shell = document.querySelector('.layout-main-host'); return { wrapperBg: getComputedStyle(el).backgroundColor, shellBg: shell ? getComputedStyle(shell).backgroundColor : null };" },
+      // 收尾停在「正文从输入框身后经过」的位置，截屏用于肉眼核对底部没有露字
+      { type: 'scrollToTop', selector: '.chat-messages-wrapper' },
     ],
   },
   {
