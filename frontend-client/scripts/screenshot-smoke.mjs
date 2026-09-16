@@ -294,6 +294,11 @@ const shots = [
       { type: 'mockArtifactApi' },
       { type: 'expectText', selector: '.conversation-title', text: '生成一张水位趋势图' },
       { type: 'expectVisible', selector: '.composer-run-controls' },
+      // 容器不得再加 gap：flex 下它不与子项 margin-top 折叠，会让移动端间距反而变大
+      { type: 'expectStyle', selector: '.message-stream', property: 'rowGap', value: 'normal' },
+      // 段内紧凑间距（带执行的 user → 紧随的 assistant）在移动端必须是 6px：
+      // 容器若加了 gap，这里会先变成 14px（即 20+8=28 的老问题）
+      { type: 'expectStyle', selector: '.message-stream > * + *', property: 'marginTop', value: '6px' },
     ],
   },
   {
@@ -1634,8 +1639,11 @@ async function runShotActions(client, shot) {
         ? `document.querySelectorAll(${jsString(action.selector)}).length === ${action.count}`
         : `(() => { const element = document.querySelector(${jsString(action.selector)}); return element && getComputedStyle(element)[${jsString(action.property)}] === ${jsString(action.value)}; })()`;
       if (!await waitForEvaluation(client, expression, 5000)) {
-        const detail = await evaluate(client, `document.querySelectorAll(${jsString(action.selector)}).length`);
-        throw new Error(`${shot.name} failed ${action.type} for ${action.selector}: ${detail}`);
+        // 失败时把实际值一并抛出：断言写错值时空看元素个数会误判成「没渲染」
+        const detail = action.type === 'expectCount'
+          ? await evaluate(client, `document.querySelectorAll(${jsString(action.selector)}).length`)
+          : await evaluate(client, `(() => { const element = document.querySelector(${jsString(action.selector)}); return element ? getComputedStyle(element)[${jsString(action.property)}] : '(元素不存在)'; })()`);
+        throw new Error(`${shot.name} failed ${action.type} for ${action.selector}: 实际 ${JSON.stringify(detail)}，期望 ${JSON.stringify(action.value ?? action.count)}`);
       }
       continue;
     }
@@ -1690,12 +1698,14 @@ async function runShotActions(client, shot) {
     }
 
     if (action.type === 'click') {
-      const clicked = await evaluate(client, `(() => {
+      // 等元素出现再点：单次 querySelector 会在挂载前落空，让场景变成偶发失败。
+      // 表达式只在元素存在时点击并返回 true，因此不会重复点击。
+      const clicked = await waitForEvaluation(client, `(() => {
         const element = document.querySelector(${jsString(action.selector)});
         if (!element) return false;
         element.click();
         return true;
-      })()`);
+      })()`, 5000);
       if (!clicked) {
         throw new Error(`${shot.name} could not find clickable selector: ${action.selector}`);
       }
