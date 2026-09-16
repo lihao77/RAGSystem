@@ -365,6 +365,9 @@ defineExpose({ focus, extractClipboardFiles, extractDroppedFiles, canAcceptDragg
   border-radius: var(--composer-radius);
 }
 
+/* 左基准线：外壳内边距 8px + 内层内边距 8px = 16px。规则是——纯文本（正文、胶囊文字）
+   把「文字」放在这条线上，卡片与图标按钮把「盒子」放在这条线上（图标墨迹随之自然内缩）。
+   顶行、底栏、附件卡、挂起横幅统一按这条线对齐，不再各自写一个内边距。 */
 .composer-context,
 .composer-pending {
   padding: 6px 8px;
@@ -431,7 +434,7 @@ defineExpose({ focus, extractClipboardFiles, extractDroppedFiles, canAcceptDragg
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 2px 6px 0;
+  margin: 2px 8px 0;
   padding: 9px 11px;
   border-radius: 10px;
   background: rgba(var(--color-warning-rgb), 0.12);
@@ -580,7 +583,9 @@ textarea::placeholder {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 8px 4px 2px;
+  /* 左右 8px 与 textarea 的 8px 内边距相加，得到同一条 16px 左轨：
+     底栏按钮的盒子落在正文竖线上，图标墨迹自然内缩 ~7px（28px 按钮里的 14px 图标） */
+  padding: 8px 8px 2px;
   border-top: 1px solid var(--color-border);
   flex-wrap: nowrap;
 }

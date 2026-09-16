@@ -3,7 +3,6 @@
 :root {
   --edit-transition-duration: 240ms;
   --edit-transition-ease: var(--ease-out-expo);
-  --user-message-edit-width: min(920px, 95%);
 }
 
 /* ===== CSS 局部变量补充（消除魔法数字） ===== */
@@ -29,8 +28,6 @@
   --message-list-gap: 20px;
   --message-bubble-radius: 16px;
   --user-bubble-corner: var(--message-bubble-radius);
-  /* 编辑框 */
-  --edit-input-min-height: 90px;
 }
 
 /* 亮色模式代码块覆盖 */
@@ -1020,6 +1017,7 @@
     margin-top: 0px;
   }
 
+  /* 顶栏在这一档是绝对定位，内容得手动让出它的高度（2×8px 内边距 + 顶栏本身） */
   .chat-messages {
     padding-top: calc(2 * var(--spacing-sm) + var(--chat-mobile-top-offset));
     overflow: visible;
@@ -1072,12 +1070,6 @@
     border-radius: 0;
   }
 
-  /* 移动端消息布局调整 */
-  .chat-messages {
-    padding-top: calc(2 * var(--spacing-sm) + var(--chat-mobile-top-offset));
-    overflow: visible;
-  }
-
   /* 移动端欢迎屏幕调整 */
   .welcome-screen {
     padding: 96px var(--spacing-md) var(--spacing-xl);
@@ -1101,9 +1093,11 @@
     height: var(--welcome-logo-size);
   }
 
-  /* 移动端聊天内容进一步压缩留白 */
+  /* 移动端聊天内容进一步压缩留白。改间距变量本身，不能用 gap：消息间距由
+     .message-stream > * + * 的 margin-top 提供，flex 下 gap 与之叠加（20+8=28px），
+     会与「压缩留白」的意图相反。 */
   .message-stream {
-    gap: var(--spacing-sm);
+    --message-list-gap: var(--spacing-sm);
   }
 
   .message {
@@ -1128,12 +1122,6 @@
     opacity: 1;
     left: var(--top-bar-divider-left);
     right: var(--top-bar-divider-right);
-  }
-
-  /* 小屏手机上保持按钮一致性 */
-  .chat-messages {
-    padding-top: calc(2 * var(--spacing-sm) + var(--chat-mobile-top-offset));
-    overflow: visible;
   }
 
   .message-content {

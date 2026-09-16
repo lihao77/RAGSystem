@@ -211,9 +211,6 @@
     --spacing-2xl: 48px;
     --spacing-3xl: 64px;
 
-    /* 布局 —— workbench 双栏 */
-    --workbench-breakpoint: 1200px;
-
     /* 布局 —— 侧边栏 */
     --sidebar-width: 260px;
     --sidebar-collapsed-width: 52px;
@@ -296,8 +293,6 @@
     /* 响应式布局变量（桌面默认） */
     --chat-padding-x: var(--spacing-lg);
     --chat-padding-y: var(--spacing-lg);
-    --chat-padding-bottom: 200px;
-    --chat-message-gap: var(--spacing-lg);
     --input-area-padding-x: var(--spacing-md);
     --input-centered-padding-x: var(--spacing-lg);
     --welcome-title-size: 2rem;
@@ -950,7 +945,6 @@ input[type='number'] {
     :root {
         --chat-padding-x: var(--spacing-lg);
         --chat-padding-y: var(--spacing-lg);
-        --chat-padding-bottom: 180px;
 
         --input-area-padding-x: var(--spacing-md);
 
@@ -964,8 +958,6 @@ input[type='number'] {
     :root {
         --chat-padding-x: var(--spacing-md);
         --chat-padding-y: var(--spacing-md);
-        --chat-padding-bottom: 150px;
-        --chat-message-gap: var(--spacing-sm);
 
         --input-area-padding-x: var(--spacing-md);
         --input-centered-padding-x: var(--spacing-sm);
@@ -992,7 +984,6 @@ input[type='number'] {
     :root {
         --chat-padding-x: var(--spacing-sm);
         --chat-padding-y: var(--spacing-sm);
-        --chat-padding-bottom: 140px;
 
         --input-area-padding-x: var(--spacing-md);
         --input-centered-padding-x: var(--spacing-xs);
@@ -1019,7 +1010,6 @@ input[type='number'] {
     :root {
         --chat-padding-x: var(--spacing-xs);
         --chat-padding-y: var(--spacing-xs);
-        --chat-padding-bottom: 120px;
         --welcome-title-size: 1.1rem;
         --welcome-subtitle-size: 0.8rem;
         --welcome-logo-size: 40px;

@@ -160,7 +160,8 @@ watch(currentWorkspace, (workspace) => {
   gap: 6px;
   height: 28px;
   max-width: min(100%, 360px);
-  padding: 0 10px;
+  /* 8px = 外壳顶行的内边距，胶囊文字因此与输入框正文落在同一条 16px 竖线上 */
+  padding: 0 8px;
   border: 0;
   border-radius: 999px;
   background: transparent;

@@ -133,6 +133,37 @@ test('顶行（项目/上下文触发器）渲染在输入框之上，不占用�
   );
 });
 
+test('composer 左基准线：正文、底栏、顶行胶囊共用同一条竖线', async () => {
+  const source = await readFile(new URL('./ChatInput.vue', import.meta.url), 'utf8');
+  // 胶囊住在顶行槽位里，它的文字轨由「外壳内边距 + 顶行内边距 + 胶囊内边距」决定
+  const pillSource = await readFile(new URL('./chat/TaskLauncher.vue', import.meta.url), 'utf8');
+  const spacing = { 'var(--spacing-sm)': 8, 'var(--spacing-xs)': 4, 'var(--spacing-md)': 16 };
+
+  const paddingInline = (css, selector) => {
+    const block = css.match(selector);
+    assert.ok(block, `找不到规则：${selector}`);
+    const decl = block[0].match(/padding:\s*([^;]+);/);
+    assert.ok(decl, `${selector} 缺少 padding 声明`);
+    const parts = decl[1].trim().split(/\s+/);
+    const value = parts.length === 1 ? parts[0] : parts[1];
+    const px = spacing[value] ?? Number.parseFloat(value);
+    assert.ok(Number.isFinite(px), `${selector} 的 padding 无法解析：${value}`);
+    return px;
+  };
+
+  const container = paddingInline(source, /\.input-container \{[\s\S]*?\n\}/);
+  const textarea = paddingInline(source, /\ntextarea \{[\s\S]*?\n\}/);
+  const footer = paddingInline(source, /\.input-footer \{[\s\S]*?\n\}/);
+  const strip = paddingInline(source, /\.composer-context,\s*\n\.composer-pending \{[\s\S]*?\n\}/);
+  const pill = paddingInline(pillSource, /\.project-trigger \{[\s\S]*?\n\}/);
+
+  const rail = container + textarea;
+  // 底栏按钮的「盒子」落在正文轨上，图标墨迹再随按钮内边距内缩
+  assert.equal(container + footer, rail, '底栏内边距必须与 textarea 一致');
+  // 顶行本身只到外壳轨，胶囊用自己的内边距补到正文轨
+  assert.equal(strip + pill, rail, '胶囊文字必须与输入框正文对齐');
+});
+
 test('发送、停止、恢复和附件能力只由显式运行时动作投影控制', async () => {
   const filePath = new URL('./ChatInput.vue', import.meta.url);
   const source = await readFile(filePath, 'utf8');

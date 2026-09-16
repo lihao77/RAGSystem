@@ -65,6 +65,10 @@ test('消息列表复用 Widget 的紧凑气泡和工具调用视觉结构', asy
   assert.equal(styles.includes('.loading-indicator .loading-spinner'), true);
   assert.equal(styles.includes('padding: 4px var(--spacing-sm)'), false);
   assert.equal(styles.includes('--message-list-gap: 20px'), true);
+  // 移动端压缩间距改的是间距变量本身：flex 下 gap 不与子项 margin-top 折叠，
+  // 再给 .message-stream 加 gap 会把间距顶成 28px
+  assert.equal(styles.includes('--message-list-gap: var(--spacing-sm)'), true);
+  assert.equal(/\.message-stream \{[^}]*[;{]\s*gap:/.test(styles), false);
   assert.equal(styles.includes('--message-bubble-radius: 16px'), true);
   assert.equal(styles.includes('max-width: 80%'), true);
 });
