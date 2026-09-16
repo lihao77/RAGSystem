@@ -143,35 +143,67 @@ const shots = [
     actions: [
       { type: 'mockSessionSidebarApi' },
       { type: 'expectText', selector: '.session-setup-panel', text: 'ragsystem' },
+      { type: 'expectStyle', selector: '.project-trigger', property: 'borderRadius', value: '999px' },
+      { type: 'expectVisible', selector: '.project-trigger' },
+      // 列表加载完成前触发器是 disabled，点了也不会开；等标签落到已选项目再点
+      { type: 'expectText', selector: '.project-trigger', text: 'ragsystem' },
       { type: 'click', selector: '.project-trigger' },
-      { type: 'expectText', selector: '[role="dialog"]', text: 'ZCodeProject' },
-      { type: 'expectCentered', selector: '[role="dialog"]' },
+      { type: 'expectText', selector: '.project-picker-popover', text: 'ZCodeProject' },
       { type: 'click', selector: '.project-list > li:last-child .project-option' },
+      { type: 'expectHidden', selector: '.project-picker-popover' },
       { type: 'expectText', selector: '.session-setup-panel', text: 'ZCodeProject' },
     ],
   },
   {
-    name: 'start-page-project-dialog-desktop',
+    name: 'start-page-project-pill-cjk',
     path: '/?__smoke=empty',
     width: 1440,
     height: 900,
     actions: [
       { type: 'mockSessionSidebarApi' },
+      { type: 'expectVisible', selector: '.project-trigger' },
+      // 列表加载完成前触发器是 disabled，点了也不会开；等标签落到已选项目再点
+      { type: 'expectText', selector: '.project-trigger', text: 'ragsystem' },
       { type: 'click', selector: '.project-trigger' },
-      { type: 'expectText', selector: '[role="dialog"]', text: '选择项目' },
-      { type: 'expectCentered', selector: '[role="dialog"]' },
+      { type: 'expectVisible', selector: '.project-list > li:nth-child(2) .project-option' },
+      { type: 'click', selector: '.project-list > li:nth-child(2) .project-option' },
+      { type: 'expectText', selector: '.session-setup-panel', text: '南海供水' },
+      { type: 'expectHidden', selector: '.project-picker-popover' },
     ],
   },
   {
-    name: 'start-page-project-dialog-mobile',
+    name: 'start-page-project-dropdown-desktop',
+    path: '/?__smoke=empty',
+    width: 1440,
+    height: 900,
+    actions: [
+      { type: 'mockSessionSidebarApi' },
+      { type: 'expectVisible', selector: '.project-trigger' },
+      // 列表加载完成前触发器是 disabled，点了也不会开；等标签落到已选项目再点
+      { type: 'expectText', selector: '.project-trigger', text: 'ragsystem' },
+      { type: 'click', selector: '.project-trigger' },
+      { type: 'expectVisible', selector: '.project-picker-popover input[aria-label="搜索项目"]' },
+      { type: 'expectText', selector: '.project-picker-popover .project-list', text: 'ZCodeProject' },
+      { type: 'expectText', selector: '.project-picker-actions', text: '不指定项目' },
+      // 搜索框就地过滤列表，不改变动作区
+      { type: 'setValue', selector: '.project-picker-popover input[aria-label="搜索项目"]', value: 'ZCode' },
+      { type: 'expectCount', selector: '.project-list .project-option', count: 1 },
+      { type: 'expectText', selector: '.project-list', text: 'ZCodeProject' },
+    ],
+  },
+  {
+    name: 'start-page-project-dropdown-mobile',
     path: '/?__smoke=empty',
     width: 390,
     height: 844,
     actions: [
       { type: 'mockSessionSidebarApi' },
+      { type: 'expectVisible', selector: '.project-trigger' },
+      // 列表加载完成前触发器是 disabled，点了也不会开；等标签落到已选项目再点
+      { type: 'expectText', selector: '.project-trigger', text: 'ragsystem' },
       { type: 'click', selector: '.project-trigger' },
-      { type: 'expectText', selector: '[role="dialog"]', text: '选择项目' },
-      { type: 'expectCentered', selector: '[role="dialog"]' },
+      { type: 'expectVisible', selector: '.project-picker-popover .project-list .project-option' },
+      { type: 'expectVisible', selector: '.project-picker-actions .project-option' },
     ],
   },
   {
@@ -1109,11 +1141,18 @@ async function setupShotMocks(client, shot) {
         display_name: 'ZCodeProject',
         root_path: 'D:/projects/ZCodeProject',
       };
+      // 中文项目名：胶囊标签的 overflow:hidden 曾把字形上下切掉，用它守住回归
+      const workspaceCjk = {
+        workspace_id: 'ws-cjk',
+        display_name: '南海供水',
+        root_path: 'D:/projects/南海供水',
+      };
       let responseData = null;
       if (requestUrl.pathname === '/api/agent/workspaces') {
         responseData = {
           items: [
             { ...workspaceRagsystem, session_count: 3 },
+            { ...workspaceCjk, session_count: 0 },
             { ...workspaceZcode, session_count: 0 },
           ],
         };
@@ -1123,6 +1162,7 @@ async function setupShotMocks(client, shot) {
           origins: [],
           workspaces: [
             { ...workspaceRagsystem, count: 3 },
+            { ...workspaceCjk, count: 0 },
             { ...workspaceZcode, count: 0 },
           ],
         };

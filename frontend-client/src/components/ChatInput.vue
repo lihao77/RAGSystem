@@ -5,14 +5,18 @@
       <div class="window-drop-overlay__desc">仅支持文件，不接收文件夹</div>
     </div>
   </Teleport>
-  <div class="chat-input-area" :class="{ 'chat-input-area--queued': $slots.pending }">
+  <div
+    class="chat-input-area"
+    :class="{ 'chat-input-area--queued': $slots.pending, 'chat-input-area--stacked': $slots.pending || $slots.context }"
+  >
+    <!-- 顶行（项目/上下文触发器）：在输入框之上，不占用输入框内部空间 -->
+    <div v-if="$slots.context" class="composer-context">
+      <slot name="context" />
+    </div>
     <div v-if="$slots.pending" class="composer-pending">
       <slot name="pending" />
     </div>
     <div class="input-container" :class="{ 'is-drag-over': isDragOver }">
-      <div v-if="$slots.context" class="composer-context">
-        <slot name="context" />
-      </div>
       <div v-if="attachments.length" class="attachment-preview-list">
         <div
           v-for="attachment in attachments"
@@ -352,14 +356,18 @@ defineExpose({ focus, extractClipboardFiles, extractDroppedFiles, canAcceptDragg
   --composer-radius: 18px;
 }
 
-.chat-input-area--queued {
-  background: var(--color-bg-secondary);
+/* 有顶行时外壳成型：顶行与输入框同处一个容器。
+   底色取半透的 secondary，比页面亮、比输入框暗，避免与输入框糊成一片；
+   不加描边——分层靠底色，边界交给输入框自己的边框。 */
+.chat-input-area--queued,
+.chat-input-area--stacked {
+  background: color-mix(in srgb, var(--color-bg-secondary) 50%, transparent);
   border-radius: var(--composer-radius);
-  box-shadow: inset 0 0 0 1px var(--color-border);
 }
 
+.composer-context,
 .composer-pending {
-  padding: 4px 16px;
+  padding: 6px 8px;
   min-width: 0;
 }
 
@@ -406,10 +414,6 @@ defineExpose({ focus, extractClipboardFiles, extractDroppedFiles, canAcceptDragg
 .input-container.is-drag-over {
   border-color: rgba(var(--color-brand-accent-rgb), 0.55);
   box-shadow: 0 10px 28px rgba(var(--color-brand-accent-rgb), 0.18), 0 0 0 4px rgba(var(--color-brand-accent-rgb), 0.1);
-}
-
-.composer-context {
-  min-width: 0;
 }
 
 .input-container:focus-within {

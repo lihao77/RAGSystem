@@ -113,6 +113,26 @@ test('输入框底部不再渲染拖拽提示文案', async () => {
   assert.equal(source.includes('input-dropzone-hint'), false);
 });
 
+test('顶行（项目/上下文触发器）渲染在输入框之上，不占用输入框内部', async () => {
+  const filePath = new URL('./ChatInput.vue', import.meta.url);
+  const source = await readFile(filePath, 'utf8');
+  const template = source.slice(0, source.indexOf('<script setup>'));
+
+  const contextIndex = template.indexOf('class="composer-context"');
+  const inputIndex = template.indexOf('class="input-container"');
+  const shellIndex = template.indexOf('class="composer-shell"');
+  assert.ok(contextIndex > -1, '应存在顶行容器 composer-context');
+  assert.ok(inputIndex > contextIndex, '顶行必须排在输入框之前');
+  assert.ok(shellIndex > inputIndex, '输入框应有内部 shell');
+
+  // 输入框开头到 textarea 之前不得再嵌套顶行，否则触发器又回到框内
+  assert.equal(template.slice(inputIndex, shellIndex).includes('composer-context'), false);
+  assert.equal(
+    source.includes("'chat-input-area--stacked': $slots.pending || $slots.context"),
+    true,
+  );
+});
+
 test('发送、停止、恢复和附件能力只由显式运行时动作投影控制', async () => {
   const filePath = new URL('./ChatInput.vue', import.meta.url);
   const source = await readFile(filePath, 'utf8');
