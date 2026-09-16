@@ -231,6 +231,11 @@
   flex: 1;
   min-height: 0;
   scrollbar-gutter: stable;
+  /* 滚动容器才是这里唯一会滚的元素，滚动相关声明都挂在它身上：
+     smooth 给「回到底部」按钮这类程序化滚动用（跟随流式时 useChatScrolling 会临时压成 auto）；
+     overscroll-behavior 阻止滚到端点后带动整页回弹。 */
+  scroll-behavior: smooth;
+  overscroll-behavior: contain;
 }
 
 .chat-main:not(.has-messages) .chat-messages-wrapper {
@@ -241,7 +246,6 @@
 .chat-messages {
   flex: 1;
   padding: var(--chat-padding-y) var(--chat-padding-x);
-  scroll-behavior: smooth;
   padding-bottom: var(--spacing-lg);
   margin-bottom: 0;
 }
@@ -1029,11 +1033,12 @@
   /* 顶栏在这一档是绝对定位，内容得手动让出它的高度（2×8px 内边距 + 顶栏本身） */
   .chat-messages {
     padding-top: calc(2 * var(--spacing-sm) + var(--chat-mobile-top-offset));
-    overflow: visible;
+  }
+
+  /* 隐藏滚动条：声明要挂在真正滚动的那层上（此前挂在外层，从未生效） */
+  .chat-messages-wrapper {
     scrollbar-width: none;
-    /* Firefox */
     -ms-overflow-style: none;
-    /* IE 10+ */
   }
 }
 

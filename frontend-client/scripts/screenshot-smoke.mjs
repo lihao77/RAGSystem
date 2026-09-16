@@ -368,6 +368,33 @@ const shots = [
     ],
   },
   {
+    name: 'chat-scroll-follow-desktop',
+    // 用连发输入的多消息夹具 + 矮窗口才滚得起来（基础夹具 1440×900 下 scrollHeight === clientHeight）。
+    // 该夹具加载后停在顶部，所以先手动落到底部构造「跟随态」起点。
+    path: '/?__smoke=artifact&__consecutive=1',
+    width: 1440,
+    height: 620,
+    actions: [
+      { type: 'mockArtifactApi' },
+      { type: 'expectVisible', selector: '.message-stream' },
+      { type: 'expectExpression',
+        script: "const w = document.querySelector('.chat-messages-wrapper'); return w.scrollHeight > w.clientHeight + 40",
+        detail: "const w = document.querySelector('.chat-messages-wrapper'); return { scrollTop: w.scrollTop, scrollHeight: w.scrollHeight, clientHeight: w.clientHeight };" },
+      // 落到底部 = 跟随态：不显示「滚动到底部」
+      { type: 'scrollToBottom', selector: '.chat-messages-wrapper' },
+      { type: 'expectCount', selector: '.scroll-to-bottom-btn', count: 0 },
+      // 上滚 → 脱离跟随，按钮出现
+      { type: 'scrollToTop', selector: '.chat-messages-wrapper' },
+      { type: 'expectVisible', selector: '.scroll-to-bottom-btn' },
+      // 点按钮 → 平滑回到底部并恢复跟随，按钮消失（覆盖 scroll-behavior: smooth 生效）
+      { type: 'click', selector: '.scroll-to-bottom-btn' },
+      { type: 'expectExpression',
+        script: "const w = document.querySelector('.chat-messages-wrapper'); return Math.max(0, w.scrollHeight - w.scrollTop - w.clientHeight) <= 4",
+        detail: "const w = document.querySelector('.chat-messages-wrapper'); return { scrollTop: w.scrollTop, scrollHeight: w.scrollHeight, clientHeight: w.clientHeight };" },
+      { type: 'expectCount', selector: '.scroll-to-bottom-btn', count: 0 },
+    ],
+  },
+  {
     name: 'chat-followup-edit-delete',
     path: '/?__smoke=artifact&__pendingFollowup=1',
     width: 960,
@@ -1660,6 +1687,17 @@ async function runShotActions(client, shot) {
       continue;
     }
 
+    if (action.type === 'expectExpression') {
+      // 任意表达式的断言口子：滚动位置、几何关系这类没法用单条 computed style 描述的契约。
+      // script / detail 都是一段语句体（自己 return），不是单个表达式。
+      const passed = await waitForEvaluation(client, `(() => { ${action.script} })()`, action.timeoutMs ?? 5000);
+      if (!passed) {
+        const detail = action.detail ? await evaluate(client, `(() => { ${action.detail} })()`) : null;
+        throw new Error(`${shot.name} failed expectExpression: ${action.script}${detail === null ? '' : ` （实际 ${JSON.stringify(detail)}）`}`);
+      }
+      continue;
+    }
+
     if (action.type === 'expectImagesDecoded') {
       const decoded = await waitForEvaluation(client, `(() => {
         const root = document.querySelector(${jsString(action.selector)});
@@ -1745,11 +1783,12 @@ async function runShotActions(client, shot) {
       continue;
     }
 
-    if (action.type === 'scrollToBottom') {
+    if (action.type === 'scrollToBottom' || action.type === 'scrollToTop') {
+      const toTop = action.type === 'scrollToTop';
       const scrolled = await evaluate(client, `(() => {
         const element = document.querySelector(${jsString(action.selector)});
         if (!element) return false;
-        element.scrollTop = element.scrollHeight;
+        element.scrollTop = ${toTop ? 0 : 'element.scrollHeight'};
         return true;
       })()`);
       if (!scrolled) {
