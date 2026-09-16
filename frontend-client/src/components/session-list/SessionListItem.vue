@@ -37,7 +37,7 @@
     >
       <!-- 左：标题 + 次行，自成一列，右侧时间与之垂直居中 -->
       <span class="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span class="truncate text-sm font-medium leading-5">{{ displayTitle }}</span>
+        <span class="session-title truncate leading-5">{{ displayTitle }}</span>
         <span
           v-if="secondaryLabel && !compact"
           class="session-secondary truncate text-xs leading-4"
@@ -165,6 +165,14 @@ const timeLabel = computed(() => formatSessionTime(props.item.activity_at, props
 </script>
 
 <style scoped>
+/* 会话条目：标题保持一级色（参考实现的会话标题就是一级灰 ≈ #d4d4d4，
+   时间戳/次行才降到 muted），这里只把字重收常规、字号收到 13px */
+.session-title {
+  color: var(--color-text-primary);
+  font-size: 13px;
+  font-weight: 400;
+}
+
 /* 次行辅助信息：比 muted 再淡一档；不用 text-muted/xx（token 是实色 hex，opacity 修饰不生效） */
 .session-secondary {
   color: color-mix(in srgb, var(--color-text-muted) 58%, transparent);
@@ -179,11 +187,6 @@ const timeLabel = computed(() => formatSessionTime(props.item.activity_at, props
 .session-item--compact > button {
   padding-top: 3px;
   padding-bottom: 3px;
-}
-
-.session-item--compact > button > span:first-child > span:first-child {
-  font-size: 13px;
-  font-weight: 400;
 }
 
 .session-leading-slot {

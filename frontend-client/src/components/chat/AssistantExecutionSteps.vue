@@ -264,6 +264,8 @@ function nodeKey(node, index) {
   padding: 2px 0;
   font-size: 12.5px;
   line-height: 1.5;
+  /* 折叠汇总行与展开后的过程行同色（四级色），展开前后不跳色 */
+  color: var(--color-text-tertiary);
 }
 
 .assistant-execution-label {

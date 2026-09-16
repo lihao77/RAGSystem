@@ -64,7 +64,7 @@ test('消息列表复用 Widget 的紧凑气泡和工具调用视觉结构', asy
   // step/final/intent 同基线（详见 chat-view.css 的 .loading-indicator 注释）
   assert.equal(styles.includes('.loading-indicator .loading-spinner'), true);
   assert.equal(styles.includes('padding: 4px var(--spacing-sm)'), false);
-  assert.equal(styles.includes('--message-list-gap: 16px'), true);
+  assert.equal(styles.includes('--message-list-gap: 20px'), true);
   assert.equal(styles.includes('--message-bubble-radius: 16px'), true);
   assert.equal(styles.includes('max-width: 80%'), true);
 });

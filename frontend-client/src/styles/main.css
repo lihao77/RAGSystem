@@ -74,10 +74,16 @@
     --color-bg-elevated: #2a2a2a;
     --color-bg-elevated-rgb: 42, 42, 42;
 
-    /* 文字层级 —— neutral 灰阶 */
-    --color-text-primary: #fafafa;
-    --color-text-secondary: #b3b3b3;
-    --color-text-muted: #909090;
+    /* 文字层级 —— neutral 灰阶
+       一级用 #d6d6d6 而非近白：标题、正文、列表项大面积走一级色，
+       近白落在深底上会发飘、整页发刺眼（参考实现一级灰 ≈ #d4d4d4）。 */
+    --color-text-primary: #d6d6d6;
+    --color-text-secondary: #a1a1a1;
+    --color-text-muted: #8c8c8c;
+    /* 四级：过程行专用（intent「思考 · 持续了几秒」、工具调用的名字与摘要）。
+       这类行在参考实现里是“正文对比度的四成上下”的一档灰，且 intent 与工具行
+       同色；四级独立成 token，避免拿 muted/secondary 顶替后要么太亮要么太淡。 */
+    --color-text-tertiary: #6c6c6c;
     --color-text-inverse: #0a0a0a;
     --color-on-color: #ffffff;
     --color-on-color-strong: #ffffff;
@@ -345,10 +351,14 @@
     --color-bg-elevated: #ffffff;
     --color-bg-elevated-rgb: 255, 255, 255;
 
-    /* 文字层级 —— neutral 灰阶 */
-    --color-text-primary: #171717;
-    --color-text-secondary: #595959;
-    --color-text-muted: #6e6e6e;
+    /* 文字层级 —— neutral 灰阶
+       一级用 #262626 而非近黑：与暗色同源的思路，深色落在白底上会发硬
+       （参考实现浅色一级灰 ≈ #262626）。 */
+    --color-text-primary: #262626;
+    --color-text-secondary: #666666;
+    --color-text-muted: #787878;
+    /* 四级：过程行专用，与暗色同义（见暗色块注释） */
+    --color-text-tertiary: #a0a0a0;
     --color-text-inverse: #ffffff;
     --color-on-color: #ffffff;
     --color-on-color-strong: #171717;

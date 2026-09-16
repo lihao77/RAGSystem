@@ -25,7 +25,8 @@
   --ctx-ring-warning: var(--color-warning);
   --ctx-ring-danger: var(--color-error);
   /* 消息气泡 */
-  --message-list-gap: 16px;
+  /* 20px：相邻消息之间的呼吸；中文长段落用 16px 会显得挤 */
+  --message-list-gap: 20px;
   --message-bubble-radius: 16px;
   --user-bubble-corner: var(--message-bubble-radius);
   /* 编辑框 */

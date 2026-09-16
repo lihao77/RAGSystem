@@ -10,7 +10,8 @@
 .markdown-body {
   color: var(--color-text-primary);
   font-size: var(--font-size-base);
-  line-height: 1.6;
+  /* 1.7 而非 1.6：中文正文需要更松的行间才能读起来不挤 */
+  line-height: 1.7;
 }
 
 /* ===== 流式呼吸小球 ===== */

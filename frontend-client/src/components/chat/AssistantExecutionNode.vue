@@ -492,7 +492,6 @@ function truncate(value, maxLength) {
   flex: 0 0 14px;
   align-items: center;
   justify-content: center;
-  color: var(--color-text-muted);
   transition: color var(--transition-fast);
 }
 
@@ -503,9 +502,16 @@ function truncate(value, maxLength) {
 
 /* 不加 color 过渡：shimmer 切换要求 color: transparent 与渐变背景同帧增减——
    若 color 参与过渡，运行结束时渐变瞬间消失而文字从透明淡入，会闪一下。 */
+/* 过程行统一用四级色：intent 行与工具行同色（参考实现里两者同为“正文四成”的一档灰），
+   图标、名字、摘要一视同仁，行内不再分主次——分主次会让人误以为某段是重点。 */
+.assistant-step-icon,
+.assistant-step-name,
+.assistant-step-summary {
+  color: var(--color-text-tertiary);
+}
+
 .assistant-step-name {
   flex-shrink: 0;
-  color: var(--color-text-muted);
   font-weight: 500;
 }
 
@@ -513,7 +519,6 @@ function truncate(value, maxLength) {
   min-width: 0;
   flex: 1;
   overflow: hidden;
-  color: var(--color-text-tertiary, var(--color-text-muted));
   text-overflow: ellipsis;
   white-space: nowrap;
   transition: color var(--transition-fast);
@@ -523,7 +528,7 @@ function truncate(value, maxLength) {
   width: 1em;
   height: 1em;
   flex: 0 0 auto;
-  color: var(--color-text-muted);
+  color: var(--color-text-tertiary);
   transition: transform var(--transition-fast);
 }
 
