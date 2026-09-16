@@ -60,7 +60,7 @@ test('background facet refresh keeps a populated toolbar enabled', () => {
 test('empty states distinguish no sessions from filtered miss', () => {
   assert.match(listSource, /还没有会话/);
   assert.match(listSource, /没有符合条件的会话/);
-  assert.match(listSource, /!items\.length && hasFilters/);
+  assert.match(listSource, /!items\.length && !pinnedItems\.length && hasFilters/);
   assert.match(listSource, /@click="clearFilters"/);
 });
 

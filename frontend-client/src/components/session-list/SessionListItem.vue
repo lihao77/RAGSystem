@@ -1,11 +1,33 @@
 <template>
   <div
     :class="cn(
-      'group/session flex min-w-0 items-center gap-1 rounded-md p-1 transition-colors hover:bg-accent',
+      'group/session relative flex min-w-0 items-center rounded-md p-1 transition-colors hover:bg-accent',
       active && 'bg-accent text-accent-foreground',
       compact && 'session-item--compact',
+      hasTrailingPin && 'session-item--trailing-pin',
     )"
   >
+    <!-- 项目与置顶条目固定保留左侧槽：运行图标、悬停图钉和空位共用位置。 -->
+    <div v-if="hasLeadingPin" class="session-leading-slot">
+      <LoaderCircle
+        v-if="running"
+        class="session-running session-leading-status animate-spin motion-reduce:animate-none"
+        role="status"
+        aria-label="会话运行中"
+      />
+      <Button
+        variant="bare"
+        size="icon-xs"
+        class="session-pin-button size-5"
+        :aria-label="pinned ? '取消置顶' : '置顶会话'"
+        :title="pinned ? '取消置顶' : '置顶会话'"
+        :aria-pressed="Boolean(pinned)"
+        @click="$emit('toggle-pin', item)"
+      >
+        <PinOff v-if="pinned" data-icon="inline-start" />
+        <Pin v-else data-icon="inline-start" />
+      </Button>
+    </div>
     <button
       type="button"
       class="flex min-w-0 flex-1 items-center gap-2 rounded-sm px-1 py-1.5 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
@@ -24,21 +46,34 @@
         </span>
       </span>
 
-      <!-- 右：未读 + 时间，与左侧内容块垂直居中；未读用 info 变体保持提醒强调 -->
+      <!-- 状态与时间共用尾部槽，悬停时整体让位给操作。 -->
       <Badge v-if="item.unread_count > 0" variant="info" class="shrink-0">
         {{ item.unread_count }}
       </Badge>
-      <span class="session-time shrink-0 text-xs leading-5 text-muted-foreground">
-        {{ timeLabel }}
+      <span class="session-meta flex shrink-0 items-center gap-2 text-muted-foreground">
+        <LoaderCircle v-if="running && !hasLeadingPin" class="session-running animate-spin motion-reduce:animate-none" role="status" aria-label="会话运行中" />
+        <span class="session-time text-xs leading-5">{{ timeLabel }}</span>
       </span>
     </button>
 
-    <!-- 删除槽与选择按钮同高居中；hover 展开挤时间 -->
-    <div class="session-delete-slot">
+    <div class="session-actions">
+      <Button
+        v-if="hasTrailingPin"
+        variant="bare"
+        size="icon-xs"
+        class="session-pin-button size-5"
+        :aria-label="pinned ? '取消置顶' : '置顶会话'"
+        :title="pinned ? '取消置顶' : '置顶会话'"
+        :aria-pressed="Boolean(pinned)"
+        @click="$emit('toggle-pin', item)"
+      >
+        <PinOff v-if="pinned" data-icon="inline-start" />
+        <Pin v-else data-icon="inline-start" />
+      </Button>
       <Button
         variant="action-danger"
         size="icon-xs"
-        class="session-delete-btn"
+        class="session-delete-button size-5"
         aria-label="删除会话"
         title="删除会话"
         @click="$emit('delete', item)"
@@ -52,7 +87,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import type { SessionListItem } from '@ragsystem/api-contracts';
-import { Trash2 } from 'lucide-vue-next';
+import { LoaderCircle, Pin, PinOff, Trash2 } from 'lucide-vue-next';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -62,13 +97,21 @@ const props = defineProps<{
   item: SessionListItem;
   active?: boolean;
   compact?: boolean;
+  running?: boolean;
+  pinnable?: boolean;
+  pinned?: boolean;
+  pinPlacement?: 'leading' | 'trailing';
   now: Date;
 }>();
 
 defineEmits<{
   select: [item: SessionListItem];
   delete: [item: SessionListItem];
+  'toggle-pin': [item: SessionListItem];
 }>();
+
+const hasLeadingPin = computed(() => (props.pinnable || props.pinned) && props.pinPlacement !== 'trailing');
+const hasTrailingPin = computed(() => (props.pinnable || props.pinned) && props.pinPlacement === 'trailing');
 
 const channelLabels = {
   web: 'Web',
@@ -143,63 +186,141 @@ const timeLabel = computed(() => formatSessionTime(props.item.activity_at, props
   font-weight: 400;
 }
 
-/* icon-xs = size-7 = 1.75rem；默认槽宽 0，hover 展开把时间挤向左 */
-.session-delete-slot {
+.session-leading-slot {
+  position: relative;
   display: flex;
-  flex: 0 0 auto;
+  width: 22px;
+  height: 28px;
+  flex: 0 0 22px;
   align-items: center;
   justify-content: center;
-  width: 0;
-  height: 1.75rem;
-  margin-left: 0;
-  overflow: hidden;
+}
+
+.session-running {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.session-leading-status {
+  color: var(--color-text-muted);
+  scale: 1;
+  transition: opacity 150ms ease, scale 180ms ease;
+}
+
+.session-leading-slot .session-pin-button {
+  position: absolute;
   opacity: 0;
   pointer-events: none;
+  transform: scale(0.75);
   transition:
-    width 180ms ease,
-    margin-left 180ms ease,
-    opacity 150ms ease;
+    opacity 150ms ease,
+    transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    color 150ms ease,
+    background-color 150ms ease;
 }
 
-.session-delete-btn {
-  width: 1.75rem;
-  min-width: 1.75rem;
-  height: 1.75rem;
-  transform: scale(0.88);
-  transition: transform 180ms ease;
-}
-
-.group\/session:hover .session-delete-slot,
-.group\/session:focus-within .session-delete-slot {
-  width: 1.75rem;
-  margin-left: 0.125rem;
+.group\/session:hover .session-leading-slot .session-pin-button,
+.group\/session:focus-within .session-leading-slot .session-pin-button {
   opacity: 1;
   pointer-events: auto;
-}
-
-.group\/session:hover .session-delete-btn,
-.group\/session:focus-within .session-delete-btn {
   transform: scale(1);
 }
 
-/* 触摸设备没有 hover，删除常显，避免无法删除 */
+/* 按钮自身的 hover 反馈作用于 SVG，保留 14px 尺寸与透明图钉背景。 */
+.session-pin-button :deep(svg),
+.session-actions :deep(svg) {
+  transition: color 150ms ease, stroke-width 150ms ease, transform 180ms ease;
+}
+
+.session-pin-button:is(:hover, :focus-visible) :deep(svg) {
+  color: var(--color-text-primary);
+  stroke-width: 2.5;
+  transform: translateY(-1px) rotate(-12deg);
+}
+
+.session-delete-button:is(:hover, :focus-visible) :deep(svg) {
+  stroke-width: 2.5;
+  transform: translateY(-1px);
+}
+
+.group\/session:hover .session-leading-status,
+.group\/session:focus-within .session-leading-status {
+  opacity: 0;
+  scale: 0.75;
+}
+
+/* 操作覆盖尾部元信息；标题不跳动，按钮数量可继续扩展。 */
+.session-actions {
+  position: absolute;
+  inset: 0 4px 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-left: 4px;
+  border-radius: inherit;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(6px) scale(0.88);
+  transform-origin: right center;
+  transition: opacity 150ms ease, transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.session-meta {
+  min-width: 28px;
+  justify-content: flex-end;
+  transform: translateX(0);
+  transition: opacity 150ms ease, transform 180ms ease;
+}
+
+/* 两个 20px 操作按钮及间距的占位，避免悬停时覆盖标题。 */
+.session-item--trailing-pin .session-meta {
+  min-width: 46px;
+}
+
+.group\/session:hover .session-actions,
+.group\/session:focus-within .session-actions {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(0) scale(1);
+}
+
+.group\/session:hover .session-meta,
+.group\/session:focus-within .session-meta {
+  opacity: 0;
+  transform: translateX(-6px);
+}
+
+/* 触摸设备常显操作并保留状态，避免依赖不存在的 hover。 */
 @media (hover: none) and (pointer: coarse) {
-  .session-delete-slot {
-    width: 1.75rem;
-    margin-left: 0.125rem;
-    opacity: 0.75;
+  .session-actions {
+    position: static;
+    flex-shrink: 0;
+    opacity: 1;
     pointer-events: auto;
+    transform: none;
   }
 
-  .session-delete-btn {
-    transform: scale(1);
+  .group\/session .session-meta {
+    min-width: 0;
+    opacity: 1;
+    transform: none;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .session-delete-slot,
-  .session-delete-btn {
+  .session-actions,
+  .session-meta,
+  .session-leading-slot .session-pin-button,
+  .session-leading-status,
+  .session-pin-button :deep(svg),
+  .session-actions :deep(svg) {
     transition: none;
+  }
+
+  .session-pin-button:is(:hover, :focus-visible) :deep(svg),
+  .session-delete-button:is(:hover, :focus-visible) :deep(svg) {
+    transform: none;
   }
 }
 </style>

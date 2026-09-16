@@ -50,6 +50,7 @@ import type {
   RuntimeStorage,
   RuntimeSessionMaintenanceInput,
   RuntimeSessionFacts,
+  RuntimeSessionStateFacts,
   RuntimeStorageRepositories,
 } from "@ragsystem/backend-core/contracts/storage/runtime-storage.js";
 import type { TenantId } from "@ragsystem/backend-core/identity/types.js";
@@ -60,7 +61,7 @@ import type {
   PendingInteractionRecord,
   RunInfo,
 } from "@ragsystem/backend-core/contracts/conversation-store/index.js";
-import { toSessionIdentity, type MessageInfo } from "@ragsystem/backend-core/contracts/session/session.js";
+import { hydrateSessionMetadata, toSessionIdentity, type MessageInfo } from "@ragsystem/backend-core/contracts/session/session.js";
 import {
   buildRunTerminalRecords,
   buildTerminalAssistantMessage,
@@ -164,11 +165,36 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
       getActiveRootRun: (sessionId) => this.getActiveRootRun(sessionId),
       getLatestThreadRun: (sessionId, threadKey) => this.getLatestThreadRun(sessionId, threadKey),
       getSessionRuntimeFacts: (sessionId) => this.getSessionRuntimeFacts(sessionId),
+      getSessionStateFacts: (sessionIds) => this.getSessionStateFacts(sessionIds),
       claimSessionMaintenance: (input) => this.claimSessionMaintenance(input),
       renewSessionMaintenance: (input) => this.renewSessionMaintenance(input),
       releaseSessionMaintenance: (input) => this.releaseSessionMaintenance(input),
       finalizeRun: (input) => this.finalizeRun(input),
     };
+  }
+
+  private async getSessionStateFacts(sessionIds: readonly string[]): Promise<RuntimeSessionStateFacts[]> {
+    if (!sessionIds.length) return [];
+    const result = await this.executor.query<{
+      session_id: string; metadata: unknown; active_status: string | null;
+      pending_statuses: RuntimeSessionStateFacts["pendingStatuses"];
+    }>(`
+      SELECT s.session_id, s.metadata,
+        (SELECT r.status FROM saas_runs r
+         WHERE r.tenant_id=s.tenant_id AND r.session_id=s.session_id AND r.status IN ('running','suspended')
+           AND ((r.parent_run_id IS NULL AND r.child_agent_id IS NULL) OR EXISTS (
+             SELECT 1 FROM pending_interactions p WHERE p.session_id=s.session_id
+               AND p.root_run_id=r.run_id AND p.status IN ('waiting','suspended','resolved','resuming')))
+         ORDER BY (r.parent_run_id IS NULL AND r.child_agent_id IS NULL) DESC,
+           r.updated_at DESC, r.created_at DESC, r.run_id DESC LIMIT 1) AS active_status,
+        COALESCE((SELECT jsonb_agg(p.status) FROM pending_interactions p
+          WHERE p.session_id=s.session_id AND p.status IN ('waiting','suspended','resolved','resuming')), '[]'::jsonb) AS pending_statuses
+      FROM conversation_sessions s WHERE s.tenant_id=$1 AND s.session_id=ANY($2::text[])
+    `, [this.tenantId, [...sessionIds]]);
+    return result.rows.map((row) => ({
+      sessionId: row.session_id, metadata: hydrateSessionMetadata(row.metadata),
+      activeStatus: row.active_status, pendingStatuses: row.pending_statuses,
+    }));
   }
 
   private async getSessionRuntimeFacts(sessionId: string): Promise<RuntimeSessionFacts> {

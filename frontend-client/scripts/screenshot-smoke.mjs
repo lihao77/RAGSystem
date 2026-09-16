@@ -18,6 +18,100 @@ const maxHorizontalOverflowPx = 2;
 
 const shots = [
   {
+    name: 'session-project-running',
+    path: '/?__smoke=empty', width: 1440, height: 900,
+    actions: [
+      { type: 'mockSessionSidebarApi' },
+      { type: 'expectVisible', selector: '.project-session-group__items .session-running' },
+      { type: 'expectCount', selector: '.project-session-group__items .session-running', count: 1 },
+      { type: 'expectStyle', selector: '.session-running', property: 'width', value: '14px' },
+      { type: 'expectStyle', selector: '.session-running', property: 'height', value: '14px' },
+      { type: 'expectStyle', selector: '.session-pin-button', property: 'opacity', value: '0' },
+      { type: 'expectStyle', selector: '.project-session-group__items > :nth-child(2) .session-leading-slot', property: 'width', value: '22px' },
+      { type: 'expectCount', selector: '.project-session-group__items > :nth-child(2) .session-leading-slot .session-running', count: 0 },
+      { type: 'expectStyle', selector: '.project-session-group__items', property: 'paddingLeft', value: '0px' },
+    ],
+  },
+  {
+    name: 'session-project-hover',
+    path: '/?__smoke=empty', width: 1440, height: 900,
+    actions: [
+      { type: 'mockSessionSidebarApi' },
+      { type: 'expectVisible', selector: '.project-session-group__items .session-running' },
+      { type: 'hover', selector: '.project-session-group__items > :first-child' },
+      { type: 'expectStyle', selector: '.session-leading-status', property: 'opacity', value: '0' },
+      { type: 'expectStyle', selector: '.session-pin-button', property: 'opacity', value: '1' },
+      { type: 'expectStyle', selector: '.session-pin-button svg', property: 'width', value: '14px' },
+      { type: 'expectStyle', selector: '.session-meta', property: 'opacity', value: '0' },
+      { type: 'expectStyle', selector: '.session-actions', property: 'opacity', value: '1' },
+    ],
+  },
+  {
+    name: 'session-project-mobile',
+    path: '/?__smoke=empty', width: 390, height: 844,
+    actions: [
+      { type: 'mockSessionSidebarApi' },
+      { type: 'click', selector: '[aria-label="打开菜单"]', waitMs: 300 },
+      { type: 'expectVisible', selector: '.project-session-group__items .session-leading-slot' },
+      { type: 'expectStyle', selector: '.session-running', property: 'width', value: '14px' },
+    ],
+  },
+  {
+    name: 'session-pinned-timeline',
+    path: '/?__smoke=empty', width: 1440, height: 900,
+    actions: [
+      { type: 'mockSessionSidebarApi' },
+      { type: 'expectVisible', selector: '.project-session-group__items .session-running' },
+      { type: 'hover', selector: '.project-session-group__items > :first-child' },
+      { type: 'expectStyle', selector: '.project-session-group__items .session-meta', property: 'opacity', value: '0' },
+      { type: 'expectStyle', selector: '.project-session-group__items .session-actions', property: 'opacity', value: '1' },
+      { type: 'click', selector: '[aria-label="置顶会话"]' },
+      { type: 'expectVisible', selector: '.pinned-sessions .session-running' },
+      { type: 'expectCount', selector: '.project-session-group__items .session-running', count: 0 },
+      { type: 'click', selector: '[aria-label="时间轴视图"]' },
+      { type: 'expectVisible', selector: '.pinned-sessions .session-running' },
+      { type: 'expectCount', selector: '.session-list-items .session-running', count: 0 },
+    ],
+  },
+  {
+    name: 'session-timeline-hover',
+    path: '/?__smoke=empty', width: 1440, height: 900,
+    actions: [
+      { type: 'mockSessionSidebarApi' },
+      { type: 'expectVisible', selector: '.project-session-group__items .session-running' },
+      { type: 'click', selector: '[aria-label="时间轴视图"]' },
+      { type: 'expectVisible', selector: '.session-list-items .session-running' },
+      { type: 'hover', selector: '.session-list-items > :first-child' },
+      { type: 'expectStyle', selector: '.session-list-items .session-meta', property: 'opacity', value: '0' },
+      { type: 'expectStyle', selector: '.session-list-items .session-actions', property: 'opacity', value: '1' },
+      { type: 'expectCount', selector: '.session-list-items > :first-child .session-actions button', count: 2 },
+      { type: 'expectCount', selector: '.session-list-items .session-leading-slot', count: 0 },
+      { type: 'expectCount', selector: '.session-list-items > :first-child .session-actions > :first-child[aria-label="置顶会话"]', count: 1 },
+      { type: 'expectStyle', selector: '.session-list-items .session-pin-button', property: 'width', value: '20px' },
+      { type: 'expectStyle', selector: '.session-list-items .session-pin-button svg', property: 'width', value: '14px' },
+    ],
+  },
+  {
+    name: 'session-timeline-pin',
+    path: '/?__smoke=empty', width: 1440, height: 900,
+    actions: [
+      { type: 'mockSessionSidebarApi' },
+      { type: 'expectVisible', selector: '.project-session-group__items .session-running' },
+      { type: 'click', selector: '[aria-label="时间轴视图"]' },
+      { type: 'expectVisible', selector: '.session-list-items .session-running' },
+      { type: 'hover', selector: '.session-list-items > :first-child' },
+      { type: 'click', selector: '.session-list-items .session-pin-button' },
+      { type: 'expectVisible', selector: '.pinned-sessions .session-running' },
+      { type: 'expectCount', selector: '.session-list-items .session-running', count: 0 },
+      { type: 'click', selector: '[aria-label="项目视图"]' },
+      { type: 'expectVisible', selector: '.pinned-sessions .session-running' },
+      { type: 'expectCount', selector: '.project-session-group__items .session-running', count: 0 },
+      { type: 'click', selector: '.pinned-sessions [aria-label="取消置顶"]' },
+      { type: 'expectVisible', selector: '.project-session-group__items .session-running' },
+      { type: 'expectCount', selector: '.pinned-sessions', count: 0 },
+    ],
+  },
+  {
     name: 'start-page-desktop',
     path: '/?__smoke=empty',
     width: 1440,
@@ -1032,12 +1126,13 @@ async function setupShotMocks(client, shot) {
             { ...workspaceZcode, count: 0 },
           ],
         };
-      } else if (requestUrl.pathname === '/api/agent/sessions') {
+      } else if (['/api/agent/sessions', '/api/agent/sessions/workspace-preview', '/api/agent/sessions/states'].includes(requestUrl.pathname)) {
         const origin = { type: 'direct', id: null, display_name: '直接对话', channel: 'web' };
         responseData = {
           items: [
             {
               session_id: 'session-host-mcp',
+              runtime_state: 'running',
               title: '智能体系统接入 Host MCP',
               first_message: '智能体系统接入 Host MCP',
               last_message: '',
@@ -1069,6 +1164,19 @@ async function setupShotMocks(client, shot) {
           ],
           next_cursor: null,
         };
+        if (requestUrl.pathname.endsWith('/workspace-preview')) {
+          responseData = { groups: [
+            { workspace_id: workspaceRagsystem.workspace_id, ...responseData },
+            { workspace_id: workspaceZcode.workspace_id, items: [], next_cursor: null },
+            { workspace_id: '__unassigned__', items: [], next_cursor: null },
+          ] };
+        } else if (requestUrl.pathname.endsWith('/states')) {
+          const ids = JSON.parse(event.request.postData || '{}').session_ids || [];
+          responseData = { items: responseData.items.filter(item => ids.includes(item.session_id)).map(item => ({ session_id: item.session_id, state: item.runtime_state || 'idle' })) };
+        } else if (requestUrl.searchParams.has('session_ids')) {
+          const ids = JSON.parse(requestUrl.searchParams.get('session_ids'));
+          responseData.items = responseData.items.filter(item => ids.includes(item.session_id));
+        }
       }
 
       if (responseData) {
@@ -1429,6 +1537,28 @@ function jsString(value) {
 async function runShotActions(client, shot) {
   for (const action of shot.actions || []) {
     if (action.type === 'mockArtifactApi' || action.type === 'mockKnowledgeSearchApi' || action.type === 'mockSessionSidebarApi' || action.type === 'mockFileRefApi') {
+      continue;
+    }
+
+    if (action.type === 'hover') {
+      const point = await evaluate(client, `(() => {
+        const rect = document.querySelector(${jsString(action.selector)})?.getBoundingClientRect();
+        return rect ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 } : null;
+      })()`);
+      if (!point) throw new Error(`${shot.name} could not find hover selector: ${action.selector}`);
+      await client.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...point });
+      await wait(250);
+      continue;
+    }
+
+    if (action.type === 'expectStyle' || action.type === 'expectCount') {
+      const expression = action.type === 'expectCount'
+        ? `document.querySelectorAll(${jsString(action.selector)}).length === ${action.count}`
+        : `(() => { const element = document.querySelector(${jsString(action.selector)}); return element && getComputedStyle(element)[${jsString(action.property)}] === ${jsString(action.value)}; })()`;
+      if (!await waitForEvaluation(client, expression, 5000)) {
+        const detail = await evaluate(client, `document.querySelectorAll(${jsString(action.selector)}).length`);
+        throw new Error(`${shot.name} failed ${action.type} for ${action.selector}: ${detail}`);
+      }
       continue;
     }
 

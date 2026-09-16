@@ -26,6 +26,7 @@ export type RagChatEndpointName =
   | "getSessionPermissions"
   | "updateSessionPermissions"
   | "getSessionRuntime"
+  | "getSessionListStates"
   | "getContextSnapshot"
   | "rollbackAndRetrySession"
   | "listSessionParticipants"
@@ -93,6 +94,7 @@ export interface RagChatLoginOptions {
 }
 
 export interface ListSessionsOptions {
+  sessionIds?: readonly string[];
   limit?: number;
   cursor?: string | null;
   originType?: "direct" | "bot" | "widget" | null;

@@ -48,6 +48,7 @@ export function createConversationStore(options: ConversationStoreOptions) {
   const createTransactionFacade = () => ({
     createSession: sessions.createSessionInTransaction.bind(sessions),
     getSession: sessions.getSession.bind(sessions),
+    getSessionStateFacts: sessions.getSessionStateFacts.bind(sessions),
     updateSessionMetadata: sessions.updateSessionMetadataInTransaction.bind(sessions),
     addMessage: messages.addMessageInTransaction.bind(messages),
     getMessageById: messages.getMessageById.bind(messages),
@@ -104,6 +105,7 @@ export function createConversationStore(options: ConversationStoreOptions) {
     listSessions: sessions.listSessions.bind(sessions),
     listSessionFacets: sessions.listSessionFacets.bind(sessions),
     getSessionListProjection: sessions.getSessionListProjection.bind(sessions),
+    getSessionStateFacts: sessions.getSessionStateFacts.bind(sessions),
     rebuildSessionListProjection: projector.rebuildSessionListProjection.bind(projector),
     /** LLM 生成标题回写（override 优先，带可见用户消息存在性守卫）。 */
     updateSessionListTitle: projector.updateTitle.bind(projector),

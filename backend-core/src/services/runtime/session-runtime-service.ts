@@ -6,7 +6,7 @@ import {
   type SessionRuntimeState,
 } from "../../contracts/events.js";
 import type { PendingInteractionRecord, RunInfo } from "../../contracts/conversation-store/index.js";
-import type { RuntimeSessionFacts, RuntimeStorage } from "../../contracts/storage/runtime-storage.js";
+import type { RuntimeSessionFacts, RuntimeSessionStateFacts, RuntimeStorage } from "../../contracts/storage/runtime-storage.js";
 import { EnvelopeProjector } from "./event-outbox/projector.js";
 
 /** Projects all durable Session lifecycle facts into the single client-facing runtime snapshot. */
@@ -17,6 +17,12 @@ export class SessionRuntimeService {
     const facts = await this.storage.operations.getSessionRuntimeFacts(sessionId);
     if (!facts.session) throw new Error(`session not found: ${sessionId}`);
     return projectSessionRuntime(facts);
+  }
+
+  async getStates(sessionIds: readonly string[]): Promise<Map<string, SessionRuntimeState>> {
+    if (!sessionIds.length) return new Map();
+    const facts = await this.storage.operations.getSessionStateFacts([...new Set(sessionIds)]);
+    return new Map(facts.map((item) => [item.sessionId, projectSessionState(item)]));
   }
 
 }
@@ -265,7 +271,17 @@ function addMilliseconds(value: string, milliseconds: number): string | null {
   return Number.isFinite(timestamp) ? new Date(timestamp + milliseconds).toISOString() : null;
 }
 
-function projectState(facts: RuntimeSessionFacts, hasMaintenance: boolean): SessionRuntimeState {
+export function projectSessionState(facts: RuntimeSessionStateFacts): SessionRuntimeState {
+  return projectState({
+    activeRootRun: facts.activeStatus ? { status: facts.activeStatus } : null,
+    pendingInteractions: facts.pendingStatuses.map((status) => ({ status })),
+  }, activeMaintenance(facts.metadata) !== null);
+}
+
+function projectState(facts: {
+  activeRootRun: Pick<RunInfo, "status"> | null;
+  pendingInteractions: Pick<PendingInteractionRecord, "status">[];
+}, hasMaintenance: boolean): SessionRuntimeState {
   const active = facts.activeRootRun;
   if (!active) {
     if (facts.pendingInteractions.some((item) => item.status === "resuming")) return "resuming";

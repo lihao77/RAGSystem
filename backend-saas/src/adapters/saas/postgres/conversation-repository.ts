@@ -292,6 +292,10 @@ export class PostgresConversationRepository implements AsyncConversationReposito
       "tenant_id=$1",
       "($4::boolean OR owner_user_id=$2 OR ($3::boolean AND visibility='tenant'))",
     ];
+    if (input.sessionIds) {
+      params.push([...input.sessionIds]);
+      where.push(`session_id=ANY($${params.length}::text[])`);
+    }
     if (input.originType) {
       params.push(input.originType);
       where.push(`origin_type=$${params.length}`);

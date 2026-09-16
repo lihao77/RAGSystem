@@ -10,6 +10,8 @@ import {
   SessionDetailResponseSchema,
   SessionListFacetsResponseSchema,
   SessionListResponseSchema,
+  SessionListStatesRequestSchema,
+  SessionListStatesResponseSchema,
   SessionWorkspacePreviewResponseSchema,
   SessionMessageListResponseSchema,
   MessageRequestStatusListResponseSchema,
@@ -131,7 +133,12 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
   });
 
   app.get("/sessions", async (request) => {
-    const query = request.query as { limit?: string; cursor?: string; origin_type?: string; origin_id?: string; workspace_id?: string };
+    const query = request.query as { limit?: string; cursor?: string; origin_type?: string; origin_id?: string; workspace_id?: string; session_ids?: string };
+    let sessionIds: string[] | undefined;
+    if (query.session_ids !== undefined) {
+      try { sessionIds = SessionListStatesRequestSchema.parse({ session_ids: JSON.parse(query.session_ids) }).session_ids; }
+      catch { throw new HttpError(400, "invalid_request", "session_ids 必须是包含 1 至 200 个会话 ID 的 JSON 数组"); }
+    }
     const limit = clampInt(query.limit, 20, 1, 200);
     const originType = query.origin_type ? SessionOriginTypeSchema.parse(query.origin_type) : null;
     const originId = query.origin_id?.trim() || null;
@@ -140,9 +147,21 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
     const page = await application.listSessions({
       access: sessionListAccess(request), limit, cursor: decodeSessionListCursor(query.cursor),
       originType, originId, workspaceId: query.workspace_id?.trim() || null,
+      ...(sessionIds ? { sessionIds } : {}),
     });
     const items = await assembleSessionList(page.items, application, options, request);
     return validateResponse(SessionListResponseSchema, ok({ items, next_cursor: page.nextCursor ? encodeSessionListCursor(page.nextCursor) : null }, "获取会话列表成功"));
+  });
+
+  app.post("/sessions/states", async (request) => {
+    const { session_ids: sessionIds } = SessionListStatesRequestSchema.parse(request.body);
+    const application = await resolveSessionApplication(options, request);
+    // 与列表相同的租户/可见性过滤；不存在或无权读取的会话不会泄漏状态。
+    const page = await application.listSessions({ access: sessionListAccess(request), limit: 200, sessionIds });
+    const states = await request.container.sessionRuntime.getStates(page.items.map((item) => item.session_id));
+    return validateResponse(SessionListStatesResponseSchema, ok({
+      items: Array.from(states, ([session_id, state]) => ({ session_id, state })),
+    }));
   });
 
   app.get("/sessions/facets", async (request) => {
@@ -758,6 +777,7 @@ async function assembleSessionList(
     projections.flatMap((item) => item.workspace_id ? [item.workspace_id] : []),
   );
   const workspaceMap = new Map(workspaces.map((workspace) => [workspace.workspace_id, workspace]));
+  const states = await request.container.sessionRuntime.getStates(projections.map((item) => item.session_id));
   return projections.map((item) => ({
     session_id: item.session_id,
     title: item.title,
@@ -765,6 +785,7 @@ async function assembleSessionList(
     last_message: item.last_message,
     activity_at: item.activity_at,
     unread_count: item.unread_count,
+    runtime_state: states.get(item.session_id),
     origin: {
       type: item.origin_type,
       id: item.origin_id,

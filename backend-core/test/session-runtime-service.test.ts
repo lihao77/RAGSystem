@@ -4,7 +4,7 @@ import type { PendingInteractionRecord, RunInfo } from "../src/contracts/convers
 import type { SessionInfo } from "../src/contracts/session/session.js";
 import type { RuntimeSessionFacts } from "../src/contracts/storage/runtime-storage.js";
 import { createTenantId } from "../src/identity/types.js";
-import { projectSessionRuntime } from "../src/services/runtime/session-runtime-service.js";
+import { projectSessionRuntime, projectSessionState } from "../src/services/runtime/session-runtime-service.js";
 
 function session(metadata: Record<string, unknown> = {}): SessionInfo {
   return {
@@ -133,6 +133,11 @@ describe("SessionRuntimeService projection", () => {
   ])("projects %s with %s", (state, loadStrategy, input, actions) => {
     const snapshot = projectSessionRuntime(input);
     expect(snapshot.state).toBe(state);
+    expect(projectSessionState({
+      sessionId: "session-1", metadata: input.session?.metadata ?? {},
+      activeStatus: input.activeRootRun?.status ?? null,
+      pendingStatuses: input.pendingInteractions.map(item => item.status),
+    })).toBe(state);
     expect(snapshot.load_strategy).toBe(loadStrategy);
     expect(snapshot.allowed_actions).toEqual(actions);
   });

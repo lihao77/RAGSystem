@@ -1,6 +1,7 @@
 import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
 import { UNASSIGNED_WORKSPACE_ID } from './workspace.js';
+import { useSessionPins } from '../composables/useSessionPins.js';
 
 const PAGE_SIZE = 20;
 const EMPTY_FACETS = Object.freeze({
@@ -78,6 +79,9 @@ export const useSessionListStore = defineStore('session-list', () => {
   const optimisticFacetSessionIds = new Set();
   const workspaceControllers = new Map();
   let chatSdkClient = null;
+  const pins = useSessionPins(items, () => chatSdkClient);
+  const pinnedItems = computed(() => pins.items.value.filter(item => matchesFilters(item, filters.value)));
+  const unpinnedItems = computed(() => items.value.filter(item => !pins.ids.value.includes(item.session_id)));
 
   /** 全局页与工作区页按活跃时间各排各的，工作区首页常与已加载项整页重复；连追几页直到出现新会话 */
   const WORKSPACE_CHASE_LIMIT = 4;
@@ -381,17 +385,18 @@ export const useSessionListStore = defineStore('session-list', () => {
   const upsert = (item) => {
     if (!item?.session_id) return null;
     const index = items.value.findIndex(entry => entry.session_id === item.session_id);
-    const existing = index >= 0 ? items.value[index] : null;
+    const existing = index >= 0 ? items.value[index] : pins.getById(item.session_id);
     const merged = existing ? { ...existing, ...item } : item;
+    pins.sync([merged]);
 
     if (!matchesFilters(merged, filters.value)) {
-      if (existing) items.value.splice(index, 1);
+      if (index >= 0) items.value.splice(index, 1);
       recordLocalMutation(item.session_id, 'remove');
       return null;
     }
     if (!existing && (!merged.origin || !merged.activity_at)) return null;
 
-    if (existing) items.value.splice(index, 1, merged);
+    if (index >= 0) items.value.splice(index, 1, merged);
     else items.value.push(merged);
     items.value.sort(compareSessions);
     recordLocalMutation(item.session_id, 'upsert', merged);
@@ -400,22 +405,23 @@ export const useSessionListStore = defineStore('session-list', () => {
 
   const updateActivity = (sessionId, { lastMessage, activityAt, unreadCount } = {}) => {
     const index = items.value.findIndex(item => item.session_id === sessionId);
-    if (index < 0) return null;
-
-    const existing = items.value[index];
+    const existing = index >= 0 ? items.value[index] : pins.getById(sessionId);
+    if (!existing) return null;
     const updated = {
       ...existing,
       last_message: lastMessage === undefined ? existing.last_message : String(lastMessage),
       activity_at: activityAt || existing.activity_at,
       ...(unreadCount === undefined ? {} : { unread_count: unreadCount }),
     };
-    items.value.splice(index, 1, updated);
+    if (index >= 0) items.value.splice(index, 1, updated);
+    pins.sync([updated]);
     items.value.sort(compareSessions);
     recordLocalMutation(sessionId, 'upsert', updated);
     return updated;
   };
 
   const remove = (sessionId) => {
+    pins.unpin(sessionId);
     items.value = items.value.filter(item => item.session_id !== sessionId);
     recordLocalMutation(sessionId, 'remove');
   };
@@ -425,20 +431,22 @@ export const useSessionListStore = defineStore('session-list', () => {
     const nextTitle = String(title ?? '').trim();
     if (!nextTitle) return null;
     const index = items.value.findIndex(item => item.session_id === sessionId);
-    if (index < 0) return null;
-    const existing = items.value[index];
+    const existing = index >= 0 ? items.value[index] : pins.getById(sessionId);
+    if (!existing) return null;
     if (existing.title === nextTitle) return existing;
     const updated = { ...existing, title: nextTitle };
-    items.value.splice(index, 1, updated);
+    if (index >= 0) items.value.splice(index, 1, updated);
+    pins.sync([updated]);
     recordLocalMutation(sessionId, 'upsert', updated);
     return updated;
   };
 
   const getById = sessionId => (sessionId
-    ? items.value.find(item => item.session_id === sessionId) || null
+    ? items.value.find(item => item.session_id === sessionId) || pins.getById(sessionId)
     : null);
 
   const dispose = () => {
+    pins.dispose();
     cancelListRequest();
     facetsController?.abort();
     resetWorkspaceCursors();
@@ -446,6 +454,15 @@ export const useSessionListStore = defineStore('session-list', () => {
 
   return {
     items,
+    pinnedItems,
+    unpinnedItems,
+    togglePin: (item) => {
+      if (!pins.toggle(item)) return false;
+      // Restored pins may be outside the currently loaded cursor page.
+      upsert(item);
+      return true;
+    },
+    loadPins: pins.load,
     nextCursor,
     filters,
     facets,

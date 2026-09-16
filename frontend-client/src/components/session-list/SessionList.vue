@@ -36,6 +36,25 @@
         :class="{ 'is-soft-refreshing': isSoftRefreshing }"
         @scroll="handleScroll"
       >
+        <section v-if="pinnedItems.length" class="pinned-sessions mb-2" aria-label="已置顶">
+          <div class="flex h-8 items-center gap-2 px-2 text-xs text-muted-foreground">
+            <Pin class="size-3.5" aria-hidden="true" />
+            <span>已置顶</span>
+          </div>
+          <SessionListItem
+            v-for="item in pinnedItems"
+            :key="item.session_id"
+            :item="item"
+            :active="item.session_id === activeSessionId"
+            :running="isRunning(item)"
+            :now="now"
+            compact
+            pinned
+            @select="$emit('select', item)"
+            @delete="$emit('delete', item)"
+            @toggle-pin="togglePin(item)"
+          />
+        </section>
         <Transition name="session-stage" mode="out-in">
           <!-- 冷启动 / 筛到空后的首屏加载：骨架 -->
           <div v-if="showSkeleton" key="skeleton" class="flex flex-col gap-2 p-1">
@@ -58,7 +77,7 @@
             </EmptyContent>
           </Empty>
 
-          <Empty v-else-if="viewMode !== 'project' && !items.length && hasFilters" key="filtered-empty" class="py-8">
+          <Empty v-else-if="viewMode !== 'project' && !items.length && !pinnedItems.length && hasFilters" key="filtered-empty" class="py-8">
             <EmptyHeader>
               <EmptyTitle>没有符合条件的会话</EmptyTitle>
               <EmptyDescription>当前来源或项目筛选下没有结果。</EmptyDescription>
@@ -68,7 +87,7 @@
             </EmptyContent>
           </Empty>
 
-          <Empty v-else-if="!items.length && viewMode !== 'project'" key="empty" class="py-8">
+          <Empty v-else-if="!items.length && !pinnedItems.length && viewMode !== 'project'" key="empty" class="py-8">
             <EmptyHeader>
               <EmptyTitle>还没有会话</EmptyTitle>
               <EmptyDescription>点上方「新聊天」开始第一段对话。</EmptyDescription>
@@ -172,10 +191,13 @@
                       :key="item.session_id"
                       :item="item"
                       :active="item.session_id === activeSessionId"
+                      :running="isRunning(item)"
                       :now="now"
                       compact
+                      pinnable
                       @select="$emit('select', item)"
                       @delete="$emit('delete', item)"
+                      @toggle-pin="togglePin(item)"
                     />
                   </div>
                   <div v-else-if="!workspaceHasMore(group.id)" class="project-session-group__empty">暂无对话</div>
@@ -196,13 +218,17 @@
 
             <TransitionGroup v-else name="session-list" tag="div" class="session-list-items flex flex-col gap-0.5">
               <SessionListItem
-                v-for="item in items"
+                v-for="item in unpinnedItems"
                 :key="item.session_id"
                 :item="item"
                 :active="item.session_id === activeSessionId"
+                :running="isRunning(item)"
                 :now="now"
+                pinnable
+                pin-placement="trailing"
                 @select="$emit('select', item)"
                 @delete="$emit('delete', item)"
+                @toggle-pin="togglePin(item)"
               />
             </TransitionGroup>
 
@@ -225,7 +251,7 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import type { SessionListItem as SessionListItemData } from '@ragsystem/api-contracts';
-import { Ellipsis, Folder, FolderMinus, FolderOpen, Pencil, Trash2 } from 'lucide-vue-next';
+import { Ellipsis, Folder, FolderMinus, FolderOpen, Pencil, Pin, Trash2 } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -244,8 +270,11 @@ import {
 } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useSessionListStore } from '@/stores/session-list.js';
+import { MAX_PINNED_SESSIONS } from '@/stores/session-list-hydration.js';
 import { UNASSIGNED_WORKSPACE_ID, useWorkspaceStore } from '@/stores/workspace.js';
 import { useSessionListTime } from '@/composables/useSessionListTime.js';
+import { useSessionListStates } from '@/composables/useSessionListStates.js';
+import { useToast } from '@/composables/useToast.js';
 import SessionListItem from './SessionListItem.vue';
 import SessionListToolbar from './SessionListToolbar.vue';
 import GroupCollapseBody from './GroupCollapseBody.vue';
@@ -269,9 +298,15 @@ defineEmits<{
 }>();
 
 const store = useSessionListStore();
+const toast = useToast();
+function togglePin(item: SessionListItemData) {
+  if (!store.togglePin(item)) toast.warning(`已达到置顶上限（${MAX_PINNED_SESSIONS} 个）`);
+}
 const workspaceStore = useWorkspaceStore();
 const {
   items,
+  pinnedItems,
+  unpinnedItems,
   filters,
   facets,
   loadingInitial,
@@ -444,12 +479,20 @@ const projectGroups = computed(() => {
     groups.set(workspace.workspace_id, { id: workspace.workspace_id, name: workspace.display_name, workspace, items: [] });
   }
   groups.set(UNASSIGNED_WORKSPACE_ID, { id: UNASSIGNED_WORKSPACE_ID, name: '未归属项目', workspace: null, items: [] });
-  for (const item of items.value) {
+  for (const item of unpinnedItems.value) {
     const group = groups.get(item.workspace?.workspace_id || UNASSIGNED_WORKSPACE_ID);
     if (group) group.items.push(item);
   }
   return Array.from(groups.values());
 });
+
+const displayedItems = computed(() => [
+  ...pinnedItems.value,
+  ...(props.viewMode === 'project'
+    ? projectGroups.value.filter(group => !isCollapsed(group.id)).flatMap(group => group.items)
+    : unpinnedItems.value),
+]);
+const isRunning = useSessionListStates(displayedItems, () => props.chatSdkClient);
 
 /** 组级取页失败标记：按钮文案转为“点击重试”，不弹全局错误 */
 const groupErrors = ref<Record<string, boolean>>({});
@@ -493,6 +536,7 @@ function requestProjectPreview() {
 }
 
 onMounted(() => {
+  void store.loadPins().catch(() => undefined);
   if (!items.value.length) {
     // 冷启动先等初始全局页落定再取预览，避免请求刚发出就被 initialize 的 reset 中止
     void store.initialize().catch(() => undefined).finally(requestProjectPreview);
@@ -664,29 +708,28 @@ watch(filters, () => {
   text-align: right;
 }
 
-/* 会话条目缩进对齐项目名（项目名文字 = 内容区 8px + 组头 8px 内边距 + 图标 14px + 间距 8px = 38px；条目根节点与按钮各带 4px 内边距，共 8px） */
+/* 项目会话与时间轴、置顶条目使用相同左边距。 */
 .project-session-group__items {
   display: flex;
   min-width: 0;
   flex-direction: column;
   gap: 1px;
-  padding-left: 22px;
 }
 
 .project-session-group__empty {
-  padding: 5px 8px 7px 30px;
+  padding: 5px 8px 7px;
   color: var(--color-text-muted);
   font-size: 12px;
 }
 
-/* 分组「加载更多」：与组内条目同缩进的弱化文字按钮，项目视图唯一翻页入口 */
+/* 分组「加载更多」：项目视图唯一翻页入口。 */
 .project-session-group__more {
   display: flex;
   min-width: 0;
   align-items: center;
   gap: 4px;
   margin: 1px 0 2px;
-  padding: 4px 6px 5px 30px;
+  padding: 4px 8px 5px;
   border: 0;
   border-radius: 6px;
   background: transparent;

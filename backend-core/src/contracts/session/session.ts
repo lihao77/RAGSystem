@@ -248,6 +248,7 @@ export interface SessionListQuery {
   originType?: SessionOriginType | null;
   originId?: string | null;
   workspaceId?: string | null;
+  sessionIds?: readonly string[];
 }
 
 export interface SessionListProjectionPage {

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { ServerToClientEnvelopeSchema } from "@ragsystem/agent-protocol/wire";
-import { MessageContentPartSchema } from "@ragsystem/agent-protocol";
+import { MessageContentPartSchema, SessionRuntimeStateSchema } from "@ragsystem/agent-protocol";
 
 export const PermissionModeSchema = z.enum(["strict", "standard", "relaxed", "dangerously_skip_permissions"]);
 export const SessionOriginTypeSchema = z.enum(["direct", "bot", "widget"]);
@@ -81,8 +81,20 @@ export const SessionListItemSchema = z.object({
   last_message: z.string(),
   activity_at: z.string(),
   unread_count: z.number().int().nonnegative(),
+  runtime_state: SessionRuntimeStateSchema.optional(),
   origin: SessionOriginSchema,
   workspace: SessionWorkspaceSchema.nullable(),
+}).strict();
+
+export const SessionListStatesRequestSchema = z.object({
+  session_ids: z.array(z.string().min(1).max(256)).min(1).max(200),
+}).strict();
+export const SessionListStatesResponseSchema = z.object({
+  success: z.literal(true),
+  message: z.string(),
+  data: z.object({
+    items: z.array(z.object({ session_id: z.string(), state: SessionRuntimeStateSchema }).strict()),
+  }).strict(),
 }).strict();
 
 export const SessionListDataSchema = z.object({

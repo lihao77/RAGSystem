@@ -3,11 +3,14 @@ import test from 'node:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { DatabaseSync } from 'node:sqlite';
+import Fastify from 'fastify';
 
 import { partsToPlainText } from '@ragsystem/agent-protocol';
 import { createTenantId } from '@ragsystem/backend-core/identity/types.js';
 import { buildTerminalAssistantMessage } from '@ragsystem/backend-core/contracts/storage/runtime-finalization.js';
 import { SessionRuntimeService } from '@ragsystem/backend-core/services/runtime/session-runtime-service.js';
+import { registerSessionRoutes } from '@ragsystem/backend-core/routes/agent/sessions.js';
 import { createConversationStore } from '../dist/adapters/local/sqlite/conversation-store/index.js';
 import { SqliteRuntimeStorage } from '../dist/adapters/local/sqlite-runtime-storage.js';
 import { computeSessionTeamRevision } from '@ragsystem/backend-core/contracts/session/session.js';
@@ -18,7 +21,8 @@ const teamSnapshot = { team_name: 'test', team_revision: computeSessionTeamRevis
 
 async function createHarness(t) {
   const root = await mkdtemp(join(tmpdir(), 'ragsystem-runtime-recovery-'));
-  const store = createConversationStore({ dbPath: join(root, 'runtime.db'), dataRoot: root });
+  const dbPath = join(root, 'runtime.db');
+  const store = createConversationStore({ dbPath, dataRoot: root });
   t.after(async () => {
     store.close();
     await rm(root, { recursive: true, force: true });
@@ -50,7 +54,7 @@ async function createHarness(t) {
     leaseRootRunId: 'run-1',
     threadKey: 'root',
   });
-  return { store, storage, runtime: new SessionRuntimeService(storage) };
+  return { store, storage, dbPath, runtime: new SessionRuntimeService(storage) };
 }
 
 function createInteraction(store) {
@@ -72,6 +76,88 @@ function createInteraction(store) {
     },
   });
 }
+
+test('list states batch matches runtime lifecycle without loading execution events and enforces tenant scope', async (t) => {
+  const { store, runtime } = await createHarness(t);
+  for (const [id, owner, tenant] of [['idle', 'usr_test', tenantId], ['private-other', 'usr_other', tenantId], ['other-tenant', 'usr_test', createTenantId('tnt_other')]]) {
+    store.createSession({ tenantId: tenant, sessionId: id, ownerUserId: owner, visibility: 'private', originType: 'direct', originId: null, originChannel: 'web', workspaceId: null, teamSnapshot, metadata: {} });
+  }
+  const states = await runtime.getStates(['session-1', 'idle', 'other-tenant', 'missing']);
+  assert.deepEqual([...states].sort(), [['idle', 'idle'], ['session-1', 'running']]);
+  createInteraction(store);
+  assert.equal((await runtime.getStates(['session-1'])).get('session-1'), 'waiting_interaction');
+  store.updateRunStatus('run-1', 'session-1', 'suspended');
+  assert.equal((await runtime.getStates(['session-1'])).get('session-1'), 'suspended');
+  const page = store.listSessions({ tenantId, access: { userId: 'usr_test', includeTenant: false }, limit: 200, sessionIds: ['idle', 'private-other', 'other-tenant'] });
+  assert.deepEqual(page.items.map(item => item.session_id), ['idle']);
+  assert.deepEqual(store.listSessions({ tenantId, access: { userId: 'usr_test', includeTenant: false }, limit: 200, sessionIds: [] }).items, []);
+});
+
+test('batch state metadata uses the same hydration as full session reads', async (t) => {
+  const { store, storage, runtime, dbPath } = await createHarness(t);
+  const maintenance = { runtime_maintenance: { kind: 'compact', expires_at: '2099-01-01T00:00:00Z' } };
+  const fixtures = [
+    ['null', {}], ['42', {}], ['"legacy"', {}], ['[]', {}], ['', {}],
+    [JSON.stringify({ team: 'legacy', entry_agent: 'root', marker: 'kept' }), { marker: 'kept' }],
+    [JSON.stringify(maintenance), maintenance],
+  ];
+  const ids = fixtures.map((_, index) => `metadata-${index}`);
+  for (const sessionId of ids) store.createSession({ tenantId, sessionId, ownerUserId: 'usr_test', visibility: 'private', originType: 'direct', originId: null, originChannel: 'web', workspaceId: null, teamSnapshot, metadata: {} });
+  const db = new DatabaseSync(dbPath);
+  try {
+    fixtures.forEach(([raw], index) => db.prepare('UPDATE sessions SET metadata=? WHERE session_id=?').run(raw, ids[index]));
+  } finally { db.close(); }
+  const facts = await storage.operations.getSessionStateFacts(ids);
+  const states = await runtime.getStates(ids);
+  for (const [index, id] of ids.entries()) {
+    assert.deepEqual(facts.find(entry => entry.sessionId === id).metadata, fixtures[index][1]);
+    assert.deepEqual(facts.find(entry => entry.sessionId === id).metadata, store.getSession(id).metadata);
+    assert.equal(states.get(id), index === fixtures.length - 1 ? 'maintenance' : 'idle');
+    assert.equal(states.get(id), (await runtime.getSnapshot(id)).state);
+  }
+});
+
+test('the status endpoint returns all 200 requested visible sessions and preserves cursor paging', async (t) => {
+  const { store, runtime } = await createHarness(t);
+  const ids = ['session-1', ...Array.from({ length: 199 }, (_, index) => `page-${index}`)];
+  for (const sessionId of [...ids.slice(1), 'extra']) store.createSession({ tenantId, sessionId, ownerUserId: 'usr_test', visibility: 'private', originType: 'direct', originId: null, originChannel: 'web', workspaceId: null, teamSnapshot, metadata: {} });
+  for (const [sessionId, ownerUserId, tenant] of [['private-other', 'usr_other', tenantId], ['other-tenant', 'usr_test', createTenantId('tnt_other')]]) {
+    store.createSession({ tenantId: tenant, sessionId, ownerUserId, visibility: 'private', originType: 'direct', originId: null, originChannel: 'web', workspaceId: null, teamSnapshot, metadata: {} });
+  }
+  const pageQuery = { tenantId, access: { userId: 'usr_test', includeTenant: false }, limit: 200 };
+  const first = store.listSessions(pageQuery);
+  assert.equal(first.items.length, 200);
+  assert.ok(first.nextCursor);
+  const last = store.listSessions({ ...pageQuery, cursor: first.nextCursor });
+  assert.equal(last.items.length, 1);
+  assert.equal(last.nextCursor, null);
+  assert.equal(new Set([...first.items, ...last.items].map(entry => entry.session_id)).size, 201);
+
+  const app = Fastify();
+  let listCalls = 0;
+  app.addHook('onRequest', async request => {
+    request.identity = { tenantId, userId: 'usr_test', role: 'member', permissions: [] };
+    request.applications = { sessions: { listSessions: async input => {
+      listCalls++;
+      return store.listSessions({ ...input, tenantId });
+    } } };
+    request.container = { deploymentKind: 'local', sessionRuntime: runtime };
+  });
+  await app.register(registerSessionRoutes, { prefix: '/api/agent' });
+  try {
+    const response = await app.inject({ method: 'POST', url: '/api/agent/sessions/states', payload: { session_ids: ids } });
+    assert.equal(response.statusCode, 200, response.body);
+    const states = new Map(response.json().data.items.map(entry => [entry.session_id, entry.state]));
+    assert.equal(states.size, 200);
+    assert.ok(ids.every(id => states.has(id)));
+    assert.equal(states.get('session-1'), 'running');
+    assert.equal(listCalls, 1);
+    const filteredIds = [...ids.slice(0, 198), 'private-other', 'other-tenant'];
+    const filtered = await app.inject({ method: 'POST', url: '/api/agent/sessions/states', payload: { session_ids: filteredIds } });
+    assert.equal(filtered.statusCode, 200, filtered.body);
+    assert.deepEqual(filtered.json().data.items.map(entry => entry.session_id).sort(), ids.slice(0, 198).sort());
+  } finally { await app.close(); }
+});
 
 function resumeAttachRecord(claimId) {
   const event = {

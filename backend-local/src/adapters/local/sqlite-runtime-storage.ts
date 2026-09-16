@@ -93,6 +93,7 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
       getActiveRootRun: (sessionId) => this.getActiveRootRun(sessionId),
       getLatestThreadRun: (sessionId, threadKey) => this.getLatestThreadRun(sessionId, threadKey),
       getSessionRuntimeFacts: (sessionId) => this.getSessionRuntimeFacts(sessionId),
+      getSessionStateFacts: (sessionIds) => this.serial.run(() => this.store.getSessionStateFacts(this.tenantId, sessionIds)),
       claimSessionMaintenance: (input) => this.claimSessionMaintenance(input),
       renewSessionMaintenance: (input) => this.renewSessionMaintenance(input),
       releaseSessionMaintenance: (input) => this.releaseSessionMaintenance(input),

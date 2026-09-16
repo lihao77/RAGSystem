@@ -7,15 +7,16 @@ import type {
   SessionListQuery,
   SessionTeamSnapshot,
 } from "@ragsystem/backend-core/contracts/session/session.js";
-import { normalizeSessionMetadata, normalizeSessionTeamSnapshot } from "@ragsystem/backend-core/contracts/session/session.js";
+import { hydrateSessionMetadata, normalizeSessionMetadata, normalizeSessionTeamSnapshot } from "@ragsystem/backend-core/contracts/session/session.js";
 import type { PermissionMode } from "@ragsystem/backend-core/contracts/runtime/permissions.js";
 import type { ConversationDb } from "./shared/db.js";
 import { runInTransaction } from "./shared/transaction.js";
 import { deepMergeRecords } from "./shared/primitives.js";
-import { isoTimestampToSqlite, stringifyJson } from "./helpers.js";
+import { isoTimestampToSqlite, parseJsonObject, stringifyJson } from "./helpers.js";
 import { rowToSession, rowToSessionListProjection } from "./mappers.js";
 import type { SessionListProjectionRow, SessionRow } from "./types.js";
 import { SessionListProjector } from "./session-list-projector.js";
+import type { RuntimeSessionStateFacts } from "@ragsystem/backend-core/contracts/storage/runtime-storage.js";
 
 export class SessionOps {
   constructor(
@@ -85,6 +86,31 @@ export class SessionOps {
     return row ? rowToSessionListProjection(row) : null;
   }
 
+  getSessionStateFacts(tenantId: string, sessionIds: readonly string[]): RuntimeSessionStateFacts[] {
+    if (!sessionIds.length) return [];
+    const rows = this.db.prepare(`
+      SELECT s.session_id, s.metadata,
+        (SELECT r.status FROM runs r
+         WHERE r.session_id=s.session_id AND r.status IN ('running','suspended')
+           AND ((r.parent_run_id IS NULL AND r.child_agent_id IS NULL) OR EXISTS (
+             SELECT 1 FROM pending_interactions p WHERE p.session_id=s.session_id
+               AND p.root_run_id=r.run_id AND p.status IN ('waiting','suspended','resolved','resuming')))
+         ORDER BY (r.parent_run_id IS NULL AND r.child_agent_id IS NULL) DESC,
+           r.updated_at DESC, r.created_at DESC, r.run_id DESC LIMIT 1) AS active_status,
+        (SELECT json_group_array(p.status) FROM pending_interactions p
+         WHERE p.session_id=s.session_id AND p.status IN ('waiting','suspended','resolved','resuming')) AS pending_statuses
+      FROM sessions s WHERE s.tenant_id=? AND s.session_id IN (${sessionIds.map(() => '?').join(',')})
+    `).all(tenantId, ...sessionIds) as unknown as Array<{
+      session_id: string; metadata: string; active_status: string | null; pending_statuses: string;
+    }>;
+    return rows.map((row) => ({
+      sessionId: row.session_id,
+      metadata: hydrateSessionMetadata(parseJsonObject(row.metadata)),
+      activeStatus: row.active_status,
+      pendingStatuses: JSON.parse(row.pending_statuses),
+    }));
+  }
+
   updateSessionMetadata(sessionId: string, patch: Record<string, unknown>): Record<string, unknown> | null {
     return runInTransaction(this.db, () => this.updateSessionMetadataInTransaction(sessionId, patch));
   }
@@ -123,13 +149,17 @@ export class SessionOps {
   }
 
   listSessions(input: SessionListQuery): SessionListProjectionPage {
-    const limit = Math.max(1, Math.min(100, input.limit));
+    const limit = Math.max(1, Math.min(200, input.limit));
     const clauses = ["tenant_id=?", visibilityClause(input.access.includeTenant, input.access.includeAll === true)];
     const params: Array<string | number | null> = [input.tenantId, ...(input.access.includeAll ? [] : [input.access.userId])];
     if (input.originType) { clauses.push("origin_type=?"); params.push(input.originType); }
     if (input.originId) { clauses.push("origin_id=?"); params.push(input.originId); }
     if (input.workspaceId === "__unassigned__") clauses.push("workspace_id IS NULL");
     else if (input.workspaceId) { clauses.push("workspace_id=?"); params.push(input.workspaceId); }
+    if (input.sessionIds) {
+      clauses.push(input.sessionIds.length ? `session_id IN (${input.sessionIds.map(() => '?').join(',')})` : "0=1");
+      params.push(...input.sessionIds);
+    }
     if (input.cursor) {
       clauses.push("(activity_at < ? OR (activity_at = ? AND session_id < ?))");
       const cursorActivityAt = isoTimestampToSqlite(input.cursor.activityAt);

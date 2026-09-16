@@ -200,6 +200,7 @@ export class RagChatClient {
     if (options.originType) query.set("origin_type", options.originType);
     if (options.originId) query.set("origin_id", options.originId);
     if (options.workspaceId) query.set("workspace_id", options.workspaceId);
+    if (options.sessionIds) query.set("session_ids", JSON.stringify(options.sessionIds));
     return this.request<SessionListResponse>("listSessions", { query, ...(options.signal ? { signal: options.signal } : {}) });
   }
 
@@ -275,6 +276,15 @@ export class RagChatClient {
   async getSessionRuntime(sessionId: string, options: { signal?: AbortSignal } = {}): Promise<unknown> {
     return this.request("getSessionRuntime", {
       context: { sessionId },
+      ...(options.signal ? { signal: options.signal } : {}),
+    });
+  }
+
+  async getSessionListStates(sessionIds: readonly string[], options: { signal?: AbortSignal } = {}): Promise<{
+    data: { items: Array<{ session_id: string; state: SessionRuntimePayload["state"] }> };
+  }> {
+    return this.request("getSessionListStates", {
+      method: "POST", body: { session_ids: sessionIds },
       ...(options.signal ? { signal: options.signal } : {}),
     });
   }
@@ -776,6 +786,7 @@ function defaultEndpoint(name: RagChatEndpointName, context: Record<string, unkn
     case "getSessionPermissions": return `/api/agent/sessions/${sessionId}/permissions`;
     case "updateSessionPermissions": return `/api/agent/sessions/${sessionId}/permissions`;
     case "getSessionRuntime": return `/api/agent/sessions/${sessionId}/runtime`;
+    case "getSessionListStates": return "/api/agent/sessions/states";
     case "getContextSnapshot": return "/api/agent/context-snapshot";
     case "rollbackAndRetrySession": return `/api/agent/sessions/${sessionId}/rollback-and-retry`;
     case "listSessionParticipants": return `/api/agent/sessions/${sessionId}/participants`;

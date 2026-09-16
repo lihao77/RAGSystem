@@ -58,7 +58,11 @@ function createApplication() {
         ? { workspace_id: "workspace-alpha", display_name: "alpha", root_path: "D:/alpha" }
         : { workspace_id: "workspace-empty", display_name: "empty", root_path: "D:/empty" }
     )),
-    listSessions: async (input: { workspaceId?: string | null; limit: number }) => {
+    listSessions: async (input: { workspaceId?: string | null; limit: number; sessionIds?: string[] }) => {
+      if (input.sessionIds) return {
+        items: [...pages.values()].flatMap(page => page.items).filter(item => input.sessionIds?.includes(item.session_id)),
+        nextCursor: null,
+      };
       const workspaceId = input.workspaceId ?? "__unassigned__";
       calls.push({ workspaceId, limit: input.limit });
       const page = pages.get(workspaceId) ?? { items: [], nextCursor: null };
@@ -75,7 +79,10 @@ async function createApp() {
     request.identity = { tenantId, userId: LOCAL_USER_ID, role: "owner", permissions: [] };
     request.applications = { sessions: application } as unknown as RequestApplications;
     // assembleSessionList 依据 deploymentKind 决定是否暴露 root_path
-    (request as { container?: unknown }).container = { deploymentKind: "local" };
+    (request as { container?: unknown }).container = {
+      deploymentKind: "local",
+      sessionRuntime: { getStates: async (ids: string[]) => new Map(ids.map(id => [id, id === "alpha-1" ? "running" : "idle"])) },
+    };
   });
   await app.register(registerSessionRoutes, {
     prefix: "/api/agent",
@@ -85,6 +92,21 @@ async function createApp() {
 }
 
 describe("session workspace preview route", () => {
+  it("returns states only for visible requested sessions and can restore pins outside the first page", async () => {
+    const { app } = await createApp();
+    try {
+      const response = await app.inject({ method: "POST", url: "/api/agent/sessions/states", payload: { session_ids: ["alpha-1", "missing"] } });
+      expect(response.statusCode).toBe(200);
+      expect(response.json().data.items).toEqual([{ session_id: "alpha-1", state: "running" }]);
+      const pinned = await app.inject({ method: "GET", url: `/api/agent/sessions?session_ids=${encodeURIComponent(JSON.stringify(["alpha-1"]))}` });
+      expect(pinned.statusCode).toBe(200);
+      expect(pinned.json().data.items.map((item: { session_id: string }) => item.session_id)).toEqual(["alpha-1"]);
+      const invalid = await app.inject({ method: "GET", url: "/api/agent/sessions?session_ids=invalid" });
+      expect(invalid.statusCode).toBe(400);
+      const oversized = await app.inject({ method: "POST", url: "/api/agent/sessions/states", payload: { session_ids: Array.from({ length: 201 }, (_, i) => `id-${i}`) } });
+      expect(oversized.statusCode).not.toBe(200);
+    } finally { await app.close(); }
+  });
   it("returns each workspace first page plus the unassigned group with per-group cursors", async () => {
     const { app, calls } = await createApp();
     try {
@@ -105,6 +127,7 @@ describe("session workspace preview route", () => {
       const alpha = groups.find((group) => group.workspace_id === "workspace-alpha");
       expect(alpha?.items).toHaveLength(1);
       expect(alpha?.items[0]?.workspace?.workspace_id).toBe("workspace-alpha");
+      expect(response.json().data.groups.find((group: { workspace_id: string }) => group.workspace_id === "workspace-alpha").items[0].runtime_state).toBe("running");
       expect(typeof alpha?.next_cursor).toBe("string");
 
       const empty = groups.find((group) => group.workspace_id === "workspace-empty");

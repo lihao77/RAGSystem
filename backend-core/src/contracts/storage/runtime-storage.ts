@@ -515,6 +515,14 @@ export interface RuntimeSessionFacts {
   ownedByCurrentInstance: boolean;
 }
 
+/** Lightweight facts for list status; excludes messages and execution events. */
+export interface RuntimeSessionStateFacts {
+  sessionId: string;
+  metadata: Record<string, unknown>;
+  activeStatus: string | null;
+  pendingStatuses: PendingInteractionStatus[];
+}
+
 export interface RuntimeSessionMaintenanceInput {
   sessionId: string;
   token: string;
@@ -555,6 +563,7 @@ export interface RuntimeAtomicOperations {
   getLatestThreadRun?(sessionId: string, threadKey: string): Promise<RunInfo | null>;
   /** One authoritative read model for Session lifecycle projection and initial loading. */
   getSessionRuntimeFacts(sessionId: string): Promise<RuntimeSessionFacts>;
+  getSessionStateFacts(sessionIds: readonly string[]): Promise<RuntimeSessionStateFacts[]>;
   claimSessionMaintenance(input: RuntimeSessionMaintenanceInput): Promise<RuntimeClaimSessionMaintenanceResult>;
   renewSessionMaintenance(input: Pick<RuntimeSessionMaintenanceInput, "sessionId" | "token" | "ttlMs">): Promise<boolean>;
   releaseSessionMaintenance(input: Pick<RuntimeSessionMaintenanceInput, "sessionId" | "token">): Promise<void>;
