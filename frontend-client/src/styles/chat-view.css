@@ -3,6 +3,13 @@
 :root {
   --edit-transition-duration: 240ms;
   --edit-transition-ease: var(--ease-out-expo);
+  /* 可展开细节块的高度上限：像素值给常规窗口，vh 兜住矮窗口——否则思考(320)+差异(240)
+     这类块叠两三个就能吃掉一屏，滚动条还没出现，页面已经看不完了。
+     注意：思考块的动画上限在 useCollapsibleHeight 里是 320px 常量，CSS 这侧只许更小。 */
+  --detail-max-height-sm: min(160px, 26vh);
+  --detail-max-height: min(200px, 32vh);
+  --detail-max-height-lg: min(240px, 38vh);
+  --detail-max-height-xl: min(320px, 46vh);
 }
 
 /* ===== CSS 局部变量补充（消除魔法数字） ===== */

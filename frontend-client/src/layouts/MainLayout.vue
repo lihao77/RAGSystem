@@ -159,6 +159,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Input } from '../components/ui/input';
 import { getMCPServerPrompt } from '../api/mcpService';
 import { useMcpStore } from '../stores/mcp.js';
+import { SIDEBAR_OVERLAY_QUERY } from '../utils/breakpoints.js';
 
 const router = useRouter();
 const route = useRoute();
@@ -236,8 +237,10 @@ const chatReturnPath = computed(() => activeSessionId.value ? `/chat/${encodeURI
 const getPageDepth = (targetRoute) => targetRoute.meta?.depth ?? 0;
 const getPageOrder = (targetRoute) => targetRoute.meta?.pageOrder ?? getPageDepth(targetRoute);
 const getPageRouteKey = (targetRoute) => targetRoute.meta?.pageKey || targetRoute.meta?.mainView || 'chat';
-// 侧栏在所有路由下于同一断点（lg 900px）切抽屉/固定，避免切页时行为不一致。
-const sidebarOverlayBreakpoint = 900;
+// 侧栏在所有路由下于同一断点切抽屉/固定，避免切页时行为不一致。
+// 查询串与样式表的三处媒体查询同值（见 utils/breakpoints.js）；用 matchMedia 而非
+// window.innerWidth，后者含滚动条宽度，会在断点附近与 CSS 的判定基准对不上。
+const sidebarOverlayQuery = window.matchMedia(SIDEBAR_OVERLAY_QUERY);
 
 const showToast = (message, actionOrType = null, actionLabel = '重试') => {
   let type = 'error';
@@ -262,7 +265,7 @@ const getChildProps = (childRoute) => {
 };
 
 const checkMobile = () => {
-  isMobile.value = window.innerWidth < sidebarOverlayBreakpoint;
+  isMobile.value = sidebarOverlayQuery.matches;
   if (!isMobile.value) {
     mobileOpen.value = false;
     document.body.style.overflow = '';

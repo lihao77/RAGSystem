@@ -382,7 +382,9 @@ onBeforeUnmount(() => {
 });
 
 /* 高度动画：max-height 用实测值驱动（cap 320px——展开动画结束后上限释放回 320px，
-   流式增长的内容仍有滚动空间）。细节见 useCollapsibleHeight。 */
+   流式增长的内容仍有滚动空间）。细节见 useCollapsibleHeight。
+   这里的 320 是动画上限，与下方 .assistant-step-reasoning 的 --detail-max-height-xl
+   配对：样式那侧矮窗口会更小（min(320px, 46vh)），动画上限只要不小于它就不会留白。 */
 const reasoningClipEl = ref(null);
 useCollapsibleHeight(reasoningClipEl, reasoningExpanded, { cap: 320 });
 
@@ -629,9 +631,9 @@ function truncate(value, maxLength) {
   transition: max-height 240ms linear;
 }
 
-/* 滚动层：高度只取决于自身内容（≤320px），不随外层折叠动画变化。 */
+/* 滚动层：高度只取决于自身内容（≤ --detail-max-height-xl），不随外层折叠动画变化。 */
 .assistant-step-reasoning {
-  max-height: 320px;
+  max-height: var(--detail-max-height-xl);
   overflow-x: hidden;
   overflow-y: auto;
 }
@@ -701,7 +703,7 @@ function truncate(value, maxLength) {
 }
 
 .assistant-step-detail-text {
-  max-height: 200px;
+  max-height: var(--detail-max-height);
   margin: 0;
   overflow: auto;
   border-radius: var(--radius-sm);

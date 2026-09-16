@@ -356,6 +356,18 @@ const shots = [
     ],
   })),
   {
+    name: 'chat-short-viewport-desktop',
+    path: '/?__smoke=artifact',
+    width: 1280,
+    height: 600,
+    actions: [
+      { type: 'mockArtifactApi' },
+      { type: 'click', selector: 'button[title="展开执行过程"]', waitMs: 300 },
+      // 矮窗口下细节块上限走 vh 兜底：26vh × 600 = 156 < 160，说明生效的是 min(160px, 26vh)
+      { type: 'expectStyle', selector: '.tool-call-detail-text.is-mono', property: 'maxHeight', value: '156px' },
+    ],
+  },
+  {
     name: 'chat-followup-edit-delete',
     path: '/?__smoke=artifact&__pendingFollowup=1',
     width: 960,

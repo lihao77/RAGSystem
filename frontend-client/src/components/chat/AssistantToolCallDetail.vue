@@ -178,7 +178,7 @@ function diffMark(type) {
 }
 
 .tool-call-detail-text {
-  max-height: 200px;
+  max-height: var(--detail-max-height);
   margin: 0;
   overflow: auto;
   border-radius: var(--radius-sm);
@@ -192,7 +192,7 @@ function diffMark(type) {
 }
 
 .tool-call-detail-text.is-mono {
-  max-height: 160px;
+  max-height: var(--detail-max-height-sm);
   font-family: var(--font-mono);
 }
 
@@ -286,7 +286,8 @@ function diffMark(type) {
 .tool-terminal__body {
   display: flex;
   min-width: 0;
-  max-height: 220px;
+  /* 与 diff 同档：都是结构化的多行块 */
+  max-height: var(--detail-max-height-lg);
   flex-direction: column;
   gap: 6px;
   overflow: auto;
@@ -405,7 +406,7 @@ function diffMark(type) {
 }
 
 .tool-diff__lines {
-  max-height: 240px;
+  max-height: var(--detail-max-height-lg);
   overflow: auto;
   padding-block: 2px;
   background: var(--color-bg-secondary);
