@@ -310,6 +310,20 @@ const shots = [
     ],
   },
   {
+    // 浅色下的执行行（intent / 工具调用）对比度回归
+    name: 'chat-consecutive-input-execution-light',
+    path: '/?__smoke=artifact&__consecutive=1',
+    width: 960,
+    height: 900,
+    theme: 'light',
+    actions: [
+      { type: 'mockArtifactApi' },
+      { type: 'expectVisible', selector: '.message.user:nth-child(3) .assistant-execution-toggle' },
+      { type: 'click', selector: 'button[title="展开执行过程"]', waitMs: 300 },
+      { type: 'expectText', selector: '.message.user:nth-child(3)', text: '读取监测数据并生成趋势图。' },
+    ],
+  },
+  {
     name: 'chat-consecutive-input-execution',
     path: '/?__smoke=artifact&__consecutive=1',
     width: 960,
@@ -403,6 +417,30 @@ const shots = [
       { type: 'click', selector: '[aria-label="打开运行中心"]', waitMs: 300 },
       { type: 'expectText', selector: '.runtime-center-head__subtitle', text: '持续目标与后台任务' },
       { type: 'expectVisible', selector: '.runtime-overview' },
+    ],
+  },
+  {
+    // 浅色主题同样纳入回归：主题 token 是两套，改动必须两边都看
+    name: 'chat-fileref-light-desktop',
+    path: '/?__smoke=fileref',
+    width: 1440,
+    height: 900,
+    theme: 'light',
+    actions: [
+      { type: 'mockFileRefApi' },
+      { type: 'expectText', selector: '.message-stream', text: 'file_ref 三种 presentation 的渲染矩阵' },
+    ],
+  },
+  {
+    name: 'start-page-light-desktop',
+    path: '/?__smoke=empty',
+    width: 1440,
+    height: 900,
+    theme: 'light',
+    actions: [
+      { type: 'mockSessionSidebarApi' },
+      { type: 'expectVisible', selector: '.session-setup-panel' },
+      { type: 'expectText', selector: '.sidebar', text: 'ragsystem' },
     ],
   },
   {
@@ -1826,6 +1864,12 @@ async function captureShot(browserPath, baseUrl, shot) {
     });
     await client.send('Page.enable');
     await client.send('Runtime.enable');
+    // 主题由 localStorage 单源驱动（stores/theme.js），在文档创建前种下即可切浅色
+    if (shot.theme === 'light') {
+      await client.send('Page.addScriptToEvaluateOnNewDocument', {
+        source: "localStorage.setItem('theme', 'light');",
+      });
+    }
     await setupShotMocks(client, shot);
     await client.send('Emulation.setDeviceMetricsOverride', {
       width: shot.width,
