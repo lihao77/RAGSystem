@@ -729,10 +729,10 @@ test("Builder template migration adds Skill authoring tools without replacing us
         "list_agent_builder_capabilities",
         "write_file",
         "edit_file",
-        "list_skill_drafts",
-        "get_skill_draft",
-        "create_skill_draft",
-        "publish_skill_draft",
+        "list_skills",
+        "get_skill",
+        "create_skill",
+        "save_skill",
         "list_agent_drafts",
         "get_agent_draft",
         "create_agent_draft",
@@ -743,7 +743,7 @@ test("Builder template migration adds Skill authoring tools without replacing us
       ],
     );
     assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /^Keep this custom instruction\./);
-    assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /publish_skill_draft/);
+    assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /save_skill/);
     assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /Skill authoring runtime contract:/);
     assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /current Skill runtime executes Python only/);
     assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /validate_agent_draft/);
@@ -766,9 +766,9 @@ test("Builder template migration adds the workspace draft workflow", async () =>
     assert.equal(await ensureAgentBuilderTeam(fixture.agentConfig), true);
     const orchestrator = fixture.agentConfig.getConfig("builder_orchestrator", { teamName: AGENT_BUILDER_TEAM_NAME });
     assert.match(orchestrator.custom_params.behavior.system_prompt, /^Keep this custom builder instruction\./);
-    assert.match(orchestrator.custom_params.behavior.system_prompt, /publish_skill_draft/);
+    assert.match(orchestrator.custom_params.behavior.system_prompt, /save_skill/);
     assert.match(orchestrator.custom_params.behavior.system_prompt, /current Session workspace/);
-    assert.match(orchestrator.custom_params.behavior.system_prompt, /execute_skill_script can run only a published, visible Skill/);
+    assert.match(orchestrator.custom_params.behavior.system_prompt, /execute_skill_script can run only a saved, visible Skill/);
     assert.equal(orchestrator.custom_params.behavior.builder_template_version, 15);
   } finally {
     fixture.cleanup();
@@ -1070,19 +1070,19 @@ test("Builder template opts its orchestrator into Skill authoring tools explicit
   const team = buildAgentBuilderTeam();
   const orchestrator = team.builder_orchestrator;
   assert.deepEqual(
-    orchestrator.tools.enabled_tools.filter((name) => name.includes("skill_draft")),
-    ["list_skill_drafts", "get_skill_draft", "create_skill_draft", "publish_skill_draft"],
+    orchestrator.tools.enabled_tools.filter((name) => ["list_skills", "get_skill", "create_skill", "save_skill"].includes(name)),
+    ["list_skills", "get_skill", "create_skill", "save_skill"],
   );
   for (const [name, agent] of Object.entries(team)) {
     if (name === "builder_orchestrator") continue;
-    assert.equal(agent.tools.enabled_tools.some((tool) => tool.endsWith("_skill_draft")), false);
+    assert.equal(agent.tools.enabled_tools.some((tool) => ["list_skills", "get_skill", "create_skill", "save_skill"].includes(tool)), false);
   }
   const prompt = orchestrator.custom_params.behavior.system_prompt;
   assert.match(prompt, /root SKILL\.md/);
   assert.match(prompt, /scripts\/ with a \.py extension/);
   assert.match(prompt, /root requirements\.txt/);
   assert.match(prompt, /Never instruct an Agent to run python, python3, a shell, execute_code/);
-  assert.match(prompt, /publish action validates and synchronizes bundle structure but does not execute scripts/);
+  assert.match(prompt, /Saving validates the complete bundle but does not execute scripts/);
   assert.match(prompt, /choose workspace cwd or copy the deliverable into workspace/);
   assert.doesNotMatch(prompt, /kind=skill Artifact|\[artifact:|RAGSYSTEM_ARTIFACT_OUTPUT_DIR|submit_skill_artifact|create_skill_artifact/i);
 });
@@ -2139,5 +2139,26 @@ test('synchronizeTeamDraft re-reads the current team hash on the published sync 
     assert.ok(links.some((link) => link.team_revision_hash === currentHash));
   } finally {
     fixture.cleanup();
+  }
+});
+
+
+test("Skill workflow hydration repairs current-version and unversioned configurations without losing custom instructions", async () => {
+  const { hydrateSkillAuthoring } = await import("../dist/skill-authoring-hydration.js");
+  const instruction = buildAgentBuilderTeam().builder_orchestrator.custom_params.behavior.system_prompt;
+  for (const version of [undefined, 15, 999]) {
+    const legacy = buildAgentBuilderTeam();
+    legacy.builder_orchestrator.tools.enabled_tools = ['read_file', 'create_skill_draft', 'publish_skill_draft', 'custom_tool'];
+    legacy.builder_orchestrator.custom_params.behavior = { builder_template_version: version, system_prompt: 'Preserve my custom instruction. Use create_skill_draft and publish_skill_draft.' };
+    const repaired = hydrateSkillAuthoring(legacy, instruction);
+    assert.ok(repaired);
+    const agent = repaired.builder_orchestrator;
+    assert.ok(agent.tools.enabled_tools.includes('custom_tool'));
+    assert.ok(agent.tools.enabled_tools.includes('save_skill'));
+    assert.ok(!agent.tools.enabled_tools.some((tool) => tool.includes('skill_draft')));
+    assert.match(agent.custom_params.behavior.system_prompt, /^Preserve my custom instruction/);
+    assert.doesNotMatch(agent.custom_params.behavior.system_prompt, /skill_draft/);
+    assert.equal(agent.custom_params.behavior.skill_authoring_migration.id, 'builder_skill_direct_save');
+    assert.equal(hydrateSkillAuthoring(repaired, instruction), null);
   }
 });

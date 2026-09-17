@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
+import { SkillNameSchema, requireSkillPath, skillBundleRevision, skillRevisionConflict, validateSkillBundle } from "../../contracts/skills/skill-bundle.js";
 
 import type {
   CreateSkillPackageBundleInput,
@@ -18,84 +20,141 @@ export class FilesystemSkillPackageStore implements ISkillPackageStore {
     if (!root.trim()) throw new Error("FilesystemSkillPackageStore requires a root directory");
   }
 
-  async list(): Promise<SkillPackageRecord[]> {
-    const records: SkillPackageRecord[] = [];
-    for (const skillDir of listSkillDirs(this.root)) {
-      const record = parseSkillDir(skillDir);
-      if (record) records.push(record);
+  // SQLite serializes filesystem reads/commits across processes, including Windows.
+  // All filesystem work inside the transaction is synchronous; no half-bundle is observable.
+  private locked<T>(operation: () => T): T {
+    fs.mkdirSync(this.root, { recursive: true });
+    const db = new DatabaseSync(path.join(this.root, ".package-lock.sqlite"));
+    db.exec("PRAGMA busy_timeout = 10000");
+    try {
+      db.exec("BEGIN IMMEDIATE");
+      // Recover a process crash between moving the previous directory and installing the new one.
+      for (const entry of fs.readdirSync(this.root, { withFileTypes: true })) {
+        if (!entry.isDirectory() || !entry.name.startsWith(".replacing-")) continue;
+        const name = entry.name.slice(".replacing-".length);
+        if (!SkillNameSchema.safeParse(name).success) continue;
+        const backup = path.join(this.root, entry.name);
+        const target = path.join(this.root, name);
+        if (!fs.existsSync(target)) fs.renameSync(backup, target);
+        else fs.rmSync(backup, { recursive: true, force: true });
+      }
+      const result = operation();
+      db.exec("COMMIT");
+      return result;
+    } catch (error) {
+      if (db.isTransaction) db.exec("ROLLBACK");
+      throw error;
+    } finally { db.close(); }
+  }
+
+  private directory(name: string): string {
+    SkillNameSchema.parse(name);
+    const target = path.join(this.root, name);
+    if (fs.existsSync(target) && fs.lstatSync(target).isSymbolicLink()) throw new Error("Skill directory cannot be a symlink");
+    return target;
+  }
+
+  private snapshot(name: string): { bundle: CreateSkillPackageBundleInput; revision: string } | null {
+    const directory = this.directory(name);
+    const record = parseSkillDir(directory);
+    if (!record) return null;
+    const files = listSkillFiles(directory).filter((file) => file.type === "file").map((file) => ({
+      relativePath: file.path, body: fs.readFileSync(path.join(directory, file.path)), mediaType: guessMime(file.path),
+    }));
+    return {
+      bundle: { name, description: record.description, content: record.content, metadata: record.metadata, files },
+      revision: skillBundleRevision(name, files),
+    };
+  }
+
+  private executionRecord(name: string): SkillPackageRecord | null {
+    const snapshot = this.snapshot(name);
+    if (!snapshot) return null;
+    const record = parseSkillDir(this.directory(name))!;
+    const target = path.join(this.root, ".runtime", snapshot.revision);
+    if (!fs.existsSync(path.join(target, ".materialized"))) {
+      const staging = path.join(this.root, `.creating-execution-${randomUUID()}`);
+      fs.mkdirSync(staging);
+      try {
+        for (const file of snapshot.bundle.files) {
+          const destination = path.join(staging, requireSkillPath(file.relativePath));
+          fs.mkdirSync(path.dirname(destination), { recursive: true });
+          fs.writeFileSync(destination, file.body);
+        }
+        fs.writeFileSync(path.join(staging, ".materialized"), snapshot.revision);
+        fs.mkdirSync(path.dirname(target), { recursive: true });
+        fs.renameSync(staging, target);
+      } finally { fs.rmSync(staging, { recursive: true, force: true }); }
     }
-    return records.sort((a, b) => a.name.localeCompare(b.name));
+    return { ...record, skillDir: target };
+  }
+
+  async list(): Promise<SkillPackageRecord[]> {
+    return this.locked(() => listSkillDirs(this.root).map((directory) => this.executionRecord(path.basename(directory)))
+      .filter((record): record is SkillPackageRecord => record !== null).sort((a, b) => a.name.localeCompare(b.name)));
   }
 
   async get(name: string): Promise<SkillPackageRecord | null> {
-    const skillDir = path.join(this.root, name);
-    if (!isPathUnder(skillDir, this.root) || !fs.existsSync(skillDir)) return null;
-    return parseSkillDir(skillDir);
+    return this.locked(() => this.executionRecord(name));
   }
 
+  async readBundle(name: string) { return this.locked(() => this.snapshot(name)); }
+
   async createBundle(input: CreateSkillPackageBundleInput): Promise<SkillPackageRecord> {
-    const skillDir = path.join(this.root, input.name);
-    if (!isPathUnder(skillDir, this.root)) throw new Error("非法的 Skill 名称");
-    if (fs.existsSync(skillDir)) throw new Error(`Skill '${input.name}' 已存在`);
-    fs.mkdirSync(this.root, { recursive: true });
-    const stagingDir = path.join(this.root, `.creating-${input.name}-${randomUUID()}`);
-    fs.mkdirSync(stagingDir);
-    try {
-      const seen = new Set<string>();
-      for (const file of input.files) {
-        const relativePath = normalizeRelativePath(file.relativePath);
-        if (!relativePath || seen.has(relativePath)) throw new Error(`非法或重复的 Skill 文件路径: ${file.relativePath}`);
-        seen.add(relativePath);
-        const filePath = path.resolve(stagingDir, relativePath);
-        if (!isPathUnder(filePath, stagingDir)) throw new Error("文件路径越出 Skill 目录");
-        fs.mkdirSync(path.dirname(filePath), { recursive: true });
-        fs.writeFileSync(filePath, file.body);
-      }
-      if (!seen.has("SKILL.md")) throw new Error("Skill bundle 必须包含 SKILL.md");
-      const staged = parseSkillDir(stagingDir);
-      if (!staged) throw new Error(`Skill '${input.name}' 创建失败`);
+    return this.saveBundle(input, null);
+  }
+
+  async saveBundle(input: CreateSkillPackageBundleInput, expectedRevision: string | null): Promise<SkillPackageRecord> {
+    const valid = validateSkillBundle(input.name, input.files);
+    return this.locked(() => {
+      const target = this.directory(valid.name);
+      const current = this.snapshot(valid.name);
+      if ((current?.revision ?? null) !== expectedRevision || (!current && fs.existsSync(target))) throw skillRevisionConflict();
+      const staging = path.join(this.root, `.creating-${valid.name}-${randomUUID()}`);
+      const backup = path.join(this.root, `.replacing-${valid.name}`);
+      fs.mkdirSync(staging);
       try {
-        fs.renameSync(stagingDir, skillDir);
-      } catch (error) {
-        if (fs.existsSync(skillDir)) throw new Error(`Skill '${input.name}' 已存在`, { cause: error });
-        throw error;
-      }
-      return { ...staged, skillDir };
-    } catch (error) {
-      fs.rmSync(stagingDir, { recursive: true, force: true });
-      throw error;
-    }
+        for (const file of valid.files) {
+          const destination = path.join(staging, requireSkillPath(file.relativePath));
+          fs.mkdirSync(path.dirname(destination), { recursive: true });
+          fs.writeFileSync(destination, file.body);
+        }
+        if (current) fs.renameSync(target, backup);
+        try { fs.renameSync(staging, target); }
+        catch (error) {
+          if (current) fs.renameSync(backup, target);
+          throw error;
+        }
+        // Once installed, the save succeeded. Deferred backup cleanup is also safe after a crash.
+        if (current) { try { fs.rmSync(backup, { recursive: true, force: true }); } catch { /* next read recovers */ } }
+        return parseSkillDir(target)!;
+      } finally { fs.rmSync(staging, { recursive: true, force: true }); }
+    });
   }
 
   async readFile(name: string, relativePath: string): Promise<{ body: Uint8Array; contentType: string } | null> {
-    const existing = await this.get(name);
-    if (!existing) return null;
-    const normalized = normalizeRelativePath(relativePath);
-    if (!normalized) throw new Error("非法的文件路径");
-    const filePath = path.resolve(existing.skillDir, normalized);
-    if (!isPathUnder(filePath, existing.skillDir) || !fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
-      return null;
-    }
-    return { body: fs.readFileSync(filePath), contentType: guessMime(filePath) };
+    return this.locked(() => {
+      const snapshot = this.snapshot(name);
+      const file = snapshot?.bundle.files.find((entry) => entry.relativePath === requireSkillPath(relativePath));
+      return file ? { body: file.body, contentType: guessMime(file.relativePath) } : null;
+    });
   }
 
   async listFiles(name: string): Promise<SkillPackageFileNode[]> {
-    const existing = await this.get(name);
-    if (!existing) return [];
-    return listSkillFiles(existing.skillDir);
+    return this.locked(() => listSkillFiles(this.directory(name)));
   }
 
-  async delete(name: string): Promise<boolean> {
-    const skillDir = path.join(this.root, name);
-    if (!isPathUnder(skillDir, this.root) || !fs.existsSync(skillDir)) return false;
-    fs.rmSync(skillDir, { recursive: true, force: true });
-    return true;
+  async delete(name: string, expectedRevision?: string): Promise<boolean> {
+    return this.locked(() => {
+      const current = this.snapshot(name);
+      if (expectedRevision !== undefined && current?.revision !== expectedRevision) throw skillRevisionConflict();
+      if (!current) return false;
+      fs.rmSync(this.directory(name), { recursive: true, force: true });
+      return true;
+    });
   }
 
-  async materialize(name: string): Promise<string | null> {
-    const existing = await this.get(name);
-    return existing?.skillDir ?? null;
-  }
+  async materialize(name: string): Promise<string | null> { return (await this.get(name))?.skillDir ?? null; }
 }
 
 function listSkillDirs(root: string): string[] {
@@ -132,7 +191,8 @@ function listSkillFiles(skillDir: string, relative = ""): SkillPackageFileNode[]
   if (!fs.existsSync(current) || !fs.statSync(current).isDirectory()) return [];
   const nodes: SkillPackageFileNode[] = [];
   for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
-    if (SKIP_ENTRIES.has(entry.name) || entry.name.startsWith(".")) continue;
+    if (SKIP_ENTRIES.has(entry.name) || entry.name === ".materialized") continue;
+    if (entry.isSymbolicLink()) throw new Error("Skill files cannot be symlinks");
     const childRelative = relative ? `${relative}/${entry.name}` : entry.name;
     if (entry.isDirectory()) {
       nodes.push({ name: entry.name, path: childRelative, type: "directory" });
@@ -143,20 +203,6 @@ function listSkillFiles(skillDir: string, relative = ""): SkillPackageFileNode[]
     }
   }
   return nodes;
-}
-
-function normalizeRelativePath(value: string): string | null {
-  const normalized = value.replaceAll("\\", "/").replace(/^\/+/, "").trim();
-  if (!normalized || /^[A-Za-z]:/.test(normalized) || normalized.includes("\0") || normalized.split("/").some((part) => part === ".." || part === "." || part === "")) {
-    return null;
-  }
-  return normalized;
-}
-
-function isPathUnder(target: string, root: string): boolean {
-  const resolvedRoot = path.resolve(root);
-  const resolvedTarget = path.resolve(target);
-  return resolvedTarget === resolvedRoot || resolvedTarget.startsWith(resolvedRoot + path.sep);
 }
 
 function guessMime(filePath: string): string {

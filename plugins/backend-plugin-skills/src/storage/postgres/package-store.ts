@@ -1,7 +1,8 @@
-import { createHash } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
+import { requireSkillPath, skillBundleRevision, validateSkillBundle } from "../../contracts/skills/skill-bundle.js";
 import type {
   CreateSkillPackageBundleInput,
   ISkillPackageStore,
@@ -14,7 +15,7 @@ import {
   parseSkillMarkdown,
   serializeSkillMd,
 } from "../../contracts/skills/skill-markdown.js";
-import type { PostgresSkillPackageRepository } from "./package-repository.js";
+import type { PostgresSkillPackageRepository, SkillPackageMetadataRow, SkillPackageFileRow } from "./package-repository.js";
 
 /**
  * SaaS skill packages: Postgres metadata + object storage bytes.
@@ -22,222 +23,153 @@ import type { PostgresSkillPackageRepository } from "./package-repository.js";
  * Durable source of truth is never tenants/<id>/skills on disk.
  */
 export class SaaSSkillPackageStore implements ISkillPackageStore {
-  /** Per-hash materialize single-flight within this process. */
-  private readonly materializeInflight = new Map<string, Promise<string>>();
+  private reclamation: Promise<void> | null = null;
 
   constructor(
     private readonly tenantId: TenantId,
     private readonly repository: PostgresSkillPackageRepository,
     private readonly objects: ObjectStorage,
     private readonly cacheRoot: string,
-  ) {
-    if (!tenantId.trim()) throw new Error("SaaS skill package store requires a tenant id");
-    if (!cacheRoot.trim()) throw new Error("SaaS skill package store requires a cache root");
-  }
+  ) {}
 
   async list(): Promise<SkillPackageRecord[]> {
-    const rows = await this.repository.list(this.tenantId);
-    const records: SkillPackageRecord[] = [];
-    for (const row of rows) {
-      const skillDir = await this.materializeRow(row.skill_name, row.content_hash, row.package_prefix);
-      records.push(toRecord(row, skillDir));
+    const records = await Promise.all((await this.repository.list(this.tenantId)).map((row) => this.get(row.skill_name)));
+    return records.filter((record): record is SkillPackageRecord => record !== null);
+  }
+
+  async readBundle(name: string): Promise<{ bundle: CreateSkillPackageBundleInput; revision: string } | null> {
+    return this.repository.withSnapshot(this.tenantId, name, (snapshot) => this.loadSnapshot(snapshot));
+  }
+
+  private async loadSnapshot(snapshot: { row: SkillPackageMetadataRow; files: SkillPackageFileRow[] }) {
+    const name = snapshot.row.skill_name;
+    const files = [];
+    for (const file of snapshot.files) {
+      requireSkillPath(file.relative_path);
+      const object = await this.objects.get(file.object_key);
+      if (!object) throw new Error(`Skill '${name}' 缺少对象: ${file.relative_path}`);
+      files.push({ relativePath: file.relative_path, body: object.body, mediaType: file.content_type ?? object.metadata.contentType ?? guessMime(file.relative_path) });
     }
-    return records;
+    // Permanent read normalization for historical packages whose file table omitted SKILL.md.
+    if (!files.some((file) => file.relativePath === "SKILL.md")) {
+      files.push({ relativePath: "SKILL.md", body: Buffer.from(serializeSkillMd(name, snapshot.row.description, snapshot.row.content, snapshot.row.metadata)), mediaType: "text/markdown" });
+    }
+    return { bundle: { name, description: snapshot.row.description, content: snapshot.row.content, metadata: snapshot.row.metadata, files }, revision: snapshot.row.content_hash };
   }
 
   async get(name: string): Promise<SkillPackageRecord | null> {
-    const row = await this.repository.get(this.tenantId, name);
-    if (!row) return null;
-    const skillDir = await this.materializeRow(row.skill_name, row.content_hash, row.package_prefix);
-    return toRecord(row, skillDir);
+    return this.repository.withSnapshot(this.tenantId, name, async (snapshot) => {
+      const cached = this.cacheDirectory(snapshot.row.content_hash);
+      const directory = fs.existsSync(path.join(cached, ".materialized"))
+        ? cached : this.materializeBundle((await this.loadSnapshot(snapshot)).bundle, snapshot.row.content_hash);
+      return toRecord(snapshot.row, directory);
+    });
   }
 
-  async createBundle(input: CreateSkillPackageBundleInput): Promise<SkillPackageRecord> {
-    const packagePrefix = this.packagePrefix(input.name);
-    const files = normalizeBundleFiles(input.files);
-    const contentHash = hashBundle(input.name, files);
-    // Claim the name in Postgres first so concurrent creates race on PK (409), not silent overwrite.
-    const row = await this.repository.insertPackage({
-      tenantId: this.tenantId,
-      skillName: input.name,
-      description: input.description,
-      content: input.content,
-      metadata: input.metadata ?? {},
-      contentHash,
-      packagePrefix,
-    });
-    const writtenKeys: string[] = [];
+  async createBundle(input: CreateSkillPackageBundleInput): Promise<SkillPackageRecord> { return this.saveBundle(input, null); }
+
+  async saveBundle(input: CreateSkillPackageBundleInput, expectedRevision: string | null): Promise<SkillPackageRecord> {
+    const bundle = validateSkillBundle(input.name, input.files);
+    const revision = skillBundleRevision(bundle.name, bundle.files);
+    const prefix = `tenants/${encodeURIComponent(this.tenantId)}/skills/${encodeURIComponent(bundle.name)}/bundles/${randomUUID()}`;
+    const files = [];
+    let commitAttempted = false;
     try {
-      for (const file of files) {
-        const objectKey = this.objectKey(packagePrefix, file.relativePath);
+      for (const file of bundle.files) {
+        const objectKey = `${prefix}/${file.relativePath.split("/").map(encodeURIComponent).join("/")}`;
         const contentType = file.mediaType ?? guessMime(file.relativePath);
+        files.push({ relativePath: file.relativePath, objectKey, contentType, sizeBytes: file.body.byteLength });
         await this.objects.put(objectKey, file.body, contentType);
-        writtenKeys.push(objectKey);
-        await this.repository.upsertFile({
-          tenantId: this.tenantId,
-          skillName: input.name,
-          relativePath: file.relativePath,
-          objectKey,
-          contentType,
-          sizeBytes: file.body.byteLength,
-        });
       }
-      const skillDir = await this.materializeRow(row.skill_name, row.content_hash, row.package_prefix);
-      return toRecord(row, skillDir);
+      // The transaction waits for readers and enqueues retired objects atomically.
+      commitAttempted = true;
+      await this.repository.saveBundle({ tenantId: this.tenantId, bundle, expectedRevision, contentHash: revision, packagePrefix: prefix, files });
     } catch (error) {
-      await this.repository.deletePackage(this.tenantId, input.name).catch(() => undefined);
-      for (const key of writtenKeys) await this.objects.delete(key).catch(() => undefined);
-      throw error;
+      let committed = false;
+      if (commitAttempted) {
+        // A lost commit acknowledgement must not cause deletion of a now-live bundle.
+        try { committed = (await this.repository.snapshot(this.tenantId, bundle.name))?.row.package_prefix === prefix; }
+        catch (verificationError) { throw new AggregateError([error, verificationError], "Skill save result could not be verified; staged objects retained"); }
+      }
+      if (!committed) {
+        // A different current prefix can also mean this commit succeeded and was superseded.
+        // Only a known CAS rejection or an upload failure proves these objects were never live.
+        if (!commitAttempted || (error instanceof Error && "statusCode" in error && error.statusCode === 409)) {
+          try {
+            await this.repository.enqueueGarbage(this.tenantId, files.map((file) => file.objectKey));
+            await this.reclaimGarbage();
+          } catch (cleanupError) {
+            throw new AggregateError([error, cleanupError], "Skill save failed and staged cleanup could not be queued");
+          }
+        }
+        throw error;
+      }
     }
+    await this.reclaimGarbage();
+    return toRecord({ skill_name: bundle.name, description: bundle.description, content: bundle.content, metadata: bundle.metadata ?? {} }, this.materializeBundle(bundle, revision));
   }
 
   async readFile(name: string, relativePath: string): Promise<{ body: Uint8Array; contentType: string } | null> {
-    const normalized = normalizeRelativePath(relativePath);
-    if (!normalized) return null;
-    const files = await this.repository.listFiles(this.tenantId, name);
-    const file = files.find((item) => item.relative_path === normalized);
-    if (!file) return null;
-    const object = await this.objects.get(file.object_key);
-    if (!object) return null;
-    return {
-      body: object.body,
-      contentType: file.content_type ?? object.metadata.contentType ?? "application/octet-stream",
-    };
+    requireSkillPath(relativePath);
+    const bundle = await this.readBundle(name);
+    const file = bundle?.bundle.files.find((entry) => entry.relativePath === relativePath);
+    return file ? { body: file.body, contentType: file.mediaType ?? guessMime(relativePath) } : null;
   }
 
   async listFiles(name: string): Promise<SkillPackageFileNode[]> {
-    const files = await this.repository.listFiles(this.tenantId, name);
+    const snapshot = await this.readBundle(name);
     const nodes: SkillPackageFileNode[] = [];
     const dirs = new Set<string>();
-    for (const file of files) {
-      const parts = file.relative_path.split("/");
-      for (let i = 0; i < parts.length - 1; i += 1) {
-        const dirPath = parts.slice(0, i + 1).join("/");
-        if (!dirs.has(dirPath)) {
-          dirs.add(dirPath);
-          nodes.push({ name: parts[i]!, path: dirPath, type: "directory" });
-        }
+    for (const file of snapshot?.bundle.files ?? []) {
+      const parts = file.relativePath.split("/");
+      for (let i = 1; i < parts.length; i++) {
+        const directory = parts.slice(0, i).join("/");
+        if (!dirs.has(directory)) { dirs.add(directory); nodes.push({ name: parts[i - 1]!, path: directory, type: "directory" }); }
       }
-      nodes.push({
-        name: parts[parts.length - 1]!,
-        path: file.relative_path,
-        type: "file",
-        size: file.size_bytes,
-      });
+      nodes.push({ name: parts.at(-1)!, path: file.relativePath, type: "file", size: file.body.byteLength });
     }
     return nodes;
   }
 
-  async delete(name: string): Promise<boolean> {
-    const existing = await this.repository.get(this.tenantId, name);
-    if (!existing) return false;
-    const files = await this.repository.listFiles(this.tenantId, name);
-    await this.repository.deletePackage(this.tenantId, name);
-    for (const file of files) {
-      await this.objects.delete(file.object_key).catch(() => undefined);
+  async delete(name: string, expectedRevision?: string): Promise<boolean> {
+    const deleted = await this.repository.deletePackage(this.tenantId, name, expectedRevision);
+    await this.reclaimGarbage();
+    return deleted;
+  }
+
+  async materialize(name: string): Promise<string | null> { return (await this.get(name))?.skillDir ?? null; }
+
+  private cacheDirectory(revision: string): string {
+    if (!/^[a-f0-9]{24,64}$/.test(revision)) throw new Error("Invalid Skill package revision");
+    return path.join(this.cacheRoot, "by-hash", revision);
+  }
+
+  /** Cleanup failure must not turn an already committed save/delete into a failure. */
+  async reclaimGarbage(): Promise<void> {
+    if (!this.reclamation) {
+      this.reclamation = this.repository.reclaimGarbage(this.tenantId, (key) => this.objects.delete(key))
+        .catch(() => undefined).finally(() => { this.reclamation = null; });
     }
-    // Drop this skill's current content-addressed cache; unreferenced older hashes can GC later.
-    fs.rmSync(this.hashCacheDir(existing.content_hash), { recursive: true, force: true });
-    return true;
+    await this.reclamation;
   }
 
-  async materialize(name: string): Promise<string | null> {
-    const row = await this.repository.get(this.tenantId, name);
-    if (!row) return null;
-    return this.materializeRow(row.skill_name, row.content_hash, row.package_prefix);
-  }
-
-  private packagePrefix(skillName: string): string {
-    return `tenants/${encodeURIComponent(this.tenantId)}/skills/${encodeURIComponent(skillName)}`;
-  }
-
-  private objectKey(packagePrefix: string, relativePath: string): string {
-    return `${packagePrefix}/${relativePath.split("/").map(encodeURIComponent).join("/")}`;
-  }
-
-  private hashCacheDir(contentHash: string): string {
-    return path.join(this.cacheRoot, "by-hash", contentHash);
-  }
-
-  /**
-   * Materialize into cacheRoot/by-hash/<contentHash>/ (content-addressed, immutable).
-   * Complete tree is staged then renamed; incomplete materialization never publishes.
-   * Same-hash concurrent callers share one in-flight promise so a rebuild never rm's a
-   * just-published tree from a peer.
-   */
-  private async materializeRow(skillName: string, contentHash: string, _packagePrefix: string): Promise<string> {
-    const existing = this.materializeInflight.get(contentHash);
-    if (existing) return existing;
-    const pending = this.materializeRowExclusive(skillName, contentHash).finally(() => {
-      if (this.materializeInflight.get(contentHash) === pending) {
-        this.materializeInflight.delete(contentHash);
-      }
-    });
-    this.materializeInflight.set(contentHash, pending);
-    return pending;
-  }
-
-  private async materializeRowExclusive(skillName: string, contentHash: string): Promise<string> {
-    const skillDir = this.hashCacheDir(contentHash);
-    const skillMd = path.join(skillDir, "SKILL.md");
-    if (fs.existsSync(skillMd) && fs.statSync(skillMd).isFile()) {
-      return skillDir;
-    }
-    // Incomplete/corrupt published dir only: never delete a complete peer tree.
-    if (fs.existsSync(skillDir)) {
-      fs.rmSync(skillDir, { recursive: true, force: true });
-    }
-
-    // Unique staging path so concurrent processes/hash rebuilds never rm each other's tree.
-    const stagingDir = path.join(
-      this.cacheRoot,
-      `.staging-${contentHash}-${process.pid}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-    );
-    fs.mkdirSync(stagingDir, { recursive: true });
+  private materializeBundle(bundle: CreateSkillPackageBundleInput, revision: string): string {
+    const target = this.cacheDirectory(revision);
+    if (fs.existsSync(path.join(target, ".materialized"))) return target;
+    const staging = path.join(this.cacheRoot, `.staging-${randomUUID()}`);
+    fs.mkdirSync(staging, { recursive: true });
     try {
-      const files = await this.repository.listFiles(this.tenantId, skillName);
-      const missing: string[] = [];
-      for (const file of files) {
-        const object = await this.objects.get(file.object_key);
-        if (!object) {
-          missing.push(file.relative_path);
-          continue;
-        }
-        const target = path.join(stagingDir, ...file.relative_path.split("/"));
-        fs.mkdirSync(path.dirname(target), { recursive: true });
-        fs.writeFileSync(target, object.body);
+      for (const file of bundle.files) {
+        const filePath = path.join(staging, requireSkillPath(file.relativePath));
+        fs.mkdirSync(path.dirname(filePath), { recursive: true });
+        fs.writeFileSync(filePath, file.body);
       }
-      // Ensure SKILL.md exists even if file table lagged (content is denormalized in package row).
-      if (!fs.existsSync(path.join(stagingDir, "SKILL.md"))) {
-        const row = await this.repository.get(this.tenantId, skillName);
-        if (!row) throw new Error(`Skill '${skillName}' metadata missing during materialize`);
-        fs.writeFileSync(
-          path.join(stagingDir, "SKILL.md"),
-          serializeSkillMd(row.skill_name, row.description, row.content),
-        );
-      }
-      if (missing.length > 0) {
-        throw new Error(`Skill '${skillName}' 物化失败，缺少对象: ${missing.join(", ")}`);
-      }
-      // Optional self-check marker; directory name is the content address.
-      fs.writeFileSync(path.join(stagingDir, ".materialized"), contentHash, "utf8");
-      // Publish only after a complete staging tree is ready (atomic rename into by-hash).
-      fs.mkdirSync(path.dirname(skillDir), { recursive: true });
-      try {
-        fs.renameSync(stagingDir, skillDir);
-      } catch (error) {
-        // Concurrent materialize of the same hash may have won the race.
-        if (fs.existsSync(skillMd) && fs.statSync(skillMd).isFile()) {
-          fs.rmSync(stagingDir, { recursive: true, force: true });
-          return skillDir;
-        }
-        throw error;
-      }
-      return skillDir;
-    } catch (error) {
-      fs.rmSync(stagingDir, { recursive: true, force: true });
-      throw error;
-    }
+      fs.writeFileSync(path.join(staging, ".materialized"), revision);
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      try { fs.renameSync(staging, target); }
+      catch (error) { if (!fs.existsSync(path.join(target, ".materialized"))) throw error; }
+      return target;
+    } finally { fs.rmSync(staging, { recursive: true, force: true }); }
   }
 }
 
@@ -275,42 +207,6 @@ function splitCsv(value: unknown): string[] | undefined {
   if (typeof value !== "string" || !value.trim()) return undefined;
   const items = value.split(",").map((item) => item.trim()).filter(Boolean);
   return items.length ? items : undefined;
-}
-
-function hashText(value: string): string {
-  return createHash("sha256").update(value, "utf8").digest("hex").slice(0, 24);
-}
-
-function normalizeBundleFiles(files: readonly CreateSkillPackageBundleInput["files"][number][]): Array<{ relativePath: string; body: Uint8Array; mediaType?: string | null }> {
-  const seen = new Set<string>();
-  const normalized = files.map((file) => {
-    const relativePath = normalizeRelativePath(file.relativePath);
-    if (!relativePath || seen.has(relativePath)) throw new Error(`非法或重复的 Skill 文件路径: ${file.relativePath}`);
-    seen.add(relativePath);
-    return { relativePath, body: file.body, ...(file.mediaType !== undefined ? { mediaType: file.mediaType } : {}) };
-  });
-  if (!seen.has("SKILL.md")) throw new Error("Skill bundle 必须包含 SKILL.md");
-  return normalized;
-}
-
-function hashBundle(skillName: string, files: readonly { relativePath: string; body: Uint8Array }[]): string {
-  const hash = createHash("sha256");
-  hash.update(skillName, "utf8");
-  hash.update(Buffer.from([0]));
-  for (const file of [...files].sort((a, b) => a.relativePath.localeCompare(b.relativePath))) {
-    hash.update(file.relativePath, "utf8");
-    hash.update(Buffer.from([0]));
-    hash.update(file.body);
-  }
-  return hash.digest("hex").slice(0, 24);
-}
-
-function normalizeRelativePath(value: string): string | null {
-  const normalized = value.replaceAll("\\", "/").replace(/^\/+/, "").trim();
-  if (!normalized || /^[A-Za-z]:/.test(normalized) || normalized.includes("\0") || normalized.split("/").some((part) => part === ".." || part === "." || part === "")) {
-    return null;
-  }
-  return normalized;
 }
 
 function guessMime(filePath: string): string {

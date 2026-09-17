@@ -44,9 +44,13 @@ export interface ISkillPackageStore {
   list(): Promise<SkillPackageRecord[]>;
   get(name: string): Promise<SkillPackageRecord | null>;
   createBundle(input: CreateSkillPackageBundleInput): Promise<SkillPackageRecord>;
+  /** Read a consistent editable snapshot. Revision is opaque to callers. */
+  readBundle(name: string): Promise<{ bundle: CreateSkillPackageBundleInput; revision: string } | null>;
+  /** null means create only. Commit a complete bundle with optimistic concurrency. */
+  saveBundle(input: CreateSkillPackageBundleInput, expectedRevision: string | null): Promise<SkillPackageRecord>;
   readFile(name: string, relativePath: string): Promise<{ body: Uint8Array; contentType: string } | null>;
   listFiles(name: string): Promise<SkillPackageFileNode[]>;
-  delete(name: string): Promise<boolean>;
+  delete(name: string, expectedRevision?: string): Promise<boolean>;
   /**
    * Ensure package bytes are available on the local filesystem for script execution.
    * Local store returns the durable directory; SaaS store materializes into a content-addressed cache.

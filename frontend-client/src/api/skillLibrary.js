@@ -1,6 +1,6 @@
 /**
  * Skill 库管理 API。
- * Draft 编辑发布与租户 Skill 包读取/删除；已发布 bundle 通过其 Draft 更新。
+ * 完整 Skill 包的读取、保存和删除；保存后直接生效。
  */
 
 import { http } from './http.js';
@@ -37,72 +37,16 @@ export async function listSkills() {
   return http.get('/api/skills');
 }
 
-export async function listSkillDrafts() {
-  const result = await http.get('/api/skills/drafts');
-  return result.data || [];
-}
-
-export async function createSkillDraft(name, description) {
-  const result = await http.post('/api/skills/drafts', { name, description });
+export async function getSkillBundle(name) {
+  const result = await http.get(`/api/skills/${encodeURIComponent(name)}/bundle`);
   return result.data || result;
 }
 
-export async function getSkillDraft(id) {
-  const result = await http.get(`/api/skills/drafts/${encodeURIComponent(id)}`);
-  return result.data || result;
-}
-
-export async function updateSkillDraft(id, expectedRevision, content) {
-  const result = await http.put(`/api/skills/drafts/${encodeURIComponent(id)}`, {
+export async function saveSkillBundle(name, expectedRevision, files) {
+  const result = await http.put(`/api/skills/${encodeURIComponent(name)}/bundle`, {
     expected_revision: expectedRevision,
-    name: content.name,
-    description: content.description,
-    content: content.content,
+    files: files.map(({ relative_path, media_type, body_base64 }) => ({ relative_path, media_type, body_base64 })),
   });
-  return result.data || result;
-}
-
-export async function getSkillDraftFile(id, relativePath) {
-  const result = await http.get(`/api/skills/drafts/${encodeURIComponent(id)}/files`, {
-    params: { path: relativePath },
-  });
-  return result.data || result;
-}
-
-export async function putSkillDraftFile(id, expectedRevision, file) {
-  const result = await http.put(`/api/skills/drafts/${encodeURIComponent(id)}/files`, {
-    expected_revision: expectedRevision,
-    relative_path: file.relative_path,
-    media_type: file.media_type,
-    body_base64: file.body_base64,
-  });
-  return result.data || result;
-}
-
-export async function deleteSkillDraftFile(id, expectedRevision, relativePath) {
-  const result = await http.del(`/api/skills/drafts/${encodeURIComponent(id)}/files`, {
-    params: {
-      path: relativePath,
-      expected_revision: expectedRevision,
-    },
-  });
-  return result.data || result;
-}
-
-export async function ensureSkillDraft(name) {
-  const result = await http.post(`/api/skills/${encodeURIComponent(name)}/draft`, {});
-  return result.data || result;
-}
-
-export async function publishSkillDraft(id, expectedRevision) {
-  const result = await http.post(`/api/skills/drafts/${encodeURIComponent(id)}/publish`, {
-    expected_revision: expectedRevision,
-  });
-  return result.data || result;
-}
-
-export async function deleteSkillDraft(id) {
-  const result = await http.del(`/api/skills/drafts/${encodeURIComponent(id)}`);
   return result.data || result;
 }
 
@@ -110,8 +54,8 @@ export async function getSkillDetail(name) {
   return http.get(`/api/skills/${encodeURIComponent(name)}`);
 }
 
-export async function deleteSkill(name) {
-  return http.del(`/api/skills/${encodeURIComponent(name)}`);
+export async function deleteSkill(name, expectedRevision) {
+  return http.del(`/api/skills/${encodeURIComponent(name)}`, { params: { expected_revision: expectedRevision } });
 }
 
 export function getSkillFileUrl(name, relPath) {

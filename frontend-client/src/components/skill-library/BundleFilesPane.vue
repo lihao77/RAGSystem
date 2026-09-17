@@ -1,148 +1,105 @@
 <template>
-  <div class="bundle-pane">
-    <aside class="bundle-tree">
-      <PaneHeading
-        class="wb-pane-heading--bar"
-        title="文件"
-        :subtitle="`${state.activeDraft.value.bundle_assets.length} 个文件 · ${formatSize(state.bundleSize.value)}`"
-      >
-        <template v-if="state.canEditSkillDraft.value" #actions>
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            :disabled="state.mutationBusy.value"
-            aria-label="新建文本文件"
-            title="新建文本文件"
-            @click="openCreateFile"
-          >
-            <FilePlus2 data-icon="inline-start" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            :disabled="state.mutationBusy.value"
-            aria-label="上传文件"
-            title="上传或替换文件"
-            @click="openFilePicker"
-          >
-            <Upload data-icon="inline-start" />
-          </Button>
-          <input ref="fileInput" class="sr-only" type="file" @change="uploadSelectedFile" />
-        </template>
-      </PaneHeading>
-      <SkillFileTree
-        :nodes="state.draftFileTree.value"
-        :selected-path="state.selectedFilePath.value"
-        @select="(path) => selectDraftFile(path)"
-        @toggle="toggleDirectory"
-      />
-    </aside>
-
-    <section class="file-editor">
-      <div v-if="state.fileLoading.value" class="adm-state">
-        <Spinner />
-        <span>读取文件</span>
+  <div :class="cn('bundle-pane', !state.fileTreeOpen.value && 'bundle-pane--collapsed')">
+    <header class="bundle-toolbar">
+      <div class="flex min-w-0 items-center gap-2">
+        <Button variant="ghost" size="icon-sm" class="shrink-0" :aria-expanded="state.fileTreeOpen.value" :aria-controls="treeId"
+          :aria-label="state.fileTreeOpen.value ? '收起文件树' : '展开文件树'" :title="state.fileTreeOpen.value ? '收起文件树' : '展开文件树'"
+          @click="emit('update:fileTreeOpen', !state.fileTreeOpen.value)">
+          <component :is="state.fileTreeOpen.value ? PanelLeftClose : PanelLeftOpen" data-icon="inline-start" />
+        </Button>
+        <span class="bundle-toolbar__path" :title="state.selectedFile.value?.relative_path">{{ state.selectedFile.value?.relative_path || '选择文件' }}</span>
+        <SkillFileChangeMarker :change="state.fileChanges.value.get(state.selectedFilePath.value)" />
       </div>
-      <Empty v-else-if="!state.selectedFile.value" class="adm-state">
-        <EmptyHeader>
-          <EmptyTitle>选择一个文件</EmptyTitle>
-        </EmptyHeader>
-      </Empty>
-      <template v-else>
-        <div class="file-editor__toolbar">
-          <div class="file-editor__identity">
-            <strong>{{ state.selectedFile.value.relative_path }}</strong>
-            <span>{{ state.selectedFile.value.media_type }} · {{ formatSize(state.selectedFile.value.size) }}</span>
-          </div>
-          <div class="file-editor__actions">
-            <Button variant="outline" size="sm" @click="downloadSelectedFile">
-              <Download data-icon="inline-start" />
-              下载
-            </Button>
-            <Button
-              v-if="state.canEditSkillDraft.value && state.editableSelectedFile.value"
-              size="sm"
-              :disabled="state.mutationBusy.value || !state.fileDirty.value"
-              @click="saveSelectedFile"
-            >
-              <Spinner v-if="state.fileSaving.value" data-icon="inline-start" />
-              <Save v-else data-icon="inline-start" />
-              保存文件
-            </Button>
-            <Button
-              v-if="state.canEditSkillDraft.value && state.selectedFile.value.relative_path !== 'SKILL.md'"
-              variant="ghost"
-              size="icon-sm"
-              :disabled="state.mutationBusy.value"
-              aria-label="删除文件"
-              title="从 Draft bundle 删除"
-              @click="deleteSelectedFile"
-            >
-              <Trash2 data-icon="inline-start" />
-            </Button>
-          </div>
-        </div>
-        <Textarea
-          v-if="state.editableSelectedFile.value"
-          :model-value="state.fileText.value"
-          class="file-source-editor"
-          :disabled="!state.canEditSkillDraft.value || state.mutationBusy.value"
-          spellcheck="false"
-          @update:model-value="setFileText"
-        />
+    </header>
+    <div class="bundle-body">
+      <aside :id="treeId" :inert="!state.fileTreeOpen.value" :aria-hidden="!state.fileTreeOpen.value" class="bundle-tree">
+        <SkillFileTree class="bundle-tree__files" :nodes="state.fileTree.value" :selected-path="state.selectedFilePath.value"
+          @select="handleSelectFile" @toggle="toggleDirectory" />
+      </aside>
+      <section class="file-editor" :aria-busy="state.loading.value">
+        <Empty v-if="!state.selectedFile.value" class="adm-state"><EmptyHeader><EmptyTitle>选择一个文件</EmptyTitle></EmptyHeader></Empty>
+        <SkillFilePreview v-else-if="state.editorMode.value === 'preview'" :file="state.selectedFile.value" />
+        <Textarea v-else-if="state.editableSelectedFile.value" :model-value="state.fileText.value" class="file-source-editor"
+          :disabled="!state.canEdit.value || state.busy.value" :readonly="state.loading.value" spellcheck="false" @update:model-value="setFileText" />
         <div v-else class="adm-state binary-file-state">
           <FileText />
           <p class="adm-state__title">此文件不在网页中直接编辑</p>
-          <p class="adm-state__hint">可下载检查，或使用“上传文件”选择同名文件替换。</p>
+          <p class="adm-state__hint">可从右上角菜单下载检查，或上传同名文件替换。</p>
         </div>
-      </template>
-    </section>
+      </section>
+    </div>
   </div>
 </template>
 
 <script setup>
-// Draft bundle 文件 pane：左文件树 + 右源码编辑器。
-import { Download, FilePlus2, FileText, Save, Trash2, Upload } from 'lucide-vue-next';
-import { ref } from 'vue';
+// Skill 文件编辑缓冲：全部文件一起保存。
+import { FileText, PanelLeftClose, PanelLeftOpen } from 'lucide-vue-next';
+import { useId } from 'vue';
+import { cn } from '../../lib/utils';
 
-import PaneHeading from '../admin/PaneHeading.vue';
 import { Button } from '../ui/button';
 import { Empty, EmptyHeader, EmptyTitle } from '../ui/empty';
-import { Spinner } from '../ui/spinner';
 import { Textarea } from '../ui/textarea';
 import SkillFileTree from './SkillFileTree.vue';
-import { formatSize } from '../../utils/skillFiles.js';
+import SkillFilePreview from './SkillFilePreview.vue';
+import SkillFileChangeMarker from './SkillFileChangeMarker.vue';
 
 const props = defineProps({
   state: { type: Object, required: true },
-  selectDraftFile: { type: Function, required: true },
+  compact: { type: Boolean, default: false },
+  selectFile: { type: Function, required: true },
   toggleDirectory: { type: Function, required: true },
-  saveSelectedFile: { type: Function, required: true },
-  deleteSelectedFile: { type: Function, required: true },
-  uploadSelectedFile: { type: Function, required: true },
-  downloadSelectedFile: { type: Function, required: true },
-  openCreateFile: { type: Function, required: true },
   setFileText: { type: Function, required: true },
 });
 
-const fileInput = ref(null);
+const emit = defineEmits(['update:fileTreeOpen']);
+const treeId = useId();
 
-function openFilePicker() {
-  if (!props.state.activeDraft.value || props.state.mutationBusy.value) return;
-  fileInput.value?.click();
+function handleSelectFile(path) {
+  props.selectFile(path);
+  if (props.compact && !props.state.busy.value && !props.state.loading.value) emit('update:fileTreeOpen', false);
 }
+
 </script>
 
 <style scoped>
 .bundle-pane {
-  display: grid;
-  grid-template-columns: 260px minmax(0, 1fr);
-  height: 620px;
-  flex: none;
-  min-height: 480px;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
   overflow: hidden;
-  margin-top: var(--spacing-sm);
   border-top: 1px solid var(--color-border);
+}
+
+.bundle-toolbar {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  min-height: 42px;
+  padding: 4px var(--spacing-sm);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.bundle-toolbar__path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.bundle-body {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  transition: grid-template-columns var(--transition-normal), grid-template-rows var(--transition-normal);
 }
 
 .bundle-tree {
@@ -150,8 +107,21 @@ function openFilePicker() {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  overflow: hidden;
   border-right: 1px solid var(--color-border);
-  background: transparent;
+  transition: opacity var(--transition-normal);
+}
+
+.bundle-tree__files {
+  width: 200px;
+}
+
+.bundle-pane--collapsed .bundle-body {
+  grid-template-columns: 0px minmax(0, 1fr);
+}
+
+.bundle-pane--collapsed .bundle-tree {
+  opacity: 0;
 }
 
 .file-editor {
@@ -160,47 +130,6 @@ function openFilePicker() {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-}
-
-.file-editor__toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--spacing-xs);
-  min-height: 58px;
-  padding: var(--spacing-sm) var(--spacing-md);
-  border-bottom: 1px solid var(--color-border);
-}
-
-.file-editor__identity {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.file-editor__identity strong {
-  color: var(--color-text-primary);
-  font-size: var(--font-size-sm);
-}
-
-.file-editor__identity span {
-  color: var(--color-text-muted);
-  font-size: 11px;
-}
-
-.file-editor__identity strong,
-.file-editor__identity span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.file-editor__actions {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-xs);
-  flex-shrink: 0;
 }
 
 .file-source-editor {
@@ -228,19 +157,23 @@ function openFilePicker() {
 }
 
 @media (max-width: 1024px) {
-  .bundle-pane {
-    grid-template-columns: 1fr;
-    overflow-y: auto;
+  .bundle-body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 0.3fr) minmax(0, 0.7fr);
   }
 
   .bundle-tree {
-    max-height: 280px;
     border-right: none;
     border-bottom: 1px solid var(--color-border);
   }
 
-  .file-editor {
-    min-height: 420px;
+  .bundle-tree__files {
+    width: 100%;
+  }
+
+  .bundle-pane--collapsed .bundle-body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 0fr) minmax(0, 1fr);
   }
 }
 </style>

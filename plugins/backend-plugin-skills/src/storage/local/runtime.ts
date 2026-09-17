@@ -1,3 +1,4 @@
+import { createSkillAuthoringAuthorization } from "../../authoring-authorization.js";
 import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
@@ -10,7 +11,6 @@ import { SkillToolService } from "../../tools/SkillExecution.js";
 import { resolveBuiltinSkillSources } from "../../resources.js";
 import { SqliteSkillsAgentConfigStore } from "./agent-config-store.js";
 import { FilesystemSkillPackageStore } from "./package-store.js";
-import { SqliteSkillDraftStore } from "./skill-draft-store.js";
 
 const require = createRequire(import.meta.url);
 const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
@@ -25,6 +25,9 @@ export function createLocalSkillsRuntimeFactory(): SkillsPluginRuntimeFactory {
     const db = new DatabaseSync(dbPath);
     db.exec("PRAGMA journal_mode = WAL");
     db.exec("PRAGMA busy_timeout = 5000");
+    // The retired draft store left its table behind in existing installs; inert, but drop
+    // it so the database file converges to the current shape (idempotent, no version gate).
+    db.exec("DROP TABLE IF EXISTS skill_drafts");
     const agentConfig = new SkillsAgentConfigService(
       new SqliteSkillsAgentConfigStore(db, context.tenantId),
     );
@@ -44,11 +47,8 @@ export function createLocalSkillsRuntimeFactory(): SkillsPluginRuntimeFactory {
       tools,
       agentConfig,
       library,
-      authoring: new SkillAuthoringService(
-        new SqliteSkillDraftStore(db, context.tenantId),
-        library,
-        context.systemConfig,
-      ),
+      authoring: new SkillAuthoringService(library),
+      authorizeAuthoring: createSkillAuthoringAuthorization(context.resources, context.tenantId),
       dispose: () => db.close(),
     };
   };

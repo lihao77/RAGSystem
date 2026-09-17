@@ -27,6 +27,16 @@
 | `strip_stock_default_llm_tier` | 内置默认 team 出厂携带的示例 tier（`my`/`deepseek`/`deepseek-chat` 全等副本） | 剥除后继承系统 LLM；用户改过参数或另有档位的不动。已知限制：与出厂常量逐字段全等（含仅 default 档、空 extra_params）的手工配置也会被剥除——provider "my" 实际不存在，误伤面趋近于零 | 2026-08（对应 Oceanx 定时任务 readiness 故障） |
 | `strip_empty_llm_tiers` | 零信息 tier 条目：provider 与 model_name 均为空白（Agent Studio 对未配置档位的落盘形态） | 剔除该档位；map 剔空则整体置 null 以继承系统 LLM。半空条目（两字段仅其一非空）保留——运行期 default 档引用失效回落系统 LLM（readiness 标注 fallback_reason），条目留在配置供前端标注失效 | 2026-08（全空 default tier 挡住系统 LLM 兜底导致 readiness 硬失败） |
 
+### Skills 插件与 Builder（2026-09，直接保存 Skill）
+
+系统尚无用户存量，本次移除 Skill 草稿时不提供草稿数据迁移、归档或恢复；同时删除草稿建表步骤。存储侧收敛：SaaS postgres 启动迁移在迁移史前缀严格校验之前先退役草稿墓碑——`DROP TABLE IF EXISTS saas_skill_drafts`，并按 `(version, name)` 形状剔除迁移史中 v3 `skill_drafts` / v4 `skill_draft_names` 两行（不剔除则跑过旧版本的库在校验处启动即崩）；本地 SQLite 打开时 `DROP TABLE IF EXISTS skill_drafts` 清理孤儿表。两者均幂等、不看版本号，对未来复用 v3/v4 版本号不生效。以下步骤仅更新 Builder 的工具配置与提示词，不处理 Skill 草稿数据。
+
+| id | 针对的历史形状 | 说明 |
+| --- | --- | --- |
+| `builder_skill_direct_save` | Builder 入口仍含旧 Skill 工具名或缺少直接保存协议，包括无版本/当前版本/半迁移状态 | `backend-plugin-agent-builder/src/skill-authoring-hydration.ts` 归一四个编写工具和受管提示词，保留用户指令和其他工具。持久化到 behavior.skill_authoring_migration 的 id/applied_at 仅供审计，是否执行由工具/提示词形态决定。 |
+
+Skills 旧自动发布配置不再注册；系统配置已有 `project` 已知根分组投影会忽略旧 `skills.approval`，下次 updateConfig 回写时剥离，无需版本判断。Skill 编写工具退役名同时由插件登记到既有工具名归一注册表，配置与会话快照读取沿用该永久归一能力。
+
 ## 形态归一层
 
 ### Agent 配置与会话 team 快照（`src/contracts/agent/tool-name-aliases.ts`、`config-normalize.ts`、`src/contracts/session/session.ts`）
@@ -141,3 +151,11 @@ create/update 路径复用其中的 `canonicalizeProviderConfig` / `normalizePro
 `IAgentConfigTeamStore.saveAll` 的 `appliedMigrations` 可选参数对 SaaS（postgres
 jsonb 存储）当前为 no-op：不落库，审计能力仅存在于 local 装置。落 jsonb 是后续
 独立小改动，接口无需再变。
+
+### Skill 包读取（Skills 插件存储层）
+
+永久形态守卫：Local 保持原有目录包形态，读取/写入时在同一 SQLite 锁下恢复 `.replacing-<name>` 中断替换；执行目录按内容版本生成，不作为另一份业务记录。SaaS 读取包元数据与文件索引的事务快照；历史索引缺少 SKILL.md 时从已有 name/description/content/metadata 补齐读取内容，后续整包保存收敛。两类守卫不看 schema 版本，无应用戳。
+
+SaaS 对象字节回收：`skill_object_garbage`（PostgreSQL schema v5）新增持久化待回收表，应用戳沿用存储层 schema migration 记录。保存/删除在持有包行排他锁的事务内，将旧对象键写入该表后替换/删除索引；读取通过 `withSnapshot` 持有共享锁直到全部字节读取完成，防止连续保存或删除破坏在途读取。对象删除成功（含已不存在）后才移除队列记录，失败记录保留并排到队尾；多实例通过 `FOR UPDATE SKIP LOCKED` 分批领取。保存/删除后、租户运行时启动时和每分钟重试，运行时销毁时停止定时器。
+
+永久 schema 归一 `normalizeSkillObjectGarbageSchema` 位于 Skills 存储层的 `object-garbage-hydration.ts`，每次启动按表/索引是否存在补齐，不以 v5 应用戳跳过，覆盖新建库、旧草稿时代库、已去草稿库及恢复后的缺表状态；无额外应用戳。旧的内存回收队列无法从数据库恢复；上传后、排队/提交前崩溃的对象和提交结果无法确认的暂存前缀仍保留（ObjectStorage 无前缀列举能力）。成功提交即使丢失确认，旧对象的回收记录也随事务持久化。

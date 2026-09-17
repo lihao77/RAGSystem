@@ -14,7 +14,7 @@ This directory is the canonical repository-level documentation center for mainli
 - [../frontend-client/docs/README.md](../frontend-client/docs/README.md) — 前端文档入口 / frontend documentation entry
 - [OPERATIONS.md](OPERATIONS.md) — 运行、配置与验证 / operations, configuration, and verification
 - [BACKEND_PLUGIN_CONFIG.md](BACKEND_PLUGIN_CONFIG.md) — 后端插件配置与接入契约 / backend plugin configuration and module contract
-- [AGENT_BUILDER.md](AGENT_BUILDER.md) — Agent/Skill 草稿、自动校验、发布与持续更新 / Agent and Skill drafts, validation, publishing, and continuous updates
+- [AGENT_BUILDER.md](AGENT_BUILDER.md) — Agent 草稿与发布、Skill 校验保存与持续更新 / Agent drafts and publishing, Skill validation and saving
 - [agent-runtime-sdk-design.md](agent-runtime-sdk-design.md) — Agent Runtime SDK 设计 / Agent Runtime SDK design
 - [mcp-config/README.md](mcp-config/README.md) — Host Tool MCP 三方接入配置 / Host Tool MCP integration guide
 

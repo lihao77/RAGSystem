@@ -1,3 +1,5 @@
+import { skillRevisionConflict } from "../../contracts/skills/skill-bundle.js";
+import type { CreateSkillPackageBundleInput } from "../../contracts/skills/skill-package-store.js";
 import type { TenantId } from "@ragsystem/backend-core/identity/types.js";
 import { isRecord } from "@ragsystem/backend-core/utils/guards.js";
 import type { SkillsPostgresExecutor } from "./executor.js";
@@ -78,12 +80,93 @@ export class PostgresSkillPackageRepository {
     }
   }
 
-  async deletePackage(tenantId: TenantId, skillName: string): Promise<boolean> {
-    const result = await this.executor.query(
-      "DELETE FROM saas_skill_packages WHERE tenant_id=$1 AND skill_name=$2",
-      [tenantId, skillName],
+  async snapshot(tenantId: TenantId, name: string): Promise<{ row: SkillPackageMetadataRow; files: SkillPackageFileRow[] } | null> {
+    return this.withSnapshot(tenantId, name, async (snapshot) => snapshot);
+  }
+
+  /** Keep the row's shared lock until the consumer has copied all object bytes. */
+  async withSnapshot<T>(tenantId: TenantId, name: string, consume: (snapshot: { row: SkillPackageMetadataRow; files: SkillPackageFileRow[] }) => Promise<T>): Promise<T | null> {
+    return this.executor.transaction(async (tx) => {
+      const result = await tx.query("SELECT * FROM saas_skill_packages WHERE tenant_id=$1 AND skill_name=$2 FOR SHARE", [tenantId, name]);
+      if (!result.rows[0]) return null;
+      return consume({ row: toPackageRow(result.rows[0]), files: await new PostgresSkillPackageRepository(tx).listFiles(tenantId, name) });
+    });
+  }
+
+  async saveBundle(input: {
+    tenantId: TenantId; bundle: CreateSkillPackageBundleInput; expectedRevision: string | null;
+    contentHash: string; packagePrefix: string;
+    files: Array<{ relativePath: string; objectKey: string; contentType: string; sizeBytes: number }>;
+  }): Promise<SkillPackageMetadataRow> {
+    return this.executor.transaction(async (tx) => {
+      const locked = await tx.query("SELECT * FROM saas_skill_packages WHERE tenant_id=$1 AND skill_name=$2 FOR UPDATE", [input.tenantId, input.bundle.name]);
+      const current = locked.rows[0];
+      if ((current ? String(current.content_hash) : null) !== input.expectedRevision) throw skillRevisionConflict();
+      const repo = new PostgresSkillPackageRepository(tx);
+      let row: SkillPackageMetadataRow;
+      if (!current) {
+        try {
+          row = await repo.insertPackage({ tenantId: input.tenantId, skillName: input.bundle.name,
+            description: input.bundle.description, content: input.bundle.content, metadata: input.bundle.metadata ?? {},
+            contentHash: input.contentHash, packagePrefix: input.packagePrefix });
+        } catch (error) {
+          if (error instanceof Error && error.message.includes("已存在")) throw skillRevisionConflict();
+          throw error;
+        }
+      } else {
+        const updated = await tx.query(`UPDATE saas_skill_packages SET description=$3, content=$4, metadata=$5::jsonb,
+          content_hash=$6, package_prefix=$7, updated_at=CURRENT_TIMESTAMP WHERE tenant_id=$1 AND skill_name=$2 RETURNING *`,
+          [input.tenantId, input.bundle.name, input.bundle.description, input.bundle.content, JSON.stringify(input.bundle.metadata ?? {}), input.contentHash, input.packagePrefix]);
+        row = toPackageRow(updated.rows[0]!);
+        await repo.enqueueGarbage(input.tenantId, (await repo.listFiles(input.tenantId, input.bundle.name)).map((file) => file.object_key));
+        await repo.deleteFiles(input.tenantId, input.bundle.name);
+      }
+      for (const file of input.files) await repo.upsertFile({ ...file, tenantId: input.tenantId, skillName: input.bundle.name });
+      return row;
+    });
+  }
+
+  async deletePackage(tenantId: TenantId, skillName: string, expectedRevision?: string): Promise<boolean> {
+    return this.executor.transaction(async (tx) => {
+      const locked = await tx.query("SELECT content_hash FROM saas_skill_packages WHERE tenant_id=$1 AND skill_name=$2 FOR UPDATE", [tenantId, skillName]);
+      const current = locked.rows[0];
+      if (!current) {
+        if (expectedRevision !== undefined) throw skillRevisionConflict();
+        return false;
+      }
+      if (expectedRevision !== undefined && String(current.content_hash) !== expectedRevision) throw skillRevisionConflict();
+      const repo = new PostgresSkillPackageRepository(tx);
+      await repo.enqueueGarbage(tenantId, (await repo.listFiles(tenantId, skillName)).map((file) => file.object_key));
+      await tx.query("DELETE FROM saas_skill_packages WHERE tenant_id=$1 AND skill_name=$2", [tenantId, skillName]);
+      return true;
+    });
+  }
+
+  async enqueueGarbage(tenantId: TenantId, objectKeys: readonly string[]): Promise<void> {
+    if (!objectKeys.length) return;
+    await this.executor.query(
+      `INSERT INTO saas_skill_object_garbage(tenant_id, object_key)
+       SELECT $1, unnest($2::text[]) ON CONFLICT DO NOTHING`, [tenantId, objectKeys],
     );
-    return Number(result.rowCount ?? 0) > 0;
+  }
+
+  /** Queue entries survive crashes and failed deletions; workers claim disjoint batches. */
+  async reclaimGarbage(tenantId: TenantId, remove: (key: string) => Promise<unknown>): Promise<void> {
+    await this.executor.transaction(async (tx) => {
+      const batch = await tx.query<{ object_key: string }>(
+        `SELECT object_key FROM saas_skill_object_garbage WHERE tenant_id=$1
+         ORDER BY attempted_at, object_key LIMIT 256 FOR UPDATE SKIP LOCKED`, [tenantId],
+      );
+      for (const { object_key: key } of batch.rows) {
+        try { await remove(key); }
+        catch {
+          // Rotate failures to the back so one unavailable prefix cannot starve the queue.
+          await tx.query("UPDATE saas_skill_object_garbage SET attempted_at=clock_timestamp() WHERE tenant_id=$1 AND object_key=$2", [tenantId, key]);
+          continue;
+        }
+        await tx.query("DELETE FROM saas_skill_object_garbage WHERE tenant_id=$1 AND object_key=$2", [tenantId, key]);
+      }
+    });
   }
 
   async listFiles(tenantId: TenantId, skillName: string): Promise<SkillPackageFileRow[]> {

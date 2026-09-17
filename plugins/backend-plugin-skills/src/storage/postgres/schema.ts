@@ -1,3 +1,5 @@
+import { SKILL_OBJECT_GARBAGE_SCHEMA } from "./object-garbage-hydration.js";
+
 export interface PostgresSkillPackageMigration {
   version: number;
   name: string;
@@ -52,72 +54,8 @@ export const POSTGRES_SKILLS_MIGRATIONS: PostgresSkillPackageMigration[] = [
     `,
   },
   {
-    version: 3,
-    name: "skill_drafts",
-    sql: `
-      CREATE TABLE IF NOT EXISTS saas_skill_drafts (
-        tenant_id TEXT NOT NULL,
-        id TEXT NOT NULL,
-        revision INTEGER NOT NULL,
-        status TEXT NOT NULL,
-        draft JSONB NOT NULL,
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (tenant_id, id)
-      );
-      CREATE INDEX IF NOT EXISTS saas_skill_drafts_tenant_updated_idx
-      ON saas_skill_drafts(tenant_id, updated_at DESC);
-    `,
-  },
-  {
-    version: 4,
-    name: "skill_draft_names",
-    sql: `
-      ALTER TABLE saas_skill_drafts ADD COLUMN IF NOT EXISTS name TEXT;
-      UPDATE saas_skill_drafts
-      SET name = draft->>'name'
-      WHERE name IS NULL OR name = '';
-      DO $skill_draft_names$
-      DECLARE
-        duplicate_row RECORD;
-        attempt INTEGER;
-        suffix TEXT;
-        candidate TEXT;
-      BEGIN
-        FOR duplicate_row IN
-          SELECT tenant_id, id, name
-          FROM (
-            SELECT tenant_id, id, name,
-              ROW_NUMBER() OVER (
-                PARTITION BY tenant_id, name
-                ORDER BY CASE status WHEN 'published' THEN 0 ELSE 1 END, updated_at DESC, id
-              ) AS duplicate_number
-            FROM saas_skill_drafts
-          ) AS ranked
-          WHERE duplicate_number > 1
-          ORDER BY tenant_id, id
-        LOOP
-          attempt := 1;
-          LOOP
-            suffix := attempt::TEXT;
-            candidate := RTRIM(LEFT(duplicate_row.name, 53 - LENGTH(suffix)), '-')
-              || '-duplicate-' || suffix;
-            EXIT WHEN NOT EXISTS (
-              SELECT 1
-              FROM saas_skill_drafts
-              WHERE tenant_id = duplicate_row.tenant_id AND name = candidate
-            );
-            attempt := attempt + 1;
-          END LOOP;
-          UPDATE saas_skill_drafts
-          SET name = candidate,
-              draft = jsonb_set(draft, '{name}', to_jsonb(candidate), true)
-          WHERE tenant_id = duplicate_row.tenant_id AND id = duplicate_row.id;
-        END LOOP;
-      END;
-      $skill_draft_names$;
-      ALTER TABLE saas_skill_drafts ALTER COLUMN name SET NOT NULL;
-      CREATE UNIQUE INDEX IF NOT EXISTS saas_skill_drafts_tenant_name_idx
-        ON saas_skill_drafts(tenant_id, name);
-    `,
+    version: 5,
+    name: "skill_object_garbage",
+    sql: SKILL_OBJECT_GARBAGE_SCHEMA,
   },
 ];

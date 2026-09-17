@@ -9,6 +9,7 @@ export interface SkillsRuntimeCapability {
   readonly tools: SkillToolService;
   readonly library: SkillLibraryService;
   readonly authoring: SkillAuthoringService;
+  readonly authorizeAuthoring: (context: import("@ragsystem/agent-sdk").ToolExecContext) => Promise<void>;
   readonly agentConfig: SkillsAgentConfigService;
 }
 

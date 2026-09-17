@@ -6,7 +6,7 @@ export function isEditableTextFile(file) {
   if (!file || file.size > 2 * 1024 * 1024) return false;
   return file.media_type?.startsWith('text/')
     || /(?:json|javascript|typescript|yaml|xml|sql)/i.test(file.media_type || '')
-    || /\.(?:md|txt|py|js|ts|tsx|jsx|json|ya?ml|csv|sh|ps1|sql|css|html|vue|toml|ini|cfg)$/i.test(file.relative_path || '');
+    || /\.(?:md|markdown|txt|py|js|ts|tsx|jsx|json|ya?ml|csv|sh|ps1|sql|css|html|vue|toml|ini|cfg)$/i.test(file.relative_path || '');
 }
 
 export function isValidRelativePath(value) {
@@ -21,6 +21,7 @@ export function guessMediaType(path) {
   const extension = path.split('.').pop()?.toLowerCase();
   return {
     md: 'text/markdown; charset=utf-8',
+    markdown: 'text/markdown; charset=utf-8',
     txt: 'text/plain; charset=utf-8',
     py: 'text/x-python; charset=utf-8',
     js: 'text/javascript; charset=utf-8',

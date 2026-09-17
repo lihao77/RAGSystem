@@ -1,3 +1,4 @@
+import { createSkillAuthoringAuthorization } from "../../authoring-authorization.js";
 import path from "node:path";
 
 import type { ObjectStorage } from "@ragsystem/backend-core/contracts/storage/object-storage.js";
@@ -12,7 +13,6 @@ import { PostgresSkillsAgentConfigStore } from "./agent-config-store.js";
 import type { SkillsPostgresExecutor } from "./executor.js";
 import { PostgresSkillPackageRepository } from "./package-repository.js";
 import { SaaSSkillPackageStore } from "./package-store.js";
-import { PostgresSkillDraftStore } from "./skill-draft-store.js";
 
 export function createPostgresSkillsRuntimeFactory(options: {
   executor: SkillsPostgresExecutor;
@@ -43,15 +43,17 @@ export function createPostgresSkillsRuntimeFactory(options: {
       additionalBuiltinSkillSources: resolveBuiltinSkillSources(context.resources ?? []),
     });
     const library = new SkillLibraryService(tools, packageStore);
+    // Resume persisted work after a restart, including Skills that were already deleted.
+    void packageStore.reclaimGarbage();
+    const garbageTimer = setInterval(() => { void packageStore.reclaimGarbage(); }, 60_000);
+    garbageTimer.unref();
     return {
       tools,
       agentConfig,
       library,
-      authoring: new SkillAuthoringService(
-        new PostgresSkillDraftStore(options.executor, context.tenantId),
-        library,
-        context.systemConfig,
-      ),
+      authoring: new SkillAuthoringService(library),
+      authorizeAuthoring: createSkillAuthoringAuthorization(context.resources, context.tenantId),
+      dispose: () => clearInterval(garbageTimer),
     };
   };
 }

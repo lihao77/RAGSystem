@@ -1,221 +1,162 @@
 <template>
-  <PageLayout
-    title="Skill 库"
-    subtitle="管理 Skill Draft、完整 bundle 与租户发布包"
-  >
+  <PageLayout title="Skill 库" subtitle="管理可复用的知识、流程和脚本；保存后生效" fill>
     <template #header-actions>
-      <Button variant="outline" size="sm" :disabled="loadingAll" @click="handleRefresh">
-        <RefreshCw data-icon="inline-start" :class="{ 'animate-spin': loadingAll }" />
-        刷新
-      </Button>
-      <Button v-if="canEditSkillDraft" size="sm" @click="openCreateDraft">
-        <Plus data-icon="inline-start" />
-        新建 Draft
-      </Button>
+      <Button variant="outline" size="sm" :disabled="loading || busy" @click="actions.refreshAll"><RefreshCw data-icon="inline-start" />刷新</Button>
+      <template v-if="canManage">
+        <Button variant="outline" size="sm" :disabled="busy || loading" @click="importInput?.click()"><Upload data-icon="inline-start" />导入</Button>
+        <input ref="importInput" class="sr-only" type="file" accept=".json,application/json" @change="actions.importSkill" />
+        <Button size="sm" :disabled="busy || loading" @click="actions.openCreate"><Plus data-icon="inline-start" />新建 Skill</Button>
+      </template>
     </template>
-
-    <div class="wb-workbench" aria-label="Skill 管理工作区">
-      <SkillNavigatorPanel
-        :state="state"
-        :select-draft="selectDraft"
-        :select-skill="selectSkill"
-        :change-navigator-tab="changeNavigatorTab"
-        :handle-refresh="handleRefresh"
-        :set-search-query="setSearchQuery"
-      />
-
+    <Alert v-if="error" variant="destructive" class="shrink-0"><AlertTitle>操作未完成</AlertTitle><AlertDescription>{{ error }}</AlertDescription></Alert>
+    <div class="wb-workbench wb-workbench--fill" aria-label="Skill 管理工作区">
+      <SkillNavigatorPanel v-if="!isNarrow" class="wb-workbench__nav" :state="state" :select-skill="actions.selectSkill" :handle-refresh="actions.refreshAll" :set-search-query="(value) => searchQuery = value" />
       <Card class="wb-workbench__main">
-        <main class="skill-workspace">
-          <div v-if="workspaceLoading" class="adm-state">
-            <Spinner />
-            <span>加载工作区</span>
+        <CardHeader class="shrink-0 gap-3">
+          <div class="flex min-w-0 items-center justify-between gap-3">
+            <div class="flex min-w-0 items-center gap-2">
+              <Sheet v-if="isNarrow" v-model:open="skillPickerOpen">
+                <SheetTrigger as-child>
+                  <Button variant="ghost" size="sm" class="min-w-0" aria-label="选择 Skill" :title="activeSkill?.name">
+                    <ListFilter data-icon="inline-start" /><span class="truncate">{{ activeSkill?.name || '选择 Skill' }}</span><ChevronDown data-icon="inline-end" />
+                  </Button>
+                </SheetTrigger>
+                <SheetContent side="left" class="flex w-[min(88vw,360px)] flex-col gap-0 p-0">
+                  <SheetHeader class="shrink-0 px-5 pb-2 pt-5">
+                    <SheetTitle>选择 Skill</SheetTitle>
+                    <SheetDescription class="sr-only">搜索并选择要查看或编辑的 Skill。</SheetDescription>
+                  </SheetHeader>
+                  <SkillNavigatorPanel embedded class="flex-1" :state="state" :select-skill="selectMobileSkill" :handle-refresh="actions.refreshAll" :set-search-query="(value) => searchQuery = value" />
+                </SheetContent>
+              </Sheet>
+              <CardTitle v-else class="truncate" :title="activeSkill?.name">{{ activeSkill?.name || '选择一个 Skill' }}</CardTitle>
+              <Badge v-if="hasUnsavedChanges" variant="warning" class="shrink-0">未保存</Badge>
+              <Badge v-else-if="activeSkill && !canEdit" variant="secondary" class="shrink-0">只读</Badge>
+              <span class="inline-flex size-4 shrink-0">
+                <span v-if="loading && activeSkill" class="skill-loading-indicator" role="status" aria-label="正在加载 Skill"><Spinner /></span>
+              </span>
+            </div>
+            <DropdownMenu v-if="activeSkill">
+              <DropdownMenuTrigger as-child>
+                <Button variant="ghost" size="icon-sm" class="shrink-0" :disabled="busy || loading" aria-label="Skill 更多操作" title="更多操作"><MoreHorizontal /></Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuGroup>
+                  <DropdownMenuLabel>Skill</DropdownMenuLabel>
+                  <DropdownMenuItem @select="actions.exportSkill"><Download />导出 Skill</DropdownMenuItem>
+                  <DropdownMenuItem v-if="canEdit" @select="actions.remove"><Trash2 />删除 Skill</DropdownMenuItem>
+                </DropdownMenuGroup>
+                <template v-if="canEdit || selectedFile">
+                  <DropdownMenuSeparator />
+                  <DropdownMenuGroup>
+                    <DropdownMenuLabel>文件</DropdownMenuLabel>
+                    <template v-if="canEdit">
+                      <DropdownMenuItem @select="actions.openCreateFile"><FilePlus2 />新建文本文件</DropdownMenuItem>
+                      <DropdownMenuItem @select="fileUploadInput?.click()"><Upload />上传文件</DropdownMenuItem>
+                    </template>
+                    <DropdownMenuItem v-if="selectedFile" @select="actions.downloadFile"><Download />下载当前文件</DropdownMenuItem>
+                    <DropdownMenuItem v-if="canEdit && selectedFile && selectedFilePath !== 'SKILL.md'" @select="actions.removeFile"><Trash2 />删除当前文件</DropdownMenuItem>
+                  </DropdownMenuGroup>
+                </template>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <input v-if="canEdit" ref="fileUploadInput" class="sr-only" type="file" @change="actions.upload" />
           </div>
-
-          <div v-else-if="workspaceError && !activeDraft && !selectedSkill" class="adm-state adm-state--error" role="alert">
-            <p class="adm-state__title">无法打开 Skill</p>
-            <p class="adm-state__hint">{{ workspaceError }}</p>
+          <CardDescription v-if="!activeSkill">选择一个 Skill，或新建 Skill。</CardDescription>
+          <div v-else class="flex flex-wrap items-center justify-between gap-3">
+            <SegmentedControl v-model="editorMode" :options="modeOptions" aria-label="文件查看模式" />
+            <Button v-if="canEdit" class="ml-auto" size="sm" :disabled="busy || loading || !hasUnsavedChanges" @click="actions.save"><Spinner v-if="busy" data-icon="inline-start" /><Save v-else data-icon="inline-start" />保存并生效</Button>
           </div>
-
-          <Empty v-else-if="!activeDraft && !selectedSkill" class="adm-state">
-            <EmptyHeader>
-              <EmptyTitle>选择一个 Skill</EmptyTitle>
-            </EmptyHeader>
-          </Empty>
-
-          <DraftWorkspace
-            v-else-if="activeKind === 'draft' && activeDraft"
-            :state="state"
-            :save-overview="saveOverview"
-            :publish-draft="publishDraft"
-            :delete-draft="deleteDraft"
-            :change-workspace-tab="changeWorkspaceTab"
-            :change-overview-mode="changeOverviewMode"
-            :select-draft-file="selectDraftFile"
-            :toggle-directory="toggleDirectory"
-            :save-selected-file="saveSelectedFile"
-            :delete-selected-file="deleteSelectedFile"
-            :upload-selected-file="uploadSelectedFile"
-            :download-selected-file="downloadSelectedFile"
-            :open-create-file="openCreateFile"
-            :update-draft-form="updateDraftForm"
-            :set-file-text="setFileText"
-          />
-
-          <PublishedSkillPane
-            v-else-if="selectedSkill"
-            :state="state"
-            :edit-published-skill="editPublishedSkill"
-            :delete-published-skill="deletePublishedSkill"
-            :change-published-tab="changePublishedTab"
-            :toggle-published-directory="togglePublishedDirectory"
-          />
-        </main>
+        </CardHeader>
+        <CardContent class="flex min-h-0 flex-1 flex-col overflow-hidden p-0">
+          <div v-if="loading && !activeSkill" class="adm-state"><Spinner /><span>加载 Skill</span></div>
+          <Empty v-else-if="!activeSkill"><EmptyHeader><EmptyTitle>选择一个 Skill</EmptyTitle></EmptyHeader></Empty>
+          <BundleFilesPane v-else :state="state" :compact="isNarrow" :select-file="actions.selectFile" :toggle-directory="actions.toggleDirectory"
+            @update:file-tree-open="(value) => fileTreeOpen = value"
+            :set-file-text="(value) => fileText = value" />
+        </CardContent>
       </Card>
     </div>
-
-    <FormDialog
-      :open="createDraftDialog.open"
-      title="新建 Skill Draft"
-      description="创建基础 SKILL.md 后，可继续添加脚本和资源文件。"
-      :error="createDraftDialog.error"
-      :busy="creatingDraft"
-      confirm-text="创建 Draft"
-      :confirm-disabled="!canCreateDraft"
-      content-class="max-w-[520px]"
-      @update:open="(open) => { if (!open) closeCreateDraft() }"
-      @submit="createDraft"
-    >
+    <FormDialog :open="createDialog.open" title="新建 Skill" description="填写名称和描述后，在编辑器中编写使用说明。保存前不会进入可用 Skill 列表。"
+      confirm-text="开始编辑" :confirm-disabled="!canCreate" :busy="busy" @update:open="(open) => createDialog.open = open" @submit="actions.create">
       <FieldGroup>
-        <Field :data-disabled="creatingDraft">
-          <FieldLabel for="new-skill-name">名称</FieldLabel>
-          <Input id="new-skill-name" v-model.trim="createDraftDialog.name" :disabled="creatingDraft" placeholder="example-skill" />
-          <FieldDescription>使用小写字母、数字和连字符，最长 64 个字符。</FieldDescription>
-        </Field>
-        <Field :data-disabled="creatingDraft">
-          <FieldLabel for="new-skill-description">描述</FieldLabel>
-          <Input id="new-skill-description" v-model="createDraftDialog.description" :disabled="creatingDraft" />
-        </Field>
+        <Field><FieldLabel for="skill-name">名称</FieldLabel><Input id="skill-name" v-model.trim="createDialog.name" maxlength="64" /><FieldDescription>小写字母、数字和连字符，保存后不可更改。</FieldDescription></Field>
+        <Field><FieldLabel for="skill-description">描述</FieldLabel><Textarea id="skill-description" v-model="createDialog.description" maxlength="1000" /></Field>
       </FieldGroup>
     </FormDialog>
-
-    <FormDialog
-      :open="createFileDialog.open"
-      title="新建文本文件"
-      description="路径相对于 Skill bundle 根目录，例如 scripts/check.py。"
-      :error="createFileDialog.error"
-      :busy="fileSaving"
-      confirm-text="创建文件"
-      :confirm-disabled="!canCreateFile"
-      content-class="max-w-[560px]"
-      @update:open="(open) => { if (!open) closeCreateFile() }"
-      @submit="createTextFile"
-    >
+    <FormDialog :open="createFileDialog.open" title="新建文本文件" description="文件与当前 Skill 一起保存生效。" confirm-text="添加"
+      :confirm-disabled="!canCreateFile" :error="createFileDialog.error" @update:open="(open) => createFileDialog.open = open" @submit="actions.createFile">
       <FieldGroup>
-        <Field :data-disabled="fileSaving">
-          <FieldLabel for="new-file-path">文件路径</FieldLabel>
-          <Input id="new-file-path" v-model.trim="createFileDialog.path" :disabled="fileSaving" placeholder="references/guide.md" />
-        </Field>
-        <Field :data-disabled="fileSaving">
-          <FieldLabel for="new-file-content">初始内容</FieldLabel>
-          <Textarea id="new-file-content" v-model="createFileDialog.content" class="new-file-textarea" :disabled="fileSaving" />
-        </Field>
+        <Field><FieldLabel for="skill-file-path">相对路径</FieldLabel><Input id="skill-file-path" v-model.trim="createFileDialog.path" placeholder="scripts/example.py" /></Field>
+        <Field><FieldLabel for="skill-file-content">内容</FieldLabel><Textarea id="skill-file-content" v-model="createFileDialog.content" class="min-h-[180px]" /></Field>
       </FieldGroup>
     </FormDialog>
   </PageLayout>
 </template>
 
 <script setup>
-/**
- * Skill 库管理页 —— 薄组装层。
- * 状态与逻辑：composables/skill-library/（state + library + draftActions + draftFiles）
- * UI 区块：components/skill-library/（NavigatorPanel / DraftWorkspace / PublishedSkillPane / SkillFileTree）
- */
-import { onMounted } from 'vue';
-import { Plus, RefreshCw } from 'lucide-vue-next';
-
+import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue';
+import { useMediaQuery } from '@vueuse/core';
+import { onBeforeRouteLeave } from 'vue-router';
+import { ChevronDown, Download, FilePlus2, ListFilter, MoreHorizontal, Plus, RefreshCw, Save, Trash2, Upload } from 'lucide-vue-next';
 import PageLayout from '../components/PageLayout.vue';
 import FormDialog from '../components/admin/FormDialog.vue';
-import DraftWorkspace from '../components/skill-library/DraftWorkspace.vue';
-import PublishedSkillPane from '../components/skill-library/PublishedSkillPane.vue';
+import SegmentedControl from '../components/SegmentedControl.vue';
 import SkillNavigatorPanel from '../components/skill-library/SkillNavigatorPanel.vue';
+import BundleFilesPane from '../components/skill-library/BundleFilesPane.vue';
+import { Alert, AlertTitle, AlertDescription } from '../components/ui/alert';
+import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
-import { Card } from '../components/ui/card';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '../components/ui/card';
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuGroup, DropdownMenuLabel, DropdownMenuItem, DropdownMenuSeparator } from '../components/ui/dropdown-menu';
 import { Empty, EmptyHeader, EmptyTitle } from '../components/ui/empty';
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '../components/ui/field';
 import { Input } from '../components/ui/input';
-import { Spinner } from '../components/ui/spinner';
 import { Textarea } from '../components/ui/textarea';
+import { Spinner } from '../components/ui/spinner';
+import { Sheet, SheetTrigger, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '../components/ui/sheet';
 import { createSkillLibraryState } from '../composables/skill-library/state.js';
-import { useSkillDraftActions } from '../composables/skill-library/useSkillDraftActions.js';
-import { useSkillDraftFiles } from '../composables/skill-library/useSkillDraftFiles.js';
 import { useSkillLibrary } from '../composables/skill-library/useSkillLibrary.js';
-import { useConfirm } from '../composables/useConfirm.js';
 import { useToast } from '../composables/useToast.js';
-
-const toast = useToast();
-const { confirm } = useConfirm();
+import { useConfirm } from '../composables/useConfirm.js';
 
 const state = createSkillLibraryState();
-const library = useSkillLibrary(state, { toast, confirm });
-const draftActions = useSkillDraftActions(state, library, { toast, confirm });
-const draftFiles = useSkillDraftFiles(state, library, { toast, confirm });
-
-// 视图模板直接使用的响应式状态（解构后仍是 ref，模板自动解包）
-const {
-  canEditSkillDraft, loadingAll, workspaceLoading, workspaceError, activeKind, activeDraft, selectedSkill,
-  createDraftDialog, createFileDialog, creatingDraft, fileSaving, canCreateDraft, canCreateFile,
-} = state;
-
-const {
-  refreshAll, handleRefresh, changeNavigatorTab, selectDraft, selectSkill,
-  changeWorkspaceTab, changeOverviewMode, changePublishedTab, selectDraftFile,
-  toggleDirectory, togglePublishedDirectory, setSearchQuery,
-} = library;
-
-const {
-  saveOverview, publishDraft, deleteDraft, editPublishedSkill, deletePublishedSkill,
-  openCreateDraft, closeCreateDraft, createDraft, updateDraftForm,
-} = draftActions;
-
-const {
-  saveSelectedFile, deleteSelectedFile, uploadSelectedFile, downloadSelectedFile,
-  openCreateFile, closeCreateFile, createTextFile, setFileText,
-} = draftFiles;
-
-onMounted(() => refreshAll({ selectDefault: true }));
+const actions = useSkillLibrary(state, { toast: useToast(), confirm: useConfirm().confirm });
+const { canManage, canEdit, activeSkill, loading, busy, error, hasUnsavedChanges, searchQuery,
+  editorMode, fileText, selectedFile, selectedFilePath, fileTreeOpen, createDialog, canCreate, createFileDialog, canCreateFile } = state;
+const importInput = ref(null);
+const fileUploadInput = ref(null);
+const isNarrow = useMediaQuery('(max-width: 1024px)');
+const skillPickerOpen = ref(false);
+watch(isNarrow, (narrow) => {
+  state.fileTreeOpen.value = !narrow;
+  skillPickerOpen.value = false;
+}, { immediate: true });
+async function selectMobileSkill(skill) {
+  if (await actions.selectSkill(skill)) skillPickerOpen.value = false;
+}
+const modeOptions = computed(() => [{ value: 'edit', label: canEdit.value ? '编辑文件' : '文件' }, { value: 'preview', label: '预览' }]);
+function beforeUnload(event) { if (hasUnsavedChanges.value) { event.preventDefault(); event.returnValue = ''; } }
+onMounted(() => { actions.refreshAll(); window.addEventListener('beforeunload', beforeUnload); });
+onBeforeUnmount(() => window.removeEventListener('beforeunload', beforeUnload));
+onBeforeRouteLeave(() => actions.allowDiscardChanges());
 </script>
 
 <style scoped>
-/* 页面专属样式；共享骨架见 styles/admin-workbench.css */
-.skill-workspace {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  min-height: 560px;
+.skill-loading-indicator {
+  display: inline-flex;
+  animation: skill-loading-appear 100ms ease 150ms both;
 }
 
-.new-file-textarea {
-  min-height: 180px;
-  font-family: var(--font-mono);
-  font-size: var(--font-size-sm);
+@keyframes skill-loading-appear {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 @media (max-width: 1024px) {
-  .skill-workspace {
-    min-height: 620px;
-  }
-
-  .wb-workspace-header {
-    flex-direction: column;
-  }
-
-  .wb-workspace-header__actions {
-    justify-content: flex-start;
-  }
-
-  .wb-workspace-tabbar {
-    align-items: flex-start;
-    flex-direction: column;
+  .wb-workbench--fill {
+    grid-template-rows: minmax(0, 1fr);
+    overflow: hidden;
   }
 }
 </style>

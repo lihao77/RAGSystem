@@ -7,30 +7,15 @@ import { HttpError } from "@ragsystem/backend-core/utils/errors.js";
 import { requireTenantAdmin, requireTenantMember } from "@ragsystem/backend-core/routes/tenant-role.js";
 import type {} from "@ragsystem/backend-core/fastify-context.js";
 import { SKILLS_RUNTIME_CAPABILITY } from "./capability.js";
-import {
-  CreateSkillDraftSchema,
-  DeleteSkillDraftFileQuerySchema,
-  PublishSkillDraftSchema,
-  PutSkillDraftFileSchema,
-  toSkillDraftView,
-  UpdateSkillDraftSchema,
-} from "./contracts/skills/skill-draft.js";
+import { z } from "zod";
+import { SaveSkillBundleSchema } from "./contracts/skills/skill-bundle.js";
 
 interface SkillParams {
   name: string;
 }
 
-interface DraftParams {
-  id: string;
-}
-
 interface FileQuery {
   path?: string;
-}
-
-interface DraftFileQuery {
-  path?: string;
-  expected_revision?: string;
 }
 
 interface AvailableQuery {
@@ -94,82 +79,13 @@ export const registerSkillRoutes: FastifyPluginAsync<SkillRouteOptions> = async 
     return ok(result, "Skills Agent 配置已重置");
   });
 
-  app.get("/drafts", async (request) => {
-    return ok(await resolveSkills(request).authoring.listDraftViews(), "Skill drafts");
+  app.get<{ Params: SkillParams }>("/:name/bundle", async (request) => {
+    return ok(await resolveSkills(request).authoring.getBundle(request.params.name), "Skill 编辑内容");
   });
 
-  app.post("/drafts", async (request) => {
+  app.put<{ Params: SkillParams }>("/:name/bundle", { bodyLimit: 70 * 1024 * 1024 }, async (request) => {
     requireTenantAdmin(request);
-    const input = CreateSkillDraftSchema.parse(request.body);
-    const authoring = resolveSkills(request).authoring;
-    const draft = await authoring.createDraftForEditing(input.name, input.description);
-    return ok(await authoring.getDraftView(draft.id), "Skill draft created");
-  });
-
-  app.get<{ Params: DraftParams }>("/drafts/:id", async (request) => {
-    return ok(await resolveSkills(request).authoring.getDraftView(request.params.id), "Skill draft");
-  });
-
-  app.put<{ Params: DraftParams }>("/drafts/:id", async (request) => {
-    requireTenantAdmin(request);
-    const input = UpdateSkillDraftSchema.parse(request.body);
-    const authoring = resolveSkills(request).authoring;
-    const { expected_revision: expectedRevision, ...content } = input;
-    const updated = await authoring.updateDraft(request.params.id, expectedRevision, content);
-    return ok(await authoring.getDraftView(updated.id), "Skill draft updated");
-  });
-
-  app.get<{ Params: DraftParams; Querystring: FileQuery }>("/drafts/:id/files", async (request) => {
-    const relativePath = request.query.path?.trim();
-    if (!relativePath) throw new HttpError(400, "invalid_request", "Missing path query parameter");
-    return ok(
-      await resolveSkills(request).authoring.getDraftFile(request.params.id, relativePath),
-      "Skill draft file",
-    );
-  });
-
-  app.put<{ Params: DraftParams }>("/drafts/:id/files", { bodyLimit: 70 * 1024 * 1024 }, async (request) => {
-    requireTenantAdmin(request);
-    const input = PutSkillDraftFileSchema.parse(request.body);
-    const updated = await resolveSkills(request).authoring.putDraftFile(
-      request.params.id,
-      input.expected_revision,
-      input,
-    );
-    return ok(await resolveSkills(request).authoring.getDraftView(updated.id), "Skill draft file saved");
-  });
-
-  app.delete<{ Params: DraftParams; Querystring: DraftFileQuery }>("/drafts/:id/files", async (request) => {
-    requireTenantAdmin(request);
-    const input = DeleteSkillDraftFileQuerySchema.parse(request.query);
-    const updated = await resolveSkills(request).authoring.deleteDraftFile(
-      request.params.id,
-      input.expected_revision,
-      input.path,
-    );
-    return ok(await resolveSkills(request).authoring.getDraftView(updated.id), "Skill draft file deleted");
-  });
-
-  app.post<{ Params: DraftParams }>("/drafts/:id/publish", async (request) => {
-    requireTenantAdmin(request);
-    const input = PublishSkillDraftSchema.parse(request.body);
-    const published = await resolveSkills(request).authoring.publishDraft(request.params.id, input.expected_revision);
-    return ok(toSkillDraftView(published, "available"), "Skill draft published");
-  });
-
-  app.delete<{ Params: DraftParams }>("/drafts/:id", async (request) => {
-    requireTenantAdmin(request);
-    return ok(
-      await resolveSkills(request).authoring.deleteDraft(request.params.id),
-      "Skill draft deleted",
-    );
-  });
-
-  app.post<{ Params: SkillParams }>("/:name/draft", async (request) => {
-    requireTenantAdmin(request);
-    const authoring = resolveSkills(request).authoring;
-    const draft = await authoring.ensureDraftForPublishedSkill(request.params.name);
-    return ok(await authoring.getDraftView(draft.id), "Skill draft ready for editing");
+    return ok(await resolveSkills(request).authoring.saveBundle(request.params.name, SaveSkillBundleSchema.parse(request.body)), "Skill 已保存并生效");
   });
 
   app.get<{ Params: SkillParams }>("/:name", async (request) => {
@@ -186,17 +102,11 @@ export const registerSkillRoutes: FastifyPluginAsync<SkillRouteOptions> = async 
     return buffer;
   });
 
-  app.delete<{ Params: SkillParams }>("/:name", async (request) => {
+  app.delete<{ Params: SkillParams; Querystring: { expected_revision?: string } }>("/:name", async (request) => {
     requireTenantAdmin(request);
     const skills = resolveSkills(request);
-    const deleted = await skills.library.deleteSkill(request.params.name);
-    const restoredCandidate = await skills.authoring.restoreDraftAfterSkillDelete(deleted.name);
-    return ok({
-      ...deleted,
-      restored_candidate: restoredCandidate
-        ? toSkillDraftView(restoredCandidate, "not_published")
-        : null,
-    }, `Skill '${deleted.name}' 已删除`);
+    const deleted = await skills.library.deleteSkill(request.params.name, z.string().regex(/^[a-f0-9]{24,64}$/).parse(request.query.expected_revision));
+    return ok(deleted, `Skill '${deleted.name}' 已删除`);
   });
 };
 

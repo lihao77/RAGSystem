@@ -1,3 +1,4 @@
+import { hydrateSkillAuthoring } from "./skill-authoring-hydration.js";
 import type { AgentConfig } from "@ragsystem/backend-core/contracts/agent/agent-config.js";
 import type { AgentConfigPort } from "@ragsystem/backend-core/contracts/agent/agent-config.js";
 import { isRecord } from "@ragsystem/backend-core/utils/guards.js";
@@ -9,10 +10,10 @@ export const AGENT_BUILDER_TEAM_TEMPLATE_VERSION = 15;
 const CAPABILITY_INVENTORY_TOOL = "list_agent_builder_capabilities";
 
 const SKILL_AUTHORING_TOOLS = [
-  "list_skill_drafts",
-  "get_skill_draft",
-  "create_skill_draft",
-  "publish_skill_draft",
+  "list_skills",
+  "get_skill",
+  "create_skill",
+  "save_skill",
 ] as const;
 
 const CAPABILITY_DISCOVERY_PROMPT = "Before creating or updating a Draft, call list_agent_builder_capabilities and bind only the returned Tool, Skill, and MCP Server names. Never invent capability names.";
@@ -43,7 +44,7 @@ const DOMAIN_EXPLORATION_PROMPT = [
 const EXPERIENCE_LAYERING_MARKER = "Experience layering:";
 const EXPERIENCE_LAYERING_PROMPT = [
   EXPERIENCE_LAYERING_MARKER,
-  "put volatile behavior and role direction into agent instructions and rewrite them as a whole instead of appending; put stable domain knowledge (glossaries, process rules, data formats, system procedures) into Skill drafts so other Teams can reuse it; put every failure you fixed into a blueprint acceptance case so it becomes a regression guard.",
+  "put volatile behavior and role direction into agent instructions and rewrite them as a whole instead of appending; put stable domain knowledge (glossaries, process rules, data formats, system procedures) into Skills so other Teams can reuse it; put every failure you fixed into a blueprint acceptance case so it becomes a regression guard.",
   "Acceptance cases must come from the real samples explored or from failures you actually observed, never be invented, and are written to blueprint.json's acceptance field (source: sample or regression).",
 ].join(" ");
 
@@ -67,15 +68,16 @@ const FAILURE_FEEDBACK_PROMPT = [
 const LEGACY_SKILL_AUTHORING_PROMPT = `Use list_skill_drafts, with a query when needed, to find reusable Skill drafts. Use get_skill_draft to copy a draft into the current Session workspace, or create_skill_draft to create one from scratch. Edit SKILL.md and its resources with file tools, then call publish_skill_draft. Publishing validates the local bundle; on failure, fix the files and retry. Do not call separate validate or approve tools. A Skill is not available to Agents until publication succeeds.`;
 const SKILL_AUTHORING_PROMPT_MARKER = "Skill authoring runtime contract:";
 const SKILL_AUTHORING_PROMPT = [
-  "Use list_skill_drafts, with a query when needed, to find reusable Skill drafts. Use get_skill_draft to copy a draft into the current Session workspace, or create_skill_draft to create one from scratch.",
+  "Use list_skills, with a query when needed, to find reusable Skills. Use get_skill with name to open a Skill in the current Session workspace, or create_skill with name and description to prepare a new Skill.",
   SKILL_AUTHORING_PROMPT_MARKER,
+  "Skill direct-save workflow: only tenant administrators may create or save Skills. Temporary files stay in the Session workspace until save_skill succeeds. Pass the returned workspace_path to save_skill; do not change manifest.json or its revision.",
   "Create a root SKILL.md whose YAML frontmatter contains name and description. Use a lower-case hyphenated name no longer than 64 characters. Do not invent frontmatter fields such as version, invocation, entrypoint, compatibility, or script manifests. Use nested metadata only when declaring actual ragsystem_requires_tools or ragsystem_requires_mcp_servers dependencies returned by list_agent_builder_capabilities.",
   "Keep SKILL.md concise and imperative. Put detailed documentation in references/, output templates or static files in assets/, and executable utilities in scripts/ only when they provide repeated deterministic behavior. Scripts are optional; do not create one for a workflow that can be expressed reliably as instructions or existing Tools.",
   "The current Skill runtime executes Python only. Put executable scripts under scripts/ with a .py extension, and declare third-party Python packages in a root requirements.txt. Do not generate Bash, PowerShell, batch, Node.js, TypeScript, notebook, executable binaries, or shell-wrapper scripts.",
   "Design each Python script as a non-interactive argv CLI. Use separate argv tokens, resolve user inputs from arguments or the current cwd, never hard-code machine-specific absolute paths, write normal results as UTF-8 JSON to stdout, write diagnostics to stderr, and return a nonzero exit code on failure. Write files under the cwd selected by execute_skill_script and return their relative paths in a generic file field; choose workspace cwd or copy the deliverable into workspace when it must be referenced in the final answer.",
   "In SKILL.md, tell consuming Agents to activate the Skill and call execute_skill_script with the published skill_name, the file name under scripts/, and an arguments array containing one argv token per item. Never instruct an Agent to run python, python3, a shell, execute_code, or a repository path directly.",
-  "execute_skill_script can run only a published, visible Skill; do not call it against a Draft. The current publish action validates and synchronizes bundle structure but does not execute scripts, so never claim a script was tested unless actual execution evidence exists.",
-  "Edit SKILL.md and its resources with file tools, then call publish_skill_draft. On failure, fix the local files and retry. Do not call separate validate or approve tools. A Skill is not available to Agents until publication succeeds.",
+  "execute_skill_script can run only a saved, visible Skill; do not call it against unsaved workspace files. Saving validates the complete bundle but does not execute scripts, so never claim a script was tested unless actual execution evidence exists.",
+  "Edit SKILL.md and its resources with file tools, then call save_skill. On failure, fix the local files and retry. Do not call separate validate or approve tools. A Skill becomes available to Agents when saving succeeds.",
 ].join(" ");
 
 /**
@@ -87,8 +89,9 @@ export async function ensureAgentBuilderTeam(agentConfig: AgentConfigPort): Prom
   if (summary.teams.some((team) => team.team_name === AGENT_BUILDER_TEAM_NAME)) {
     const current = agentConfig.listConfigs({ teamName: AGENT_BUILDER_TEAM_NAME });
     const migrated = migrateAgentBuilderTeam(current);
-    if (!migrated) return false;
-    await agentConfig.applyTeamPayload(AGENT_BUILDER_TEAM_NAME, migrated);
+    const hydrated = hydrateSkillAuthoring(migrated ?? current, SKILL_AUTHORING_PROMPT, current);
+    if (!migrated && !hydrated) return false;
+    await agentConfig.applyTeamPayload(AGENT_BUILDER_TEAM_NAME, hydrated ?? migrated!);
     return true;
   }
   await agentConfig.applyTeamPayload(AGENT_BUILDER_TEAM_NAME, buildAgentBuilderTeam());
@@ -167,7 +170,7 @@ export function buildAgentBuilderTeam(): Record<string, AgentConfig> {
       displayName: "Agent Architect",
       description: "Designs the Agent roster, entry point, delegation graph, prompts, and capability bindings.",
       tools: ["read_file", "preview_data_structure", "glob", "grep"],
-      prompt: "Design a complete Agent Blueprint from the research briefs and the domain-exploration findings. Keep the delegation graph acyclic, assign one clear entry Agent, and bind only known capabilities. The entry Agent talks to the user directly, so make it the most capable generalist in the Team: bind it enough tools to resolve routine requests itself (typically a superset of its sub-agents' tools) and delegate only parallelizable, context-heavy, or deeply specialized work. Never propose a router-only entry Agent that forwards every request without doing any work itself. Layer the exploration findings: volatile behavior into instructions, stable domain knowledge into Skill drafts, real samples into blueprint acceptance cases. Return structured recommendations to the Orchestrator.",
+      prompt: "Design a complete Agent Blueprint from the research briefs and the domain-exploration findings. Keep the delegation graph acyclic, assign one clear entry Agent, and bind only known capabilities. The entry Agent talks to the user directly, so make it the most capable generalist in the Team: bind it enough tools to resolve routine requests itself (typically a superset of its sub-agents' tools) and delegate only parallelizable, context-heavy, or deeply specialized work. Never propose a router-only entry Agent that forwards every request without doing any work itself. Layer the exploration findings: volatile behavior into instructions, stable domain knowledge into Skills, real samples into blueprint acceptance cases. Return structured recommendations to the Orchestrator.",
     }),
     agent_evaluator: builderAgent({
       name: "agent_evaluator",
@@ -233,7 +236,7 @@ function migrateAgentBuilderTeam(configs: Record<string, AgentConfig>): Record<s
   for (const tool of ["read_file", "write_file", "edit_file"] as const) {
     if (!enabledTools.includes(tool)) enabledTools.push(tool);
   }
-  for (const tool of ["list_skill_drafts", "get_skill_draft", "create_skill_draft", "publish_skill_draft"] as const) {
+  for (const tool of ["list_skills", "get_skill", "create_skill", "save_skill"] as const) {
     if (!enabledTools.includes(tool)) enabledTools.push(tool);
   }
   for (const tool of ["list_agent_drafts", "get_agent_draft", "create_agent_draft", "validate_agent_draft", "publish_agent_draft"] as const) {

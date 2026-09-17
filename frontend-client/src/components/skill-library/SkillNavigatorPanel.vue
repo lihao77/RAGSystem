@@ -1,59 +1,26 @@
 <template>
-  <Card class="wb-workbench__nav">
+  <component :is="embedded ? 'section' : Card" class="skill-navigator">
     <CardHeader class="skill-navigator__head">
-      <div class="navigator-heading">
-        <CardTitle>Skill 管理</CardTitle>
-        <CardDescription>选择 Draft 编辑，或查看系统可用 Skill。</CardDescription>
-      </div>
-      <SegmentedControl
-        :model-value="state.navigatorTab.value"
-        :options="navigatorTabOptions"
-        aria-label="Skill 列表类型"
-        @update:model-value="changeNavigatorTab"
-      />
+      <CardTitle class="sr-only">Skill 列表</CardTitle>
       <Input
         :model-value="state.searchQuery.value"
         class="skill-navigator__search"
-        :placeholder="state.navigatorTab.value === 'drafts' ? '搜索 Draft' : '搜索 Skill'"
+        placeholder="搜索 Skill"
+        aria-label="搜索 Skill"
         @update:model-value="setSearchQuery"
       />
     </CardHeader>
 
     <CardContent class="skill-navigator__body">
-      <div v-if="state.navigatorLoading.value" class="adm-state">
+      <div v-if="state.loading.value && !state.skills.value.length" class="adm-state">
         <Spinner />
         <span>加载中</span>
       </div>
-      <div v-else-if="state.navigatorError.value" class="adm-state adm-state--error" role="alert">
+      <div v-else-if="state.listError.value" class="adm-state adm-state--error" role="alert">
         <p class="adm-state__title">加载失败</p>
-        <p class="adm-state__hint">{{ state.navigatorError.value }}</p>
+        <p class="adm-state__hint">{{ state.listError.value }}</p>
         <Button variant="outline" size="sm" @click="handleRefresh">重试</Button>
       </div>
-
-      <template v-else-if="state.navigatorTab.value === 'drafts'">
-        <Empty v-if="!state.filteredDrafts.value.length" class="navigator-empty">
-          <EmptyHeader>
-            <EmptyTitle>{{ state.searchQuery.value ? '没有匹配的 Draft' : '暂无 Skill Draft' }}</EmptyTitle>
-          </EmptyHeader>
-        </Empty>
-        <NavigatorRow
-          v-for="draft in state.filteredDrafts.value"
-          v-else
-          :key="draft.id"
-          :title="draft.name"
-          :description="draft.description"
-          :active="state.activeKind.value === 'draft' && state.activeKey.value === draft.id"
-          @click="selectDraft(draft)"
-        >
-          <template #title-trailing>
-            <Badge :variant="draftStatusVariant(draft)">{{ draftStatusLabel(draft) }}</Badge>
-          </template>
-          <template #meta>
-            <span>修订 {{ draft.revision }}</span>
-            <span>{{ formatCompactDate(draft.updated_at) }}</span>
-          </template>
-        </NavigatorRow>
-      </template>
 
       <template v-else>
         <Empty v-if="!state.filteredSkillGroups.value.length" class="navigator-empty">
@@ -71,7 +38,8 @@
             :key="skill.name"
             :title="skill.display_name || skill.name"
             :description="skill.description"
-            :active="state.activeKind.value === 'skill' && state.activeKey.value === skill.name"
+            :active="state.activeSkill.value?.name === skill.name"
+            :aria-disabled="state.loading.value || state.busy.value"
             @click="selectSkill(skill)"
           >
             <template #title-trailing>
@@ -81,48 +49,43 @@
         </div>
       </template>
     </CardContent>
-  </Card>
+  </component>
 </template>
 
 <script setup>
-// Skill 库左栏导航：列表类型切换、搜索、Draft/已发布分组列表。
+// Skill 库左栏：按来源分组。
 // state 为 composables/skill-library/state.js 产出的共享响应式状态。
 import NavigatorRow from '../admin/NavigatorRow.vue';
-import SegmentedControl from '../SegmentedControl.vue';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Empty, EmptyHeader, EmptyTitle } from '../ui/empty';
 import { Input } from '../ui/input';
 import { Spinner } from '../ui/spinner';
-import { formatCompactDate, draftStatusLabel, draftStatusVariant, sourceLabel } from '../../utils/skillPresentation.js';
-
-const navigatorTabOptions = [
-  { value: 'drafts', label: 'Draft' },
-  { value: 'library', label: 'Skill 库' },
-];
+import { sourceLabel } from '../../utils/skillPresentation.js';
 
 defineProps({
+  embedded: { type: Boolean, default: false },
   state: { type: Object, required: true },
-  selectDraft: { type: Function, required: true },
   selectSkill: { type: Function, required: true },
-  changeNavigatorTab: { type: Function, required: true },
   handleRefresh: { type: Function, required: true },
   setSearchQuery: { type: Function, required: true },
 });
 </script>
 
 <style scoped>
+.skill-navigator {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .skill-navigator__head {
+  flex-shrink: 0;
   flex-direction: column;
   gap: var(--spacing-sm);
   border-bottom: 1px solid var(--color-border);
-}
-
-.navigator-heading {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
 }
 
 .skill-navigator__search {
@@ -130,7 +93,8 @@ defineProps({
 }
 
 .skill-navigator__body {
-  max-height: calc(100vh - 212px);
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: var(--spacing-md) !important;
 }
@@ -139,9 +103,4 @@ defineProps({
   min-height: 260px;
 }
 
-@media (max-width: 1024px) {
-  .skill-navigator__body {
-    max-height: 340px;
-  }
-}
 </style>

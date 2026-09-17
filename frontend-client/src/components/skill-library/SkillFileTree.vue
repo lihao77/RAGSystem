@@ -5,11 +5,13 @@
         v-if="node.type === 'directory'"
         type="button"
         class="file-row"
+        :title="node.path"
         :style="{ paddingLeft: `${10 + node.depth * 16}px` }"
         @click="emit('toggle', node.path)"
       >
         <ChevronDown :class="['file-row__chevron', { 'file-row__chevron--closed': node.collapsed }]" />
-        <span>{{ node.name }}</span>
+        <span class="file-row__name">{{ node.name }}</span>
+        <SkillFileChangeMarker :change="node.change" directory />
       </button>
       <a
         v-else-if="hrefFor"
@@ -17,32 +19,36 @@
         target="_blank"
         rel="noopener"
         class="file-row file-row--link"
+        :title="node.path"
         :style="{ paddingLeft: `${10 + node.depth * 16}px` }"
       >
         <FileText />
-        <span>{{ node.name }}</span>
+        <span class="file-row__name">{{ node.name }}</span>
         <small>{{ formatSize(node.size) }}</small>
       </a>
       <button
         v-else
         type="button"
         :class="['file-row', { 'file-row--active': selectedPath === node.path }]"
+        :title="node.path"
         :style="{ paddingLeft: `${10 + node.depth * 16}px` }"
         @click="emit('select', node.path)"
       >
         <FileText />
-        <span>{{ node.name }}</span>
+        <span class="file-row__name">{{ node.name }}</span>
         <small v-if="node.size != null">{{ formatSize(node.size) }}</small>
+        <SkillFileChangeMarker :change="node.change" />
       </button>
     </template>
   </div>
 </template>
 
 <script setup>
-// Skill bundle 文件树：draft 可点选编辑；published 只读（传 hrefFor 则文件渲染为下载链接）。
+// Skill bundle 文件树：可点选编辑；只读列表（传 hrefFor 则文件渲染为下载链接）。
 import { ChevronDown, FileText } from 'lucide-vue-next';
 
 import { formatSize } from '../../utils/skillFiles.js';
+import SkillFileChangeMarker from './SkillFileChangeMarker.vue';
 
 defineProps({
   nodes: { type: Array, required: true },
@@ -113,7 +119,7 @@ button.file-row:hover,
   transform: rotate(-90deg);
 }
 
-.file-row span {
+.file-row__name {
   min-width: 0;
   flex: 1;
   overflow: hidden;
@@ -122,7 +128,7 @@ button.file-row:hover,
   white-space: nowrap;
 }
 
-.file-row--link:hover span {
+.file-row--link:hover .file-row__name {
   text-decoration: underline;
 }
 

@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import path from "node:path";
-import { createHash } from "node:crypto";
 
 import { HttpError } from "@ragsystem/backend-core/utils/errors.js";
 import type { CreateSkillPackageBundleInput, ISkillPackageStore } from "../contracts/skills/skill-package-store.js";
@@ -23,17 +22,16 @@ export interface SkillDetail {
   /** SKILL.md 正文（去 frontmatter）。 */
   content: string;
   files: SkillFileNode[];
-  /** Published bundles are immutable; changes arrive through a new Skill Draft revision. */
+  /** Tenant packages can be edited by administrators. */
   writable: boolean;
 }
 
 export type CreateSkillBundleInput = CreateSkillPackageBundleInput;
 
-const SKILL_NAME_PATTERN = /^[a-z0-9-]+$/;
 
 /**
  * Skill 库管理服务。
- * 租户发布包经 ISkillPackageStore（Local 文件 / SaaS PG+对象存储）持久化，正文只能通过 Skill Draft 变更。
+ * 租户包经 ISkillPackageStore（Local 文件 / SaaS PG+对象存储）整体校验保存。
  * builtin/workspace 只读，仍由 SkillToolService 解析。
  */
 export class SkillLibraryService {
@@ -60,7 +58,7 @@ export class SkillLibraryService {
       source_label: skill.sourceLabel,
       content: skill.content,
       files,
-      writable: false,
+      writable: skill.sourceType === "user_global",
     };
   }
 
@@ -86,94 +84,30 @@ export class SkillLibraryService {
     return { buffer: fs.readFileSync(filePath), mime: guessMime(filePath) };
   }
 
-  async getPublishedSkillBundle(name: string): Promise<CreateSkillBundleInput | null> {
-    const normalized = name.trim();
-    const existing = await this.packageStore.get(normalized);
-    if (!existing) return null;
+  async readSkillBundle(name: string): Promise<{ bundle: CreateSkillBundleInput; revision: string | null; writable: boolean }> {
+    const stored = await this.packageStore.readBundle(name);
+    if (stored) return { ...stored, writable: true };
+    const detail = await this.getSkillDetail(name);
     const files = [];
-    for (const file of (await this.packageStore.listFiles(normalized)).filter((item) => item.type === "file")) {
-      const stored = await this.packageStore.readFile(normalized, file.path);
-      if (!stored) throw new HttpError(409, "conflict", `Skill '${normalized}' package changed while rebuilding its Draft`);
-      files.push({ relativePath: file.path, body: stored.body, mediaType: stored.contentType });
+    for (const file of detail.files.filter((item) => item.type === "file")) {
+      const body = await this.readSkillFile(name, file.path);
+      files.push({ relativePath: file.path, body: body.buffer, mediaType: body.mime });
     }
-    return {
-      name: existing.name,
-      description: existing.description,
-      content: existing.content,
-      metadata: existing.metadata,
-      files,
-    };
+    return { bundle: { name, description: detail.description, content: detail.content, files }, revision: null, writable: false };
   }
 
-  async createSkillBundle(input: CreateSkillBundleInput): Promise<SkillDetail> {
-    const name = input.name.trim();
-    if (!SKILL_NAME_PATTERN.test(name)) throw new HttpError(400, "invalid_request", "Skill 名称只能包含小写字母、数字和连字符");
-    if (!input.description.trim()) throw new HttpError(400, "invalid_request", "description 不能为空");
-    try {
-      await this.packageStore.createBundle({ ...input, name });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (message.includes("已存在")) throw new HttpError(409, "conflict", message);
-      throw new HttpError(400, "invalid_request", message);
-    }
+  async saveSkillBundle(input: CreateSkillBundleInput, expectedRevision: string | null): Promise<void> {
+    const existing = (await this.listSkills()).find((skill) => skill.name === input.name);
+    if (existing && existing.source_type !== "user_global") throw new HttpError(403, "forbidden", "内置和工作区 Skill 只读");
+    await this.packageStore.saveBundle(input, expectedRevision);
     await this.skillTools.hydrateUserGlobalPackages();
-    return this.getSkillDetail(name);
   }
 
-  async replaceSkillBundle(input: CreateSkillBundleInput): Promise<SkillDetail> {
-    const name = input.name.trim();
-    if (!SKILL_NAME_PATTERN.test(name)) throw new HttpError(400, "invalid_request", "Skill 名称只能包含小写字母、数字和连字符");
-    const existing = await this.packageStore.get(name);
-    if (!existing) return this.createSkillBundle(input);
-    const snapshotFiles = [];
-    for (const file of (await this.packageStore.listFiles(name)).filter((item) => item.type === "file")) {
-      const stored = await this.packageStore.readFile(name, file.path);
-      if (!stored) throw new HttpError(409, "conflict", `Skill '${name}' package changed while preparing replacement`);
-      snapshotFiles.push({ relativePath: file.path, body: stored.body, mediaType: stored.contentType });
-    }
-    const snapshot: CreateSkillBundleInput = {
-      name: existing.name,
-      description: existing.description,
-      content: existing.content,
-      metadata: existing.metadata,
-      files: snapshotFiles,
-    };
-    if (!await this.packageStore.delete(name)) throw new HttpError(409, "conflict", `Skill '${name}' could not be replaced`);
-    try {
-      await this.packageStore.createBundle({ ...input, name });
-    } catch (error) {
-      try {
-        await this.packageStore.createBundle(snapshot);
-      } catch (rollbackError) {
-        throw new AggregateError([error, rollbackError], `Skill '${name}' replacement failed and rollback was incomplete`);
-      }
-      throw error;
-    }
-    await this.skillTools.hydrateUserGlobalPackages();
-    return this.getSkillDetail(name);
-  }
-
-  async matchesSkillBundle(name: string, files: readonly { relativePath: string; body: Uint8Array }[]): Promise<boolean> {
-    await this.skillTools.hydrateUserGlobalPackages();
-    const skill = this.findSkill(name);
-    if (skill.sourceType !== "user_global") return false;
-    const expected = new Map(files.map((file) => [file.relativePath, file.body]));
-    const actual = (await this.packageStore.listFiles(name)).filter((file) => file.type === "file");
-    if (actual.length !== expected.size || actual.some((file) => !expected.has(file.path))) return false;
-    for (const file of actual) {
-      const stored = await this.packageStore.readFile(name, file.path);
-      const body = expected.get(file.path);
-      if (!stored || !body || stored.body.byteLength !== body.byteLength
-        || createHash("sha256").update(stored.body).digest("hex") !== createHash("sha256").update(body).digest("hex")) return false;
-    }
-    return true;
-  }
-
-  async deleteSkill(name: string): Promise<{ name: string; purged_agents: string[] }> {
+  async deleteSkill(name: string, expectedRevision?: string): Promise<{ name: string; purged_agents: string[] }> {
     await this.skillTools.hydrateUserGlobalPackages();
     const skill = this.findSkill(name);
     this.assertWritable(skill);
-    const deleted = await this.packageStore.delete(skill.name);
+    const deleted = await this.packageStore.delete(skill.name, expectedRevision);
     if (!deleted) {
       throw new HttpError(404, "not_found", `Skill '${name}' 不存在`);
     }

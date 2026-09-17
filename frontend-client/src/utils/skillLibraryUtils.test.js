@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { encodeBase64Text, decodeBase64Text, decodeBase64Bytes } from './base64.js';
+import { encodeBase64Text, decodeBase64Text, decodeBase64Bytes, base64EncodedSize } from './base64.js';
 import { isEditableTextFile, isValidRelativePath, guessMediaType, formatSize } from './skillFiles.js';
 import { flattenFileTree, togglePathInSet } from './fileTree.js';
-import { draftStatusLabel, draftStatusVariant, draftOrigin, sourceLabel } from './skillPresentation.js';
+import { sourceLabel } from './skillPresentation.js';
 
 test('base64 text round-trips including CJK and emoji', () => {
   const source = '# 标题\n中文内容 🎉 with ascii';
@@ -15,10 +15,17 @@ test('decodeBase64Bytes returns raw bytes', () => {
   assert.deepEqual(Array.from(decodeBase64Bytes(encodeBase64Text('ab'))), [97, 98]);
 });
 
+test('base64EncodedSize matches decoded byte length across paddings', () => {
+  for (const source of ['', 'a', 'ab', 'abc', 'abcd', '# 中文 🎉 with ascii']) {
+    assert.equal(base64EncodedSize(encodeBase64Text(source)), decodeBase64Bytes(encodeBase64Text(source)).length);
+  }
+});
+
 test('isEditableTextFile accepts text media and known extensions, rejects large/binary', () => {
   assert.equal(isEditableTextFile({ size: 10, media_type: 'text/markdown', relative_path: 'a.md' }), true);
   assert.equal(isEditableTextFile({ size: 10, media_type: 'application/json', relative_path: 'a.bin' }), true);
   assert.equal(isEditableTextFile({ size: 10, media_type: 'application/octet-stream', relative_path: 'script.py' }), true);
+  assert.equal(isEditableTextFile({ size: 10, media_type: 'application/octet-stream', relative_path: 'references/guide.markdown' }), true);
   assert.equal(isEditableTextFile({ size: 10, media_type: 'application/octet-stream', relative_path: 'a.bin' }), false);
   assert.equal(isEditableTextFile({ size: 3 * 1024 * 1024, media_type: 'text/plain', relative_path: 'big.md' }), false);
   assert.equal(isEditableTextFile(null), false);
@@ -36,6 +43,7 @@ test('isValidRelativePath rejects absolute/traversal/empty segments', () => {
 
 test('guessMediaType maps known extensions and defaults to plain text', () => {
   assert.equal(guessMediaType('a.md'), 'text/markdown; charset=utf-8');
+  assert.equal(guessMediaType('references/guide.MARKDOWN'), 'text/markdown; charset=utf-8');
   assert.equal(guessMediaType('a.PY'), 'text/x-python; charset=utf-8');
   assert.equal(guessMediaType('a.unknownext'), 'text/plain; charset=utf-8');
 });
@@ -70,16 +78,7 @@ test('togglePathInSet toggles immutably', () => {
   assert.equal(base.has('a'), true);
 });
 
-test('draft status label/variant cover missing/conflict/published/draft', () => {
-  assert.equal(draftStatusLabel({ status: 'published', package_state: 'missing' }), '发布包缺失');
-  assert.equal(draftStatusVariant({ status: 'published', package_state: 'conflict' }), 'destructive');
-  assert.equal(draftStatusLabel({ status: 'published' }), '已发布');
-  assert.equal(draftStatusVariant({ status: 'draft' }), 'warning');
-});
-
-test('draftOrigin and sourceLabel render fallbacks', () => {
-  assert.equal(draftOrigin({ source_agent_name: 'builder' }), '由 builder 创建');
-  assert.equal(draftOrigin({}), '管理员 Draft');
+test('source labels render fallbacks', () => {
   assert.equal(sourceLabel('user_global'), '租户');
   assert.equal(sourceLabel('mystery'), '系统');
 });

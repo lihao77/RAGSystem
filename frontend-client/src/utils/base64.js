@@ -23,6 +23,15 @@ export function decodeBase64Text(value) {
   return new TextDecoder().decode(decodeBase64Bytes(value));
 }
 
+/**
+ * 编码串对应的原始字节数（按 padding 修正）。仅为取体积时用它，避免整段解码。
+ */
+export function base64EncodedSize(value) {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === '=') end -= 1;
+  return Math.floor((end * 3) / 4);
+}
+
 export function readFileAsBase64(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
