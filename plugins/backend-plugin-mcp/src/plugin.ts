@@ -21,10 +21,49 @@ export function createMcpPlugin(dependencies: McpPluginDependencies): BackendPlu
             provideAgentCapability({
               id: "mcp",
               display_name: "MCP 服务器",
-              listItems: () => runtime.service.listServers().map((server) => ({
-                name: server.name,
-                display_name: server.display_name || server.name,
-              })),
+              usage_note: "为 Agent 绑定 MCP 服务器后，运行时会自动注入该服务器暴露的全部工具（无需也无法在蓝图 tools 中声明它们）。清单项的 metadata.tool_names 只覆盖当前已连接的服务器，完整工具目录（含各工具的描述与只读标记）用 get_capability_detail 查看。",
+              listItems: () => {
+                const servers = runtime.service.listServers();
+                // 已连接服务器的工具名分组（listAllTools 只覆盖活动连接；未连接的服务器为空数组）。
+                const toolNamesByServer = new Map<string, string[]>();
+                for (const tool of runtime.service.listAllTools().tools) {
+                  const names = toolNamesByServer.get(tool.server_name);
+                  if (names) names.push(tool.name);
+                  else toolNamesByServer.set(tool.server_name, [tool.name]);
+                }
+                return servers.map((server) => ({
+                  name: server.name,
+                  display_name: server.display_name || server.name,
+                  metadata: { tool_names: toolNamesByServer.get(server.name) ?? [] },
+                }));
+              },
+              getItemDetail: async (name) => {
+                const server = runtime.service.listServers().find((item) => item.name === name);
+                if (!server) return null;
+                // 下钻是显式动作，按需拉起该服务器；失败不阻断，状态照实透出。
+                await runtime.service.ensureServersReady([name]).catch(() => undefined);
+                const status = runtime.service.getServerStatus(name);
+                const { tools } = runtime.service.listServerTools(name);
+                return {
+                  name: server.name,
+                  display_name: server.display_name || server.name,
+                  detail: {
+                    connection_status: status.status,
+                    enabled: server.enabled,
+                    transport: server.transport,
+                    ...(status.error_message ? { connection_error: status.error_message } : {}),
+                    tools: tools.map((tool) => ({
+                      name: tool.name,
+                      description: tool.description,
+                      read_only: tool.annotations?.readOnlyHint === true,
+                      risk_level: tool.riskLevel,
+                    })),
+                    ...(tools.length === 0
+                      ? { note: "该服务器当前没有可见工具（未连接或未暴露工具）；connection_status 说明原因。" }
+                      : {}),
+                  },
+                };
+              },
               getAgentConfig: async (teamName, agentName) =>
                 (await runtime.agentConfig.getEffective({ teamName, agentName })).enabled_servers,
               putAgentConfig: async (teamName, agentName, names) => {

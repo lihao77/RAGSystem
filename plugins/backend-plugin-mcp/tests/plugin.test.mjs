@@ -6,6 +6,7 @@ import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
 
 import { BackendPluginManager } from "@ragsystem/backend-core/plugins/plugin-manager.js";
+import { listAgentCapabilityProviders } from "@ragsystem/backend-core/plugins/agent-capability-provider.js";
 import {
   McpAgentConfigService,
   POSTGRES_MCP_MIGRATIONS,
@@ -66,6 +67,69 @@ test("MCP tool visibility follows enabled server config", () => {
     createMcpTools({ mcp: service, enabledServers: ["docs"] }).map((tool) => tool.name),
     ["mcp__docs__search", "read_mcp_resource"],
   );
+});
+
+test("MCP agent capability provider exposes connected tool names and live inventory detail", async () => {
+  const searchTool = {
+    name: "mcp__docs__search",
+    description: "search docs",
+    riskLevel: "low",
+    server_name: "docs",
+    annotations: { readOnlyHint: true },
+  };
+  const service = {
+    listServers: () => [
+      { name: "docs", display_name: "Docs", enabled: true, transport: "stdio" },
+      { name: "offline", display_name: "Offline", enabled: true, transport: "stdio" },
+    ],
+    listAllTools: () => ({ tool_count: 1, tools: [searchTool] }),
+    ensureServersReady: async () => undefined,
+    getServerStatus: (name) => (name === "docs"
+      ? { status: "connected", error_message: null }
+      : { status: "error", error_message: "unreachable" }),
+    listServerTools: (name) => ({
+      server_name: name,
+      tool_count: name === "docs" ? 1 : 0,
+      tools: name === "docs" ? [searchTool] : [],
+    }),
+  };
+  const manager = new BackendPluginManager([
+    createMcpPlugin({
+      runtimeFactory: async () => ({
+        service,
+        agentConfig: {
+          getEffective: async () => ({ enabled_servers: [] }),
+          put: async () => undefined,
+        },
+        ready: Promise.resolve(),
+      }),
+    }),
+  ]);
+  await manager.register();
+  const runtime = await manager.runtimeContributions().createRuntime({ deploymentKind: "local", tenantId: "tenant-test" });
+  const provider = listAgentCapabilityProviders(runtime.capabilities).find((item) => item.id === "mcp");
+  assert.ok(provider);
+
+  // 清单：已连接服务器的工具名透出，未连接的为空数组
+  const items = provider.listItems();
+  assert.deepEqual(items.find((item) => item.name === "docs").metadata, { tool_names: ["mcp__docs__search"] });
+  assert.deepEqual(items.find((item) => item.name === "offline").metadata, { tool_names: [] });
+
+  // 下钻：连接状态 + 工具目录（名称/描述/只读标记/风险级）
+  const detail = await provider.getItemDetail("docs");
+  assert.equal(detail.name, "docs");
+  assert.equal(detail.detail.connection_status, "connected");
+  assert.deepEqual(detail.detail.tools, [
+    { name: "mcp__docs__search", description: "search docs", read_only: true, risk_level: "low" },
+  ]);
+
+  const offline = await provider.getItemDetail("offline");
+  assert.equal(offline.detail.connection_status, "error");
+  assert.equal(offline.detail.connection_error, "unreachable");
+  assert.deepEqual(offline.detail.tools, []);
+  assert.match(offline.detail.note, /没有可见工具/);
+
+  assert.equal(await provider.getItemDetail("missing"), null);
 });
 
 test("SQLite MCP config store persists tenant-scoped overrides", async () => {

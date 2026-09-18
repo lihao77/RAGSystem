@@ -14,6 +14,10 @@ import { runDraftTrial, MAX_TRIAL_INPUTS_PER_CALL, type DraftTrialInput } from "
 import { collectTeamFailures, renderTeamFailureMarkdown } from "./failures.js";
 
 const EmptyToolInputSchema = z.object({}).strict();
+const CapabilityDetailToolInputSchema = z.object({
+  provider_id: z.string().trim().min(1).max(64).regex(/^[a-z][a-z0-9_]*$/),
+  name: z.string().trim().min(1).max(200),
+}).strict();
 const SearchDraftToolInputSchema = z.object({
   query: z.string().trim().max(200).optional().default(""),
   include_blueprint: z.boolean().optional().default(false),
@@ -57,7 +61,7 @@ export function createAgentBuilderTools(
   return [
     buildTool({
       name: "list_agent_builder_capabilities",
-      description: "List the existing Tools and all registered capability providers (for example Skills and MCP Servers) available to this tenant. Each provider section lists its bindable capability names. Use this before designing a Blueprint; only bind names returned by this tool and never invent capabilities.",
+      description: "List the platform-native Tools (platform_tools: the only names allowed in an Agent's tools whitelist) and all registered capability providers (capability_providers, for example Skills and MCP Servers; bound via agents[].capabilities by provider id, their tools are injected automatically at runtime and must never be written into tools). Use this before designing a Blueprint; only bind names returned by this tool and never invent capabilities.",
       inputSchema: EmptyToolInputSchema,
       parameters: {
         type: "object",
@@ -88,21 +92,76 @@ export function createAgentBuilderTools(
             })) ?? [];
           const itemCount = capabilityProviders.reduce((sum, section) => sum + section.items.length, 0);
           return toolSuccess({
-            tools: tools.map((tool) => ({
+            // platform_tools = 平台原生/插件工具，蓝图 agents[].tools 只认这里返回的名字；
+            // capability_providers 的工具经 capabilities 绑定后由运行时注入，两者不可互写。
+            platform_tools: tools.map((tool) => ({
               name: tool.name,
               description: tool.description,
               category: tool.category,
               risk_level: tool.risk_level,
             })),
+            binding_rules: {
+              agents_tools: "只能引用 platform_tools 返回的平台原生工具名",
+              agents_capabilities: "capability_providers 分区（键 = provider id，如 mcp/skills）按名绑定；绑定后其工具运行时自动注入，不要写进 tools",
+            },
             capability_providers: capabilityProviders,
             ...(llmProviders.length > 0 ? { llm_providers: llmProviders } : {}),
           }, {
             toolName: "list_agent_builder_capabilities",
-            summary: `Found ${tools.length} Tool(s) and ${itemCount} capability item(s) across ${capabilityProviders.length} provider(s)`,
+            summary: `Found ${tools.length} platform Tool(s) and ${itemCount} capability item(s) across ${capabilityProviders.length} provider(s)`,
             outputType: "json",
           });
         } catch (error) {
           return toolError("list_agent_builder_capabilities", error instanceof Error ? error.message : String(error));
+        }
+      },
+    }),
+    buildTool({
+      name: "get_capability_detail",
+      description: "Drill into one capability item and return what it actually provides. For MCP servers this connects the server on demand and returns the live tool inventory (tool names, descriptions, read-only flags); the inventory list only shows names and short metadata, so call this before binding a capability whose behavior you cannot infer from its name. The detail payload is provider-specific.",
+      inputSchema: CapabilityDetailToolInputSchema,
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        required: ["provider_id", "name"],
+        properties: {
+          provider_id: { type: "string", description: "Capability provider id from list_agent_builder_capabilities (for example 'mcp' or 'skills').", pattern: "^[a-z][a-z0-9_]*$", maxLength: 64 },
+          name: { type: "string", description: "Capability item name within that provider.", maxLength: 200 },
+        },
+      },
+      riskLevel: "low",
+      source: "agent_tool",
+      category: "agent_builder",
+      isReadOnly: () => true,
+      // MCP 详情按需建连（网络 IO），保守串行
+      isConcurrencySafe: () => false,
+      async call(input) {
+        try {
+          if (!capabilities) throw new Error("Capability registry is unavailable in this session");
+          const providers = listAgentCapabilityProviders(capabilities);
+          const provider = providers.find((item) => item.id === input.provider_id);
+          if (!provider) {
+            const ids = providers.map((item) => item.id).join(", ") || "(none)";
+            throw new Error(`Capability provider '${input.provider_id}' is not available. Available provider ids: ${ids}`);
+          }
+          if (!provider.getItemDetail) {
+            throw new Error(`Provider '${provider.id}' does not expose per-item detail`);
+          }
+          const detail = await provider.getItemDetail(input.name);
+          if (!detail) {
+            throw new Error(`Capability '${input.name}' was not found in provider '${provider.id}'; re-run list_agent_builder_capabilities and use the exact name`);
+          }
+          return toolSuccess({
+            provider_id: provider.id,
+            provider_display_name: provider.display_name,
+            ...detail,
+          }, {
+            toolName: "get_capability_detail",
+            summary: `Detail of ${provider.id}/${detail.name}`,
+            outputType: "json",
+          });
+        } catch (error) {
+          return toolError("get_capability_detail", error instanceof Error ? error.message : String(error));
         }
       },
     }),

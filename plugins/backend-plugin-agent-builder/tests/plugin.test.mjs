@@ -727,6 +727,7 @@ test("Builder template migration adds Skill authoring tools without replacing us
         "read_file",
         "custom_tool",
         "list_agent_builder_capabilities",
+        "get_capability_detail",
         "write_file",
         "edit_file",
         "list_skills",
@@ -748,7 +749,9 @@ test("Builder template migration adds Skill authoring tools without replacing us
     assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /current Skill runtime executes Python only/);
     assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /validate_agent_draft/);
     assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /artifacts parameter/);
-    assert.equal(configs.builder_orchestrator.custom_params.behavior.builder_template_version, 15);
+    assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /Capability discovery protocol:/);
+    assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /get_capability_detail/);
+    assert.equal(configs.builder_orchestrator.custom_params.behavior.builder_template_version, 16);
     assert.equal(await ensureAgentBuilderTeam(fixture.agentConfig), false);
   } finally {
     fixture.cleanup();
@@ -769,7 +772,7 @@ test("Builder template migration adds the workspace draft workflow", async () =>
     assert.match(orchestrator.custom_params.behavior.system_prompt, /save_skill/);
     assert.match(orchestrator.custom_params.behavior.system_prompt, /current Session workspace/);
     assert.match(orchestrator.custom_params.behavior.system_prompt, /execute_skill_script can run only a saved, visible Skill/);
-    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 15);
+    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 16);
   } finally {
     fixture.cleanup();
   }
@@ -789,7 +792,7 @@ test("Builder template migration upgrades a version 7 Skill authoring prompt", a
     assert.match(orchestrator.custom_params.behavior.system_prompt, /^Keep this version 7 instruction\./);
     assert.match(orchestrator.custom_params.behavior.system_prompt, /Skill authoring runtime contract:/);
     assert.match(orchestrator.custom_params.behavior.system_prompt, /current Skill runtime executes Python only/);
-    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 15);
+    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 16);
   } finally {
     fixture.cleanup();
   }
@@ -817,7 +820,7 @@ test("Builder template migration removes stale Artifact authoring instructions a
     assert.doesNotMatch(prompt, /kind=skill Artifact|\[artifact:|RAGSYSTEM_ARTIFACT_OUTPUT_DIR|submit_skill_artifact|create_skill_artifact|search_skill_drafts/i);
     assert.equal(orchestrator.tools.enabled_tools.includes("submit_skill_artifact"), false);
     assert.equal(orchestrator.tools.enabled_tools.includes("create_skill_artifact"), false);
-    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 15);
+    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 16);
   } finally {
     fixture.cleanup();
   }
@@ -857,6 +860,7 @@ test("Builder-only draft tools are visible only to the Builder entry Agent", asy
         "collect_team_failures",
         "create_agent_draft",
         "get_agent_draft",
+        "get_capability_detail",
         "list_agent_builder_capabilities",
         "list_agent_drafts",
         "publish_agent_draft",
@@ -937,12 +941,13 @@ test("Builder capability inventory lists Tools and every registered capability p
     assert.ok(tool);
     const result = await tool.call({}, {});
     assert.equal(result.success, true);
-    assert.deepEqual(result.content.tools.find((item) => item.name === "read_file"), {
+    assert.deepEqual(result.content.platform_tools.find((item) => item.name === "read_file"), {
       name: "read_file",
       description: "Read a managed file",
       category: "filesystem",
       risk_level: "low",
     });
+    assert.match(result.content.binding_rules.agents_tools, /platform_tools/);
     assert.deepEqual(result.content.capability_providers, [
       {
         id: "mcp",
@@ -960,6 +965,61 @@ test("Builder capability inventory lists Tools and every registered capability p
         }],
       },
     ]);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("get_capability_detail drills into a provider item and reports unknown ids or names", async () => {
+  const fixture = await createFixture();
+  try {
+    const capabilities = new CapabilityRegistry([
+      provideAgentCapability({
+        id: "mcp",
+        display_name: "MCP 服务器",
+        listItems: () => [{ name: "github", display_name: "GitHub" }],
+        getItemDetail: async (name) => (name === "github"
+          ? {
+            name,
+            display_name: "GitHub",
+            detail: { connection_status: "connected", tools: [{ name: "search_issues", description: "Search issues", read_only: true, risk_level: "low" }] },
+          }
+          : null),
+        getAgentConfig: async () => [],
+        putAgentConfig: async () => undefined,
+      }),
+      provideAgentCapability({
+        id: "legacy",
+        display_name: "无下钻提供方",
+        listItems: () => [],
+        getAgentConfig: async () => [],
+        putAgentConfig: async () => undefined,
+      }),
+    ]);
+    const tools = createAgentBuilderTools(fixture.service, capabilities);
+    const detailTool = tools.find((item) => item.name === "get_capability_detail");
+    assert.ok(detailTool);
+
+    const ok = await detailTool.call({ provider_id: "mcp", name: "github" }, {});
+    assert.equal(ok.success, true);
+    assert.equal(ok.content.provider_id, "mcp");
+    assert.equal(ok.content.provider_display_name, "MCP 服务器");
+    assert.equal(ok.content.detail.connection_status, "connected");
+    assert.deepEqual(ok.content.detail.tools, [
+      { name: "search_issues", description: "Search issues", read_only: true, risk_level: "low" },
+    ]);
+
+    const unknownProvider = await detailTool.call({ provider_id: "nope", name: "github" }, {});
+    assert.equal(unknownProvider.success, false);
+    assert.match(unknownProvider.content, /provider 'nope' is not available/);
+
+    const unsupported = await detailTool.call({ provider_id: "legacy", name: "github" }, {});
+    assert.equal(unsupported.success, false);
+    assert.match(unsupported.content, /does not expose per-item detail/);
+
+    const unknownItem = await detailTool.call({ provider_id: "mcp", name: "gitlab" }, {});
+    assert.equal(unknownItem.success, false);
+    assert.match(unknownItem.content, /'gitlab' was not found in provider 'mcp'/);
   } finally {
     fixture.cleanup();
   }
@@ -1193,7 +1253,7 @@ test("Builder template migration replaces the v10 draft workflow sentence in pla
     assert.match(prompt, /blueprint\.schema\.md/);
     assert.match(prompt, /artifacts parameter/);
     assert.doesNotMatch(prompt, /then call publish; publish performs validation and synchronization automatically/);
-    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 15);
+    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 16);
     assert.equal(await ensureAgentBuilderTeam(fixture.agentConfig), false);
   } finally {
     fixture.cleanup();
@@ -1251,7 +1311,7 @@ test("Builder template migration appends the Team design norms from version 11",
     assert.match(prompt, /Team design norms:/);
     assert.match(prompt, /most capable generalist/);
     assert.match(prompt, /Never design a router-only entry Agent/);
-    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 15);
+    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 16);
     assert.equal(await ensureAgentBuilderTeam(fixture.agentConfig), false);
   } finally {
     fixture.cleanup();
@@ -1294,7 +1354,7 @@ test("Builder template migration appends the domain exploration and layering pro
     assert.match(prompt, /never invent domain facts/);
     assert.match(prompt, /Experience layering:/);
     assert.match(prompt, /blueprint\.json's acceptance field/);
-    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 15);
+    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 16);
     assert.equal(await ensureAgentBuilderTeam(fixture.agentConfig), false);
   } finally {
     fixture.cleanup();
@@ -1575,7 +1635,7 @@ test("Builder template v14 migrates the trial protocol and tool from version 13"
     assert.match(prompt, /Trial protocol:/);
     assert.match(prompt, /evidence, not a gate/);
     assert.ok(orchestrator.tools.enabled_tools.includes("try_agent_draft"));
-    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 15);
+    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 16);
     assert.equal(await ensureAgentBuilderTeam(fixture.agentConfig), false);
   } finally {
     fixture.cleanup();
@@ -2042,7 +2102,7 @@ test("Builder template v15 migrates the failure feedback protocol and tool from 
     assert.match(orchestrator.custom_params.behavior.system_prompt, /^Keep this custom instruction./);
     assert.match(orchestrator.custom_params.behavior.system_prompt, /Failure feedback protocol:/);
     assert.ok(orchestrator.tools.enabled_tools.includes("collect_team_failures"));
-    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 15);
+    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 16);
     assert.equal(await ensureAgentBuilderTeam(fixture.agentConfig), false);
   } finally {
     fixture.cleanup();

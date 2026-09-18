@@ -47,4 +47,19 @@ describe("agent capability provider contract", () => {
     registry.provide({ id: "skills-runtime" }, fakeProvider("skills"));
     expect(listAgentCapabilityProviders(registry)).toEqual([]);
   });
+
+  it("treats getItemDetail as optional: providers with and without it both pass the shape check", () => {
+    const withDetail = {
+      ...fakeProvider("mcp"),
+      getItemDetail: async (name: string) => (name === "github" ? { name, detail: { tools: [] } } : null),
+    };
+    const registry = new CapabilityRegistry([
+      provideAgentCapability(withDetail),
+      provideAgentCapability(fakeProvider("skills")),
+    ]);
+    const providers = listAgentCapabilityProviders(registry);
+    expect(providers.map((provider) => typeof provider.getItemDetail)).toEqual(["function", "undefined"]);
+    expect(providers[0].getItemDetail?.("github")).resolves.toEqual({ name: "github", detail: { tools: [] } });
+    expect(providers[0].getItemDetail?.("missing")).resolves.toBeNull();
+  });
 });

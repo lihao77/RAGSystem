@@ -5,9 +5,10 @@ import { isRecord } from "@ragsystem/backend-core/utils/guards.js";
 
 /** Reserved tenant Team installed by the Agent Builder plugin. */
 export const AGENT_BUILDER_TEAM_NAME = "agent-builder";
-export const AGENT_BUILDER_TEAM_TEMPLATE_VERSION = 15;
+export const AGENT_BUILDER_TEAM_TEMPLATE_VERSION = 16;
 
 const CAPABILITY_INVENTORY_TOOL = "list_agent_builder_capabilities";
+const CAPABILITY_DETAIL_TOOL = "get_capability_detail";
 
 const SKILL_AUTHORING_TOOLS = [
   "list_skills",
@@ -16,7 +17,13 @@ const SKILL_AUTHORING_TOOLS = [
   "save_skill",
 ] as const;
 
-const CAPABILITY_DISCOVERY_PROMPT = "Before creating or updating a Draft, call list_agent_builder_capabilities and bind only the returned Tool, Skill, and MCP Server names. Never invent capability names.";
+const CAPABILITY_DISCOVERY_MARKER = "Capability discovery protocol:";
+const CAPABILITY_DISCOVERY_PROMPT = [
+  CAPABILITY_DISCOVERY_MARKER,
+  "before creating or updating a Draft, call list_agent_builder_capabilities. Its platform_tools section lists the platform-native Tools and is the ONLY source of names allowed in an Agent's tools whitelist; its capability_providers sections (MCP servers, Skills, and any other registered provider) are bound via agents[].capabilities keyed by provider id—binding them injects their tools automatically at runtime, so never write provider tools into the tools whitelist, and never invent names.",
+  "The inventory lists names and short metadata only; before binding an MCP server, or any capability whose behavior you cannot infer from its name, call get_capability_detail to see what it actually provides (for MCP servers: the live tool inventory with read-only flags).",
+].join(" ");
+const LEGACY_CAPABILITY_DISCOVERY_SENTENCE = "Before creating or updating a Draft, call list_agent_builder_capabilities and bind only the returned Tool, Skill, and MCP Server names. Never invent capability names.";
 
 const DRAFT_WORKFLOW_PROMPT = "Use list_agent_drafts, with a query when needed, to find a Draft (summaries by default; pass include_blueprint=true or use get_agent_draft for the full blueprint). Use get or create to open a workspace Draft; blueprint.schema.md in the workspace documents every field, enum, and the manifest revision lock. Edit blueprint.json with file tools and call validate_agent_draft to check it at any time; publish validates, synchronizes, and auto-publishes when enabled.";
 
@@ -115,6 +122,7 @@ export function buildAgentBuilderTeam(): Record<string, AgentConfig> {
         "web_fetch",
         "todo_write",
         CAPABILITY_INVENTORY_TOOL,
+        CAPABILITY_DETAIL_TOOL,
         "list_agent_drafts",
         "get_agent_draft",
         "create_agent_draft",
@@ -218,10 +226,12 @@ function migrateAgentBuilderTeam(configs: Record<string, AgentConfig>): Record<s
     EXPERIENCE_LAYERING_MARKER,
     TRIAL_PROTOCOL_MARKER,
     FAILURE_FEEDBACK_MARKER,
+    CAPABILITY_DISCOVERY_MARKER,
   ].every((marker) => prompt.includes(marker))
     && existingTools.includes("try_agent_draft")
     && existingTools.includes("collect_team_failures")
-    && existingTools.includes(CAPABILITY_INVENTORY_TOOL);
+    && existingTools.includes(CAPABILITY_INVENTORY_TOOL)
+    && existingTools.includes(CAPABILITY_DETAIL_TOOL);
   if (version === null || (version >= AGENT_BUILDER_TEAM_TEMPLATE_VERSION && wiringComplete && !hasLegacyArtifactPrompt)) return null;
   const deprecatedSkillTools = new Set([
     "update_skill_draft",
@@ -233,6 +243,8 @@ function migrateAgentBuilderTeam(configs: Record<string, AgentConfig>): Record<s
   ]);
   const enabledTools = existingTools.filter((tool) => !deprecatedSkillTools.has(tool));
   if (!enabledTools.includes(CAPABILITY_INVENTORY_TOOL)) enabledTools.push(CAPABILITY_INVENTORY_TOOL);
+  // v16：能力下钻工具（MCP 服务器实时工具清单等，绑定前理解能力的入口）。
+  if (!enabledTools.includes(CAPABILITY_DETAIL_TOOL)) enabledTools.push(CAPABILITY_DETAIL_TOOL);
   for (const tool of ["read_file", "write_file", "edit_file"] as const) {
     if (!enabledTools.includes(tool)) enabledTools.push(tool);
   }
@@ -247,9 +259,12 @@ function migrateAgentBuilderTeam(configs: Record<string, AgentConfig>): Record<s
   // v15：失败回流工具（聚合 👎 反馈为设计证据）。
   if (!enabledTools.includes("collect_team_failures")) enabledTools.push("collect_team_failures");
   const promptBase = hasLegacyArtifactPrompt ? stripLegacySkillAuthoringPrompt(prompt) : prompt;
-  const withCapabilityDiscovery = promptBase.includes("list_agent_builder_capabilities")
+  // v16：能力发现协议升级——清单之外增加下钻说明；旧句子原位替换，未携带则补挂。
+  const withCapabilityDiscovery = promptBase.includes(CAPABILITY_DISCOVERY_MARKER)
     ? promptBase
-    : `${promptBase} ${CAPABILITY_DISCOVERY_PROMPT}`.trim();
+    : promptBase.includes(LEGACY_CAPABILITY_DISCOVERY_SENTENCE)
+      ? promptBase.replace(LEGACY_CAPABILITY_DISCOVERY_SENTENCE, CAPABILITY_DISCOVERY_PROMPT)
+      : `${promptBase} ${CAPABILITY_DISCOVERY_PROMPT}`.trim();
   // v11：草稿工作流升级为摘要清单 + schema 指南 + 随时校验，并补充委派 artifacts 用法。
   let workflowPrompt = withCapabilityDiscovery;
   if (!workflowPrompt.includes("validate_agent_draft")) {

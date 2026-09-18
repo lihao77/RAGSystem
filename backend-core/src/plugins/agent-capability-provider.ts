@@ -15,6 +15,15 @@ export interface AgentCapabilityItem {
   readonly metadata?: Record<string, unknown>;
 }
 
+/** 能力详情：单项能力的深入说明，由 agent-builder 的 get_capability_detail 下钻透出。 */
+export interface AgentCapabilityItemDetail {
+  readonly name: string;
+  readonly display_name?: string;
+  readonly description?: string;
+  /** 提供方自定义结构化详情（如 MCP 服务器的实时工具清单），仅透传展示。 */
+  readonly detail?: Record<string, unknown>;
+}
+
 /**
  * 智能体能力提供方契约：插件把“可按 agent 勾选的能力目录 + per-agent 启用清单”
  * 以 `agent-capability/<id>` 前缀登记进能力注册表；agent-builder 只消费此抽象，
@@ -28,6 +37,11 @@ export interface AgentCapabilityProvider {
   /** 面向构建者的绑定语义说明（如 Skill 绑定后运行时自动注入的工具），随能力清单透出。 */
   readonly usage_note?: string;
   listItems(): Promise<readonly AgentCapabilityItem[]> | readonly AgentCapabilityItem[];
+  /**
+   * 可选：返回单个能力的深入说明（agent-builder 的 get_capability_detail 消费）。
+   * 能力不存在时返回 null/undefined；未实现时构建方只能看到清单级信息。
+   */
+  getItemDetail?(name: string): Promise<AgentCapabilityItemDetail | null | undefined>;
   /** 读取某 (team, agent) 当前启用的能力名清单。 */
   getAgentConfig(teamName: string, agentName: string): Promise<readonly string[]>;
   /** 写入某 (team, agent) 启用的能力名清单；发布物化与回滚都会调用，必须接受空清单。 */

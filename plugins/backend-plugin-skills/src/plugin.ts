@@ -12,6 +12,10 @@ import { SKILL_AUTHORING_TOOL_DESCRIPTORS } from "./tools/SkillAuthoringTools.js
 
 export const SKILLS_PLUGIN_ID = "@ragsystem/backend-plugin-skills";
 
+/** get_capability_detail 内联正文预览与文件名清单的上限，防止大 SKILL.md 撑爆构建方上下文。 */
+const SKILL_DETAIL_CONTENT_LIMIT = 4_000;
+const SKILL_DETAIL_FILE_LIMIT = 50;
+
 export function createSkillsPlugin(dependencies: SkillsPluginDependencies): BackendPlugin {
   return {
     manifest: { id: SKILLS_PLUGIN_ID, version: "0.2.0" },
@@ -40,6 +44,28 @@ export function createSkillsPlugin(dependencies: SkillsPluginDependencies): Back
                     ...(requires ? { metadata: { requires } } : {}),
                   };
                 });
+              },
+              getItemDetail: async (name) => {
+                try {
+                  const detail = await runtime.library.getSkillDetail(name);
+                  const files = detail.files.filter((file) => file.type === "file");
+                  return {
+                    name: detail.name,
+                    display_name: detail.display_name,
+                    description: detail.description,
+                    detail: {
+                      source_type: detail.source_type,
+                      content_preview: detail.content.length > SKILL_DETAIL_CONTENT_LIMIT
+                        ? `${detail.content.slice(0, SKILL_DETAIL_CONTENT_LIMIT)}…`
+                        : detail.content,
+                      content_truncated: detail.content.length > SKILL_DETAIL_CONTENT_LIMIT,
+                      files: files.slice(0, SKILL_DETAIL_FILE_LIMIT).map((file) => file.path),
+                      note: "正文超长时只带预览；完整 SKILL.md 与资源文件用 get_skill 打开到会话工作区阅读。",
+                    },
+                  };
+                } catch {
+                  return null;
+                }
               },
               getAgentConfig: async (teamName, agentName) =>
                 (await runtime.agentConfig.getEffective({ teamName, agentName })).enabled_skills,

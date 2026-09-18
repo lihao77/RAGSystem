@@ -8,10 +8,13 @@ import {
   SkillsAgentConfigService,
   SkillToolService,
   createSkillTools,
+  createSkillsPlugin,
   resolveBuiltinSkillSources,
   SKILL_SOURCE_RESOURCE,
 } from "../dist/index.js";
 import { provideBackendResource } from "@ragsystem/backend-core/plugins/resource-registry.js";
+import { BackendPluginManager } from "@ragsystem/backend-core/plugins/plugin-manager.js";
+import { listAgentCapabilityProviders } from "@ragsystem/backend-core/plugins/agent-capability-provider.js";
 
 class MemoryConfigStore {
   rows = new Map();
@@ -31,6 +34,54 @@ test("Skills config remains separate from enabled Skill bindings", async () => {
   await service.put({ teamName: "product", agentName: "writer" }, { enabled_skills: ["review-code"] });
   assert.deepEqual(await service.getEffective({ teamName: "product", agentName: "writer" }), { enabled_skills: ["review-code"] });
   assert.deepEqual(await service.getEffective({ teamName: "default", agentName: "writer" }), { enabled_skills: [] });
+});
+
+test("skills agent capability provider returns a truncated SKILL.md preview via getItemDetail", async () => {
+  const longContent = `${"x".repeat(100)}\n`.repeat(80); // 8160 chars > 4000 上限
+  const manager = new BackendPluginManager([
+    createSkillsPlugin({
+      runtimeFactory: async () => ({
+        library: {
+          listSkills: async () => [{ name: "review-code", display_name: "Review Code", description: "Review code" }],
+          getSkillDetail: async (name) => {
+            if (name !== "review-code") throw new Error(`Skill '${name}' 不存在`);
+            return {
+              name,
+              display_name: "Review Code",
+              description: "Review code",
+              source_type: "builtin",
+              source_label: "builtin",
+              content: longContent,
+              files: [
+                { name: "SKILL.md", path: "SKILL.md", type: "file" },
+                { name: "refs", path: "refs", type: "directory" },
+                { name: "extra.md", path: "refs/extra.md", type: "file" },
+              ],
+              writable: false,
+            };
+          },
+        },
+        agentConfig: {
+          getEffective: async () => ({ enabled_skills: [] }),
+          put: async () => undefined,
+        },
+        tools: null,
+      }),
+    }),
+  ]);
+  await manager.register();
+  const runtime = await manager.runtimeContributions().createRuntime({ deploymentKind: "local", tenantId: "tenant-test" });
+  const provider = listAgentCapabilityProviders(runtime.capabilities).find((item) => item.id === "skills");
+  assert.ok(provider);
+
+  const detail = await provider.getItemDetail("review-code");
+  assert.equal(detail.name, "review-code");
+  assert.equal(detail.detail.content_truncated, true);
+  assert.equal(detail.detail.content_preview.length, 4_001); // 4000 + 省略号
+  assert.deepEqual(detail.detail.files, ["SKILL.md", "refs/extra.md"]);
+  assert.match(detail.detail.note, /get_skill/);
+
+  assert.equal(await provider.getItemDetail("missing"), null);
 });
 
 test("Skill tools expose execution only for explicitly enabled Skills", () => {
