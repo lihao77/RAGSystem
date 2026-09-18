@@ -806,6 +806,15 @@ export function createSessionEnvelopeDispatcher({
       const terminalStatus = runtime.terminalStatusFromEvent(event);
       if (terminalStatus === 'suspended') return;
       if (currentMsg) {
+        // 终态正文以持久化消息为唯一事实来源：final/message_saved 帧先到（气泡已定格
+        // finished 或已绑定消息 id）时保留后端全文——其中带中断原因、Goal 暂停行与
+        // salvage 思考；两帧都丢失才退回本地合成兜底，否则实时视图会被无暂停行的
+        // 本地文案覆盖，与刷新后的持久化口径不一致。
+        // 注意 finished 并非仅由 final 帧置位：终局 agent_ended 与下一 run 的 run_started
+        // 同样会定格气泡。安全前提是后端终局批（final→message_saved→…→agent_ended→
+        // run_ended）在同一 deliver 批次内按序投递且重放整批重放；若未来出现只发
+        // run_ended 而不带终态批的终止路径，此门控会吞掉兜底文案，需同步审视这里。
+        const terminalTextDelivered = currentMsg.finished === true || currentMsg.id != null;
         currentMsg.finished = true;
         currentMsg.has_execution = currentMsg.role === 'user'
           && Boolean(currentMsg.has_execution || currentMsg.executionTree?.root);
@@ -829,8 +838,10 @@ export function createSessionEnvelopeDispatcher({
             terminal_reason: reason || '未提供中断原因',
             interrupted: true,
           };
-          currentMsg.content = `本次运行已中断，未生成最终答案。原因：${displayReason}`;
-          currentMsg.content_parts = [{ type: 'text', text: currentMsg.content }];
+          if (!terminalTextDelivered) {
+            currentMsg.content = `本次运行已中断，未生成最终答案。原因：${displayReason}`;
+            currentMsg.content_parts = [{ type: 'text', text: currentMsg.content }];
+          }
         }
         if (currentMsg.role !== 'user' && terminalStatus === 'failed') {
           currentMsg.run_failed = true;
@@ -840,8 +851,10 @@ export function createSessionEnvelopeDispatcher({
             terminal_reason: reason || '未提供失败原因',
             run_failed: true,
           };
-          currentMsg.content = `本次运行执行失败：${reason || '未提供失败原因'}`;
-          currentMsg.content_parts = [{ type: 'text', text: currentMsg.content }];
+          if (!terminalTextDelivered) {
+            currentMsg.content = `本次运行执行失败：${reason || '未提供失败原因'}`;
+            currentMsg.content_parts = [{ type: 'text', text: currentMsg.content }];
+          }
         }
         runtime.markRecentSessionUpdated(sessionId, currentMsg);
       }

@@ -2532,7 +2532,9 @@ test('run_ended 以 interrupted/failed 终止时清空残留 approval/input 弹�
   assert.equal(deps.messages.value[0].has_execution, false);
 
   calls.resetApprovalState.length = 0;
-  deps.messages.value[0].content = '';
+  // failed 终态属于另一个 run 的气泡：上一轮 run_ended 已把本气泡定格 finished，
+  // 复用同一气泡会命中"终态文案已落地则不本地合成"的保留分支。
+  deps.messages.value[0] = createAssistantMessage({ content: '' });
   stream.handleEnvelope({ type: 'run_ended', payload: { status: 'failed', reason: 'provider disconnected' } }, 'session-1');
   assert.equal(calls.resetApprovalState.length, 1);
   assert.equal(deps.messages.value[0].content, '本次运行执行失败：provider disconnected');
@@ -2572,7 +2574,9 @@ test('run_ended 不会把执行边界 user 消息改写成中断答案', () => {
 test('仅收到终态事件时也能定位 assistant，但不把它变成执行过程入口', () => {
   const { deps, sessionRunStore } = createDeps();
   sessionRunStore.applySessionRuntime(runtimeSnapshot('running'));
-  deps.messages.value = [createAssistantMessage({ id: 'assistant-run-1', run_id: 'run-1' })];
+  // 无 id、无终态帧：run_ended 应按 run_id 定位气泡并回退本地合成兜底文案。
+  // 带 id 的气泡意味着持久化终态消息已落地，保留分支由 terminal 回归覆盖。
+  deps.messages.value = [createAssistantMessage({ run_id: 'run-1' })];
   deps.activeRun.assistantMsgIndex = -1;
   deps.activeRun.runId = 'run-1';
 
