@@ -73,6 +73,7 @@ export interface AgentExecutionServiceApi {
   triggerAgentMailboxRun(target: AgentMailboxWakeupTarget): void;
   completeAgentMailboxContinuation(input: AgentMailboxContinuationCompletionInput): Promise<void>;
   stopSession(sessionId: string): Promise<boolean>;
+  startGoal(sessionId: string): Promise<import("../../../contracts/runtime/goals.js").Goal | null>;
   cancelRun(runId: string, reason?: string): "aborted" | "already_aborted" | "no_active_run";
   /**
    * run 控制面：触发该 run 在自己的事件流中带内发出一帧流式快照（在飞轮全文取像）。
@@ -213,6 +214,7 @@ export function createAgentExecutionService(
     transformUserMessage: params.userMessageTransformers ?? null,
   });
   const sessionControl = createSessionControl({
+    goalStore: params.goalStore ?? null,
     statusTracker,
     eventPublisher,
     pendingInteractions: params.pendingInteractions,

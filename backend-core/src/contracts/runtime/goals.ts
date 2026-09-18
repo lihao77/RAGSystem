@@ -61,6 +61,43 @@ export interface UpdateGoalInput {
   status?: GoalStatus | null | undefined;
 }
 
+/** Runtime-owned mutation fence; never exposed as model tool arguments. */
+export interface GoalMutationGuard {
+  expectedGeneration?: number;
+  signal?: AbortSignal;
+}
+
+export class GoalStateConflictError extends Error {
+  constructor() {
+    super("Goal 状态已改变，旧执行不能覆盖新的暂停或恢复状态");
+  }
+}
+
+export function assertGoalMutationAllowed(goal: Goal, guard?: GoalMutationGuard): void {
+  guard?.signal?.throwIfAborted();
+  if (guard?.expectedGeneration !== undefined && goal.continuation_generation !== guard.expectedGeneration) {
+    throw new GoalStateConflictError();
+  }
+}
+
+export type GoalPauseNotice = Pick<Goal, "id" | "objective">;
+
+/** Carries the confirmed pause into the interrupted run's existing terminal message. */
+export class GoalUserInterrupt extends Error {
+  constructor(readonly pausedGoal: GoalPauseNotice) {
+    super("user_stop");
+  }
+}
+
+export function isCurrentGoalContinuation(
+  goal: Pick<Goal, "id" | "status" | "continuation_generation"> | null,
+  metadata: Record<string, unknown> | null | undefined,
+): boolean {
+  return goal?.status === "active"
+    && metadata?.goal_id === goal.id
+    && metadata?.goal_generation === goal.continuation_generation;
+}
+
 export interface ClaimGoalContinuationOptions {
   maxContinuations?: number | undefined;
   maxNoProgress?: number | undefined;
@@ -73,7 +110,7 @@ export interface GoalStore {
   get(sessionId: string, goalId: string): Promise<Goal | null>;
   /** Returns the session's active or paused Goal, if any. */
   getCurrent(sessionId: string): Promise<Goal | null>;
-  update(sessionId: string, goalId: string, patch: UpdateGoalInput): Promise<Goal | null>;
+  update(sessionId: string, goalId: string, patch: UpdateGoalInput, guard?: GoalMutationGuard): Promise<Goal | null>;
   list(sessionId: string): Promise<Goal[]>;
   /** Atomically reserves the next automatic continuation; returns null when unavailable or guarded. */
   claimContinuation(sessionId: string, options?: ClaimGoalContinuationOptions): Promise<Goal | null>;
@@ -82,7 +119,7 @@ export interface GoalStore {
   /** Records the latest reason an automatic continuation was deferred. */
   setContinuationReason?(sessionId: string, goalId: string, reason: GoalContinuationReason | null): Promise<Goal | null>;
   /** Manually reopens a blocked Goal and resets its continuation guards. */
-  restartBlocked?(sessionId: string, goalId: string): Promise<Goal | null>;
+  restartBlocked?(sessionId: string, goalId: string, guard?: GoalMutationGuard): Promise<Goal | null>;
 }
 
 export function normalizeGoalSteps(steps: readonly GoalStep[] | null | undefined): GoalStep[] {

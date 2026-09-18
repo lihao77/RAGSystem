@@ -24,6 +24,7 @@ import {
   buildTerminalAssistantMessage,
 } from "../../../contracts/storage/runtime-finalization.js";
 import { terminalReason } from "./terminal-reason.js";
+import type { GoalPauseNotice } from "../../../contracts/runtime/goals.js";
 
 export interface AsyncPersisterRunContext {
   tenantId: TenantId;
@@ -89,6 +90,7 @@ export interface AsyncFinalMessageInput {
 
 /** 中断/失败时从事件流 salvage 的当前轮半成品（runtime-adapter 累加器产出）。 */
 export interface AsyncTerminalSalvage {
+  pausedGoal?: GoalPauseNotice;
   /** 当前轮已累积的思考全文（reasoning_complete 到达过则视为完整）。 */
   reasoning?: string;
   reasoningComplete?: boolean;

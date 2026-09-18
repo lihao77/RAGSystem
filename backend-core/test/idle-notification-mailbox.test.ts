@@ -53,7 +53,8 @@ function mailboxMessage(input: {
     content_parts: [{ type: "text", text: input.text }],
     metadata: input.inputType === "user_message"
       ? {}
-      : { source: input.inputType === "goal_continuation" ? "goal_continuation" : "background_notification" },
+      : { source: input.inputType === "goal_continuation" ? "goal_continuation" : "background_notification",
+        ...(input.inputType === "goal_continuation" ? { goal_id: "goal-1", goal_generation: 2 } : {}), },
     status: "queued",
     attempt_count: 0,
     claim_id: null as string | null,
@@ -428,6 +429,23 @@ describe("idle background notification consumption from the session mailbox", ()
 
     expect(harness.invoke).not.toHaveBeenCalled();
     expect(harness.goalStore.setContinuationReason).toHaveBeenCalledWith("session-1", "goal-1", "manual_paused");
+  });
+
+  it.each([
+    ["completed or deleted", null],
+    ["resumed with a new generation", activeGoal(4)],
+    ["replaced by another goal", { ...activeGoal(2), id: "goal-2" }],
+  ])("discards obsolete goal rows when %s and still delivers user messages", async (_label, goal) => {
+    const harness = createHarness([
+      mailboxMessage({ messageId: "goalcont_goal-1_2", inputType: "goal_continuation", text: "旧目标指令", seq: 1 }),
+      mailboxMessage({ messageId: "user-new", inputType: "user_message", text: "汇报进度", seq: 2 }),
+    ], { goal: goal as Record<string, any> | null });
+    harness.launchers.triggerBgNotificationRun("session-1");
+    await waitFor(() => harness.invoke.mock.calls.length === 1);
+    expect(harness.stored.get("goalcont_goal-1_2")?.status).toBe("acked");
+    const call = harness.invoke.mock.calls[0]![0] as Record<string, any>;
+    expect(call.task).toBe("汇报进度");
+    expect(call.executionKind).toBe("session_followup");
   });
 
   it("releases claimed notifications with a backoff when the run fails to start", async () => {

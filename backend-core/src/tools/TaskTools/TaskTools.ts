@@ -123,7 +123,7 @@ const GOAL_TOOLS: RuntimeToolDefinition[] = [
     category: "goal",
     riskLevel: "low",
     allowed_callers: ["direct"],
-    description: "Update the Goal after meaningful progress. Keep steps/checkpoint current; set completed only when success criteria have evidence, paused on user request, and blocked only when progress is impossible.",
+    description: "Update the Goal after meaningful progress. Omitting status preserves the current lifecycle, including paused. A user interruption pauses the Goal. In a subsequent user interaction, explicitly set active when the user's current intent calls for continuing the Goal; asking for status or editing the plan alone does not resume it. Read goal_get if uncertain about the latest state. Set completed only when success criteria have evidence, paused on user request, and blocked only when progress is impossible.",
     parameters: {
       type: "object",
       additionalProperties: false,

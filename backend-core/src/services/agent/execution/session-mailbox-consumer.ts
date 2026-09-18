@@ -19,6 +19,7 @@ import type { ExecutionResultReader } from "../../../contracts/execution/executi
 import type { ExecutionSessionPort } from "../../../contracts/session/session-application.js";
 import type { BackgroundTaskService } from "../../runtime/background-task-service.js";
 import type { Goal, GoalContinuationReason, GoalStore } from "../../../contracts/runtime/goals.js";
+import { isCurrentGoalContinuation } from "../../../contracts/runtime/goals.js";
 import type { RuntimeStorage } from "../../../contracts/storage/runtime-storage.js";
 import type { ParticipantRunLifecyclePort } from "../delegation/port.js";
 import { terminalReasonDisplay } from "../../../contracts/storage/runtime-finalization.js";
@@ -568,22 +569,28 @@ export class SessionMailboxConsumer {
       // 不对着过期快照多跑一轮。
       if (claimedMessages.some((message) => message.input_type === "goal_continuation")) {
         const latestGoal = await goalStore?.getCurrent(sessionId) ?? null;
-        if (latestGoal && latestGoal.status !== "active") {
-          for (const message of claimedMessages.filter((row) => row.input_type === "goal_continuation")) {
+        const stale = claimedMessages.filter((row) => row.input_type === "goal_continuation"
+          && !isCurrentGoalContinuation(latestGoal, row.metadata));
+        if (stale.length) {
+          for (const message of stale) {
             try {
               await mailbox?.settle({ sessionId, messageId: message.message_id });
             } catch {
               // settle 失败由租约到期兜底回队。
             }
           }
-          claimedMessages = claimedMessages.filter((row) => row.input_type !== "goal_continuation");
-          if (goalStore?.setContinuationReason) {
+          const staleIds = new Set(stale.map((row) => row.message_id));
+          claimedMessages = claimedMessages.filter((row) => !staleIds.has(row.message_id));
+          if (latestGoal && latestGoal.status !== "active" && goalStore?.setContinuationReason) {
             await goalStore.setContinuationReason(
               sessionId,
               latestGoal.id,
               latestGoal.status === "paused" ? "manual_paused" : "goal_not_active",
             );
           }
+          // A resume may have invalidated the only queued continuation. Produce a fresh one
+          // on the next idle pass instead of waiting for an unrelated notification.
+          if (latestGoal?.status === "active") backgroundTasks?.scheduleAutoTrigger(sessionId);
         }
       }
       if (!claimedMessages.length) {

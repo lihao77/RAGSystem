@@ -31,17 +31,23 @@ discover deployment implementations through repository paths or concrete service
 - Knowledge: vectorizers, rerankers, indexing, document ingestion, and knowledge tools.
 - Memory: memory storage, retrieval, and memory hooks/tools.
 - Skills: Skill packages, built-in Skill sources, execution, authoring, and Skill tools.
-- Artifacts: artifact storage, staging, and artifact tools.
 - MCP: server configuration, client lifecycle, and MCP tools.
-- Execution Tools, Document Tools, Widget, Daemon/Feishu, and Agent Builder: their
-  respective tools, routes, persistence, and runtime capabilities.
+- Execution Tools, Document Tools, Scheduler, Daemon/Feishu, Widget, Media Generation, Image
+  Tools, Pet, Local Scenes, and Agent Builder: their respective tools, routes, persistence, and
+  runtime capabilities.
+
+Each deployment's `backend.plugins.yaml` is the authoritative installed inventory; see
+[../plugins/README.md](../plugins/README.md) for the plugin contract.
 
 Sandboxing is deployment infrastructure rather than a feature plugin. Deployments expose the
 high-level run sandbox runtime to tool plugins while the low-level sandbox driver remains private.
 
 Plugins consume Core contracts and runtime ports. A plugin may depend on another plugin's
 capability or typed resource token, but it must not import a Core concrete service as its runtime
-integration API.
+integration API. The package export map mirrors that line: `contracts/`, `plugins/`, `identity/`
+and the remaining wildcard directories stay open by design, while `services/` exports an explicit
+allowlist of the modules plugins and deployments actually consume. Importing a new Core service is
+therefore a visible `package.json` change that has to be reviewed as a seam decision.
 
 ## Development
 

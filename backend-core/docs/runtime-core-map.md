@@ -48,12 +48,12 @@ Current TS runtime-core scope:
 - persisted user and final assistant messages,
 - run status and compact execution steps,
 - streaming lifecycle events, WebSocket replay, and durable terminal-event outbox,
+- parallel and sequential collaboration through `POST /api/agent/collaborate`: parallel tasks run
+  concurrently with per-task failure isolation, sequential tasks stay fail-fast,
 - best-effort stop through `AbortController`.
 
 Intentional unsupported modes:
 
-- Parallel collaboration still returns HTTP 400 with `并行模式尚未实现`, matching the current
-  Python backend behavior.
 - Live provider behavior and installed plugin integrations still depend on external configuration
   and credentials.
 

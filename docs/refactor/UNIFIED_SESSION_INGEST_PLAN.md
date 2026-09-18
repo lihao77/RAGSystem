@@ -283,7 +283,9 @@ goal 不再有专属 invoke 路径。`SessionMailboxConsumer` 的空闲检查在
 idle 系统消息不再合成随机 id 的合并行，头行直接作为 run 初始消息（闸门事务内
 settle），同批伴随行经 `appendMailboxMessage` 各自物化会话消息行——goal 一次续跑
 只产生一行。消费前复核 goal 活性：行排队期间 goal 被暂停/完成则 settle 跳过，
-不对过期快照空跑。
+不对过期快照空跑。用户停止会话会先暂停 Goal，并把暂停结果写入已有中断收尾消息；
+暂停/恢复推进续跑代次，消费时同时校验 Goal ID 与代次。智能体可在后续用户交互中
+显式恢复，普通进度更新保持暂停。完整边界见 [Goal 控制](../GOAL_CONTROL.md)。
 
 ### 10.1 分层总图
 

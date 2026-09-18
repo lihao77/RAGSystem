@@ -1,4 +1,5 @@
 import { asString } from "../../../utils/guards.js";
+import { GoalUserInterrupt, isCurrentGoalContinuation } from "../../../contracts/runtime/goals.js";
 import { randomUUID } from "node:crypto";
 import { mailboxRetryBackoffMs } from "../../../contracts/storage/agent-mailbox-repository.js";
 /**
@@ -594,6 +595,7 @@ export async function executeRunWithSdk(
       if (delegateCall) await commitDelegateCall(delegateCall);
     }
   };
+  await deps.taskTools?.captureGoalRun?.(input.sessionId, input.signal);
   const startDisposition = await journal.submit(() => persister.startRun());
   if (startDisposition.kind === "followup") {
     input.onStartDisposition?.(startDisposition);
@@ -675,6 +677,11 @@ export async function executeRunWithSdk(
         });
         for (const mailboxMessage of claimed) {
           try {
+            if (mailboxMessage.input_type === "goal_continuation"
+              && !isCurrentGoalContinuation(await deps.taskTools?.getCurrentGoal?.(sid) ?? null, mailboxMessage.metadata)) {
+              await mailbox.settle({ sessionId: sid, messageId: mailboxMessage.message_id });
+              continue;
+            }
             const isUserMessage = mailboxMessage.input_type === "user_message";
             const renderedContent = isUserMessage
               ? renderMailboxContent(mailboxMessage.content_parts)
@@ -1067,7 +1074,10 @@ export async function executeRunWithSdk(
     // 终态合一落库：failed/interrupted 更新 run 状态并补齐本 run 的悬空 tool observation。
     // salvage 保留当前轮已流出的思考（thinking part）与半截正文（并入中断原因文本）。
     const terminalError = interrupted ? new Error("session_stopped") : error;
-    const finalized = await journal.recover(() => persister.finalize(interrupted ? "interrupted" : "failed", null, terminalError, terminalSalvage()));
+    const salvage = terminalSalvage();
+    const stop = input.signal.reason;
+    const finalized = await journal.recover(() => persister.finalize(interrupted ? "interrupted" : "failed", null, terminalError,
+      stop instanceof GoalUserInterrupt ? { ...salvage, pausedGoal: stop.pausedGoal } : salvage));
     if (isInteractionRoot) {
       await deps.pendingInteractions.onRootFinalized(
         input.sessionId,

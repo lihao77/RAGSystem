@@ -2,6 +2,8 @@ import type { BackgroundTaskService } from "../../services/runtime/background-ta
 import type { ToolWaitResult as RuntimeToolWaitResult, ToolExecutionResult, ToolExecContext } from "@ragsystem/agent-sdk";
 import {
   isGoalId,
+  type Goal,
+  type GoalMutationGuard,
   type GoalStatus,
   type GoalStep,
   type GoalStore,
@@ -49,14 +51,43 @@ export interface TaskStopInput {
 }
 
 export class TaskToolService {
+  private readonly runGoals = new WeakMap<AbortSignal, { id: string; generation: number } | null>();
+
   constructor(
     private readonly backgroundTasks: BackgroundTaskService,
     private readonly goals: GoalStore,
   ) {}
 
+  /** Backend-only snapshot: reading Goal tools must not refresh an old run's write fence. */
+  async captureGoalRun(sessionId: string, signal: AbortSignal): Promise<void> {
+    const goal = await this.goals.getCurrent(sessionId) ?? (await this.goals.list(sessionId))[0] ?? null;
+    this.runGoals.set(signal, goal ? { id: goal.id, generation: goal.continuation_generation } : null);
+  }
+
+  getCurrentGoal(sessionId: string): Promise<Goal | null> {
+    return this.goals.getCurrent(sessionId);
+  }
+
+  private mutationGuard(goal: Goal, context: ToolExecContext): GoalMutationGuard {
+    context.signal?.throwIfAborted();
+    const captured = context.signal ? this.runGoals.get(context.signal) : undefined;
+    if (captured !== undefined && captured?.id !== goal.id) {
+      throw new Error("Goal 已在本次执行开始后改变，请在新的用户交互中操作");
+    }
+    return {
+      expectedGeneration: captured?.generation ?? goal.continuation_generation,
+      ...(context.signal ? { signal: context.signal } : {}),
+    };
+  }
+
+  private rememberGoal(goal: Goal, context: ToolExecContext): void {
+    if (context.signal) this.runGoals.set(context.signal, { id: goal.id, generation: goal.continuation_generation });
+  }
+
   async goalCreate(input: GoalCreateInput, context: ToolExecContext): Promise<ToolExecutionResult> {
     const toolName = "goal_create";
     try {
+      context.signal?.throwIfAborted();
       const sessionId = resolveTaskSessionId(context);
       const objective = input.objective.trim();
       if (!objective) {
@@ -69,6 +100,7 @@ export class TaskToolService {
         checkpoint: input.checkpoint ?? {},
         progress: input.progress ?? {},
       });
+      this.rememberGoal(goal, context);
       return toolSuccess(
         { goal },
         {
@@ -128,14 +160,18 @@ export class TaskToolService {
           ?? null;
       if (!current) return toolError(toolName, "Goal 不存在");
       assertGoalStatus(input.status);
+      let guard = this.mutationGuard(current, context);
+      if (input.status === "active" && current.status !== "active"
+        && (context.parentRunId || context.executionKind?.startsWith("system.") || context.executionKind === "agent_mailbox")) {
+        return toolError(toolName, "后台执行不能恢复已暂停或阻塞的 Goal，请在新的用户交互中显式恢复");
+      }
       if (current.status === "blocked" && input.status === "active") {
         if (!this.goals.restartBlocked) return toolError(toolName, "阻塞的 Goal 只能通过会话控件重新开启");
-        const restarted = await this.goals.restartBlocked(sessionId, current.id);
+        const restarted = await this.goals.restartBlocked(sessionId, current.id, guard);
         if (!restarted) return toolError(toolName, `Goal ${current.id} 重新开启失败`);
         current = restarted;
-      }
-      if (input.status === "active" && current.status !== "active") {
-        return toolError(toolName, "已暂停的 Goal 只能由用户通过会话控件恢复");
+        this.rememberGoal(current, context);
+        guard = this.mutationGuard(current, context);
       }
       if ((current.status === "completed" || current.status === "blocked")
         && input.status != null && input.status !== current.status) {
@@ -149,8 +185,9 @@ export class TaskToolService {
       if (input.checkpoint != null) { updates.checkpoint = input.checkpoint; updatedFields.push("checkpoint"); }
       if (input.progress != null) { updates.progress = input.progress; updatedFields.push("progress"); }
       if (input.status != null) { updates.status = input.status as GoalStatus; updatedFields.push("status"); }
-      const result = await this.goals.update(sessionId, current.id, updates);
+      const result = await this.goals.update(sessionId, current.id, updates, guard);
       if (!result) return toolError(toolName, `Goal ${current.id} 不存在`);
+      this.rememberGoal(result, context);
       const statusChange = current.status !== result.status ? { from: current.status, to: result.status } : null;
       // 精简回显：只投影更新后需要继续编排的摘要字段，完整 Goal 由 goal_get 获取。
       return toolSuccess(
@@ -162,10 +199,11 @@ export class TaskToolService {
           completed_steps: result.steps.filter((step) => step.status === "completed").length,
           updated_fields: updatedFields,
           status_change: statusChange,
+          auto_continuation: result.status === "active",
         },
         {
           toolName,
-          summary: `已更新 Goal（${updatedFields.join(", ") || "无变更"}）`,
+          summary: `已更新 Goal（${updatedFields.join(", ") || "无变更"}）${result.status === "paused" ? "；目标仍暂停，自动续跑未开启" : statusChange?.to === "active" ? "；目标已恢复" : ""}`,
           outputType: "json",
           metadata: { goal_id: result.id, status: result.status },
         },

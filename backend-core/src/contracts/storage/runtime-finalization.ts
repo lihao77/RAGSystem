@@ -4,12 +4,14 @@ import type { MessageInfo } from "../session/session.js";
 import { partsToPlainText } from "@ragsystem/agent-protocol";
 import type { AssistantContentPart, Envelope } from "@ragsystem/agent-protocol";
 import type { RuntimeRecordEnvelopeInput } from "./runtime-storage.js";
+import type { GoalPauseNotice } from "../runtime/goals.js";
 
 export type TerminalAssistantStatus = "failed" | "interrupted";
 export type TerminalRunStatus = "completed" | TerminalAssistantStatus;
 
 /** 中断/失败时随 terminal 消息保留的当前轮半成品（思考全文/半截正文）。 */
 export interface TerminalSalvage {
+  pausedGoal?: GoalPauseNotice;
   reasoning?: string;
   reasoningComplete?: boolean;
   content?: string;
@@ -42,14 +44,19 @@ export function buildTerminalAssistantMessage(input: {
   reason: string;
   messageId?: string;
   salvage?: TerminalSalvage | null;
+  pausedGoal?: GoalPauseNotice;
   metadata?: Record<string, unknown>;
 }): AddMessageInput & { messageId: string } {
   const reason = input.reason.trim().slice(0, 2_000)
     || (input.terminalStatus === "failed" ? "未提供失败原因" : "未提供中断原因");
   const displayReason = terminalReasonDisplay(input.terminalStatus, reason);
-  const reasonText = input.terminalStatus === "failed"
+  const pausedGoal = input.pausedGoal ?? input.salvage?.pausedGoal;
+  const pauseText = input.terminalStatus === "interrupted" && reason === "session_stopped" && pausedGoal
+    ? `\n目标「${pausedGoal.objective}」已暂停，已有进度已保留。`
+    : "";
+  const reasonText = (input.terminalStatus === "failed"
     ? `本次运行执行失败：${displayReason}`
-    : `本次运行已中断，未生成最终答案。原因：${displayReason}`;
+    : `本次运行已中断，未生成最终答案。原因：${displayReason}`) + pauseText;
   // 中断 salvage：思考（半截或完整）以 thinking part 一等保留；半截正文与中断原因合成 text。
   const salvage = input.salvage ?? null;
   const thinkingPart = salvage?.reasoning?.trim()

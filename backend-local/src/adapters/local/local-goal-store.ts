@@ -2,6 +2,7 @@ import type {
   ClaimGoalContinuationOptions,
   CreateGoalInput,
   Goal,
+  GoalMutationGuard,
   GoalStore,
   GoalContinuationReason,
   UpdateGoalInput,
@@ -13,12 +14,12 @@ type LocalGoalStoreSource = {
   createGoal(sessionId: string, input: CreateGoalInput): Promise<Goal> | Goal;
   getGoal(sessionId: string, goalId: string): Promise<Goal | null> | Goal | null;
   getCurrentGoal(sessionId: string): Promise<Goal | null> | Goal | null;
-  updateGoal(sessionId: string, goalId: string, patch: UpdateGoalInput): Promise<Goal | null> | Goal | null;
+  updateGoal(sessionId: string, goalId: string, patch: UpdateGoalInput, guard?: GoalMutationGuard): Promise<Goal | null> | Goal | null;
   listGoals(sessionId: string): Promise<Goal[]> | Goal[];
   claimGoalContinuation(sessionId: string, options?: ClaimGoalContinuationOptions): Promise<Goal | null> | Goal | null;
   releaseGoalContinuation(sessionId: string, goalId: string, generation: number): Promise<boolean> | boolean;
   setContinuationReason?(sessionId: string, goalId: string, reason: GoalContinuationReason | null): Promise<Goal | null> | Goal | null;
-  restartBlocked?(sessionId: string, goalId: string): Promise<Goal | null> | Goal | null;
+  restartBlocked?(sessionId: string, goalId: string, guard?: GoalMutationGuard): Promise<Goal | null> | Goal | null;
 };
 
 /** Tenant ownership boundary over Local SQLite Goal persistence. */
@@ -43,9 +44,9 @@ export class LocalGoalStore implements GoalStore {
     return this.source.getCurrentGoal(sessionId);
   }
 
-  async update(sessionId: string, goalId: string, patch: UpdateGoalInput): Promise<Goal | null> {
+  async update(sessionId: string, goalId: string, patch: UpdateGoalInput, guard?: GoalMutationGuard): Promise<Goal | null> {
     if (!this.ownsSession(sessionId)) return null;
-    return this.source.updateGoal(sessionId, goalId, patch);
+    return this.source.updateGoal(sessionId, goalId, patch, guard);
   }
 
   async list(sessionId: string): Promise<Goal[]> {
@@ -68,9 +69,9 @@ export class LocalGoalStore implements GoalStore {
     return this.source.setContinuationReason(sessionId, goalId, reason);
   }
 
-  async restartBlocked(sessionId: string, goalId: string): Promise<Goal | null> {
+  async restartBlocked(sessionId: string, goalId: string, guard?: GoalMutationGuard): Promise<Goal | null> {
     if (!this.ownsSession(sessionId) || !this.source.restartBlocked) return null;
-    return this.source.restartBlocked(sessionId, goalId);
+    return this.source.restartBlocked(sessionId, goalId, guard);
   }
 
   private ownsSession(sessionId: string): boolean {

@@ -737,15 +737,7 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
   app.post<{ Params: SessionParams }>("/sessions/:sessionId/goals/current/start", async (request) => {
     const sessions = await resolveSessionApplication(options, request);
     await loadMutableSession(request, request.params.sessionId, sessions);
-    const current = await request.container.goalStore.getCurrent(request.params.sessionId)
-      ?? (await request.container.goalStore.list(request.params.sessionId))[0]
-      ?? null;
-    if (!current) throw new HttpError(404, "not_found", "当前 Session 没有可开启的 Goal");
-    const goal = current.status === "active"
-      ? current
-      : current.status === "blocked" && request.container.goalStore.restartBlocked
-        ? await request.container.goalStore.restartBlocked(request.params.sessionId, current.id)
-        : await request.container.goalStore.update(request.params.sessionId, current.id, { status: "active" });
+    const goal = await request.container.agentExecution.startGoal(request.params.sessionId);
     if (!goal) throw new HttpError(404, "not_found", "Goal 不存在");
     request.container.backgroundTasks.scheduleAutoTrigger(request.params.sessionId);
     return ok({ goal }, "Goal 已开启");
@@ -756,11 +748,8 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
     await loadMutableSession(request, request.params.sessionId, sessions);
     const current = await request.container.goalStore.getCurrent(request.params.sessionId);
     if (!current) throw new HttpError(404, "not_found", "当前 Session 没有可暂停的 Goal");
-    const goal = current.status === "paused"
-      ? current
-      : await request.container.goalStore.update(request.params.sessionId, current.id, { status: "paused" });
-    if (!goal) throw new HttpError(404, "not_found", "Goal 不存在");
     await request.container.agentExecution.stopSession(request.params.sessionId);
+    const goal = await request.container.goalStore.getCurrent(request.params.sessionId);
     return ok({ goal }, "Goal 已暂停");
   });
 

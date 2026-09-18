@@ -4,13 +4,14 @@ import type {
   ClaimGoalContinuationOptions,
   CreateGoalInput,
   Goal,
+  GoalMutationGuard,
   GoalContinuationReason,
   GoalStatus,
   GoalStep,
   GoalStore,
   UpdateGoalInput,
 } from "@ragsystem/backend-core/contracts/runtime/goals.js";
-import { normalizeGoalSteps } from "@ragsystem/backend-core/contracts/runtime/goals.js";
+import { assertGoalMutationAllowed, normalizeGoalSteps } from "@ragsystem/backend-core/contracts/runtime/goals.js";
 import type { TenantId } from "@ragsystem/backend-core/identity/types.js";
 import type { PostgresExecutor } from "./postgres-executor.js";
 
@@ -68,7 +69,7 @@ export class PostgresGoalRepository implements GoalStore {
     return result.rows[0] ? toGoal(result.rows[0]) : null;
   }
 
-  async update(sessionId: string, goalId: string, patch: UpdateGoalInput): Promise<Goal | null> {
+  async update(sessionId: string, goalId: string, patch: UpdateGoalInput, guard?: GoalMutationGuard): Promise<Goal | null> {
     return this.executor.transaction(async (tx) => {
       const locked = await tx.query(
         `SELECT ${COLUMNS} FROM workflow_goals
@@ -77,18 +78,20 @@ export class PostgresGoalRepository implements GoalStore {
       );
       if (!locked.rows[0]) return null;
       const current = toGoal(locked.rows[0]);
+      assertGoalMutationAllowed(current, guard);
       const next = applyUpdate(current, patch);
       const clearClaim = next.status !== "active";
       const updated = await tx.query(
         `UPDATE workflow_goals SET objective=$1, success_criteria=$2::jsonb, steps=$3::jsonb,
            checkpoint=$4::jsonb, progress=$5::jsonb, status=$6,
-           continuation_pending=$7, continuation_claimed_at=$8, continuation_reason=$9, updated_at=CURRENT_TIMESTAMP
+           continuation_pending=$7, continuation_claimed_at=$8, continuation_reason=$9,
+           continuation_generation=continuation_generation+$13, updated_at=CURRENT_TIMESTAMP
          WHERE tenant_id=$10 AND session_id=$11 AND goal_id=$12::uuid RETURNING ${COLUMNS}`,
         [next.objective, JSON.stringify(next.success_criteria), JSON.stringify(next.steps), JSON.stringify(next.checkpoint),
           JSON.stringify(next.progress), next.status, clearClaim ? false : current.continuation_pending,
           clearClaim ? null : current.continuation_claimed_at,
           patch.status === "active" ? null : patch.status === "paused" ? "manual_paused" : current.continuation_reason,
-          this.tenantId, sessionId, goalId],
+          this.tenantId, sessionId, goalId, next.status !== current.status ? 1 : 0],
       );
       return updated.rows[0] ? toGoal(updated.rows[0]) : null;
     });
@@ -156,17 +159,23 @@ export class PostgresGoalRepository implements GoalStore {
     return result.rows[0] ? toGoal(result.rows[0]) : null;
   }
 
-  async restartBlocked(sessionId: string, goalId: string): Promise<Goal | null> {
-    const result = await this.executor.query(
-      `UPDATE workflow_goals SET status='active', continuation_count=0, no_progress_count=0,
-         continuation_generation=continuation_generation+1, continuation_pending=FALSE,
-         continuation_claimed_at=NULL, continuation_reason=NULL, last_progress_fingerprint=NULL,
-         updated_at=CURRENT_TIMESTAMP
-       WHERE tenant_id=$1 AND session_id=$2 AND goal_id=$3::uuid AND status='blocked'
-       RETURNING ${COLUMNS}`,
-      [this.tenantId, sessionId, goalId],
-    );
-    return result.rows[0] ? toGoal(result.rows[0]) : null;
+  async restartBlocked(sessionId: string, goalId: string, guard?: GoalMutationGuard): Promise<Goal | null> {
+    return this.executor.transaction(async (tx) => {
+      const locked = await tx.query(`SELECT ${COLUMNS} FROM workflow_goals
+        WHERE tenant_id=$1 AND session_id=$2 AND goal_id=$3::uuid FOR UPDATE`, [this.tenantId, sessionId, goalId]);
+      if (!locked.rows[0]) return null;
+      assertGoalMutationAllowed(toGoal(locked.rows[0]), guard);
+      const result = await tx.query(
+        `UPDATE workflow_goals SET status='active', continuation_count=0, no_progress_count=0,
+           continuation_generation=continuation_generation+1, continuation_pending=FALSE,
+           continuation_claimed_at=NULL, continuation_reason=NULL, last_progress_fingerprint=NULL,
+           updated_at=CURRENT_TIMESTAMP
+         WHERE tenant_id=$1 AND session_id=$2 AND goal_id=$3::uuid AND status='blocked'
+         RETURNING ${COLUMNS}`,
+        [this.tenantId, sessionId, goalId],
+      );
+      return result.rows[0] ? toGoal(result.rows[0]) : null;
+    });
   }
 }
 

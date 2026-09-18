@@ -84,6 +84,7 @@ export function createConversationStore(options: ConversationStoreOptions) {
     getAgentMailboxMessage: agentMailbox.getInTransaction.bind(agentMailbox),
     updateChildAgentLastRun: childAgents.updateChildAgentLastRun.bind(childAgents),
     settleAgentMailboxMessage: agentMailbox.settleInTransaction.bind(agentMailbox),
+    getCurrentGoal: goals.getCurrent.bind(goals),
   });
 
   return {

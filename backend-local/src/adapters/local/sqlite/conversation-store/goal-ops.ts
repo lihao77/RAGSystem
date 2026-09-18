@@ -4,12 +4,13 @@ import type {
   ClaimGoalContinuationOptions,
   CreateGoalInput,
   Goal,
+  GoalMutationGuard,
   GoalContinuationReason,
   GoalStatus,
   GoalStep,
   UpdateGoalInput,
 } from "@ragsystem/backend-core/contracts/runtime/goals.js";
-import { normalizeGoalSteps } from "@ragsystem/backend-core/contracts/runtime/goals.js";
+import { assertGoalMutationAllowed, normalizeGoalSteps } from "@ragsystem/backend-core/contracts/runtime/goals.js";
 import { runInTransaction } from "./shared/transaction.js";
 
 interface GoalDb {
@@ -92,9 +93,14 @@ export class GoalOps {
     return row ? toGoal(row) : null;
   }
 
-  update(sessionId: string, goalId: string, input: UpdateGoalInput): Goal | null {
+  update(sessionId: string, goalId: string, input: UpdateGoalInput, guard?: GoalMutationGuard): Goal | null {
+    return runInTransaction(this.db, () => this.updateLocked(sessionId, goalId, input, guard));
+  }
+
+  private updateLocked(sessionId: string, goalId: string, input: UpdateGoalInput, guard?: GoalMutationGuard): Goal | null {
     const current = this.get(sessionId, goalId);
     if (!current) return null;
+    assertGoalMutationAllowed(current, guard);
     const next = {
       objective: input.objective == null ? current.objective : required(input.objective, "objective"),
       successCriteria: input.successCriteria == null ? current.success_criteria : cleanStrings(input.successCriteria),
@@ -111,7 +117,7 @@ export class GoalOps {
         continuation_pending=CASE WHEN ? THEN 0 ELSE continuation_pending END,
         continuation_claimed_at=CASE WHEN ? THEN NULL ELSE continuation_claimed_at END,
         continuation_reason=CASE WHEN ?='paused' THEN 'manual_paused' WHEN ?='active' THEN NULL ELSE continuation_reason END,
-        updated_at=?
+        continuation_generation=continuation_generation+?, updated_at=?
        WHERE session_id=? AND goal_id=?`,
     ).run(
       next.objective,
@@ -124,6 +130,7 @@ export class GoalOps {
       continuationDisabled ? 1 : 0,
       next.status,
       next.status,
+      next.status !== current.status ? 1 : 0,
       new Date().toISOString(),
       sessionId,
       goalId,
@@ -201,14 +208,19 @@ export class GoalOps {
     return this.get(sessionId, goalId);
   }
 
-  restartBlocked(sessionId: string, goalId: string): Goal | null {
-    this.db.prepare(
-      `UPDATE workflow_goals SET status='active', continuation_count=0, no_progress_count=0,
-         continuation_generation=continuation_generation+1, continuation_pending=0,
-         continuation_claimed_at=NULL, continuation_reason=NULL, last_progress_fingerprint=NULL,
-         updated_at=? WHERE session_id=? AND goal_id=? AND status='blocked'`,
-    ).run(new Date().toISOString(), sessionId, goalId);
-    return this.get(sessionId, goalId);
+  restartBlocked(sessionId: string, goalId: string, guard?: GoalMutationGuard): Goal | null {
+    return runInTransaction(this.db, () => {
+      const current = this.get(sessionId, goalId);
+      if (!current) return null;
+      assertGoalMutationAllowed(current, guard);
+      this.db.prepare(
+        `UPDATE workflow_goals SET status='active', continuation_count=0, no_progress_count=0,
+           continuation_generation=continuation_generation+1, continuation_pending=0,
+           continuation_claimed_at=NULL, continuation_reason=NULL, last_progress_fingerprint=NULL,
+           updated_at=? WHERE session_id=? AND goal_id=? AND status='blocked'`,
+      ).run(new Date().toISOString(), sessionId, goalId);
+      return this.get(sessionId, goalId);
+    });
   }
 
   private getRequired(sessionId: string, goalId: string): Goal {

@@ -470,6 +470,7 @@ export interface RuntimeRollbackResumeResult {
 
 export interface RuntimeInterruptSessionInput {
   sessionId: string;
+  pausedGoal?: import("../runtime/goals.js").GoalPauseNotice;
 }
 
 export interface RuntimeInterruptSessionResult {

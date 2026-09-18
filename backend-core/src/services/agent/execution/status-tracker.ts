@@ -88,11 +88,11 @@ export class AgentExecutionStatusTracker {
     if (current && (!abortController || current === abortController)) this.controllersByRun.delete(runId);
   }
 
-  cancelRun(runId: string, reason = "cancelled"): "aborted" | "already_aborted" | "no_active_run" {
+  cancelRun(runId: string, reason: string | Error = "cancelled"): "aborted" | "already_aborted" | "no_active_run" {
     const controller = this.controllersByRun.get(runId);
     if (!controller) return "no_active_run";
     if (controller.signal.aborted) return "already_aborted";
-    controller.abort(new Error(reason));
+    controller.abort(typeof reason === "string" ? new Error(reason) : reason);
     return "aborted";
   }
 

@@ -1,6 +1,7 @@
 import { isDeepStrictEqual } from "node:util";
 
 import type { ConversationStore, ConversationStoreTransaction } from "./sqlite/conversation-store/index.js";
+import { isCurrentGoalContinuation } from "@ragsystem/backend-core/contracts/runtime/goals.js";
 import {
   rootMailboxConversationMessage,
   rootMailboxInitialMessage,
@@ -457,6 +458,10 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
         const existingSession = tx.getSession(input.session.sessionId);
         if (existingSession && existingSession.tenant_id !== this.tenantId) throw new Error(`session belongs to another tenant: ${input.session.sessionId}`);
         tx.createSession({ tenantId: this.tenantId, ...input.session });
+        if (input.mailboxMessage.inputType === "goal_continuation"
+          && !isCurrentGoalContinuation(tx.getCurrentGoal(input.session.sessionId), input.mailboxMessage.metadata)) {
+          throw new Error("Goal continuation is no longer active or belongs to an expired generation");
+        }
         const session = tx.getSession(input.session.sessionId);
         const maintenance = session ? activeMaintenance(session.metadata) : null;
         if (maintenance && maintenance.token !== input.sessionMaintenanceToken) {
@@ -845,6 +850,7 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
               conversation_scope: run.parent_run_id === null ? "root" : "child",
               ...(run.parent_run_id ? { parent_run_id: run.parent_run_id } : {}),
             },
+            ...(run.parent_run_id === null && input.pausedGoal ? { pausedGoal: input.pausedGoal } : {}),
           }),
           "terminal message",
         );

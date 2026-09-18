@@ -1,6 +1,7 @@
 import { isDeepStrictEqual } from "node:util";
 import { randomUUID } from "node:crypto";
 
+import { isCurrentGoalContinuation } from "@ragsystem/backend-core/contracts/runtime/goals.js";
 import {
   rootMailboxConversationMessage,
   rootMailboxInitialMessage,
@@ -511,6 +512,17 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
       await assertTenantSession(transactionExecutor, this.tenantId, input.session.sessionId, true);
       const tx = createTransactionFacade(this.tenantId, transactionExecutor);
       await tx.conversation.createSession(input.session);
+      if (input.mailboxMessage.inputType === "goal_continuation") {
+        const goals = await transactionExecutor.query<{
+          id: string; status: "active" | "paused"; continuation_generation: number;
+        }>(`SELECT goal_id::text AS id, status, continuation_generation FROM workflow_goals
+            WHERE tenant_id=$1 AND session_id=$2 AND status IN ('active','paused') FOR UPDATE`,
+          [this.tenantId, input.session.sessionId]);
+        const goal = goals.rows[0];
+        if (!isCurrentGoalContinuation(goal ? { ...goal, continuation_generation: Number(goal.continuation_generation) } : null, input.mailboxMessage.metadata)) {
+          throw new Error("Goal continuation is no longer active or belongs to an expired generation");
+        }
+      }
       const maintenance = await transactionExecutor.query(
         `SELECT 1 FROM conversation_sessions
          WHERE tenant_id=$1 AND session_id=$2
@@ -1368,6 +1380,7 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
               conversation_scope: parentRunId === null ? "root" : "child",
               ...(parentRunId ? { parent_run_id: parentRunId } : {}),
             },
+            ...(parentRunId === null && input.pausedGoal ? { pausedGoal: input.pausedGoal } : {}),
           }),
           "terminal message",
         );
