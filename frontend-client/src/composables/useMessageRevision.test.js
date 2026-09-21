@@ -351,7 +351,7 @@ test('resetEditingState 在消息编辑场景会关闭附件抽屉并重置目�
   assert.equal(deps.sessionFilesDrawerTarget.value, 'composer');
 });
 
-test('editing follows root participant and message identity instead of array index', () => {
+test('editing follows message identity instead of array index and survives workbench tab switches', () => {
   const { deps, sessionRunStore } = createDeps();
   deps.messages.value = [
     { role: 'user', id: 'message-1', content: 'first' },
@@ -362,13 +362,14 @@ test('editing follows root participant and message identity instead of array ind
   deps.messages.value.unshift({ role: 'system', id: 'summary-1', content: 'summary' });
 
   assert.equal(revision.editingMessage.value.id, 'message-2');
+  // 切到子智能体页签换的是右侧运行工作台在看谁，主对话列没变，编辑框不该被清掉。
   sessionRunStore.setParticipantMessages('child-1', [
     { role: 'user', id: 'child-message-1', content: 'delegated task' },
   ]);
-  sessionRunStore.setSelectedParticipant('child-1');
+  sessionRunStore.openWorkbenchParticipant('child-1');
 
-  assert.equal(revision.editingMessage.value, null);
-  assert.equal(revision.editingDraft.value, '');
+  assert.equal(revision.editingMessage.value.id, 'message-2');
+  assert.equal(revision.editingDraft.value, 'second');
 });
 
 test('child and agent messages cannot enter edit or rollback flows', async () => {
@@ -383,7 +384,7 @@ test('child and agent messages cannot enter edit or rollback flows', async () =>
   });
   const childTask = { role: 'user', id: 'child-message-1', seq: 4, content: 'delegated task', metadata: {} };
   sessionRunStore.setParticipantMessages('child-1', [childTask]);
-  sessionRunStore.setSelectedParticipant('child-1');
+  sessionRunStore.openWorkbenchParticipant('child-1');
   const revision = useMessageRevision(deps);
 
   assert.equal(revision.canReviseMessage(childTask), false);
@@ -391,7 +392,7 @@ test('child and agent messages cannot enter edit or rollback flows', async () =>
   assert.equal(revision.editingMessage.value, null);
   await revision.rollbackAndRetry(childTask);
 
-  sessionRunStore.setSelectedParticipant('root');
+  sessionRunStore.openWorkbenchParticipant('root');
   const agentMessage = {
     role: 'user',
     id: 'agent-message-1',

@@ -13,50 +13,16 @@
       </Button>
 
       <span class="conversation-title" :title="sessionTitle">{{ sessionTitle }}</span>
-      <span
-        v-if="activeAgentChip"
-        class="active-agent-chip"
-        :style="{ '--agent-accent': activeAgentChip.color }"
-        :title="`当前线程:${activeAgentChip.name}`"
-      >
-        <Bot v-if="activeAgentChip.isRoot" />
-        <GitBranch v-else />
-        <span class="active-agent-chip__name">{{ activeAgentChip.name }}</span>
-      </span>
-      <SessionContextInfoButton
-        v-if="currentSessionId"
-        :current-session-id="currentSessionId"
-        :team="team"
-        :entry-agent="entryAgent"
-        :workspace-root="workspaceRoot"
-        :workspace-display="workspaceDisplay"
-        :execution-status-text="executionStatusText"
-        :show-execution-status="showExecutionStatus"
-        :execution-observability="executionObservability"
-        show-summary
-        side="bottom"
-        align="start"
-      />
-    </div>
 
-    <div class="session-runtime-actions">
-      <RuntimeCapsule
-        v-if="currentSessionId"
-        :task-state="taskState"
-        :goal-state="goalState"
-        :participants="participants"
-        :selected-participant-id="selectedParticipantId"
-        :approvals="approvals"
-        @select-participant="emit('selectParticipant', $event)"
-      />
-
+      <!-- 会话动作紧跟在标题后面（OceanX 同款排布）：菜单作用于标题所指的这个会话，
+           放到右侧末端会离它要操作的对象太远。 -->
       <DropdownMenu>
         <DropdownMenuTrigger as-child>
           <Button variant="ghost" size="icon" aria-label="更多会话操作" title="更多会话操作">
             <Ellipsis />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" class="w-52">
+        <DropdownMenuContent align="start" class="w-52">
           <DropdownMenuLabel>会话操作</DropdownMenuLabel>
           <DropdownMenuGroup>
             <DropdownMenuItem
@@ -84,16 +50,47 @@
           </DropdownMenuGroup>
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <!-- 这里不再挂"当前线程"智能体徽标：主对话列永远是根会话，子智能体身份由
+           运行工作台的页签表达，挂在会话标题旁会读成"这段对话是它的"。 -->
+      <SessionContextInfoButton
+        v-if="currentSessionId"
+        :current-session-id="currentSessionId"
+        :team="team"
+        :entry-agent="entryAgent"
+        :workspace-root="workspaceRoot"
+        :workspace-display="workspaceDisplay"
+        :execution-status-text="executionStatusText"
+        :show-execution-status="showExecutionStatus"
+        :execution-observability="executionObservability"
+        show-summary
+        side="bottom"
+        align="start"
+      />
+    </div>
+
+    <div class="session-runtime-actions">
+      <!-- 运行工作台的展开入口只在面板收起时出现（OceanX 同款交接）：面板展开时收起按钮
+           在面板自己的表头里，两处并存会变成两个按钮管同一件事。
+           运行概览本身（智能体 / 目标 / 后台任务）住在工作台卡里，表头不再挂状态胶囊。 -->
+      <Button
+        v-if="currentSessionId && !workbenchOpen"
+        variant="ghost"
+        size="icon"
+        title="展开运行工作台"
+        aria-label="展开运行工作台"
+        @click="emit('toggleWorkbench')"
+      >
+        <PanelRightOpen />
+      </Button>
     </div>
   </header>
 </template>
 
 <script setup>
-import { computed } from 'vue';
-import { Bot, Download, Ellipsis, FileText, GitBranch, Moon, Sun } from 'lucide-vue-next';
+import { Download, Ellipsis, FileText, Moon, PanelRightOpen, Sun } from 'lucide-vue-next';
 import { IconMenu } from '../icons';
 import { Button } from '../ui/button';
-import { participantAccentColor } from '../../utils/participantVisual.js';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -104,17 +101,14 @@ import {
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
 import { useThemeStore } from '../../stores/theme.js';
-import RuntimeCapsule from './RuntimeCapsule.vue';
 import SessionContextInfoButton from './SessionContextInfoButton.vue';
 
 const themeStore = useThemeStore();
-const props = defineProps({
+defineProps({
   currentSessionId: { type: String, default: '' },
   sessionTitle: { type: String, default: '新聊天' },
   isExportingSession: { type: Boolean, default: false },
   scrolled: { type: Boolean, default: false },
-  goalState: { type: Object, required: true },
-  taskState: { type: Object, required: true },
   team: { type: String, default: '' },
   entryAgent: { type: String, default: '' },
   workspaceRoot: { type: String, default: '' },
@@ -122,29 +116,16 @@ const props = defineProps({
   executionStatusText: { type: String, default: '' },
   showExecutionStatus: { type: Boolean, default: false },
   executionObservability: { type: Object, default: null },
-  selectedParticipant: { type: Object, default: null },
-  participants: { type: Array, default: () => [] },
-  selectedParticipantId: { type: String, default: 'root' },
-  approvals: { type: Array, default: () => [] },
+  workbenchOpen: { type: Boolean, default: false },
 });
 
 const emit = defineEmits([
   'openMobileSidebar',
   'exportSession',
   'openFileChanges',
-  'selectParticipant',
+  'toggleWorkbench',
 ]);
 
-// 当前线程 agent chip:仅在切到非 root participant 时显示,标识"你在看谁的对话"。
-const activeAgentChip = computed(() => {
-  const participant = props.selectedParticipant;
-  if (!participant || participant.scope === 'root' || participant.participant_id === 'root') return null;
-  return {
-    name: participant.display_name || participant.agent_name || '智能体',
-    color: participantAccentColor(participant),
-    isRoot: false,
-  };
-});
 </script>
 
 <style scoped>
@@ -204,33 +185,6 @@ const activeAgentChip = computed(() => {
   font-size: var(--font-size-sm);
   font-weight: 650;
   line-height: 1.2;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.active-agent-chip {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 5px;
-  min-width: 0;
-  max-width: 180px;
-  padding: 3px 9px;
-  border-radius: var(--radius-full);
-  background: var(--color-hover-overlay);
-  color: var(--agent-accent, var(--color-text-secondary));
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-}
-
-.active-agent-chip svg {
-  width: 12px;
-  height: 12px;
-  flex: 0 0 auto;
-}
-
-.active-agent-chip__name {
-  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

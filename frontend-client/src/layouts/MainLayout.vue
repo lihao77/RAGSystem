@@ -596,9 +596,13 @@ onUnmounted(() => {
 .mcp-prompt-args .field { display: flex; flex-direction: column; gap: 4px; font-size: var(--font-size-sm); }
 .mcp-prompt-args .field span { color: var(--color-text-secondary); }
 .mcp-prompt-args .field em { color: var(--color-error); font-style: normal; margin-left: 2px; }
+/* 三卡片外壳：侧栏不铺卡片底色（与窗口背景同色），对话卡与右侧运行工作台各是一张卡。
+   外壳内边距与卡间缝同宽（--shell-gap，取间距标尺最小档），缝里放工作台的可拖拽分隔条；
+   设置页/登录页复用同一内边距与卡片口径。 */
 .chat-layout {
   --sidebar-btn-text-transition-in: opacity var(--duration-base) ease 0.05s;
   --sidebar-btn-text-transition-out: opacity var(--duration-fast) ease;
+  --shell-gap: var(--spacing-xs);
   display: flex;
   height: 100vh;
   height: 100dvh;
@@ -606,7 +610,7 @@ onUnmounted(() => {
   max-width: 100%;
   background-color: var(--surface-sidebar);
   overflow: hidden;
-  padding: 0;
+  padding: var(--shell-gap);
   gap: 0;
 }
 
@@ -630,6 +634,9 @@ onUnmounted(() => {
   box-shadow: none;
   background: var(--surface-sidebar);
   width: var(--sidebar-width);
+  /* 与对话卡之间留一条同宽的缝（侧栏不铺卡片底色，缝里是外壳底色）。
+     窄屏抽屉形态下侧栏是 fixed，外边距不参与定位，无需另写覆盖。 */
+  margin-right: var(--shell-gap, 0);
   border-radius: 0;
   display: flex;
   flex-direction: column;
@@ -957,13 +964,15 @@ onUnmounted(() => {
   margin-left: -7px;
 }
 
+/* 对话路由：这里只是承载两张卡的透明容器——对话卡与运行工作台卡自己铺底色、自己带圆角
+   （见 chat-view.css 的 .chat-conversation-column 与 RunWorkbench.vue）。 */
 .layout-main-host {
   flex: 1;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  background: var(--surface-shell);
-  border-radius: 20px 0 0 20px;
+  background: transparent;
+  border-radius: 0;
   box-shadow: none;
 }
 
@@ -975,8 +984,12 @@ onUnmounted(() => {
   min-height: 0;
 }
 
+/* 管理页：整块就是那张卡（与对话卡同一口径：圆角 + 细边框 + 表面色）。 */
 .layout-main-host--page {
   overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-2xl);
+  background: var(--surface-shell);
 }
 
 .route-card {

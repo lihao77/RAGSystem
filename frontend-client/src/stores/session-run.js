@@ -19,6 +19,12 @@ export const createActiveRunState = () => ({
   outputCharCount: 0,
 });
 
+/**
+ * 运行工作台的概览页签。页签取值只有两种：这个常量（运行概览）或参与者 id。
+ * 取值落在与参与者 id 同一个命名空间里，'overview' 不是合法参与者 id，不会撞。
+ */
+export const WORKBENCH_OVERVIEW_TAB = 'overview';
+
 export const resetActiveRunState = (activeRun) => {
   if (!activeRun) return;
   const active = Boolean(activeRun.active);
@@ -128,24 +134,34 @@ const sortParticipantMessages = (items) => {
  *
  * 各消费 composable 直接 useSessionRunStore() 取，不再走 deps 透传。Session 生命周期只接受
  * 后端 session.runtime 快照；本 store 只持有数据、待确认请求和纯投影。
+ *
+ * 视图分工：主对话列永远是根会话；子智能体（participant）线程只在右侧运行工作台里渲染，
+ * 页签状态（workbenchTab / workbenchTabs）是"当前在看谁"的唯一来源。
  */
 export const useSessionRunStore = defineStore('session-run', () => {
   const currentSessionId = ref(null);
   const participantMessages = ref({ root: [] });
-  const selectedParticipantId = ref('root');
-  const messages = computed({
-    get: () => participantMessages.value[selectedParticipantId.value] || [],
-    set: (value) => {
-      participantMessages.value = {
-        ...participantMessages.value,
-        [selectedParticipantId.value]: value,
-      };
-    },
-  });
+  // 运行工作台：右侧第三张卡。workbenchTab 是 'overview' 或参与者 id。
+  const workbenchOpen = ref(false);
+  const workbenchTab = ref(WORKBENCH_OVERVIEW_TAB);
+  // 已打开的参与者页签（概览页签常驻，不在这里）。关闭页签只影响工作台，不动会话。
+  const workbenchTabs = ref([]);
+  // 工作台当前聚焦的参与者：概览页签即根会话（根会话就在主对话列里）。
+  const selectedParticipantId = computed(() => (
+    workbenchTab.value === WORKBENCH_OVERVIEW_TAB ? 'root' : workbenchTab.value
+  ));
+  const workbenchThreadMessages = computed(() => participantMessages.value[workbenchTab.value] || []);
+  // 主对话列 = 根会话。子参与者线程不再占用主对话列，messages 因此不随选中参与者切换。
   const rootMessages = computed({
     get: () => participantMessages.value.root || [],
     set: (value) => {
       participantMessages.value = { ...participantMessages.value, root: value };
+    },
+  });
+  const messages = computed({
+    get: () => rootMessages.value,
+    set: (value) => {
+      rootMessages.value = value;
     },
   });
   const participants = ref([]);
@@ -321,28 +337,67 @@ export const useSessionRunStore = defineStore('session-run', () => {
     sessionWorkspaceDisplay.value = '';
   };
 
+  /** 工作台回到初始形态：收起、概览页签、无参与者页签。会话切换/退出时调用。 */
+  const resetWorkbench = () => {
+    workbenchOpen.value = false;
+    workbenchTab.value = WORKBENCH_OVERVIEW_TAB;
+    workbenchTabs.value = [];
+  };
+
   const resetSessionParticipants = () => {
     participantMessages.value = { root: [] };
-    selectedParticipantId.value = 'root';
     participants.value = [];
     participantsLoading.value = false;
+    resetWorkbench();
   };
 
   const setParticipants = (items) => {
     participants.value = Array.isArray(items) ? items : [];
-    if (!participants.value.some(item => item?.participant_id === selectedParticipantId.value)) {
-      selectedParticipantId.value = 'root';
+    // 列表是权威事实：参与者下线后它的页签不能留着（点进去只会是空线程）。
+    const known = new Set(participants.value.map(item => item?.participant_id).filter(Boolean));
+    if (workbenchTabs.value.some(id => !known.has(id))) {
+      workbenchTabs.value = workbenchTabs.value.filter(id => known.has(id));
+    }
+    if (workbenchTab.value !== WORKBENCH_OVERVIEW_TAB && !known.has(workbenchTab.value)) {
+      workbenchTab.value = WORKBENCH_OVERVIEW_TAB;
     }
   };
 
-  const setSelectedParticipant = (participantId) => {
-    const next = typeof participantId === 'string' && participantId.trim()
-      ? participantId.trim()
-      : 'root';
-    if (next === selectedParticipantId.value) return false;
-    selectedParticipantId.value = next;
+  /** 切换工作台页签（'overview' 或参与者 id）。返回是否真的换了页签。 */
+  const setWorkbenchTab = (tab) => {
+    const next = typeof tab === 'string' && tab.trim() ? tab.trim() : WORKBENCH_OVERVIEW_TAB;
+    if (next === workbenchTab.value) return false;
+    workbenchTab.value = next;
     return true;
   };
+
+  /**
+   * 打开（并激活）某参与者的线程页签，同时展开工作台。
+   * root 即概览：根会话本身在主对话列里，再占一个页签没有意义。
+   */
+  const openWorkbenchParticipant = (participantId) => {
+    const id = typeof participantId === 'string' && participantId.trim() ? participantId.trim() : 'root';
+    if (id === 'root') {
+      setWorkbenchTab(WORKBENCH_OVERVIEW_TAB);
+      workbenchOpen.value = true;
+      return WORKBENCH_OVERVIEW_TAB;
+    }
+    if (!workbenchTabs.value.includes(id)) workbenchTabs.value = [...workbenchTabs.value, id];
+    setWorkbenchTab(id);
+    workbenchOpen.value = true;
+    return id;
+  };
+
+  /** 关闭参与者页签（不动面板）：关的是当前页签时退回概览。 */
+  const closeWorkbenchTab = (participantId) => {
+    const id = typeof participantId === 'string' ? participantId.trim() : '';
+    if (!id || !workbenchTabs.value.includes(id)) return;
+    workbenchTabs.value = workbenchTabs.value.filter(tab => tab !== id);
+    if (workbenchTab.value === id) workbenchTab.value = WORKBENCH_OVERVIEW_TAB;
+  };
+
+  const openWorkbench = () => { workbenchOpen.value = true; };
+  const closeWorkbench = () => { workbenchOpen.value = false; };
 
   const setParticipantMessages = (participantId, value) => {
     const id = typeof participantId === 'string' && participantId.trim() ? participantId.trim() : 'root';
@@ -422,7 +477,9 @@ export const useSessionRunStore = defineStore('session-run', () => {
 
   const clearChildParticipantMessages = () => {
     participantMessages.value = { root: participantMessages.value.root || [] };
-    if (selectedParticipantId.value !== 'root') selectedParticipantId.value = 'root';
+    // 子线程数据没了，指向子参与者的页签也就没有内容可显示：一并退回概览。
+    workbenchTabs.value = [];
+    workbenchTab.value = WORKBENCH_OVERVIEW_TAB;
   };
 
   const applySessionContext = ({
@@ -481,8 +538,17 @@ export const useSessionRunStore = defineStore('session-run', () => {
     applySessionContext,
     resetSessionParticipants,
     setParticipants,
-    setSelectedParticipant,
     setParticipantMessages,
+    workbenchOpen,
+    workbenchTab,
+    workbenchTabs,
+    workbenchThreadMessages,
+    resetWorkbench,
+    setWorkbenchTab,
+    openWorkbenchParticipant,
+    closeWorkbenchTab,
+    openWorkbench,
+    closeWorkbench,
     reconcileParticipantMessages,
     upsertParticipantMessage,
     reorderParticipantMessages,

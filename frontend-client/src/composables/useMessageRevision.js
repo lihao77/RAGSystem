@@ -4,6 +4,9 @@ import { useSessionRunStore } from '../stores/session-run.js';
 import { createRequestId, serializeAttachmentForSend } from './useSessionAgentClient.js';
 import { getUserDisplayText } from '../utils/messageContentParts.js';
 
+/** 主对话列承载的参与者：根会话。子智能体线程在运行工作台里，不参与编辑/重试。 */
+const ROOT_PARTICIPANT_ID = 'root';
+
 /**
  * 构造 rollback-and-retry 的锚点：指向被编辑/重试的用户消息本身（messages[index]）。
  * 后端会删除该锚点及其后历史，再通过统一用户消息入口创建一条新消息。
@@ -23,7 +26,8 @@ function buildRetryAnchorBody(messages, index) {
  */
 export function useMessageRevision(deps) {
   const sessionRunStore = useSessionRunStore();
-  const { messages, currentSessionId, selectedParticipantId } = storeToRefs(sessionRunStore);
+  // 编辑/重试只作用于主对话列，而主对话列永远是根会话——工作台在看哪个子智能体都不影响它。
+  const { messages, currentSessionId } = storeToRefs(sessionRunStore);
   const editingTarget = ref(null);
   const editingDraft = ref('');
   const editingAttachmentsDraft = ref([]);
@@ -48,13 +52,13 @@ export function useMessageRevision(deps) {
 
   const editingMessage = computed(() => {
     const target = editingTarget.value;
-    if (!target || target.participantId !== selectedParticipantId.value) return null;
+    if (!target || target.participantId !== ROOT_PARTICIPANT_ID) return null;
     return messages.value.find(message => message?.id === target.messageId) || null;
   });
 
+  // 编辑目标必须在主对话列（根会话）里：子智能体线程是只读视图，没有回滚/重发语义。
   const canReviseMessage = msg => Boolean(
-    selectedParticipantId.value === 'root'
-    && msg?.role === 'user'
+    msg?.role === 'user'
     && msg?.metadata?.agent_message !== true
     && msg?.id
     && messages.value.some(message => message === msg || message?.id === msg.id)
@@ -71,12 +75,13 @@ export function useMessageRevision(deps) {
     deps.sessionFilesDrawerTarget.value = 'composer';
   };
 
-  watch([selectedParticipantId, currentSessionId], () => resetEditingState(), { flush: 'sync' });
+  // 只跟会话：切工作台页签换的是右侧线程视图，主对话列没变，编辑框不该被清掉。
+  watch(currentSessionId, () => resetEditingState(), { flush: 'sync' });
 
   const startEditMessage = (msg) => {
     if (!canReviseMessage(msg)) return;
     editingTarget.value = {
-      participantId: selectedParticipantId.value,
+      participantId: ROOT_PARTICIPANT_ID,
       messageId: msg.id,
     };
     editingDraft.value = getUserDisplayText(msg);

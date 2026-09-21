@@ -98,21 +98,22 @@ test('过程行缩进步长由图标尺寸与行内间距推出', async () => {
   assert.equal(nodeSource.includes('* 22'), false);
 });
 
-test('运行概览收进顶栏胶囊,Goal 与后台任务合并在同一概览', async () => {
+test('运行概览收进右侧工作台卡,Goal 与后台任务合并在同一概览', async () => {
   const barSource = await readFile(new URL('./chat/SessionContextBar.vue', import.meta.url), 'utf8');
-  const capsuleSource = await readFile(new URL('./chat/RuntimeCapsule.vue', import.meta.url), 'utf8');
+  const workbenchSource = await readFile(new URL('./workpanel/RunWorkbench.vue', import.meta.url), 'utf8');
   const overviewSource = await readFile(new URL('./workpanel/RuntimeOverviewPanel.vue', import.meta.url), 'utf8');
   const nodeSource = await readFile(new URL('./chat/AssistantExecutionNode.vue', import.meta.url), 'utf8');
   const actionsSource = await readFile(new URL('./chat/MessageActions.vue', import.meta.url), 'utf8');
 
-  // 顶栏入口是胶囊:折叠态摘要,点开 Popover 即完整运行概览,不再有侧边抽屉。
-  assert.equal(barSource.includes('<RuntimeCapsule'), true);
-  assert.equal(capsuleSource.includes('aria-label="打开运行概览"'), true);
-  assert.equal(capsuleSource.includes('<RuntimeOverviewPanel'), true);
-  assert.equal(capsuleSource.includes('RuntimeCenterHost'), false);
-  assert.equal(capsuleSource.includes('<Sheet'), false);
-  assert.equal((capsuleSource.match(/emit\('select-participant'/g) || []).length, 1);
-  assert.equal(capsuleSource.includes('待审批'), true);
+  // 概览住在工作台卡里（智能体清单 + 目标 + 后台任务），表头只留面板的展开入口，
+  // 不再有顶栏胶囊，也没有旧的侧边抽屉形态。
+  assert.equal(barSource.includes('<RuntimeCapsule'), false);
+  assert.equal(barSource.includes('展开运行工作台'), true);
+  assert.equal(workbenchSource.includes('<RuntimeOverviewPanel'), true);
+  assert.equal(workbenchSource.includes('RuntimeCenterHost'), false);
+  assert.equal(workbenchSource.includes('<Sheet'), false);
+  // 两个出口通向同一个页签：概览里的智能体清单，以及切到还没拉过内容的页签时补一次取数。
+  assert.equal((workbenchSource.match(/emit\('select-participant'/g) || []).length, 2);
   assert.equal(overviewSource.includes('<GoalPanel v-if="showGoalSection"'), true);
   assert.equal(overviewSource.includes('<BackgroundTasksPanel v-if="showTaskSection"'), true);
   assert.equal(overviewSource.includes('执行详情'), false);

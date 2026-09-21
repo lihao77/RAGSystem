@@ -56,10 +56,11 @@
   overflow: hidden;
 }
 
+/* 横向两栏：对话卡 + 运行工作台卡（中间是工作台的分隔条，面板收起时不占位）。 */
 .chat-main {
   flex: 1;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   position: relative;
   min-width: 0;
   min-height: 0;
@@ -1452,7 +1453,9 @@
   transition: max-width var(--duration-base), width var(--duration-base);
 }
 
-/* ===== 对话栏（所有尺寸均需正确撑满）===== */
+/* ===== 对话栏（所有尺寸均需正确撑满）=====
+   三卡片外壳里居中的那张卡：与右侧运行工作台同一口径（圆角 + 细边框 + 表面色）。
+   卡间缝由外壳内边距（--shell-gap）与工作台分隔条提供，卡片自己不带外边距。 */
 .chat-conversation-column {
   flex: 1;
   min-width: 0;
@@ -1460,6 +1463,9 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-2xl);
+  background: var(--surface-shell);
 }
 
 @media (max-width: 900px) {
@@ -1473,6 +1479,12 @@
 
   .chat-messages {
     padding-top: var(--spacing-md);
+  }
+
+  /* 抽屉外壳没有内边距：对话卡回到满幅，不再画边框和圆角。 */
+  .chat-conversation-column {
+    border: none;
+    border-radius: 0;
   }
 }
 

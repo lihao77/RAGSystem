@@ -4,6 +4,18 @@
 
 The frontend is a Vue 3 + Vite application. Chat execution is driven by the session WebSocket and Pinia stores. ECharts renders chart presentations.
 
+## Shell Layout
+
+The chat shell is three columns on a single background: the sidebar (collapsed state persisted under `sidebarCollapsed`, width `--sidebar-width`), the conversation card, and the run workbench card. Only the conversation and the workbench are cards — the sidebar deliberately paints no surface of its own, so it reads as part of the window background. The shell keeps a `--shell-gap` (the smallest spacing step) padding on all sides, and the seam between the conversation card and the workbench is the workbench's own resize handle, so the two cards are separated by exactly that gap. Below the 900px overlay breakpoint the sidebar becomes a drawer, the shell drops its padding, the conversation card goes full-bleed, and the workbench becomes a right-side drawer instead of a third column.
+
+The conversation card header carries the session title, the session menu immediately after it, and the session context summary; its right side holds nothing but the workbench entry, and that entry exists only while the panel is collapsed. Once the panel is open its own header owns the collapse button, so no two buttons ever toggle the same panel. The collapsed state is not persisted, while the dragged width is (`runWorkbenchWidth`, clamped so the conversation card keeps a usable minimum). The workbench tab strip holds the `overview` tab plus one tab per opened participant, and the run overview itself — agents, goal, background tasks — lives in that `overview` tab rather than in a header capsule.
+
+## Participant Threads
+
+The conversation column always renders the root conversation. A sub-agent (participant) thread is rendered only in the run workbench: `workbenchTab` is either `overview` or a participant id, and `selectedParticipantId` is derived from it, so the participant list, the workbench tab and the delegation rows in the execution timeline all name the same focus. `messages` is the root list; a participant's own list is reached through `workbenchThreadMessages`.
+
+Opening a participant is an explicit user action — the workbench overview's agent list, or the delegation row's detail in the execution timeline. It opens (or activates) that participant's tab and loads its history once, silently and with `viewEffects: false` so the conversation column's loading state, scroll and focus stay untouched; a thread that already has content is not refetched, since live events keep it current. Messages edited or rolled back are always root messages, because rollback semantics do not exist for a sub-agent thread.
+
 ## Session Browser Workspaces
 
 Session list and workspace preview responses include `runtime_state`, derived from lightweight batched database reads using the same lifecycle rules as the full runtime snapshot. The sidebar shows a spinner for running/resuming sessions. The active session uses WebSocket snapshots; visible groups and pinned sessions refresh through `POST /sessions/states` every ten seconds while the page is visible (up to 200 IDs per batch). State queries use the same tenant and visibility restrictions as the session list and never load execution events.

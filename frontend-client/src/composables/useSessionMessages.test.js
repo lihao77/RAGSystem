@@ -68,9 +68,9 @@ test('useSessionMessages excludes tool observations from chat bubbles', async ()
 test('agent mailbox messages are visible with clean display content while other hidden messages stay hidden', async () => {
   setActivePinia(createPinia());
   const store = useSessionRunStore();
-  const { currentSessionId, messages } = storeToRefs(store);
+  const { currentSessionId, workbenchThreadMessages } = storeToRefs(store);
   currentSessionId.value = 'session-1';
-  store.setSelectedParticipant('child-1');
+  store.openWorkbenchParticipant('child-1');
   const chatSdkClient = { async listMessages() { return {
     data: {
       items: [
@@ -93,11 +93,11 @@ test('agent mailbox messages are visible with clean display content while other 
   const sessionMessages = useSessionMessages(createDeps({ chatSdkClient }));
   await sessionMessages.loadSessionMessages('session-1', { participantId: 'child-1' });
 
-  assert.equal(messages.value.length, 2);
-  assert.equal(messages.value[0].content, '停止工具调用');
-  assert.equal(messages.value[0].metadata.agent_message, true);
-  assert.equal(messages.value[0].metadata.agent_message_display_content, '停止工具调用');
-  assert.equal(messages.value[1].id, 'string-hidden');
+  assert.equal(workbenchThreadMessages.value.length, 2);
+  assert.equal(workbenchThreadMessages.value[0].content, '停止工具调用');
+  assert.equal(workbenchThreadMessages.value[0].metadata.agent_message, true);
+  assert.equal(workbenchThreadMessages.value[0].metadata.agent_message_display_content, '停止工具调用');
+  assert.equal(workbenchThreadMessages.value[1].id, 'string-hidden');
 });
 
 test('historical messages retain canonical participant ownership fields', async () => {
@@ -192,9 +192,9 @@ test('a late response from the previous session cannot overwrite current message
 test('participant history reconciliation preserves a real user execution boundary', async () => {
   setActivePinia(createPinia());
   const store = useSessionRunStore();
-  const { currentSessionId, messages } = storeToRefs(store);
+  const { currentSessionId, workbenchThreadMessages } = storeToRefs(store);
   currentSessionId.value = 'session-1';
-  store.setSelectedParticipant('child-1');
+  store.openWorkbenchParticipant('child-1');
   let resolveMessages;
   const chatSdkClient = {
     listMessages() {
@@ -233,9 +233,9 @@ test('participant history reconciliation preserves a real user execution boundar
   });
   await loading;
 
-  assert.deepEqual(messages.value.map(message => message.id), ['task-1']);
-  assert.equal(messages.value[0], boundary);
-  assert.equal(messages.value[0].executionTree.root.agentId, 'worker');
+  assert.deepEqual(workbenchThreadMessages.value.map(message => message.id), ['task-1']);
+  assert.equal(workbenchThreadMessages.value[0], boundary);
+  assert.equal(workbenchThreadMessages.value[0].executionTree.root.agentId, 'worker');
   assert.deepEqual(
     sessionMessages.messageCache.value.get('session-1::child-1').map(message => message.id),
     ['task-1'],

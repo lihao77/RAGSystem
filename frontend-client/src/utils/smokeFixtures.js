@@ -195,6 +195,228 @@ export function createSmokeArtifactMessages({ consecutiveInputs = false } = {}) 
   return [...users, assistant];
 }
 
+// ── 运行工作台（三卡片外壳的右侧第三张卡）冒烟夹具 ──────────────────────
+// 根会话里有一次委派（agent 工具调用 + 子智能体 agent_started 的 invocation 链接），
+// 子线程自己另有一棵树。全部本地装配，不需要后端。
+const smokeDelegationEvents = [
+  {
+    type: 'agent_started',
+    session_id: 'smoke-workbench-session',
+    call_id: 'smoke-root',
+    agent_id: 'orchestrator_agent',
+    payload: { phase: 'start', display_name: '编排 Agent' },
+  },
+  {
+    type: 'tool_call',
+    session_id: 'smoke-workbench-session',
+    call_id: 'smoke-delegate',
+    agent_id: 'orchestrator_agent',
+    payload: {
+      phase: 'start',
+      tool: 'agent',
+      round: 1,
+      input: { agent_name: 'water_level_analyst', child_agent_id: 'child-1', description: '统计近一周日均水位' },
+      lineage: { parent_call_id: 'smoke-root' },
+    },
+  },
+  {
+    type: 'agent_started',
+    session_id: 'smoke-workbench-session',
+    call_id: 'smoke-child-root',
+    agent_id: 'water_level_analyst',
+    payload: {
+      phase: 'start',
+      display_name: '水位分析',
+      invocation_call_id: 'smoke-delegate',
+      child_agent_id: 'child-1',
+      lineage: { parent_call_id: 'smoke-root' },
+    },
+  },
+  {
+    type: 'tool_result',
+    session_id: 'smoke-workbench-session',
+    call_id: 'smoke-delegate',
+    agent_id: 'orchestrator_agent',
+    payload: {
+      phase: 'end',
+      tool: 'agent',
+      ok: true,
+      elapsed_ms: 1840,
+      observation: '子智能体已完成：近一周日均水位 12.4m。',
+      lineage: { parent_call_id: 'smoke-root' },
+    },
+  },
+];
+
+const smokeChildExecutionEvents = [
+  {
+    type: 'agent_started',
+    session_id: 'smoke-workbench-session',
+    call_id: 'smoke-child-root',
+    agent_id: 'water_level_analyst',
+    payload: { phase: 'start', display_name: '水位分析' },
+  },
+  {
+    type: 'stream_output',
+    session_id: 'smoke-workbench-session',
+    run_id: 'smoke-child-run',
+    call_id: 'smoke-child-root',
+    agent_id: 'water_level_analyst',
+    payload: { phase: 'intent_complete', round: 1, content: '先读取水位数据，再统计日均值。' },
+  },
+  {
+    type: 'tool_call',
+    session_id: 'smoke-workbench-session',
+    call_id: 'smoke-child-tool-1',
+    agent_id: 'water_level_analyst',
+    payload: {
+      phase: 'start',
+      tool: 'execute_shell',
+      round: 1,
+      input: { command: 'python scripts/analyze.py --days 7' },
+      lineage: { parent_call_id: 'smoke-child-root' },
+    },
+  },
+  {
+    type: 'tool_result',
+    session_id: 'smoke-workbench-session',
+    call_id: 'smoke-child-tool-1',
+    agent_id: 'water_level_analyst',
+    payload: {
+      phase: 'end',
+      tool: 'execute_shell',
+      ok: true,
+      elapsed_ms: 640,
+      observation: '近一周日均水位 12.4m；异常站点：TC04。',
+      lineage: { parent_call_id: 'smoke-child-root' },
+    },
+  },
+  {
+    type: 'agent_ended',
+    session_id: 'smoke-workbench-session',
+    call_id: 'smoke-child-root',
+    agent_id: 'water_level_analyst',
+    payload: { phase: 'end', success: true, status: 'succeeded', display_name: '水位分析' },
+  },
+];
+
+/** 参与者清单：根会话 + 一条有内容的子线程 + 一条空线程（空态用）。 */
+export const SMOKE_WORKBENCH_PARTICIPANTS = [
+  {
+    participant_id: 'root',
+    parent_participant_id: null,
+    scope: 'root',
+    agent_name: null,
+    display_name: '主智能体',
+    thread_key: 'root',
+    lifecycle_status: 'active',
+    last_run_id: 'smoke-run',
+    last_run_status: 'running',
+    created_at: '2026-01-01T00:00:00.000Z',
+    updated_at: '2026-01-01T00:00:00.000Z',
+  },
+  {
+    participant_id: 'child-1',
+    parent_participant_id: 'root',
+    scope: 'child',
+    agent_name: 'water_level_analyst',
+    display_name: '水位分析',
+    thread_key: 'child:child-1',
+    lifecycle_status: 'active',
+    last_run_id: 'smoke-child-run',
+    last_run_status: 'running',
+    created_at: '2026-01-01T00:00:00.000Z',
+    updated_at: '2026-01-01T00:00:00.000Z',
+  },
+  {
+    participant_id: 'child-2',
+    parent_participant_id: 'root',
+    scope: 'child',
+    agent_name: 'report_writer',
+    display_name: '报告撰写',
+    thread_key: 'child:child-2',
+    lifecycle_status: 'completed',
+    last_run_id: 'smoke-child-run-2',
+    last_run_status: 'completed',
+    created_at: '2026-01-01T00:00:00.000Z',
+    updated_at: '2026-01-01T00:00:00.000Z',
+  },
+];
+
+/** 根会话 + 两条子线程的消息：子线程的执行过程随消息带在 executionTree 上。 */
+export function createSmokeWorkbenchMessages() {
+  const textParts = (text) => [{ type: 'text', text }];
+  const boundary = ({ id, seq, content, executionTree, runId }) => ({
+    role: 'user',
+    id,
+    seq,
+    content,
+    content_parts: textParts(content),
+    attachments: [],
+    finished: true,
+    run_id: runId,
+    has_execution: true,
+    executionTree,
+    executionStepsLoaded: true,
+    executionStepsLoading: false,
+    executionStepsLoadError: '',
+    _execState: null,
+    metadata: { run_id: runId },
+  });
+  const answer = ({ id, seq, content, runId }) => ({
+    role: 'assistant',
+    id,
+    seq,
+    content,
+    content_parts: textParts(content),
+    executionTree: { root: null },
+    status: [],
+    finished: true,
+    stopped: false,
+    has_execution: false,
+    executionStepsLoaded: true,
+    executionStepsLoading: false,
+    executionStepsLoadError: '',
+    run_id: runId,
+    metadata: { run_id: runId },
+    _execState: null,
+  });
+
+  return {
+    root: [
+      boundary({
+        id: 'smoke-workbench-root-task',
+        seq: 1,
+        content: '分析最近的监测水位，并让子智能体写一份小结。',
+        executionTree: buildProtocolExecutionTree(smokeDelegationEvents),
+        runId: 'smoke-run',
+      }),
+      answer({
+        id: 'smoke-workbench-root-answer',
+        seq: 2,
+        content: '已委派「水位分析」子智能体统计近一周日均水位，结果如下。',
+        runId: 'smoke-run',
+      }),
+    ],
+    'child-1': [
+      boundary({
+        id: 'smoke-workbench-child-task',
+        seq: 1,
+        content: '统计近一周的日均水位，并给出异常站点。',
+        executionTree: buildProtocolExecutionTree(smokeChildExecutionEvents),
+        runId: 'smoke-child-run',
+      }),
+      answer({
+        id: 'smoke-workbench-child-answer',
+        seq: 2,
+        content: '近一周日均水位 12.4m，TC04 站点连续两天超警戒线。',
+        runId: 'smoke-child-run',
+      }),
+    ],
+    'child-2': [],
+  };
+}
+
 /**
  * pending-image 冒烟：带图发送后待落库的"幽灵气泡"（图片识别进度展示）。
  * 历史消息 fixture；附件与识别事件由 armSmokePendingImageSend 装配。

@@ -396,10 +396,11 @@ const shots = [
         script: "const w = document.querySelector('.chat-messages-wrapper'); return Math.max(0, w.scrollHeight - w.scrollTop - w.clientHeight) <= 4",
         detail: "const w = document.querySelector('.chat-messages-wrapper'); return { scrollTop: w.scrollTop, scrollHeight: w.scrollHeight, clientHeight: w.clientHeight };" },
       { type: 'expectCount', selector: '.scroll-to-bottom-btn', count: 0 },
-      // 底部带与聊天区同色：卡片只挡住自己那块，这条带不实心的话正文会从卡片下方露出来
+      // 底部带与聊天区同色：卡片只挡住自己那块，这条带不实心的话正文会从卡片下方露出来。
+      // 三卡片外壳下"聊天区"就是对话卡本身（.chat-conversation-column），外壳容器是透明的。
       { type: 'expectExpression',
-        script: "const el = document.querySelector('.input-area-wrapper'); const shell = document.querySelector('.layout-main-host'); return !!shell && getComputedStyle(el).backgroundColor === getComputedStyle(shell).backgroundColor",
-        detail: "const el = document.querySelector('.input-area-wrapper'); const shell = document.querySelector('.layout-main-host'); return { wrapperBg: getComputedStyle(el).backgroundColor, shellBg: shell ? getComputedStyle(shell).backgroundColor : null };" },
+        script: "const el = document.querySelector('.input-area-wrapper'); const card = document.querySelector('.chat-conversation-column'); return !!card && getComputedStyle(el).backgroundColor === getComputedStyle(card).backgroundColor",
+        detail: "const el = document.querySelector('.input-area-wrapper'); const card = document.querySelector('.chat-conversation-column'); return { wrapperBg: getComputedStyle(el).backgroundColor, cardBg: card ? getComputedStyle(card).backgroundColor : null };" },
       // 收尾停在「正文从输入框身后经过」的位置，截屏用于肉眼核对底部没有露字
       { type: 'scrollToTop', selector: '.chat-messages-wrapper' },
     ],
@@ -438,11 +439,12 @@ const shots = [
     height: 844,
     actions: [
       { type: 'mockArtifactApi' },
-      { type: 'expectVisible', selector: '[aria-label="打开运行中心"]' },
-      { type: 'click', selector: '[aria-label="打开运行中心"]', waitMs: 400 },
-      { type: 'expectText', selector: '.runtime-overview', text: '运行中心' },
-      { type: 'expectText', selector: '.runtime-overview', text: 'Goal' },
-      { type: 'expectText', selector: '.runtime-overview', text: '后台任务' },
+      // 运行概览住在右侧工作台卡：窄屏是抽屉形态，先展开再断言内容
+      { type: 'expectVisible', selector: '[aria-label="展开运行工作台"]' },
+      { type: 'click', selector: '[aria-label="展开运行工作台"]', waitMs: 400 },
+      { type: 'expectVisible', selector: '.run-workbench__card' },
+      { type: 'expectText', selector: '.rw-agents', text: '智能体' },
+      { type: 'expectVisible', selector: '.runtime-overview' },
     ],
   },
   {
@@ -467,10 +469,104 @@ const shots = [
       { type: 'mockArtifactApi' },
       { type: 'expectText', selector: '.message-stream', text: 'smoke fixture' },
       { type: 'expectText', selector: '.workspace-file-card', text: 'water-level-report.csv' },
-      { type: 'expectVisible', selector: '[aria-label="打开运行中心"]' },
-      { type: 'click', selector: '[aria-label="打开运行中心"]', waitMs: 300 },
-      { type: 'expectText', selector: '.runtime-center-head__subtitle', text: '持续目标与后台任务' },
+      // 运行概览在右侧工作台卡里（表头只留展开入口）
+      { type: 'expectVisible', selector: '[aria-label="展开运行工作台"]' },
+      { type: 'click', selector: '[aria-label="展开运行工作台"]', waitMs: 300 },
+      { type: 'expectVisible', selector: '.run-workbench__card' },
       { type: 'expectVisible', selector: '.runtime-overview' },
+    ],
+  },
+  {
+    // 三卡片外壳：侧栏与窗口同色（不铺卡片），对话卡与运行工作台卡各是一张圆角卡，
+    // 卡间缝宽度 = 外壳内边距 = 工作台分隔条宽度。
+    name: 'chat-three-card-shell-desktop',
+    path: '/?__smoke=participants',
+    width: 1440,
+    height: 900,
+    actions: [
+      { type: 'expectVisible', selector: '.chat-conversation-column' },
+      { type: 'expectVisible', selector: '.run-workbench__card' },
+      { type: 'expectExpression',
+        script: "const shell = document.querySelector('.chat-layout'); const sidebar = document.querySelector('.sidebar'); const card = document.querySelector('.chat-conversation-column'); if (!shell || !sidebar || !card) return false; const gap = parseFloat(getComputedStyle(shell).paddingLeft); const side = sidebar.getBoundingClientRect(); const rect = card.getBoundingClientRect(); return gap > 0 && gap <= 12 && getComputedStyle(sidebar).backgroundColor === getComputedStyle(shell).backgroundColor && Math.abs((rect.left - side.right) - gap) <= 1",
+        detail: "const shell = document.querySelector('.chat-layout'); const sidebar = document.querySelector('.sidebar'); const card = document.querySelector('.chat-conversation-column'); const gap = parseFloat(getComputedStyle(shell).paddingLeft); const side = sidebar.getBoundingClientRect(); const rect = card.getBoundingClientRect(); return { gap, seam: rect.left - side.right, sidebarBg: getComputedStyle(sidebar).backgroundColor, shellBg: getComputedStyle(shell).backgroundColor };" },
+      { type: 'expectStyle', selector: '.chat-conversation-column', property: 'borderRadius', value: '12px' },
+      { type: 'expectStyle', selector: '.run-workbench__card', property: 'borderRadius', value: '12px' },
+      { type: 'expectExpression',
+        script: "const card = document.querySelector('.chat-conversation-column'); const workbench = document.querySelector('.run-workbench__card'); const handle = document.querySelector('.run-workbench-resize'); if (!card || !workbench || !handle) return false; const gap = parseFloat(getComputedStyle(document.querySelector('.chat-layout')).paddingLeft); const cardRect = card.getBoundingClientRect(); const workbenchRect = workbench.getBoundingClientRect(); return Math.abs(handle.getBoundingClientRect().width - gap) <= 1 && Math.abs(workbenchRect.left - cardRect.right - gap) <= 1 && getComputedStyle(workbench).backgroundColor === getComputedStyle(card).backgroundColor",
+        detail: "const card = document.querySelector('.chat-conversation-column'); const workbench = document.querySelector('.run-workbench__card'); const handle = document.querySelector('.run-workbench-resize'); const cardRect = card?.getBoundingClientRect(); const workbenchRect = workbench?.getBoundingClientRect(); return { handleWidth: handle?.getBoundingClientRect().width ?? null, seam: workbenchRect && cardRect ? workbenchRect.left - cardRect.right : null, cardBg: card ? getComputedStyle(card).backgroundColor : null, workbenchBg: workbench ? getComputedStyle(workbench).backgroundColor : null };" },
+      { type: 'expectText', selector: '.rw-agents', text: '水位分析' },
+      // 分隔条悬停只是"这里可以拖"的提示：亮一档的边框色，不用品牌强调色
+      // （缝一直在鼠标路径上，亮线在卡片之间过于抢眼）。
+      { type: 'hover', selector: '.run-workbench-resize' },
+      { type: 'expectExpression',
+        script: "const handle = document.querySelector('.run-workbench-resize'); if (!handle) return false; const probe = document.createElement('span'); probe.style.background = 'var(--color-border-hover)'; document.body.appendChild(probe); const expected = getComputedStyle(probe).backgroundColor; probe.remove(); return getComputedStyle(handle, '::after').backgroundColor === expected",
+        detail: "const handle = document.querySelector('.run-workbench-resize'); const probe = document.createElement('span'); probe.style.background = 'var(--color-border-hover)'; document.body.appendChild(probe); const expected = getComputedStyle(probe).backgroundColor; probe.remove(); const r = handle?.getBoundingClientRect(); const hit = r ? document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) : null; return { hovered: handle?.matches(':hover') ?? null, rect: r ? { left: r.left, top: r.top, width: r.width, height: r.height } : null, hit: hit ? hit.className || hit.tagName : null, hoverLine: handle ? getComputedStyle(handle, '::after').backgroundColor : null, borderHover: expected };" },
+    ],
+  },
+  {
+    // 子智能体线程只进第三张卡：主对话列始终是根会话
+    name: 'chat-workbench-thread-desktop',
+    path: '/?__smoke=participants&__tab=child-1',
+    width: 1440,
+    height: 900,
+    actions: [
+      { type: 'expectVisible', selector: '.rw-thread' },
+      { type: 'expectText', selector: '.rw-tab.is-active', text: '水位分析' },
+      { type: 'expectText', selector: '.rw-thread', text: '统计近一周的日均水位' },
+      { type: 'expectText', selector: '.rw-thread', text: '近一周日均水位 12.4m' },
+      { type: 'expectText', selector: '.chat-conversation-column', text: '让子智能体写一份小结' },
+      { type: 'expectCount', selector: '.chat-conversation-column .rw-thread', count: 0 },
+      { type: 'expectCount', selector: '.rw-tab', count: 2 },
+    ],
+  },
+  {
+    // 入口之二：执行过程里的委派行 → 展开详情 → 在运行工作台打开该子智能体的线程
+    name: 'chat-workbench-open-from-delegation-desktop',
+    path: '/?__smoke=participants',
+    width: 1440,
+    height: 900,
+    actions: [
+      { type: 'expectText', selector: '.chat-conversation-column', text: '让子智能体写一份小结' },
+      { type: 'click', selector: '.rw-collapse' },
+      { type: 'expectHidden', selector: '.run-workbench' },
+      { type: 'click', selector: '.assistant-step-row.is-agent' },
+      { type: 'expectVisible', selector: '.assistant-step-thread-link' },
+      { type: 'click', selector: '.assistant-step-thread-link' },
+      { type: 'expectVisible', selector: '.rw-thread' },
+      { type: 'expectText', selector: '.rw-tab.is-active', text: '水位分析' },
+      { type: 'expectText', selector: '.rw-thread', text: '近一周日均水位 12.4m' },
+    ],
+  },
+  {
+    // 收起/展开：面板收起后入口落在对话卡表头，展开回到同一条线程
+    name: 'chat-workbench-collapse-desktop',
+    path: '/?__smoke=participants&__tab=child-1',
+    width: 1440,
+    height: 900,
+    actions: [
+      { type: 'expectVisible', selector: '.rw-thread' },
+      { type: 'click', selector: '.rw-collapse' },
+      // 面板收起：整列宽度归零，省下的宽度还给对话卡（卡片回到外壳右内边距处）
+      { type: 'expectHidden', selector: '.run-workbench' },
+      { type: 'expectExpression',
+        script: "const card = document.querySelector('.chat-conversation-column'); const shell = document.querySelector('.chat-layout'); if (!card || !shell) return false; const gap = parseFloat(getComputedStyle(shell).paddingLeft); return Math.abs((window.innerWidth - gap) - card.getBoundingClientRect().right) <= 1",
+        detail: "const card = document.querySelector('.chat-conversation-column'); const shell = document.querySelector('.chat-layout'); return { cardRight: card?.getBoundingClientRect().right ?? null, expected: window.innerWidth - parseFloat(getComputedStyle(shell).paddingLeft) };" },
+      { type: 'click', selector: '[aria-label="展开运行工作台"]' },
+      { type: 'expectVisible', selector: '.rw-thread' },
+      { type: 'expectText', selector: '.rw-tab.is-active', text: '水位分析' },
+    ],
+  },
+  {
+    // 窄屏：工作台退化为右侧抽屉，不参与三列布局
+    name: 'chat-workbench-mobile-drawer',
+    path: '/?__smoke=participants&__tab=child-1',
+    width: 390,
+    height: 844,
+    actions: [
+      { type: 'expectVisible', selector: '.rw-thread' },
+      { type: 'expectExpression',
+        script: "const card = document.querySelector('.run-workbench__card'); if (!card) return false; const rect = card.getBoundingClientRect(); return Math.abs(rect.right - window.innerWidth) <= 2 && rect.width > 200 && rect.width < window.innerWidth",
+        detail: "const card = document.querySelector('.run-workbench__card'); const rect = card?.getBoundingClientRect(); return { right: rect?.right ?? null, width: rect?.width ?? null, viewportWidth: window.innerWidth };" },
     ],
   },
   {
@@ -573,10 +669,11 @@ const shots = [
     height: 900,
     actions: [
       { type: 'mockArtifactApi' },
-      { type: 'click', selector: '[aria-label="打开运行中心"]', waitMs: 250 },
-      { type: 'expectText', selector: '.runtime-overview', text: '运行中心' },
-      { type: 'expectText', selector: '.runtime-overview', text: '后台任务' },
-      { type: 'expectTop', selector: '.runtime-overview-header', maxTop: 120 },
+      { type: 'click', selector: '[aria-label="展开运行工作台"]', waitMs: 250 },
+      { type: 'expectVisible', selector: '.runtime-overview' },
+      { type: 'expectText', selector: '.rw-agents', text: '智能体' },
+      // 面板是三卡片里的第三列：卡顶与对话卡同高，不悬在窗口上沿之下
+      { type: 'expectTop', selector: '.run-workbench__card', maxTop: 20 },
     ],
   },
   {
@@ -601,7 +698,7 @@ const shots = [
     actions: [
       { type: 'mockArtifactApi' },
       { type: 'expectText', selector: '.message-stream', text: 'smoke fixture' },
-      { type: 'expectVisible', selector: '[aria-label="打开运行中心"]' },
+      { type: 'expectVisible', selector: '[aria-label="展开运行工作台"]' },
     ],
   },
   {

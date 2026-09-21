@@ -83,12 +83,17 @@ export function useSessionMessages(deps) {
   /**
    * 只负责消息列表与缓存，不负责 Session 生命周期。
    * 进入/切换会话时由 WebSocket 首帧 session.runtime 决定后续加载策略。
+   *
+   * @param {Object} [options]
+   * @param {boolean} [options.viewEffects] 加载完成后是否接管主对话列的滚动与聚焦。
+   *   运行工作台里的子智能体线程自己滚自己，传 false。
    */
   const loadSessionMessages = async (sessionId, {
     silent = false,
     participantId = 'root',
     preserveStream = false,
     bypassCache = false,
+    viewEffects = true,
     reconcileMode = preserveStream ? 'live' : 'authoritative',
   } = {}) => {
     if (!sessionId) return null;
@@ -96,9 +101,11 @@ export function useSessionMessages(deps) {
     const loadKey = cacheKey(sessionId, targetParticipantId);
     const seq = (messageLoadSeqByKey.get(loadKey) || 0) + 1;
     messageLoadSeqByKey.set(loadKey, seq);
+    // 主对话列永远是根会话，所以根加载只认会话；子参与者加载额外认"工作台还在看它"，
+    // 避免用户在加载途中切走页签后，迟到的响应把线程写回一个已经不在看的视图。
     const isCurrent = () => messageLoadSeqByKey.get(loadKey) === seq
       && currentSessionId.value === sessionId
-      && (silent || selectedParticipantId.value === targetParticipantId);
+      && (silent || targetParticipantId === 'root' || selectedParticipantId.value === targetParticipantId);
     let scrollRestoreStarted = false;
     let scrollRestoreEnded = false;
     const endScrollRestore = () => {
@@ -131,14 +138,16 @@ export function useSessionMessages(deps) {
         messagesLoading.value = false;
         await nextTick();
         if (!isCurrent()) return;
-        await deps.scrollToBottom(true, 'auto');
-        if (!isCurrent()) return;
-        await deps.waitForScrollLayout();
-        if (!isCurrent()) return;
-        await deps.scrollToBottom(true, 'auto');
-        if (!isCurrent()) return;
+        if (viewEffects) {
+          await deps.scrollToBottom(true, 'auto');
+          if (!isCurrent()) return;
+          await deps.waitForScrollLayout();
+          if (!isCurrent()) return;
+          await deps.scrollToBottom(true, 'auto');
+          if (!isCurrent()) return;
+        }
         endScrollRestore();
-        deps.focusInput();
+        if (viewEffects) deps.focusInput();
         return;
       }
       const client = deps.chatSdkClient;
@@ -216,14 +225,16 @@ export function useSessionMessages(deps) {
       await nextTick();
       await nextTick();
       if (!isCurrent()) return;
-      await deps.scrollToBottom(true, 'auto');
-      if (!isCurrent()) return;
-      await deps.waitForScrollLayout();
-      if (!isCurrent()) return;
-      await deps.scrollToBottom(true, 'auto');
-      if (!isCurrent()) return;
+      if (viewEffects) {
+        await deps.scrollToBottom(true, 'auto');
+        if (!isCurrent()) return;
+        await deps.waitForScrollLayout();
+        if (!isCurrent()) return;
+        await deps.scrollToBottom(true, 'auto');
+        if (!isCurrent()) return;
+      }
       endScrollRestore();
-      deps.focusInput();
+      if (viewEffects) deps.focusInput();
       if (!silent && !preserveStream) {
         await deps.loadContextSnapshot(sessionId);
         // 手动重载消息会替换 messages，active run 的执行树不在聊天消息接口中；
@@ -239,6 +250,7 @@ export function useSessionMessages(deps) {
       deps.showToast('加载会话失败', () => loadSessionMessages(sessionId, {
         participantId: targetParticipantId,
         preserveStream,
+        viewEffects,
         reconcileMode,
       }));
     } finally {

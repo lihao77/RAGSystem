@@ -126,6 +126,19 @@
               </div>
             </div>
           </template>
+
+          <!-- 委派行的出口：子智能体线程只在运行工作台里渲染，主对话列不展开它。
+               委派既可能是 agent 工具调用（走上面的工具详情），也可能是未匹配到
+               调用的引用节点（走任务/结果块），两种形态都给同一个入口。 -->
+          <button
+            v-if="agentParticipantId"
+            type="button"
+            class="assistant-step-thread-link"
+            @click.stop="openAgentThread"
+          >
+            <PanelRightOpen aria-hidden="true" />
+            在运行工作台中查看线程
+          </button>
         </div>
       </div>
 
@@ -145,8 +158,8 @@
 </template>
 
 <script setup>
-import { Brain, ChevronDown } from 'lucide-vue-next';
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
+import { Brain, ChevronDown, PanelRightOpen } from 'lucide-vue-next';
+import { computed, inject, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import WorkPanelTimelineIcon from '../workpanel/WorkPanelTimelineIcon.vue';
 import {
   getToolDisplayName,
@@ -195,17 +208,29 @@ const hasDetails = computed(() => Boolean(
   || detailResult.value,
 ));
 const expandable = computed(() => hasDetails.value || hasChildren.value);
+// 委派行指向的参与者：执行树把子智能体挂成 linked_agent_call，未匹配上的引用节点
+// 自带 participant_id，创建型委派的参数里是 child_agent_id。三者同一身份。
+const agentParticipantId = computed(() => (
+  props.node.participant_id
+  || props.node.linked_agent_call?.participant_id
+  || props.node.agent_operation?.child_agent_id
+  || props.node.arguments?.child_agent_id
+  || ''
+));
 const agentAccent = computed(() => (
   isAgentNode.value ? agentNodeAccentColor({
     ...props.node,
-    participant_id: props.node.participant_id
-      || props.node.linked_agent_call?.participant_id
-      || props.node.agent_operation?.child_agent_id,
+    participant_id: agentParticipantId.value,
     agent_name: props.node.agent_name
       || props.node.linked_agent_call?.agent_name
       || props.node.agent_operation?.agent_name,
   }) : ''
 ));
+
+const messageContext = inject('messageContext', null);
+const openAgentThread = () => {
+  if (agentParticipantId.value) messageContext?.openParticipantThread?.(agentParticipantId.value);
+};
 // 缩进步长 = 步骤图标宽 + 行内 gap，取值与样式里的 .assistant-step-icon / .assistant-step-row 一致。
 // 三个缩进公式都由它推出：行首、展开体（再让一个步长，与步骤文字对齐）、
 // 思考竖线（落在图标中心，即步长起点 + 半个图标）。
@@ -719,6 +744,35 @@ function truncate(value, maxLength) {
 .assistant-step-detail-text.is-error {
   background: rgba(var(--color-error-rgb), 0.1);
   color: var(--color-error);
+}
+
+/* 委派行 → 运行工作台：详情里的出口，点开就是该子智能体的线程页签。 */
+.assistant-step-thread-link {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 9px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 11.5px;
+  font-weight: 550;
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-default), color var(--duration-fast) var(--ease-default);
+}
+
+.assistant-step-thread-link:hover {
+  background: var(--color-hover-overlay-md);
+  color: var(--color-text-primary);
+}
+
+.assistant-step-thread-link svg {
+  width: 13px;
+  height: 13px;
+  flex: 0 0 auto;
 }
 
 @media (prefers-reduced-motion: reduce) {

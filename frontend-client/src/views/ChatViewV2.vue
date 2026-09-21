@@ -7,8 +7,6 @@
         :session-title="currentSessionTitle"
         :is-exporting-session="isExportingSession"
         :scrolled="topControlsBarScrolled"
-        :goal-state="goalState"
-        :task-state="backgroundTaskState"
         :team="currentSessionTeam"
         :entry-agent="pendingEntryAgent"
         :workspace-root="pendingWorkspaceRoot"
@@ -16,14 +14,11 @@
         :execution-status-text="executionStatusText"
         :show-execution-status="showExecutionPill"
         :execution-observability="runtimeObservability"
-        :selected-participant="selectedParticipant"
-        :participants="participants"
-        :selected-participant-id="selectedParticipantId"
-        :approvals="chatApprovalQueue"
+        :workbench-open="workbenchOpen"
         @open-mobile-sidebar="openMobileSidebar"
         @export-session="exportCurrentSession"
         @open-file-changes="fileChangesOpen = true"
-        @select-participant="selectParticipant"
+        @toggle-workbench="toggleWorkbench"
       />
       <div class="chat-messages-wrapper" ref="messagesRef" @scroll="handleScroll">
         <ChatMessageList
@@ -36,8 +31,7 @@
           @citation-click="openCitation"
         >
           <template #empty>
-            <ChatEmptyState v-if="isRootParticipant" />
-            <ParticipantThreadEmpty v-else :participant="selectedParticipant" />
+            <ChatEmptyState />
           </template>
           <template #tail>
             <Transition name="pending-image-fade">
@@ -53,7 +47,7 @@
         }"
       >
         <transition name="scroll-btn-fade">
-          <LiquidGlass v-if="isRootParticipant && showScrollToBottomButton" :width="40" :height="40" :radius="999"
+          <LiquidGlass v-if="showScrollToBottomButton" :width="40" :height="40" :radius="999"
             extra-filter="blur(2px) contrast(1.15) brightness(1.06) saturate(1.1)"
             class="scroll-to-bottom-btn" @click="onScrollToBottomClick"
             :title="unreadCount > 0 ? `${unreadCount} 条新消息，滚动到底部` : '滚动到底部'"
@@ -68,7 +62,7 @@
             :approval-queue="chatApprovalQueue"
             :approval-submitting-id="approvalSubmittingId"
             :pending-user-input="pendingUserInput"
-            :pending-followups="isRootParticipant ? currentPendingFollowups : []"
+            :pending-followups="currentPendingFollowups"
             @edit-followup="takeBackPendingFollowup"
             @delete-followup="deletePendingFollowup"
             :response-allowed="canRespondInteraction"
@@ -77,7 +71,7 @@
             @user-input-cancel="handleUserInputCancel"
           />
           <ChatComposer
-            v-else-if="isRootParticipant"
+            v-else
             key="composer"
             ref="chatComposerRef"
             v-model="inputMessage"
@@ -118,6 +112,13 @@
       </div>
       </div>
     </div><!-- end .chat-conversation-column -->
+
+    <!-- 第三张卡：子智能体线程与运行概览。主对话列始终是根会话，子线程只在这里承载。 -->
+    <RunWorkbench
+      :task-state="backgroundTaskState"
+      :goal-state="goalState"
+      @select-participant="selectParticipant"
+    />
     </main>
 
 
@@ -209,8 +210,8 @@ import { useToast } from '../composables/useToast.js';
 import ChatMessageList from '../components/chat/ChatMessageList.vue';
 import ChatEmptyState from '../components/chat/ChatEmptyState.vue';
 import SessionContextBar from '../components/chat/SessionContextBar.vue';
-import ParticipantThreadEmpty from '../components/chat/ParticipantThreadEmpty.vue';
 import ChatInteractionHost from '../components/chat/ChatInteractionHost.vue';
+import RunWorkbench from '../components/workpanel/RunWorkbench.vue';
 
 import { useSessionBackgroundTasks } from '../composables/useSessionBackgroundTasks.js';
 import { useSessionGoal } from '../composables/useSessionGoal.js';
@@ -242,10 +243,8 @@ const {
   contextUsage,
   pendingCommands,
   currentPendingFollowups,
-  selectedParticipantId,
+  workbenchOpen,
 } = storeToRefs(sessionRunStore);
-
-const isRootParticipant = computed(() => selectedParticipantId.value === 'root');
 
 const currentSessionTitle = computed(() => {
   if (!currentSessionId.value) return '新聊天';
@@ -347,7 +346,6 @@ const showToast = (message, actionOrType = null, actionLabel = '重试') => {
 
 const {
   participants,
-  selectedParticipant,
   loadSessionParticipants,
 } = useSessionParticipants({ chatSdkClient, showToast });
 
@@ -403,16 +401,29 @@ const {
   beginInitialScrollRestore,
   endInitialScrollRestore,
 });
+/**
+ * 聚焦某个参与者：把它的线程开成运行工作台页签（root 即概览页签）。
+ * 主对话列不参与切换——根会话永远留在那里，子线程只进右侧第三张卡。
+ */
 const selectParticipant = async (participantId) => {
   const next = typeof participantId === 'string' && participantId.trim() ? participantId.trim() : 'root';
   if (!currentSessionId.value || !participants.value.some(item => item?.participant_id === next)) return;
-  if (!sessionRunStore.setSelectedParticipant(next)) return;
+  sessionRunStore.openWorkbenchParticipant(next);
+  if (next === 'root') return;
+  // 已经拉过内容的线程直接切过去：它由实时事件保持更新，不必每次点开都再拉一遍。
+  if (sessionRunStore.workbenchThreadMessages.length > 0) return;
+  // 静默加载：主对话列的加载态/滚动/聚焦都属于根会话，别被子线程的取数牵动。
   await loadSessionMessages(currentSessionId.value, {
     participantId: next,
+    silent: true,
     preserveStream: true,
+    viewEffects: false,
   });
-  await nextTick();
-  await scrollToBottom(true, 'auto');
+};
+
+const toggleWorkbench = () => {
+  if (workbenchOpen.value) sessionRunStore.closeWorkbench();
+  else sessionRunStore.openWorkbench();
 };
 
 const { loadContextSnapshot, clearExecutionState: _clearExecutionStateBase } = useSessionRuntimeStatus({
@@ -674,8 +685,6 @@ const {
   messages,
   showToast,
   sessionRuntime,
-  // 压缩横线只属于根会话视图（root 压缩期间切到子参与者视图时不显示）。
-  isRootView: isRootParticipant,
 });
 
 // "压缩中"呼吸点：帧驱动瞬态 + maintenance(compact) 租约派生（刷新后事件态丢失，
@@ -741,6 +750,8 @@ const messageContext = reactive({
   rateMessage,
   getMessageFeedback: (messageId) => messageFeedbackMap[messageId] || null,
   ensureExecutionStepsLoaded,
+  // 执行过程里的委派行 → 在运行工作台打开该子智能体的线程（子线程只在那张卡里渲染）。
+  openParticipantThread: selectParticipant,
   rollbackAndRetry,
   currentSessionId,
   isLoading,
@@ -829,6 +840,26 @@ watch(
       contextUsage.value = null;
       await nextTick();
       resetScrollPosition(false);
+      return;
+    }
+
+    if (import.meta.env.DEV && route.query?.__smoke === 'participants') {
+      const { createSmokeWorkbenchMessages, SMOKE_WORKBENCH_PARTICIPANTS } = await import('../utils/smokeFixtures');
+      disconnectSessionWS();
+      invalidateActiveStream();
+      clearExecutionState();
+      currentSessionId.value = 'smoke-workbench-session';
+      // 参与者清单与两条子线程都是本地夹具：工作台页签和线程渲染都不依赖后端。
+      sessionRunStore.setParticipants(SMOKE_WORKBENCH_PARTICIPANTS);
+      const seeded = createSmokeWorkbenchMessages();
+      for (const [participantId, list] of Object.entries(seeded)) {
+        sessionRunStore.setParticipantMessages(participantId, list);
+      }
+      // ?__tab=child-1 直接落在子线程页签上；缺省展开概览页签。
+      sessionRunStore.openWorkbenchParticipant(String(route.query.__tab || 'root'));
+      contextUsage.value = { used: 1840, max: 8192 };
+      await nextTick();
+      scrollToBottom(true);
       return;
     }
 

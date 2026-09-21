@@ -69,3 +69,40 @@ export function statusLabel(status) {
     pending: '待执行',
   }[status] || status || '就绪';
 }
+
+// 参与者状态文字只留给需要被看见的异常：运行中用脉冲点表达，不必再写字。
+const PARTICIPANT_TEXT_STATUSES = new Set(['failed', 'interrupted', 'cancelled', 'suspended', 'blocked']);
+
+/** 参与者当前状态：Run 级优先，回落到生命周期。 */
+export function participantStatus(participant) {
+  return participant?.last_run_status || participant?.lifecycle_status || '';
+}
+
+export function isLiveParticipant(participant) {
+  return participantStatus(participant) === 'running';
+}
+
+export function participantName(participant) {
+  if (!participant) return '';
+  return participant.display_name
+    || participant.agent_name
+    || (participant.scope === 'root' ? '主智能体' : '智能体');
+}
+
+export function participantMeta(participant) {
+  if (!participant) return '';
+  return participant.scope === 'root' ? '主智能体' : (participant.agent_name || '子智能体');
+}
+
+/** 需要在清单里写字的状态（失败/中断/阻塞…），正常态返回空串。 */
+export function participantStatusText(participant) {
+  const status = participantStatus(participant);
+  return PARTICIPANT_TEXT_STATUSES.has(status) ? statusLabel(status) : '';
+}
+
+/** root 在前，其余保持服务端顺序：运行概览弹层与运行工作台共用同一份排序。 */
+export function orderParticipants(items = []) {
+  const list = (Array.isArray(items) ? items : []).filter(item => item?.participant_id);
+  const root = list.find(item => item.scope === 'root') || list.find(item => item.participant_id === 'root');
+  return root ? [root, ...list.filter(item => item !== root)] : list;
+}
