@@ -231,6 +231,9 @@ export const MCP_TOOL_RETURNS = {
   },
 };
 
+/** MCP 工具调用方准入:除 agent 直调外,允许 execute_code 沙箱经 call_tool 编排调用(SDK Tool 与 HTTP /tools 共用)。 */
+export const MCP_TOOL_ALLOWED_CALLERS = ["direct", "code_execution"] as const;
+
 export function toRuntimeMcpTool(serverName: string, tool: McpTool, riskLevel: string, toolRiskOverrides?: Record<string, string>, trusted = true): RuntimeMcpToolDefinition {
   const annotations = tool.annotations;
   // 风险优先级:per-tool 覆盖 > server 级 risk_level;annotations 是 hint(SDK 明示不可信),

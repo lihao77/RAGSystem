@@ -1,4 +1,5 @@
 import type { McpService } from "../mcp-service.js";
+import { MCP_TOOL_ALLOWED_CALLERS } from "../services/mcp/config-normalization.js";
 import { buildTool, type Tool, type ToolExecContext } from "@ragsystem/agent-sdk";
 import { toolError, toolSuccess } from "@ragsystem/backend-core/services/agent/sdk/tool-results.js";
 
@@ -18,7 +19,7 @@ export function createMcpTools(deps: McpToolDeps): Tool[] {
       source: "mcp",
       category: "mcp",
       riskLevel: definition.riskLevel,
-      allowedCallers: ["direct"],
+      allowedCallers: [...MCP_TOOL_ALLOWED_CALLERS],
       ...(definition.usage_contract ? { usageContract: definition.usage_contract } : {}),
       ...(definition.returns ? { returns: definition.returns } : {}),
       // annotations 是 server 自声明 hint:readOnlyHint+idempotentHint 才允许并发,否则保守串行。
@@ -44,7 +45,7 @@ function buildReadMcpResourceTool(mcp: McpService, enabledServers: string[]): To
     source: "mcp",
     category: "mcp",
     riskLevel: "low",
-    allowedCallers: ["direct"],
+    allowedCallers: [...MCP_TOOL_ALLOWED_CALLERS],
     inputJSONSchema: {
       type: "object",
       additionalProperties: false,

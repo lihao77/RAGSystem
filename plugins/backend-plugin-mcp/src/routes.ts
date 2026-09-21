@@ -14,6 +14,7 @@ import { HttpError, httpErrorFrom } from "@ragsystem/backend-core/utils/errors.j
 import { isRecord } from "@ragsystem/backend-core/utils/guards.js";
 import { requireTenantAdmin, requireTenantMember } from "@ragsystem/backend-core/routes/tenant-role.js";
 import { MCP_RUNTIME_CAPABILITY } from "./capability.js";
+import { MCP_TOOL_ALLOWED_CALLERS } from "./services/mcp/config-normalization.js";
 
 interface ServerParams {
   serverName: string;
@@ -353,7 +354,7 @@ function normalizeMcpToolDefinition(tool: unknown): Record<string, unknown> {
     name: item.name ?? "",
     description: item.description ?? "",
     parameters: isRecord(item.parameters) ? item.parameters : { type: "object", properties: {} },
-    allowed_callers: ["direct"],
+    allowed_callers: [...MCP_TOOL_ALLOWED_CALLERS],
     source: typeof item.source === "string" ? item.source : "mcp",
   };
   if (Array.isArray(item.usage_contract)) {

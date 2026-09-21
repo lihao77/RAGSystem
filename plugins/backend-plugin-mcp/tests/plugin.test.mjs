@@ -63,10 +63,12 @@ test("MCP tool visibility follows enabled server config", () => {
     readResource: async () => [],
   };
   assert.deepEqual(createMcpTools({ mcp: service, enabledServers: [] }), []);
-  assert.deepEqual(
-    createMcpTools({ mcp: service, enabledServers: ["docs"] }).map((tool) => tool.name),
-    ["mcp__docs__search", "read_mcp_resource"],
-  );
+  const tools = createMcpTools({ mcp: service, enabledServers: ["docs"] });
+  assert.deepEqual(tools.map((tool) => tool.name), ["mcp__docs__search", "read_mcp_resource"]);
+  // 调用方准入:server 工具与 read_mcp_resource 都允许 execute_code 沙箱经 call_tool 调用
+  for (const tool of tools) {
+    assert.deepEqual(tool.allowedCallers, ["direct", "code_execution"]);
+  }
 });
 
 test("MCP agent capability provider exposes connected tool names and live inventory detail", async () => {
