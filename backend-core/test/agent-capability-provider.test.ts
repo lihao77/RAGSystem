@@ -59,7 +59,9 @@ describe("agent capability provider contract", () => {
     ]);
     const providers = listAgentCapabilityProviders(registry);
     expect(providers.map((provider) => typeof provider.getItemDetail)).toEqual(["function", "undefined"]);
-    expect(providers[0].getItemDetail?.("github")).resolves.toEqual({ name: "github", detail: { tools: [] } });
-    expect(providers[0].getItemDetail?.("missing")).resolves.toBeNull();
+    const [mcpProvider] = providers;
+    expect(mcpProvider).toBeDefined();
+    expect(mcpProvider?.getItemDetail?.("github")).resolves.toEqual({ name: "github", detail: { tools: [] } });
+    expect(mcpProvider?.getItemDetail?.("missing")).resolves.toBeNull();
   });
 });
