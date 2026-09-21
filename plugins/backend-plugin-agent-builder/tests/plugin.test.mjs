@@ -741,6 +741,9 @@ test("Builder template migration adds Skill authoring tools without replacing us
         "publish_agent_draft",
         "try_agent_draft",
         "collect_team_failures",
+        "execute_code",
+        "execute_shell",
+        "view_image",
       ],
     );
     assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /^Keep this custom instruction\./);
@@ -751,7 +754,36 @@ test("Builder template migration adds Skill authoring tools without replacing us
     assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /artifacts parameter/);
     assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /Capability discovery protocol:/);
     assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /get_capability_detail/);
-    assert.equal(configs.builder_orchestrator.custom_params.behavior.builder_template_version, 16);
+    assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /Prototyping protocol:/);
+    assert.equal(configs.builder_orchestrator.custom_params.behavior.builder_template_version, 17);
+    assert.equal(await ensureAgentBuilderTeam(fixture.agentConfig), false);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("Builder template migration v16 to v17 adds orchestrator prototyping tools", async () => {
+  const fixture = await createFixture();
+  try {
+    const legacy = buildAgentBuilderTeam();
+    const orchestrator = legacy.builder_orchestrator;
+    orchestrator.tools.enabled_tools = orchestrator.tools.enabled_tools.filter(
+      (tool) => !["execute_code", "execute_shell", "view_image"].includes(tool),
+    );
+    orchestrator.custom_params.behavior.system_prompt = "Keep this custom v16 instruction.";
+    orchestrator.custom_params.behavior.builder_template_version = 16;
+    await fixture.agentConfig.applyTeamPayload(AGENT_BUILDER_TEAM_NAME, legacy);
+
+    assert.equal(await ensureAgentBuilderTeam(fixture.agentConfig), true);
+    const configs = fixture.agentConfig.listConfigs({ teamName: AGENT_BUILDER_TEAM_NAME });
+    const migrated = configs.builder_orchestrator.tools.enabled_tools;
+    for (const tool of ["execute_code", "execute_shell", "view_image"]) {
+      assert.equal(migrated.includes(tool), true, `orchestrator should gain ${tool}`);
+    }
+    assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /^Keep this custom v16 instruction\./);
+    assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /Prototyping protocol:/);
+    assert.equal(configs.builder_orchestrator.custom_params.behavior.builder_template_version, 17);
+    // 形态齐备后迁移幂等：再次启动不再改写快照。
     assert.equal(await ensureAgentBuilderTeam(fixture.agentConfig), false);
   } finally {
     fixture.cleanup();
@@ -772,7 +804,7 @@ test("Builder template migration adds the workspace draft workflow", async () =>
     assert.match(orchestrator.custom_params.behavior.system_prompt, /save_skill/);
     assert.match(orchestrator.custom_params.behavior.system_prompt, /current Session workspace/);
     assert.match(orchestrator.custom_params.behavior.system_prompt, /execute_skill_script can run only a saved, visible Skill/);
-    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 16);
+    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 17);
   } finally {
     fixture.cleanup();
   }
@@ -792,7 +824,7 @@ test("Builder template migration upgrades a version 7 Skill authoring prompt", a
     assert.match(orchestrator.custom_params.behavior.system_prompt, /^Keep this version 7 instruction\./);
     assert.match(orchestrator.custom_params.behavior.system_prompt, /Skill authoring runtime contract:/);
     assert.match(orchestrator.custom_params.behavior.system_prompt, /current Skill runtime executes Python only/);
-    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 16);
+    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 17);
   } finally {
     fixture.cleanup();
   }
@@ -820,7 +852,7 @@ test("Builder template migration removes stale Artifact authoring instructions a
     assert.doesNotMatch(prompt, /kind=skill Artifact|\[artifact:|RAGSYSTEM_ARTIFACT_OUTPUT_DIR|submit_skill_artifact|create_skill_artifact|search_skill_drafts/i);
     assert.equal(orchestrator.tools.enabled_tools.includes("submit_skill_artifact"), false);
     assert.equal(orchestrator.tools.enabled_tools.includes("create_skill_artifact"), false);
-    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 16);
+    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 17);
   } finally {
     fixture.cleanup();
   }
@@ -1253,7 +1285,7 @@ test("Builder template migration replaces the v10 draft workflow sentence in pla
     assert.match(prompt, /blueprint\.schema\.md/);
     assert.match(prompt, /artifacts parameter/);
     assert.doesNotMatch(prompt, /then call publish; publish performs validation and synchronization automatically/);
-    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 16);
+    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 17);
     assert.equal(await ensureAgentBuilderTeam(fixture.agentConfig), false);
   } finally {
     fixture.cleanup();
@@ -1311,7 +1343,7 @@ test("Builder template migration appends the Team design norms from version 11",
     assert.match(prompt, /Team design norms:/);
     assert.match(prompt, /most capable generalist/);
     assert.match(prompt, /Never design a router-only entry Agent/);
-    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 16);
+    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 17);
     assert.equal(await ensureAgentBuilderTeam(fixture.agentConfig), false);
   } finally {
     fixture.cleanup();
@@ -1354,7 +1386,7 @@ test("Builder template migration appends the domain exploration and layering pro
     assert.match(prompt, /never invent domain facts/);
     assert.match(prompt, /Experience layering:/);
     assert.match(prompt, /blueprint\.json's acceptance field/);
-    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 16);
+    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 17);
     assert.equal(await ensureAgentBuilderTeam(fixture.agentConfig), false);
   } finally {
     fixture.cleanup();
@@ -1635,7 +1667,7 @@ test("Builder template v14 migrates the trial protocol and tool from version 13"
     assert.match(prompt, /Trial protocol:/);
     assert.match(prompt, /evidence, not a gate/);
     assert.ok(orchestrator.tools.enabled_tools.includes("try_agent_draft"));
-    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 16);
+    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 17);
     assert.equal(await ensureAgentBuilderTeam(fixture.agentConfig), false);
   } finally {
     fixture.cleanup();
@@ -2102,7 +2134,7 @@ test("Builder template v15 migrates the failure feedback protocol and tool from 
     assert.match(orchestrator.custom_params.behavior.system_prompt, /^Keep this custom instruction./);
     assert.match(orchestrator.custom_params.behavior.system_prompt, /Failure feedback protocol:/);
     assert.ok(orchestrator.tools.enabled_tools.includes("collect_team_failures"));
-    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 16);
+    assert.equal(orchestrator.custom_params.behavior.builder_template_version, 17);
     assert.equal(await ensureAgentBuilderTeam(fixture.agentConfig), false);
   } finally {
     fixture.cleanup();

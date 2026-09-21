@@ -5,7 +5,7 @@ import { isRecord } from "@ragsystem/backend-core/utils/guards.js";
 
 /** Reserved tenant Team installed by the Agent Builder plugin. */
 export const AGENT_BUILDER_TEAM_NAME = "agent-builder";
-export const AGENT_BUILDER_TEAM_TEMPLATE_VERSION = 16;
+export const AGENT_BUILDER_TEAM_TEMPLATE_VERSION = 17;
 
 const CAPABILITY_INVENTORY_TOOL = "list_agent_builder_capabilities";
 const CAPABILITY_DETAIL_TOOL = "get_capability_detail";
@@ -72,6 +72,20 @@ const FAILURE_FEEDBACK_PROMPT = [
   "A sample flagged entry_router_only means the entry agent delegated while producing almost no content of its own—redesign its responsibilities per the team design norms.",
   "No samples is a valid result: do not invent lessons, design from domain exploration alone.",
 ].join(" ");
+/** v17：编排者自试用工具——设计前用真实执行验证假设，而不是凭空出蓝图。 */
+const PROTOTYPING_TOOLS = [
+  "execute_code",
+  "execute_shell",
+  "view_image",
+] as const;
+
+const PROTOTYPING_PROTOCOL_MARKER = "Prototyping protocol:";
+const PROTOTYPING_PROTOCOL_PROMPT = [
+  PROTOTYPING_PROTOCOL_MARKER,
+  "before committing a design to the blueprint, verify uncertain assumptions yourself: use execute_code and execute_shell in the Session workspace to run representative samples against real data, reproduce failing inputs, and check data formats, commands, and tool behavior; use view_image to inspect images the user provides as domain material.",
+  "First-hand evidence from these runs is domain exploration: record what actually worked and what failed, and let it drive the design instead of speculation.",
+  "Respect the platform's boundaries: execution is for exploration inside the Session workspace, never for bypassing Tool risk controls, publishing drafts, or changing runtime files.",
+].join(" ");
 const LEGACY_SKILL_AUTHORING_PROMPT = `Use list_skill_drafts, with a query when needed, to find reusable Skill drafts. Use get_skill_draft to copy a draft into the current Session workspace, or create_skill_draft to create one from scratch. Edit SKILL.md and its resources with file tools, then call publish_skill_draft. Publishing validates the local bundle; on failure, fix the files and retry. Do not call separate validate or approve tools. A Skill is not available to Agents until publication succeeds.`;
 const SKILL_AUTHORING_PROMPT_MARKER = "Skill authoring runtime contract:";
 const SKILL_AUTHORING_PROMPT = [
@@ -121,6 +135,7 @@ export function buildAgentBuilderTeam(): Record<string, AgentConfig> {
         "grep",
         "web_fetch",
         "todo_write",
+        ...PROTOTYPING_TOOLS,
         CAPABILITY_INVENTORY_TOOL,
         CAPABILITY_DETAIL_TOOL,
         "list_agent_drafts",
@@ -148,6 +163,7 @@ export function buildAgentBuilderTeam(): Record<string, AgentConfig> {
         "Delegate research, architecture, evaluation, and optimization to the specialized Agents in this Team.",
         TEAM_DESIGN_NORMS_PROMPT,
         DOMAIN_EXPLORATION_PROMPT,
+        PROTOTYPING_PROTOCOL_PROMPT,
         EXPERIENCE_LAYERING_PROMPT,
         TRIAL_PROTOCOL_PROMPT,
         FAILURE_FEEDBACK_PROMPT,
@@ -227,11 +243,13 @@ function migrateAgentBuilderTeam(configs: Record<string, AgentConfig>): Record<s
     TRIAL_PROTOCOL_MARKER,
     FAILURE_FEEDBACK_MARKER,
     CAPABILITY_DISCOVERY_MARKER,
+    PROTOTYPING_PROTOCOL_MARKER,
   ].every((marker) => prompt.includes(marker))
     && existingTools.includes("try_agent_draft")
     && existingTools.includes("collect_team_failures")
     && existingTools.includes(CAPABILITY_INVENTORY_TOOL)
-    && existingTools.includes(CAPABILITY_DETAIL_TOOL);
+    && existingTools.includes(CAPABILITY_DETAIL_TOOL)
+    && PROTOTYPING_TOOLS.every((tool) => existingTools.includes(tool));
   if (version === null || (version >= AGENT_BUILDER_TEAM_TEMPLATE_VERSION && wiringComplete && !hasLegacyArtifactPrompt)) return null;
   const deprecatedSkillTools = new Set([
     "update_skill_draft",
@@ -258,6 +276,10 @@ function migrateAgentBuilderTeam(configs: Record<string, AgentConfig>): Record<s
   if (!enabledTools.includes("try_agent_draft")) enabledTools.push("try_agent_draft");
   // v15：失败回流工具（聚合 👎 反馈为设计证据）。
   if (!enabledTools.includes("collect_team_failures")) enabledTools.push("collect_team_failures");
+  // v17：原型验证工具——编排者设计前先用真实执行跑通假设（域探索协议的执行手段）。
+  for (const tool of PROTOTYPING_TOOLS) {
+    if (!enabledTools.includes(tool)) enabledTools.push(tool);
+  }
   const promptBase = hasLegacyArtifactPrompt ? stripLegacySkillAuthoringPrompt(prompt) : prompt;
   // v16：能力发现协议升级——清单之外增加下钻说明；旧句子原位替换，未携带则补挂。
   const withCapabilityDiscovery = promptBase.includes(CAPABILITY_DISCOVERY_MARKER)
@@ -293,6 +315,10 @@ function migrateAgentBuilderTeam(configs: Record<string, AgentConfig>): Record<s
   // v15：失败回流协议——👎 证据与域探索同级作为先验。
   if (!workflowPrompt.includes(FAILURE_FEEDBACK_MARKER)) {
     workflowPrompt = `${workflowPrompt} ${FAILURE_FEEDBACK_PROMPT}`.trim();
+  }
+  // v17：原型验证协议——设计前先自己动手验证关键假设，证据回流设计。
+  if (!workflowPrompt.includes(PROTOTYPING_PROTOCOL_MARKER)) {
+    workflowPrompt = `${workflowPrompt} ${PROTOTYPING_PROTOCOL_PROMPT}`.trim();
   }
   const nextPrompt = hasLegacyArtifactPrompt
     ? `${workflowPrompt} ${SKILL_AUTHORING_PROMPT}`.trim()
