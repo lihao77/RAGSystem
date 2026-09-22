@@ -65,6 +65,43 @@ const createAssistantMessageFromSavedEvent = (event, participantId) => {
   });
 };
 
+/**
+ * 子线程输入边界：message_saved 的 user ref（委派任务的合成指令行）→ 普通 user 气泡。
+ * 字段与历史加载路径（useSessionMessages 的 user 行映射）同形，使随后的权威重载按 id
+ * 合并到同一气泡，不产生第二条输入。
+ */
+const createUserMessageFromSavedEvent = (event, participantId) => {
+  const ref = event?.payload?.ref || {};
+  const contentParts = Array.isArray(ref.content_parts) ? ref.content_parts : [];
+  const content = partsToPlainText(contentParts);
+  const metadata = ref.metadata && typeof ref.metadata === 'object' ? ref.metadata : {};
+  const runId = metadata.consumed_by_run_id || metadata.run_id || event?.run_id || null;
+  const threadKey = `child:${participantId}`;
+  return {
+    role: 'user',
+    id: ref.message_id || ref.id || null,
+    seq: Number.isSafeInteger(ref.seq) ? ref.seq : undefined,
+    thread_key: threadKey,
+    child_agent_id: participantId,
+    content,
+    content_parts: contentParts,
+    finished: true,
+    has_execution: false,
+    executionTree: { root: null },
+    executionStepsLoaded: false,
+    executionStepsLoading: false,
+    executionStepsLoadError: '',
+    run_id: runId,
+    _execState: null,
+    metadata: {
+      ...metadata,
+      run_id: runId,
+      thread_key: threadKey,
+      child_agent_id: participantId,
+    },
+  };
+};
+
 const createAgentMessageFromEvent = (event, participantId, consumedUserMessage = false) => {
   const payload = event?.payload || {};
   const content = getAgentMessageEventContent(payload);
@@ -421,15 +458,21 @@ export function useMessageExecution(deps) {
       flushParticipantRun(sessionId, targetParticipantId, runId);
       return;
     }
+    // 子 run 的落库帧：assistant 是答案气泡，user 是输入边界（执行帧的锚点）。
+    // 边界一到，这个 run 早到的执行帧立即冲刷挂上——否则它们只能等历史重载。
     if (event.type === 'state_sync'
       && event.payload?.category === 'message_saved'
-      && event.payload?.ref?.role === 'assistant'
       && participantId
-      && participantId !== 'root') {
+      && participantId !== 'root'
+      && (event.payload?.ref?.role === 'assistant' || event.payload?.ref?.role === 'user')) {
+      const isUserBoundary = event.payload.ref.role === 'user';
       deps.syncParticipantMessage?.(
         participantId,
-        createAssistantMessageFromSavedEvent(event, participantId),
+        isUserBoundary
+          ? createUserMessageFromSavedEvent(event, participantId)
+          : createAssistantMessageFromSavedEvent(event, participantId),
       );
+      if (isUserBoundary) flushParticipantRun(sessionId, participantId, runId);
       return;
     }
     if (!participantId || participantId === 'root') return;

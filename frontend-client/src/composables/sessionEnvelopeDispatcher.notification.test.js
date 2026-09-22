@@ -362,3 +362,62 @@ test('根 run 的 assistant message_saved 仍走根列表合并（守卫不影�
   assert.equal(bubbles.length, 1);
   assert.equal(bubbles[0].id, 'run-root-1:final');
 });
+
+// 回归：子 run 的 user 落库帧（委派任务的合成指令行，子线程的输入边界）同样不得进根列表。
+// 该帧由 persister 的 initialRecords 在子 run 启动时播报；它若落进主对话列，用户会在根会话里
+// 看到一条本属于子线程的输入，而子线程反而因为拿不到边界而只剩最终答案。
+test('子 run user message_saved（输入边界）不进根列表', () => {
+  setActivePinia(createPinia());
+  const { dispatcher, messages } = createDispatcherFixture();
+
+  const childBoundary = {
+    type: 'state_sync',
+    session_id: 'session-1',
+    run_id: 'child-run-11',
+    participant_id: 'child-11',
+    boundary_message_id: 'msg-delegation-task',
+    payload: {
+      category: 'message_saved',
+      ref: {
+        message_id: 'msg-delegation-task',
+        role: 'user',
+        request_id: 'req-child-11',
+        content_parts: [{ type: 'text', text: '统计近一周日均水位。' }],
+        metadata: { run_id: 'child-run-11', child_agent_id: 'child-11', source: 'agent_call' },
+      },
+    },
+  };
+  dispatcher.handleEnvelope(childBoundary, 'session-1');
+  // 旧形状（无顶层 participant_id，仅 payload.lineage）同样拦截。
+  dispatcher.handleEnvelope({
+    ...childBoundary,
+    participant_id: undefined,
+    payload: { ...childBoundary.payload, lineage: { parent_call_id: 'root-call' } },
+  }, 'session-1');
+
+  assert.equal(messages.value.length, 0, '子 run 的输入边界不得在主对话列建泡');
+});
+
+test('根 run 的 user message_saved 仍落进根列表（守卫不影响 root 首发）', () => {
+  setActivePinia(createPinia());
+  const { dispatcher, messages } = createDispatcherFixture();
+
+  dispatcher.handleEnvelope({
+    type: 'state_sync',
+    session_id: 'session-1',
+    run_id: 'run-root-2',
+    payload: {
+      category: 'message_saved',
+      ref: {
+        message_id: 'run-root-2:first',
+        role: 'user',
+        request_id: 'req-root-2',
+        content_parts: [{ type: 'text', text: '帮我看看水位' }],
+      },
+    },
+  }, 'session-1');
+
+  const userMessages = messages.value.filter(item => item.role === 'user');
+  assert.equal(userMessages.length, 1);
+  assert.equal(userMessages[0].id, 'run-root-2:first');
+});

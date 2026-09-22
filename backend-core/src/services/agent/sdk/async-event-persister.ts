@@ -236,7 +236,12 @@ export class AsyncKernelEventPersister {
   }
 
   private initialMessageSavedEnvelope(): Envelope | null {
-    if (this.ctx.parentRunId != null || !this.ctx.rootMailboxMessage) return null;
+    if (this.ctx.parentRunId == null) return this.rootInitialMessageSavedEnvelope();
+    return this.childInitialMessageSavedEnvelope();
+  }
+
+  private rootInitialMessageSavedEnvelope(): Envelope | null {
+    if (!this.ctx.rootMailboxMessage) return null;
     const mailbox = this.ctx.rootMailboxMessage;
     const canonical = rootMailboxConversationMessage({
       sessionId: this.ctx.sessionId,
@@ -276,13 +281,50 @@ export class AsyncKernelEventPersister {
   }
 
   /**
+   * 子 run 的初始用户行（委派任务的合成指令）随启动事务落库，不走认领/邮箱投递，wire 上
+   * 本来毫无播报——而子线程的一切都以这行为边界：输入气泡靠它渲染，执行帧靠它挂载
+   * （前端在边界到达前只能把帧挂在待投队列里），所以缺了它，实时视图只剩最终答案，
+   * 要等切换重载才补齐。
+   *
+   * agent_message/mailbox 语义的初始消息（父消息直启 / 续接）由 initialAgentMessageEnvelope
+   * 以 agent_message 承接，这里跳过以免同一行被播报两次；其余（合成指令）补一条 message_saved
+   * 用户 ref：与 root 首发同形，前端按顶层 participant_id 落进参与者线程，与重载渲染口径一致
+   * （普通 user 气泡，而非智能体气泡）。
+   */
+  private childInitialMessageSavedEnvelope(): Envelope | null {
+    const initial = this.ctx.initialMessage;
+    const childAgentId = this.ctx.childAgentId;
+    if (!initial || childAgentId == null) return null;
+    const metadata = initial.metadata ?? {};
+    if (metadata.agent_message === true || typeof metadata.mailbox_message_id === "string") return null;
+    return {
+      type: "state_sync",
+      session_id: this.ctx.sessionId,
+      run_id: this.ctx.runId,
+      participant_id: childAgentId,
+      boundary_message_id: initial.messageId,
+      payload: {
+        category: "message_saved",
+        ref: {
+          message_id: initial.messageId,
+          role: "user",
+          request_id: typeof metadata.request_id === "string" ? metadata.request_id : undefined,
+          content_parts: initial.contentParts ?? [],
+          metadata,
+        },
+      },
+    };
+  }
+
+  /**
    * Child run 随启动事务携带的初始消息（父消息直启新 run / mailbox 续接 run）不经
    * 运行中认领路径，wire 侧没有任何"新消息"事件——实时查看子线程时父消息要等切
    * 换重载才可见。这里按认领路径（event-publisher.buildAgentMessage + runtime-adapter
    * 的 canonicalMetadata）的同形 payload 补一条 agent_message 初始 Envelope，前端
    * useMessageExecution 会据 target_child_agent_id 实时插入子线程。仅限 agent/mailbox
    * 语义的初始消息：委派任务的合成指令不在此列（与重载渲染口径一致，非 agent_message
-   * 不渲染为智能体气泡）。
+   * 不渲染为智能体气泡），它由 childInitialMessageSavedEnvelope 以 message_saved 用户
+   * ref 播报——同样落进子线程，但渲染的是普通 user 气泡。
    */
   private initialAgentMessageEnvelope(): Envelope | null {
     if (this.ctx.childAgentId == null || !this.ctx.initialMessage) return null;

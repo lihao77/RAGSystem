@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { nextTick, reactive, ref } from 'vue';
+import { createPinia, setActivePinia, storeToRefs } from 'pinia';
 
+import { useSessionRunStore } from '../stores/session-run.js';
 import { normalizeAssistantExecutionState, useMessageExecution } from './useMessageExecution.js';
 
 test('run identity does not create execution availability during history/cache normalization', () => {
@@ -709,4 +711,107 @@ test('non-delta events flush queued deltas first to preserve tree order', () => 
     globalThis.requestAnimationFrame = originalRaf;
     globalThis.cancelAnimationFrame = originalCancelRaf;
   }
+});
+
+// 回归：create 委派的子 run 启动时没有 agent_message（合成指令不是智能体消息），
+// 输入边界改由 message_saved 的 user ref 播报。此前该边界在 wire 上完全缺席，
+// 前端只能把整个 run 的执行帧堆在待投队列里——实时视图只剩最终答案（要等切换重载补齐）。
+// 本测试按后端真实帧序回放：边界 → run 锚点 → 执行帧 → 终局；帧形由
+// backend-core/test/async-event-persister.test.ts 钉住（persister 侧契约）。
+test('create 委派的子 run：输入边界随 message_saved 到达，执行帧挂上同一条边界', async () => {
+  setActivePinia(createPinia());
+  const store = useSessionRunStore();
+  const { participantMessages } = storeToRefs(store);
+  store.currentSessionId = 'session-1';
+  const handlers = new Set();
+  useMessageExecution({
+    currentSessionId: ref('session-1'),
+    chatSdkClient: {
+      sessionId: 'session-1',
+      on(name, handler) {
+        if (name === 'event') handlers.add(handler);
+        return () => handlers.delete(handler);
+      },
+    },
+    activeRun: { runId: 'root-run', rootCallId: 'root-call' },
+    participantMessages,
+    syncParticipantMessage: store.upsertParticipantMessage,
+  });
+
+  const frames = [
+    {
+      type: 'state_sync',
+      session_id: 'session-1',
+      run_id: 'child-run',
+      participant_id: 'child-1',
+      boundary_message_id: 'msg-task-1',
+      payload: {
+        category: 'message_saved',
+        ref: {
+          message_id: 'msg-task-1',
+          role: 'user',
+          request_id: 'req-child',
+          content_parts: [{ type: 'text', text: '统计近一周日均水位。' }],
+          metadata: {
+            run_id: 'child-run',
+            child_agent_id: 'child-1',
+            source: 'agent_call',
+            execution_kind: 'call_agent',
+          },
+        },
+      },
+    },
+    childStarted({ boundary_message_id: 'msg-task-1' }),
+    childToolCall({ boundary_message_id: 'msg-task-1' }),
+    {
+      type: 'tool_result',
+      session_id: 'session-1',
+      run_id: 'child-run',
+      call_id: 'tool-1',
+      agent_id: 'worker',
+      boundary_message_id: 'msg-task-1',
+      payload: { phase: 'end', tool: 'shell_command', ok: true, observation: 'TC04 超警戒线两天', lineage: { parent_call_id: 'child-call' } },
+    },
+    {
+      type: 'stream_output',
+      session_id: 'session-1',
+      run_id: 'child-run',
+      participant_id: 'child-1',
+      boundary_message_id: 'msg-task-1',
+      payload: { phase: 'final', content: '近一周日均水位 12.4m。', content_parts: [{ type: 'text', text: '近一周日均水位 12.4m。' }] },
+    },
+    {
+      type: 'state_sync',
+      session_id: 'session-1',
+      run_id: 'child-run',
+      participant_id: 'child-1',
+      boundary_message_id: 'msg-task-1',
+      payload: {
+        category: 'message_saved',
+        ref: {
+          message_id: 'msg-final-1',
+          seq: 412,
+          role: 'assistant',
+          content_parts: [{ type: 'text', text: '近一周日均水位 12.4m。' }],
+        },
+      },
+    },
+  ];
+  for (const handler of handlers) for (const frame of frames) handler(frame);
+  await nextTick();
+
+  const list = participantMessages.value['child-1'];
+  assert.deepEqual(list.map(item => item.role), ['user', 'assistant'], '子线程 = 输入边界 + 最终答案');
+
+  const [boundary, answer] = list;
+  assert.equal(boundary.id, 'msg-task-1');
+  assert.equal(boundary.run_id, 'child-run');
+  assert.equal(boundary.content, '统计近一周日均水位。');
+  assert.equal(boundary.finished, true);
+  assert.equal(boundary.executionTree?.root?.rounds?.[0]?.toolCalls?.[0]?.toolName, 'shell_command', '执行过程必须挂在输入边界上');
+  assert.equal(boundary.has_execution, true);
+  assert.equal(answer.content, '近一周日均水位 12.4m。');
+  assert.equal(answer.finished, true);
+  // 主对话列不因这条边界多出任何东西。
+  assert.deepEqual(store.messages, []);
 });

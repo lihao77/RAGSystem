@@ -143,6 +143,80 @@ describe("AsyncKernelEventPersister 初始 agent_message 事件", () => {
     expect(prepared.filter((record) => record.eventId.endsWith(":agent_message"))).toHaveLength(0);
   });
 
+  it("委派任务的合成初始消息以 user message_saved 播报子线程输入边界", async () => {
+    const ctx = baseCtx({
+      initialEnvelopes: [{
+        type: "agent_started",
+        session_id: "session-1",
+        run_id: "child-run-1",
+        participant_id: "child-1",
+        payload: { phase: "start", child_agent_id: "child-1" },
+      } as never],
+      initialMessage: {
+        messageId: "msg_delegation_task",
+        sessionId: "session-1",
+        role: "user" as const,
+        contentParts: [{ type: "text" as const, text: "统计近一周日均水位。" }],
+        threadKey: "child:child-1",
+        childAgentId: "child-1",
+        metadata: {
+          agent: "worker",
+          run_id: "child-run-1",
+          request_id: "req-child-1",
+          execution_kind: "call_agent",
+          source: "agent_call",
+          child_agent_id: "child-1",
+        },
+      },
+    });
+    const { persister, prepared, startRun } = createHarness(ctx);
+
+    await persister.startRun();
+
+    // 子线程的一切（输入气泡、执行帧挂载点）都以这行为边界：它必须被播报，
+    // 否则实时视图只剩最终答案，要等切换重载才补齐。
+    const saved = prepared.filter((record) => record.eventId.endsWith(":initial:message_saved"));
+    expect(saved).toHaveLength(1);
+    const envelope = saved[0]!.envelope as {
+      type: string;
+      participant_id?: string;
+      boundary_message_id?: string;
+      payload: { category: string; ref: Record<string, unknown> };
+    };
+    expect(envelope.type).toBe("state_sync");
+    expect(envelope.participant_id).toBe("child-1");
+    expect(envelope.boundary_message_id).toBe("msg_delegation_task");
+    expect(envelope.payload.category).toBe("message_saved");
+    expect(envelope.payload.ref).toMatchObject({
+      message_id: "msg_delegation_task",
+      role: "user",
+      request_id: "req-child-1",
+      metadata: { run_id: "child-run-1", child_agent_id: "child-1" },
+    });
+    // 渲染口径不变：合成指令不冒充智能体气泡。
+    expect(prepared.filter((record) => record.eventId.endsWith(":agent_message"))).toHaveLength(0);
+    // 边界帧排在 run 锚点之前：前端先有锚点，再挂 agent_started 与后续执行帧。
+    const initialTypes = (startRun.mock.calls[0]?.[0].initialRecords ?? [])
+      .map((record) => (record as { envelope: { type: string } }).envelope.type);
+    expect(initialTypes).toEqual(["state_sync", "agent_started"]);
+  });
+
+  it("mailbox 语义的子 run 初始消息不重复播报 user message_saved", async () => {
+    const ctx = baseCtx({
+      initialMessage: initialMessage({
+        mailbox_message_id: "mbx-1",
+        agent_message: true,
+        consumed_by_run_id: "child-run-1",
+      }),
+    });
+    const { persister, prepared } = createHarness(ctx);
+
+    await persister.startRun();
+
+    expect(prepared.filter((record) => record.eventId.endsWith(":initial:message_saved"))).toHaveLength(0);
+    expect(prepared.filter((record) => record.eventId.endsWith(":agent_message"))).toHaveLength(1);
+  });
+
   it("root run 的 message_saved 初始事件保持原状且不混入 agent_message", async () => {
     const ctx = baseCtx({
       parentRunId: null,
