@@ -20,6 +20,10 @@ import type {
 interface LeaseEntry {
   owner: SandboxOwner;
   leasePromise: Promise<SandboxLease>;
+  /** 已 stage 进租约的附件集合；增量补齐的判据。 */
+  stagedAttachmentIds: Set<string>;
+  /** 串行化的补齐链：并发工具调用不得交错 stage；失败不留在链上（见 stageAttachments）。 */
+  staging: Promise<void>;
 }
 
 /** Tenant-bound run lease registry. A lease can only be retrieved through its full owner identity. */
@@ -38,12 +42,17 @@ export class RunSandboxManager implements RunSandboxRuntime {
     if (this.closed) throw new Error("Sandbox lease manager is closed");
     const owner = this.resolveOwner(context);
     const key = ownerKey(owner);
+    const requested = context.attachmentFileIds ?? [];
     const existing = this.entries.get(key);
     if (existing) {
       assertSameOwner(existing.owner, owner);
-      return existing.leasePromise;
+      const lease = await existing.leasePromise;
+      await this.stageAttachments(existing, lease, requested);
+      return lease;
     }
 
+    // 已 stage 集合在 entry 建立时即按本次请求播种：租约链 resolve 之前链外拿不到 lease，
+    // prepare 失败时 entry 连同租约一起销毁，不存在"登记了却没 stage"的窗口。
     const leasePromise = this.driver.create({
       owner,
       network: "none",
@@ -53,9 +62,7 @@ export class RunSandboxManager implements RunSandboxRuntime {
       .then(async (lease) => {
         assertSameOwner(lease.owner, owner);
         try {
-          await this.lifecycle?.prepare(lease, owner, this.driver, {
-            attachmentFileIds: context.attachmentFileIds ?? [],
-          });
+          await this.lifecycle?.prepare(lease, owner, this.driver, { attachmentFileIds: requested });
         } catch (error) {
           try {
             await this.driver.destroy(lease);
@@ -70,8 +77,37 @@ export class RunSandboxManager implements RunSandboxRuntime {
         if (this.entries.get(key)?.leasePromise === leasePromise) this.entries.delete(key);
         throw error;
     });
-    this.entries.set(key, { owner, leasePromise });
+    this.entries.set(key, {
+      owner,
+      leasePromise,
+      stagedAttachmentIds: new Set(requested),
+      staging: Promise.resolve(),
+    });
     return leasePromise;
+  }
+
+  /**
+   * 增量 stage：租约一个 owner 只建一次，而运行中补充的用户消息会把新的 file_id 并进
+   * execution context（runtime-adapter 认领插嘴时），新增附件必须在下次工具调用前送入沙箱，
+   * 否则模型看得到 <attachments> 却读不到文件。已 stage 集合只增不减，重申全量清单保证
+   * prepare 清单（如 .ragsystem-manifest.json）始终完整。
+   * 失败只让本次工具调用失败：租约里的工作区不销毁（首次 prepare 失败才销毁，见 getOrCreate）。
+   */
+  private stageAttachments(entry: LeaseEntry, lease: SandboxLease, requested: readonly string[]): Promise<void> {
+    if (!this.lifecycle || requested.length === 0) return entry.staging;
+    const pending = requested.filter((fileId) => !entry.stagedAttachmentIds.has(fileId));
+    if (pending.length === 0) return entry.staging;
+    const lifecycle = this.lifecycle;
+    const attempt = entry.staging.then(async () => {
+      const missing = requested.filter((fileId) => !entry.stagedAttachmentIds.has(fileId));
+      if (missing.length === 0) return;
+      await lifecycle.prepare(lease, entry.owner, this.driver, {
+        attachmentFileIds: [...entry.stagedAttachmentIds, ...missing],
+      });
+      for (const fileId of missing) entry.stagedAttachmentIds.add(fileId);
+    });
+    entry.staging = attempt.catch(() => undefined);
+    return attempt;
   }
 
   private async withLease<T>(

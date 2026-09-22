@@ -430,6 +430,12 @@ const shots = [
       { type: 'expectText', selector: '.pending-followups', text: '发送中…' },
       { type: 'expectVisible', selector: '.chat-input-area--queued textarea[placeholder="继续输入以排队/后续修改"]' },
       { type: 'expectVisible', selector: '.input-area-wrapper' },
+      // 运行中的补充消息可以带附件（send_followup 与 send_message 同权），附件入口不得置灰。
+      {
+        type: 'expectExpression',
+        script: 'const button = document.querySelector(\'[aria-label="添加图片或文件"]\'); return !!button && !button.disabled;',
+        detail: 'const button = document.querySelector(\'[aria-label="添加图片或文件"]\'); return button ? { disabled: button.disabled } : "(附件入口不存在)";',
+      },
     ],
   })),
   {

@@ -78,10 +78,6 @@ export function createSessionCommandController({
       return false;
     }
     if ((!content && !draftAttachments.length) || (isLoading.value && !isRunningFollowup)) return false;
-    if (isRunningFollowup && draftAttachments.length) {
-      deps.showToast('运行中补充暂不支持附件', 'warning');
-      return false;
-    }
 
     const startsDraftSession = !currentSessionId.value;
     const requestId = createRequestId();
@@ -105,9 +101,9 @@ export function createSessionCommandController({
     }
 
     try {
-      attachments = isRunningFollowup
-        ? []
-        : await deps.materializeAttachmentsForSend(draftAttachments, sessionId);
+      // 运行中补充的附件与首条消息同口径：先登记到会话再随消息提交（后端把 file_id 写进
+      // mailbox 行，运行中认领或下一个 run 消费都能读到）。
+      attachments = await deps.materializeAttachmentsForSend(draftAttachments, sessionId);
     } catch (error) {
       finishPendingCommand(requestId);
       deps.showToast(errorMessage(error) || '附件准备失败');

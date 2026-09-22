@@ -502,7 +502,11 @@ const canSendMessage = computed(() => {
 const canStopRun = computed(() => runtimeActions.value.has('stop_run'));
 const canResumeRun = computed(() => runtimeActions.value.has('resume_run'));
 const canRespondInteraction = computed(() => runtimeActions.value.has('respond_interaction'));
-const canAttachFiles = computed(() => !currentSessionId.value || runtimeActions.value.has('send_message'));
+const canAttachFiles = computed(() => !currentSessionId.value
+  || runtimeActions.value.has('send_message')
+  // 运行中补充（send_followup）同样接受附件：先登记到会话，再随排队消息把 file_id 提交。
+  || runtimeActions.value.has('send_followup'));
+
 // Layout phase (has-messages/workbench) + transient motion flags on .chat-main,
 // consolidated to a single source of truth. is-new-chat dropped (== !has-messages).
 const chatMainClasses = computed(() => ({
@@ -871,6 +875,30 @@ watch(
       currentSessionId.value = 'smoke-artifact-session';
       messages.value = createSmokeArtifactMessages({ consecutiveInputs: route.query.__consecutive === '1' });
       if (route.query.__pendingFollowup === '1') {
+        // 待处理补跑只可能出现在运行中的会话：快照必须给出 send_followup（附件入口按运行动作
+        // 判定可用性，缺失会被误判成"运行中不可选附件"的旧形态）。
+        const observedAt = new Date().toISOString();
+        sessionRunStore.applySessionRuntime({
+          state: 'running',
+          load_strategy: 'attach_run',
+          allowed_actions: ['send_followup', 'stop_run'],
+          active_run: {
+            run_id: 'smoke-run',
+            status: 'running',
+            execution_owner: 'attached',
+            task: '请先检查异常站点',
+            request_id: null,
+            execution_kind: 'user',
+            started_at: observedAt,
+            updated_at: observedAt,
+            activity: { models: [], tools: [], updated_at: observedAt },
+          },
+          last_run: null,
+          pending_interactions: [],
+          resume_interaction_id: null,
+          maintenance: null,
+          observed_at: observedAt,
+        });
         sessionRunStore.queueFollowup(currentSessionId.value, 'smoke-followup-1', '请先检查异常站点，再补充最近一周的数据。');
         sessionRunStore.markFollowupQueued(currentSessionId.value, 'smoke-followup-1');
         Object.assign(sessionRunStore.currentPendingFollowups[0], { can_manage: true });

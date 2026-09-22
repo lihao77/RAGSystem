@@ -112,6 +112,59 @@ test("prepare failure reports a failed destroy instead of swallowing it", async 
   );
 });
 
+test("run sandbox runtime stages attachments added after the lease was created", async () => {
+  const prepares = [];
+  const createdLeases = [];
+  const driver = {
+    async create(input) { createdLeases.push(input.owner); return { id: "lease-1", owner: input.owner, createdAt: "now" }; },
+    async exec() { return { stdout: "ok", stderr: "", returnCode: 0, interrupted: false }; },
+    async destroy() { throw new Error("lease must be reused, not rebuilt"); },
+  };
+  const runtime = new RunSandboxManager("tenant-1", driver, 60, {
+    async prepare(_lease, _owner, _driver, input) { prepares.push([...input.attachmentFileIds]); },
+  });
+  const context = { userId: "user-1", sessionId: "session-1", runId: "run-1", attachmentFileIds: ["attachment-1"] };
+
+  await runtime.exec(context, { command: "pwd", cwd: "/work", timeoutSeconds: 5 });
+  // 运行中补充消息被认领：新附件并入 execution context，下一次工具调用前必须补齐。
+  await runtime.exec({ ...context, attachmentFileIds: ["attachment-1", "attachment-2"] }, { command: "ls", cwd: "/work", timeoutSeconds: 5 });
+  // 已补齐的清单不重复 prepare。
+  await runtime.exec({ ...context, attachmentFileIds: ["attachment-1", "attachment-2"] }, { command: "ls", cwd: "/work", timeoutSeconds: 5 });
+
+  assert.equal(createdLeases.length, 1);
+  assert.deepEqual(prepares, [["attachment-1"], ["attachment-1", "attachment-2"]]);
+});
+
+test("incremental attachment staging failure keeps the lease for the current run", async () => {
+  const prepares = [];
+  let destroys = 0;
+  const driver = {
+    async create(input) { return { id: "lease-1", owner: input.owner, createdAt: "now" }; },
+    async exec() { return { stdout: "ok", stderr: "", returnCode: 0, interrupted: false }; },
+    async destroy() { destroys += 1; },
+  };
+  const runtime = new RunSandboxManager("tenant-1", driver, 60, {
+    async prepare(_lease, _owner, _driver, input) {
+      prepares.push([...input.attachmentFileIds]);
+      if (input.attachmentFileIds.includes("attachment-2")) throw new Error("attachment is missing");
+    },
+  });
+  const context = { userId: "user-1", sessionId: "session-1", runId: "run-1", attachmentFileIds: ["attachment-1"] };
+  await runtime.exec(context, { command: "pwd", cwd: "/work", timeoutSeconds: 5 });
+
+  await assert.rejects(
+    runtime.exec({ ...context, attachmentFileIds: ["attachment-1", "attachment-2"] }, { command: "ls", cwd: "/work", timeoutSeconds: 5 }),
+    /attachment is missing/,
+  );
+  // 工作区不因补齐失败被销毁；下一次工具调用重试补齐。
+  assert.equal(destroys, 0);
+  await assert.rejects(
+    runtime.exec({ ...context, attachmentFileIds: ["attachment-1", "attachment-2"] }, { command: "ls", cwd: "/work", timeoutSeconds: 5 }),
+    /attachment is missing/,
+  );
+  assert.deepEqual(prepares, [["attachment-1"], ["attachment-1", "attachment-2"], ["attachment-1", "attachment-2"]]);
+});
+
 test("run sandbox runtime close waits for lease destruction", async () => {
   let finishDestroy;
   const destroyGate = new Promise((resolve) => { finishDestroy = resolve; });

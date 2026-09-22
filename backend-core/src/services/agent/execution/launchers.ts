@@ -334,19 +334,13 @@ class AgentLaunchers {
       return { kind: "error", sessionId, error: "Task and attachments cannot both be empty" };
     }
 
-    if (input.followupPolicy === "reject" || input.attachments.length > 0) {
+    // 运行中的排队补充（queue）允许携带附件：附件在提交点解析为 attachment_ref 写入
+    // mailbox 行，运行中被认领时原样落库，或由下一个 run 完整消费。只有 reject 策略
+    // （回滚重试等不允许并入当前 run 的通道）在运行中拒绝一切提交。
+    if (input.followupPolicy === "reject") {
       const runningStatus = this.statusTracker.getStatusBySession(sessionId);
       const durableRunId = await this.durableActiveRunId(sessionId);
       if (runningStatus?.status === "running" || durableRunId) {
-        if (input.attachments.length > 0 && input.followupPolicy === "queue") {
-          return {
-            kind: "error",
-            sessionId,
-            runId: runningStatus?.run_id ?? durableRunId,
-            taskId: runningStatus?.task_id ?? null,
-            error: "运行中的补充消息暂不支持附件，请等待当前任务结束后重新发送",
-          };
-        }
         return {
           kind: "error",
           sessionId,

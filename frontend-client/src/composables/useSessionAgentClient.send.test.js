@@ -217,9 +217,55 @@ test('running followup 在 ACK 后保留待处理卡片，不提前写入消息�
   assert.equal(sessionRunStore.currentPendingFollowups[0].content, '补充：优先处理 A');
   assert.equal(sessionRunStore.currentPendingFollowups[0].status, 'queued');
   assert.equal(deps.isLoading.value, true);
-  assert.deepEqual(calls.materializeAttachmentsForSend, []);
+  // 附件登记无条件执行（running followup 与首条消息同权）：空草稿也会调用一次
+  // materializeAttachmentsForSend（返回 []），此前 followup 分支直接跳过登记。
+  assert.deepEqual(calls.materializeAttachmentsForSend, [[]]);
   assert.equal(calls.wsSend.length, 1);
   assert.equal(calls.wsSend[0].payload.request_id, sessionRunStore.currentPendingFollowups[0].request_id);
+});
+
+test('running followup 携带附件时先登记到会话再随排队消息提交', async (t) => {
+  installBrowserGlobals(t);
+  const sdkCalls = [];
+  const sdk = {
+    sessionId: 'session-1',
+    on: () => () => {},
+    connect: async () => {},
+    disconnect: () => {},
+    send: async (options) => {
+      sdkCalls.push(options);
+      return { started: true, kind: 'agent_run', runId: 'run-sdk' };
+    },
+    stop: () => {},
+    respondInteraction: async () => {},
+    resume: async () => true,
+  };
+  const { deps, calls, sessionRunStore } = createDeps({
+    chatSdkClient: sdk,
+    materializeAttachmentsForSend: async (attachments, sessionId) => {
+      calls.materializeAttachmentsForSend.push({ attachments, sessionId });
+      return attachments.map((attachment, index) => ({ ...attachment, file_id: `file-${index + 1}` }));
+    },
+  });
+  sessionRunStore.applySessionRuntime(runtimeSnapshot('running', {
+    allowed_actions: ['send_followup', 'stop_run'],
+  }));
+  deps.messages.value = [
+    { role: 'user', content: '原始任务', metadata: {}, attachments: [] },
+    createAssistantMessage({ content: '正在处理', finished: false }),
+  ];
+
+  const sender = useSessionAgentClient(deps);
+  await sender.send({ content: '补充：用这份数据', attachments: [{ name: 'ocean.nc' }] });
+
+  assert.equal(calls.materializeAttachmentsForSend.length, 1);
+  assert.equal(calls.materializeAttachmentsForSend[0].sessionId, 'session-1');
+  assert.equal(sdkCalls.length, 1);
+  assert.deepEqual(sdkCalls[0].attachments, [{ file_id: 'file-1' }]);
+  assert.equal(sessionRunStore.currentPendingFollowups.length, 1);
+  assert.equal(sessionRunStore.currentPendingFollowups[0].content, '补充：用这份数据');
+  assert.equal(sessionRunStore.currentPendingFollowups[0].status, 'queued');
+  assert.equal(calls.clearComposerAttachments, 1);
 });
 
 test('followup 只依赖权威 runtime，即使本地 activeRun 投影丢失仍绑定服务端 run', async (t) => {
