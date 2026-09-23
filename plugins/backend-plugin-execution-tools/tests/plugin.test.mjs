@@ -31,6 +31,7 @@ import { DEFAULT_WEB_FETCH_LIMITS, WebFetchClient } from "../dist/tools/WebFetch
 import { isPublicIpAddress, resolvePublicAddresses } from "../dist/tools/WebFetchTool/web-fetch-network.js";
 import { HTML_OMISSION_MARKER, htmlToMarkdown } from "../dist/tools/WebFetchTool/web-fetch-markdown.js";
 import { SaaSCodeExecutionService, SaaSSearchToolService } from "../dist/storage/saas/sandbox-execution-tools.js";
+import { truncateTail } from "../dist/tools/CodeExecutionTool/CodeExecution.js";
 
 const descriptors = [
   "glob",
@@ -830,6 +831,113 @@ test("execute_code ignores a blank RAGSYSTEM_PYTHON and falls back to PYTHON", a
   }
 });
 
+test("execute_code 异常返回完整 traceback 与崩溃前 stdout，summary 压缩为单行", async () => {
+  const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-code-trace-"));
+  try {
+    const service = new CodeExecutionToolService({ dataRoot });
+    const result = await service.executeCode({
+      code: [
+        "print('before-crash-marker')",
+        "def boom():",
+        "    raise ValueError('trace-marker')",
+        "boom()",
+      ].join("\n"),
+    }, { sessionId: "session-trace" });
+    assert.equal(result.success, false);
+    // 完整 traceback：堆栈头 + 用户代码帧（runner 自身的 exec 调用帧不出现）+ 末行异常
+    assert.match(result.content, /Traceback \(most recent call last\):/);
+    assert.match(result.content, /File "<execute_code>", line 3, in boom/);
+    assert.match(result.content, /ValueError: trace-marker/);
+    assert.ok(!result.content.includes('File "<string>"'));
+    // 崩溃前打印的 stdout 进入模型可见 content
+    assert.match(result.content, /\[stdout\]/);
+    assert.match(result.content, /before-crash-marker/);
+    // summary 取末行异常压成单行，供 UI 紧凑展示位使用
+    assert.ok(!result.summary.includes("\n"), result.summary);
+    assert.match(result.summary, /ValueError: trace-marker/);
+  } finally {
+    fs.rmSync(dataRoot, { recursive: true, force: true });
+  }
+});
+
+test("execute_code 内 call_tool 失败时把嵌套工具详情带回错误信息", async () => {
+  const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-code-nested-"));
+  try {
+    const service = new CodeExecutionToolService({ dataRoot });
+    const toolCaller = async () => ({
+      success: false,
+      toolName: "execute_shell",
+      summary: "命令执行完成，返回码 1",
+      answer: null,
+      outputType: "streams",
+      content: {
+        stdout: "",
+        stderr: "rm: cannot remove 'missing.txt': No such file or directory",
+        return_code: 1,
+        interrupted: false,
+      },
+      metadata: {},
+      files: [],
+      llmHint: null,
+    });
+    const result = await service.executeCode(
+      { code: "call_tool('execute_shell', {'command': 'rm missing.txt'})" },
+      { sessionId: "session-nested" },
+      toolCaller,
+    );
+    assert.equal(result.success, false);
+    // 嵌套工具的 stderr 与工具名随外层 traceback 回到模型视野，而不是只剩一行 summary
+    assert.match(result.content, /工具 'execute_shell' 执行失败/);
+    assert.match(result.content, /No such file or directory/);
+    assert.match(result.content, /Traceback \(most recent call last\):/);
+    assert.match(result.content, /RuntimeError/);
+    // summary 依赖 runner 上报的结构化 error_line：多行异常消息下 traceback 末行是 rm 的错误行，
+    // 直接取末行会丢异常类型与工具上下文。
+    assert.ok(!result.summary.includes("\n"), result.summary);
+    assert.match(result.summary, /RuntimeError: 工具 'execute_shell' 执行失败/);
+  } finally {
+    fs.rmSync(dataRoot, { recursive: true, force: true });
+  }
+});
+
+test("execute_code 嵌套工具失败详情与 summary 相同时不重复展开", async () => {
+  const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-code-dedup-"));
+  try {
+    const service = new CodeExecutionToolService({ dataRoot });
+    const toolCaller = async () => ({
+      success: false,
+      toolName: "execute_shell",
+      summary: "命令执行完成，返回码 1",
+      answer: null,
+      outputType: "streams",
+      content: "命令执行完成，返回码 1",
+      metadata: {},
+      files: [],
+      llmHint: null,
+    });
+    const result = await service.executeCode(
+      { code: "call_tool('execute_shell', {'command': 'ls'})" },
+      { sessionId: "session-dedup" },
+      toolCaller,
+    );
+    assert.equal(result.success, false);
+    assert.match(result.content, /工具 'execute_shell' 执行失败: 命令执行完成，返回码 1/);
+    assert.equal(result.content.match(/命令执行完成，返回码 1/g)?.length, 1);
+  } finally {
+    fs.rmSync(dataRoot, { recursive: true, force: true });
+  }
+});
+
+test("truncateTail 保尾截断、标记前缀，且不切开代理对", () => {
+  assert.equal(truncateTail("short", 10), "short");
+  assert.match(truncateTail("a".repeat(25), 10), /^……（前部分已截断）\na{10}$/);
+  const emoji = "😀".repeat(10);
+  for (const maxChars of [8, 9, 11]) {
+    const tail = truncateTail(emoji, maxChars).replace(/^……（前部分已截断）\n/, "");
+    assert.ok(Array.from(tail).every((ch) => ch === "😀"), `maxChars=${maxChars} 不应产生孤立代理项`);
+  }
+});
+
 test("execute_shell writes into the same workspace seen by glob", async () => {
   const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-bash-workspace-"));
   try {
@@ -948,6 +1056,68 @@ test("SaaS code adapter applies the shared timeout and risk policy", async () =>
   assert.equal(request.timeoutSeconds, 300);
   assert.equal(result.metadata.classification, "read_only");
   assert.equal((await service.executeCode({ code: "  " }, {})).success, false);
+});
+
+test("SaaS code adapter reports sandbox crashes with stderr instead of fake success", async () => {
+  const service = new SaaSCodeExecutionService({
+    async executeCode() {
+      return {
+        result: null,
+        stdout: "partial stdout marker",
+        stderr: "Traceback (most recent call last):\nValueError: sandbox-crash-marker",
+        returnCode: 1,
+        interrupted: false,
+      };
+    },
+    async releaseRun() {},
+    async closeAll() {},
+  });
+
+  const result = await service.executeCode({ code: "raise ValueError('sandbox-crash-marker')" }, {});
+  assert.equal(result.success, false);
+  assert.match(result.content, /\[stderr\]/);
+  assert.match(result.content, /sandbox-crash-marker/);
+  assert.match(result.content, /partial stdout marker/);
+  assert.ok(!result.summary.includes("\n"), result.summary);
+  assert.match(result.summary, /进程退出码 1/);
+});
+
+test("SaaS code adapter reports timeouts with the configured seconds", async () => {
+  const service = new SaaSCodeExecutionService({
+    async executeCode() {
+      return { result: null, stdout: "", stderr: "", returnCode: null, interrupted: true };
+    },
+    async releaseRun() {},
+    async closeAll() {},
+  });
+
+  const result = await service.executeCode({ code: "while True: pass" }, {});
+  assert.equal(result.success, false);
+  assert.match(result.summary, /代码执行超时（超过 60 秒）/);
+  assert.equal(result.metadata.truncated, false);
+});
+
+test("SaaS code adapter truncates oversized failure output before inlining", async () => {
+  const service = new SaaSCodeExecutionService({
+    async executeCode() {
+      return {
+        result: null,
+        stdout: "s".repeat(11_000),
+        stderr: `${"e".repeat(11_000)}\nValueError: tail-marker`,
+        returnCode: 1,
+        interrupted: false,
+      };
+    },
+    async releaseRun() {},
+    async closeAll() {},
+  });
+
+  const result = await service.executeCode({ code: "raise ValueError('x')" }, {});
+  assert.equal(result.success, false);
+  // 保尾截断：traceback 的异常行（tail-marker）必须存活；下游会把失败 content 无条件 inline 进模型上下文
+  assert.match(result.content, /（前部分已截断）[\s\S]*tail-marker/);
+  assert.equal(result.metadata.truncated, true);
+  assert.ok(result.content.length < 25_000, `实际长度 ${result.content.length}`);
 });
 
 test("foreground bash abort terminates the shell and its child process tree", async () => {

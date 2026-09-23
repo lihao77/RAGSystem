@@ -18,6 +18,8 @@ export type { CodeExecutionInput, CodeExecutionPlan, CodeExecutionPlanResult } f
 
 const DEFAULT_TIMEOUT_SECONDS = 60;
 const MAX_TIMEOUT_SECONDS = 300;
+/** 失败上报（traceback / 嵌套工具详情 / 崩溃前 stdout/stderr）的统一截断上限，数值与 execute_shell 的 stderr 上限一致。 */
+export const MAX_ERROR_REPORT_CHARS = 10_000;
 /** 工具互调回调——execute_code 子进程内 call_tool 用。runtime-adapter per-run 注入。 */
 export type ToolCaller = (
   toolName: string,
@@ -145,12 +147,25 @@ export class CodeExecutionToolService {
       }
 
       if (!parsed.success) {
-        return errorResult(`代码执行失败: ${parsed.error ?? "unknown error"}`, toolName, {
+        const errorText = parsed.error ?? "unknown error";
+        // summary 优先用 runner 上报的结构化单行（异常类型+消息首行）：多行异常消息（嵌套工具失败）
+        // 会让 traceback 末行落在消息续行上，直接取末行会丢异常类型与工具上下文。
+        const summary = `代码执行失败: ${clampSummaryLine(parsed.errorLine ?? compactErrorLine(errorText))}`;
+        const parts = [`代码执行失败: ${truncateTail(errorText, MAX_ERROR_REPORT_CHARS)}`];
+        const stderrText = stderr.trim();
+        if (stderrText) {
+          parts.push(`[stderr]\n${truncateTail(stderrText, MAX_ERROR_REPORT_CHARS)}`);
+        }
+        const stdoutText = (parsed.stdout ?? "").trimEnd();
+        if (stdoutText) {
+          parts.push(`[stdout]\n${truncateTail(stdoutText, MAX_ERROR_REPORT_CHARS)}`);
+        }
+        return errorResult(parts.join("\n\n"), toolName, {
           stdout: parsed.stdout ?? "",
           stderr,
           exit_code: exit.code,
           execution_paths: roots,
-        });
+        }, summary);
       }
 
       const executionTime = (Date.now() - startedAt) / 1000;
@@ -192,7 +207,7 @@ export class CodeExecutionToolService {
     }
     const result = await toolCaller(toolName, args, context);
     if (!result.success) {
-      throw new Error(result.summary || String(result.content ?? "tool failed"));
+      throw new Error(describeNestedToolFailure(toolName, result));
     }
     return result.content;
   }
@@ -247,6 +262,7 @@ interface RunnerOutput {
   success: boolean;
   result?: unknown;
   error?: string;
+  errorLine?: string;
   stdout?: string;
   tool_calls_count?: number;
 }
@@ -282,6 +298,9 @@ function createJsonLineReader(onMessage: (message: Record<string, unknown>) => v
       if (typeof message.error === "string") {
         nextDoneMessage.error = message.error;
       }
+      if (typeof message.error_line === "string") {
+        nextDoneMessage.errorLine = message.error_line;
+      }
       doneMessage = nextDoneMessage;
       return;
     }
@@ -316,11 +335,12 @@ function errorResult(
   message: string,
   toolName: string,
   metadata: Record<string, unknown> = {},
+  summary: string = message,
 ): ToolExecutionResult {
   return {
     success: false,
     toolName,
-    summary: message,
+    summary,
     answer: null,
     outputType: "error",
     content: message,
@@ -331,6 +351,58 @@ function errorResult(
     files: [],
     llmHint: null,
   };
+}
+
+/**
+ * 超长内容保留末尾——traceback 的异常行、stdout/stderr 的最新输出都在尾部。
+ * 与 execute_shell 的保头截断方向相反，各自贴合内容形态。
+ */
+export function truncateTail(text: string, maxChars: number): string {
+  if (text.length <= maxChars) {
+    return text;
+  }
+  let start = text.length - maxChars;
+  // 别把代理对从中间切开：emoji 被截成孤立代理项会渲染成替换符。
+  const unit = text.charCodeAt(start);
+  if (unit >= 0xd800 && unit <= 0xdbff) {
+    start += 2; // 高代理：连同配对的低代理一起跳过
+  } else if (unit >= 0xdc00 && unit <= 0xdfff) {
+    start += 1; // 低代理：丢弃被切开的这半个
+  }
+  return `……（前部分已截断）\n${text.slice(start)}`;
+}
+
+/** summary 单行上限：超长异常行截断保头部，供 UI 列表等紧凑展示位使用。 */
+function clampSummaryLine(line: string): string {
+  return line.length > 200 ? `${line.slice(0, 200)}…` : line;
+}
+
+/** 兜底取 traceback 末行（异常类型+消息）压成单行；runner 未上报 error_line 时使用。 */
+function compactErrorLine(error: string): string {
+  const lastLine = error.split("\n").map((line) => line.trim()).filter(Boolean).pop() ?? error;
+  return clampSummaryLine(lastLine);
+}
+
+/**
+ * 嵌套工具失败只抛 summary 会把 execute_shell 的 stderr 等排查线索整体丢掉；
+ * 把 content 详情一并带回 Python 侧，未捕获时随外层 traceback 呈现给模型。
+ */
+function describeNestedToolFailure(toolName: string, result: ToolExecutionResult): string {
+  const header = `工具 '${toolName}' 执行失败: ${result.summary || "unknown error"}`;
+  let detail = "";
+  if (typeof result.content === "string") {
+    detail = result.content.trim();
+  } else if (result.content !== null && result.content !== undefined) {
+    try {
+      detail = JSON.stringify(result.content) ?? "";
+    } catch {
+      detail = String(result.content);
+    }
+  }
+  if (!detail || detail === result.summary) {
+    return header;
+  }
+  return `${header}\n${truncateTail(detail, MAX_ERROR_REPORT_CHARS)}`;
 }
 
 function resolveCodeCwd(
@@ -463,6 +535,14 @@ env = {
 }
 
 stdout_capture = io.StringIO()
+
+def _format_traceback(exc):
+    tb = exc.__traceback__
+    # 最顶层是 runner 自身的 exec() 调用帧（<string>），跳过后栈顶直接指向用户代码 <execute_code>。
+    if tb is not None and tb.tb_frame.f_code.co_filename == "<string>":
+        tb = tb.tb_next
+    return "".join(traceback.format_exception(type(exc), exc, tb)).strip()
+
 try:
     with redirect_stdout(stdout_capture):
         exec(compile(code, "<execute_code>", "exec"), env, env)
@@ -474,9 +554,13 @@ try:
         "tool_calls_count": tool_calls_count,
     })
 except Exception as exc:
+    # 完整 traceback（含 raise from 链），而不是只有异常类型+消息的末行——智能体排查依赖堆栈定位。
+    # error_line 是结构化单行摘要（异常类型+消息首行）：多行异常消息（如嵌套工具失败）会让
+    # traceback 末行落在消息续行上，TS 侧 summary 必须依赖它而不是"取末行"。
     _emit({
         "success": False,
-        "error": "".join(traceback.format_exception_only(type(exc), exc)).strip(),
+        "error": _format_traceback(exc),
+        "error_line": f"{type(exc).__name__}: {exc}".split("\n")[0],
         "stdout": stdout_capture.getvalue(),
         "tool_calls_count": tool_calls_count,
     })

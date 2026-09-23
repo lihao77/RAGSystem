@@ -32,6 +32,7 @@ import {
   prepareCodeExecution,
   type CodeExecutionInput,
 } from "../../tools/CodeExecutionTool/code-policy.js";
+import { MAX_ERROR_REPORT_CHARS, truncateTail } from "../../tools/CodeExecutionTool/CodeExecution.js";
 
 export class SaaSSearchToolService {
   private readonly todos = new Map<string, TodoItem[]>();
@@ -152,6 +153,36 @@ export class SaaSCodeExecutionService {
         cwd: cwd.internalPath,
         timeoutSeconds: plan.timeoutSeconds,
       });
+      if (result.interrupted || result.returnCode !== 0) {
+        // 沙箱侧直接跑 python，未捕获异常的完整 traceback 在 stderr 里——带回模型视野，而不是误报成功。
+        // 失败 content 会被下游无条件 inline 进模型上下文，超限保尾截断（traceback 异常行在尾部），与 local 侧同上限。
+        const summary = result.interrupted
+          ? `代码执行失败: 代码执行超时（超过 ${plan.timeoutSeconds} 秒）`
+          : `代码执行失败: 进程退出码 ${result.returnCode}`;
+        const stderrText = result.stderr.trim();
+        const stdoutText = result.stdout.trim();
+        const failure = toolError(
+          toolName,
+          [
+            summary,
+            ...(stderrText ? [`[stderr]\n${truncateTail(stderrText, MAX_ERROR_REPORT_CHARS)}`] : []),
+            ...(stdoutText ? [`[stdout]\n${truncateTail(stdoutText, MAX_ERROR_REPORT_CHARS)}`] : []),
+          ].join("\n\n"),
+          {
+            stdout: result.stdout,
+            stderr: result.stderr,
+            return_code: result.returnCode,
+            interrupted: result.interrupted,
+            truncated: result.truncated === true
+              || stderrText.length > MAX_ERROR_REPORT_CHARS
+              || stdoutText.length > MAX_ERROR_REPORT_CHARS,
+            classification: plan.riskLevel,
+            cwd: cwd.displayPath,
+          },
+        );
+        failure.summary = summary;
+        return failure;
+      }
       return toolSuccess(result.result, {
         toolName,
         summary: "代码执行成功",
