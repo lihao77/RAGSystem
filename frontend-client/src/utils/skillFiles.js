@@ -17,6 +17,22 @@ export function isValidRelativePath(value) {
     && normalized.split('/').every((part) => part && part !== '.' && part !== '..');
 }
 
+/**
+ * 与后端 requireSkillPath（skill-bundle.ts）对齐的可保存路径校验，比 isValidRelativePath 严：
+ * 额外拒绝反斜杠、Windows 保留名（con/prn/aux/nul/com1-9/lpt1-9）、段尾点或空格、
+ * `<>:"|?*` 与控制字符、超过 512 字符。导入时用它预检，避免保存才被 422。
+ */
+export function isValidSkillBundlePath(value) {
+  const raw = String(value ?? '');
+  if (!isValidRelativePath(raw) || raw.includes('\\') || raw.length > 512) return false;
+  return raw.split('/').every((part) =>
+    // 控制字符范围与后端 requireSkillPath 的禁字符表逐字对齐
+    // eslint-disable-next-line no-control-regex
+    !/[<>:"|?*\x00-\x1f]/.test(part)
+    && !/[. ]$/.test(part)
+    && !/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part));
+}
+
 export function guessMediaType(path) {
   const extension = path.split('.').pop()?.toLowerCase();
   return {

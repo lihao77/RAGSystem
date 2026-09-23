@@ -1,6 +1,7 @@
 import { getSkillBundle, saveSkillBundle, listSkills, deleteSkill } from '../../api/skillLibrary.js';
 import { encodeBase64Text, decodeBase64Bytes, readFileAsBase64 } from '../../utils/base64.js';
-import { isValidRelativePath, guessMediaType } from '../../utils/skillFiles.js';
+import { isValidSkillBundlePath, guessMediaType } from '../../utils/skillFiles.js';
+import { readZipBundle, readFolderBundle, createSkillZip } from '../../utils/skillArchive.js';
 import { togglePathInSet } from '../../utils/fileTree.js';
 import { filesBaseline } from './state.js';
 
@@ -106,7 +107,7 @@ export function useSkillLibrary(state, { toast, confirm }) {
     event.target.value = '';
     if (!file || !state.canEdit.value || state.busy.value || state.loading.value) return;
     const relative = file.webkitRelativePath || file.name;
-    if (!isValidRelativePath(relative) || file.size > 50 * 1024 * 1024) { state.error.value = '文件路径无效或文件超过 50MB'; return; }
+    if (!isValidSkillBundlePath(relative) || file.size > 50 * 1024 * 1024) { state.error.value = '文件路径无效或文件超过 50MB'; return; }
     const current = state.activeSkill.value;
     const index = current.files.findIndex((entry) => entry.relative_path.toLowerCase() === relative.toLowerCase());
     if (index >= 0 && !await confirm({ title: '替换文件', message: `替换“${relative}”？保存 Skill 后生效。`, confirmText: '替换' })) return;
@@ -132,6 +133,14 @@ export function useSkillLibrary(state, { toast, confirm }) {
   function exportSkill() {
     if (state.activeSkill.value) download(new Blob([JSON.stringify(state.activeSkill.value, null, 2)], { type: 'application/json' }), `${state.activeSkill.value.name}.json`);
   }
+  async function exportSkillZip() {
+    const current = state.activeSkill.value;
+    if (!current || state.busy.value || state.loading.value) return;
+    state.busy.value = true;
+    try { download(await createSkillZip(current.files), `${current.name}.zip`); }
+    catch (error) { state.error.value = error.message || '导出失败'; }
+    finally { state.busy.value = false; }
+  }
   async function importSkill(event) {
     const file = event.target.files?.[0];
     event.target.value = '';
@@ -144,23 +153,49 @@ export function useSkillLibrary(state, { toast, confirm }) {
       const files = input.files;
       if (!Array.isArray(files) || !files.length || files.length > 256) throw new Error('导入内容中没有有效的 Skill 文件');
       const cleanFiles = files.map(({ relative_path, media_type, body_base64 }) => {
-        if (!isValidRelativePath(relative_path) || typeof body_base64 !== 'string') throw new Error('导入内容中含有无效文件');
+        if (!isValidSkillBundlePath(relative_path) || typeof body_base64 !== 'string') throw new Error('导入内容中含有无效文件');
         decodeBase64Bytes(body_base64);
         return { relative_path, media_type: media_type || guessMediaType(relative_path), body_base64 };
       });
       if (!cleanFiles.some((entry) => entry.relative_path === 'SKILL.md')) throw new Error('导入内容缺少 SKILL.md');
-      let current = null;
-      try { current = await getSkillBundle(input.name); } catch (error) { if (error.status !== 404) throw error; }
-      if (current && !current.writable) throw new Error('内置和工作区 Skill 只读');
-      applySkill({ name: input.name, description: input.description || '', revision: current?.revision ?? null, writable: true, files: cleanFiles });
-      state.originalFiles.value = filesBaseline(current?.files ?? []);
-      state.selectedFilePath.value = 'SKILL.md';
-      toast.success('内容已载入编辑器，检查后保存生效');
+      await loadImportedBundle(input.name, input.description || '', cleanFiles);
     } catch (error) { state.error.value = error.message || '导入失败'; }
     finally { state.busy.value = false; }
   }
+  async function importZipSkill(event) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file || !state.canManage.value || !await allowDiscardChanges()) return;
+    state.busy.value = true;
+    try {
+      if (file.size > 70 * 1024 * 1024) throw new Error('导入文件超过 70MB');
+      const bundle = await readZipBundle(await file.arrayBuffer());
+      await loadImportedBundle(bundle.name, bundle.description, bundle.files);
+    } catch (error) { state.error.value = error.message || '导入失败'; }
+    finally { state.busy.value = false; }
+  }
+  async function importFolderSkill(event) {
+    const files = event.target.files;
+    event.target.value = '';
+    if (!files?.length || !state.canManage.value || !await allowDiscardChanges()) return;
+    state.busy.value = true;
+    try {
+      const bundle = await readFolderBundle(files);
+      await loadImportedBundle(bundle.name, bundle.description, bundle.files);
+    } catch (error) { state.error.value = error.message || '导入失败'; }
+    finally { state.busy.value = false; }
+  }
+  async function loadImportedBundle(name, description, files) {
+    let current = null;
+    try { current = await getSkillBundle(name); } catch (error) { if (error.status !== 404) throw error; }
+    if (current && !current.writable) throw new Error('内置和工作区 Skill 只读');
+    applySkill({ name, description, revision: current?.revision ?? null, writable: true, files });
+    state.originalFiles.value = filesBaseline(current?.files ?? []);
+    state.selectedFilePath.value = 'SKILL.md';
+    toast.success('内容已载入编辑器，检查后保存生效');
+  }
   return { refreshAll, selectSkill, save, remove, openCreate, create, allowDiscardChanges, applySkill,
-    selectFile, toggleDirectory, openCreateFile, createFile, upload, removeFile, downloadFile, exportSkill, importSkill };
+    selectFile, toggleDirectory, openCreateFile, createFile, upload, removeFile, downloadFile, exportSkill, exportSkillZip, importSkill, importZipSkill, importFolderSkill };
 }
 
 function download(blob, name) {

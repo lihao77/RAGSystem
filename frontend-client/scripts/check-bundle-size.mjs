@@ -7,7 +7,8 @@ const assetsDir = path.resolve(scriptDir, "..", "dist", "assets");
 const maxChunkBytes = 450 * 1024;
 // The chat SDK is emitted as a dedicated vendor chunk; account for that
 // transport/runtime payload while keeping the per-chunk ceiling unchanged.
-const maxTotalBytes = 2.41 * 1024 * 1024;
+// Skill zip import/export lazily loads jszip (~98 kB own chunk, ~30 kB gzip).
+const maxTotalBytes = 2.47 * 1024 * 1024;
 
 if (!fs.existsSync(assetsDir)) {
   throw new Error(`Bundle assets not found: ${assetsDir}. Run the frontend build first.`);

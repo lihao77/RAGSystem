@@ -28,6 +28,7 @@
     "echarts": "^6.1.0",
     "github-markdown-css": "^5.8.1",
     "highlight.js": "^11.11.1",
+    "jszip": "^3.10.1",
     "less": "^4.5.1",
     "less-loader": "^12.3.0",
     "lucide-vue-next": "^1.0.0",

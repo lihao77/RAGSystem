@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import JSZip from 'jszip';
 import MockAdapter from 'axios-mock-adapter';
 import { createPinia, setActivePinia } from 'pinia';
 import { httpClient } from '../../api/http.js';
@@ -165,6 +166,41 @@ test('importing over a saved Skill marks changed and new files against the serve
   actions.selectFile('SKILL.md'); state.fileText.value = 'original';
   assert.equal(state.fileChanges.value.has('SKILL.md'), false);
   assert.equal(state.fileChanges.value.get('notes.txt'), 'added');
+});
+
+test('zip import strips the wrapper folder and loads the editor without saving', async (t) => {
+  const { mock, state, actions } = setup(t);
+  mock.onGet('/api/skills/demo-skill/bundle').reply(404, { message: 'missing' });
+  const zip = new JSZip();
+  zip.file('demo-skill/SKILL.md', '---\nname: demo-skill\ndescription: "来自压缩包"\n---\n\n说明');
+  zip.file('demo-skill/scripts/run.py', 'print(1)');
+  const buffer = await zip.generateAsync({ type: 'uint8array' });
+  await actions.importZipSkill({ target: { value: 'file', files: [{ size: buffer.length, arrayBuffer: async () => buffer.buffer }] } });
+  assert.equal(state.activeSkill.value.name, 'demo-skill');
+  assert.equal(state.activeSkill.value.description, '来自压缩包');
+  assert.deepEqual(state.activeSkill.value.files.map((file) => file.relative_path), ['SKILL.md', 'scripts/run.py']);
+  assert.equal(state.fileChanges.value.get('scripts/run.py'), 'added');
+  assert.equal(mock.history.put.length, 0);
+});
+
+test('folder import reads webkitRelativePath and drops build artifacts', async (t) => {
+  const { state, actions } = setup(t);
+  const encode = (text) => new TextEncoder().encode(text).buffer;
+  await actions.importFolderSkill({ target: { value: 'file', files: [
+    { name: 'SKILL.md', webkitRelativePath: 'my-skill/SKILL.md', size: 10, arrayBuffer: async () => encode('---\nname: my-skill\ndescription: 来自文件夹\n---\nx') },
+    { name: 'run.py', webkitRelativePath: 'my-skill/scripts/run.py', size: 8, arrayBuffer: async () => encode('print(1)') },
+    { name: 'index.js', webkitRelativePath: 'my-skill/node_modules/pkg/index.js', size: 4, arrayBuffer: async () => encode('junk') },
+  ] } });
+  assert.equal(state.activeSkill.value.name, 'my-skill');
+  assert.deepEqual(state.activeSkill.value.files.map((file) => file.relative_path), ['SKILL.md', 'scripts/run.py']);
+});
+
+test('a broken zip keeps the current editor and surfaces the reason', async (t) => {
+  const { mock, state, actions } = setup(t);
+  await actions.importZipSkill({ target: { value: 'file', files: [{ size: 3, arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer }] } });
+  assert.match(state.error.value, /无法解析压缩包/);
+  assert.equal(state.activeSkill.value.name, 'demo');
+  assert.equal(mock.history.put.length, 0);
 });
 
 test('selecting the current Skill preserves the editing buffer without a request or confirmation', async (t) => {

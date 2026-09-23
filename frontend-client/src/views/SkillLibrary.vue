@@ -3,8 +3,20 @@
     <template #header-actions>
       <Button variant="outline" size="sm" :disabled="loading || busy" @click="actions.refreshAll"><RefreshCw data-icon="inline-start" />刷新</Button>
       <template v-if="canManage">
-        <Button variant="outline" size="sm" :disabled="busy || loading" @click="importInput?.click()"><Upload data-icon="inline-start" />导入</Button>
-        <input ref="importInput" class="sr-only" type="file" accept=".json,application/json" @change="actions.importSkill" />
+        <DropdownMenu>
+          <DropdownMenuTrigger as-child>
+            <Button variant="outline" size="sm" :disabled="busy || loading"><Upload data-icon="inline-start" />导入</Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuLabel>导入来源</DropdownMenuLabel>
+            <DropdownMenuItem @select="importJsonInput?.click()"><FileJson />JSON 备份</DropdownMenuItem>
+            <DropdownMenuItem @select="importZipInput?.click()"><FileArchive />ZIP 压缩包</DropdownMenuItem>
+            <DropdownMenuItem v-if="supportsDirectoryPick" @select="importFolderInput?.click()"><Folder />文件夹</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <input ref="importJsonInput" class="sr-only" type="file" accept=".json,application/json" @change="actions.importSkill" />
+        <input ref="importZipInput" class="sr-only" type="file" accept=".zip,application/zip,application/x-zip-compressed" @change="actions.importZipSkill" />
+        <input ref="importFolderInput" class="sr-only" type="file" webkitdirectory directory @change="actions.importFolderSkill" />
         <Button size="sm" :disabled="busy || loading" @click="actions.openCreate"><Plus data-icon="inline-start" />新建 Skill</Button>
       </template>
     </template>
@@ -43,7 +55,8 @@
               <DropdownMenuContent align="end">
                 <DropdownMenuGroup>
                   <DropdownMenuLabel>Skill</DropdownMenuLabel>
-                  <DropdownMenuItem @select="actions.exportSkill"><Download />导出 Skill</DropdownMenuItem>
+                  <DropdownMenuItem @select="actions.exportSkill"><Download />导出 JSON</DropdownMenuItem>
+                  <DropdownMenuItem @select="actions.exportSkillZip"><FileArchive />导出 ZIP</DropdownMenuItem>
                   <DropdownMenuItem v-if="canEdit" @select="actions.remove"><Trash2 />删除 Skill</DropdownMenuItem>
                 </DropdownMenuGroup>
                 <template v-if="canEdit || selectedFile">
@@ -98,7 +111,7 @@
 import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue';
 import { useMediaQuery } from '@vueuse/core';
 import { onBeforeRouteLeave } from 'vue-router';
-import { ChevronDown, Download, FilePlus2, ListFilter, MoreHorizontal, Plus, RefreshCw, Save, Trash2, Upload } from 'lucide-vue-next';
+import { ChevronDown, Download, FileArchive, FileJson, FilePlus2, Folder, ListFilter, MoreHorizontal, Plus, RefreshCw, Save, Trash2, Upload } from 'lucide-vue-next';
 import PageLayout from '../components/PageLayout.vue';
 import FormDialog from '../components/admin/FormDialog.vue';
 import SegmentedControl from '../components/SegmentedControl.vue';
@@ -124,9 +137,13 @@ const state = createSkillLibraryState();
 const actions = useSkillLibrary(state, { toast: useToast(), confirm: useConfirm().confirm });
 const { canManage, canEdit, activeSkill, loading, busy, error, hasUnsavedChanges, searchQuery,
   editorMode, fileText, selectedFile, selectedFilePath, fileTreeOpen, createDialog, canCreate, createFileDialog, canCreateFile } = state;
-const importInput = ref(null);
+const importJsonInput = ref(null);
+const importZipInput = ref(null);
+const importFolderInput = ref(null);
 const fileUploadInput = ref(null);
 const isNarrow = useMediaQuery('(max-width: 1024px)');
+// 不支持 webkitdirectory 的浏览器（如 iOS Safari）会退化成单文件选择，造成“静默部分导入”，直接隐藏该入口。
+const supportsDirectoryPick = typeof document !== 'undefined' && 'webkitdirectory' in document.createElement('input');
 const skillPickerOpen = ref(false);
 watch(isNarrow, (narrow) => {
   state.fileTreeOpen.value = !narrow;
