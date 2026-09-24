@@ -72,6 +72,7 @@ export interface SkillToolInput {
   cwd?: string | null;
   runInBackground?: boolean | null;
   workspaceRoot?: string | null;
+  timeoutSeconds?: number | null;
 }
 
 const SKILL_SOURCE_PRIORITY: Record<SkillSourceType, number> = {
@@ -85,6 +86,10 @@ const SKILL_SOURCE_LABELS: Record<SkillSourceType, string> = {
   user_global: "全局",
   builtin: "内置",
 };
+
+/** execute_skill_script 脚本超时（秒）：默认 60、上限 300，与 execute_code 的 timeout 参数对齐。 */
+export const DEFAULT_SCRIPT_TIMEOUT_SECONDS = 60;
+export const MAX_SCRIPT_TIMEOUT_SECONDS = 300;
 
 export class SkillToolService {
   private readonly dataRoot: string;
@@ -304,6 +309,7 @@ export class SkillToolService {
         background_started: false,
       });
     }
+    const timeoutSeconds = normalizeScriptTimeout(input.timeoutSeconds);
     if (input.runInBackground) {
       return this.executeSkillScriptInBackground(
         skill,
@@ -311,6 +317,7 @@ export class SkillToolService {
         scriptName,
         input.arguments ?? [],
         input.cwd,
+        timeoutSeconds,
         workspaceRoot,
         context,
         agent,
@@ -333,11 +340,13 @@ export class SkillToolService {
         context,
         workspaceRoot,
         cwd,
+        timeoutSeconds,
     );
       const meta: Record<string, unknown> = {
         success: scriptResult.returnCode === 0,
         script_name: scriptName,
         skill: skill.name,
+        timeout_seconds: timeoutSeconds,
       };
       if (scriptResult.stderr.trim()) meta.stderr = scriptResult.stderr;
       if (scriptResult.stdout.length > 4000) meta.force_file = true;
@@ -446,6 +455,7 @@ export class SkillToolService {
     context: ToolExecContext,
     workspaceRoot: string | null,
     cwd: string,
+    timeoutSeconds: number,
   ): Promise<{ stdout: string; stderr: string; returnCode: number }> {
     const environment = await this.ensureSkillEnvironment(skill, context.signal);
     if ("error" in environment) {
@@ -457,8 +467,8 @@ export class SkillToolService {
       : createLocalExecutionPaths(this.dataRoot, { ...context, workspaceRoot: resolvedWorkspace });
     return spawnProcess(environment.python, [scriptPath, ...args.map(String)], {
       cwd,
-      timeoutMs: 30_000,
-      timeoutMessage: "脚本执行超时（>30秒）",
+      timeoutMs: timeoutSeconds * 1000,
+      timeoutMessage: `脚本执行超时（>${timeoutSeconds}秒）`,
       ...(context.signal ? { signal: context.signal } : {}),
       env: {
         ...process.env,
@@ -500,6 +510,7 @@ export class SkillToolService {
     scriptName: string,
     args: string[],
     cwd: string | null | undefined,
+    timeoutSeconds: number,
     workspaceRoot: string | null,
     context: ToolExecContext,
     agent: AgentConfig | null,
@@ -547,6 +558,7 @@ export class SkillToolService {
           ...(cwd !== undefined ? { cwd } : {}),
           runInBackground: false,
           workspaceRoot,
+          timeoutSeconds,
         },
         { ...context, signal },
         agent,
@@ -572,6 +584,7 @@ export class SkillToolService {
           success: true,
           skill: skill.name,
           script_name: scriptName,
+          timeout_seconds: timeoutSeconds,
           task_id: task.task_id,
           background_task_id: task.task_id,
           background_started: true,
@@ -724,7 +737,20 @@ export function readSkillToolArguments(value: Record<string, unknown> | undefine
         ? value.runInBackground
         : null,
     workspaceRoot: asString(value?.workspace_root) ?? asString(value?.workspaceRoot),
+    timeoutSeconds: asInteger(value?.timeout),
   };
+}
+
+/** 夹取脚本超时（秒）：非法/缺省回落默认值，范围 [1, MAX_SCRIPT_TIMEOUT_SECONDS]。 */
+export function normalizeScriptTimeout(value: number | null | undefined): number {
+  if (value === null || value === undefined || !Number.isInteger(value)) {
+    return DEFAULT_SCRIPT_TIMEOUT_SECONDS;
+  }
+  return Math.max(1, Math.min(MAX_SCRIPT_TIMEOUT_SECONDS, value));
+}
+
+function asInteger(value: unknown): number | null {
+  return typeof value === "number" && Number.isInteger(value) ? value : null;
 }
 
 function workspaceOnlyPathPolicy(workspace: string): PathAccessPolicy {

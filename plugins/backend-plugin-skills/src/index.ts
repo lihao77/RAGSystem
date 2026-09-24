@@ -25,7 +25,12 @@ export { createPostgresSkillsLifecycle } from "./storage/postgres/lifecycle.js";
 export { createPostgresSkillsRuntimeFactory } from "./storage/postgres/runtime.js";
 export type { SkillsPostgresExecutor, SkillsPostgresQueryExecutor } from "./storage/postgres/executor.js";
 export { POSTGRES_SKILLS_MIGRATIONS } from "./storage/postgres/schema.js";
-export { SkillToolService } from "./tools/SkillExecution.js";
+export {
+  SkillToolService,
+  normalizeScriptTimeout,
+  DEFAULT_SCRIPT_TIMEOUT_SECONDS,
+  MAX_SCRIPT_TIMEOUT_SECONDS,
+} from "./tools/SkillExecution.js";
 export { createSkillTools } from "./tools/SkillTools.js";
 export {
   createSkillAuthoringTools,

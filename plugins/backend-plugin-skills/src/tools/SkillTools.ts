@@ -8,7 +8,7 @@ import type { SkillToolService } from "./SkillExecution.js";
 import { readSkillToolArguments } from "./SkillExecution.js";
 import { buildTool, type Tool, type ToolExecContext } from "@ragsystem/agent-sdk";
 import type { RuntimeToolDefinition } from "@ragsystem/agent-sdk";
-import { metadataFrom, nullableStringArray, optionalBoolean, optionalString } from "@ragsystem/backend-core/tools/schema-helpers.js";
+import { metadataFrom, nullableStringArray, optionalBoolean, optionalInteger, optionalString } from "@ragsystem/backend-core/tools/schema-helpers.js";
 
 const ACTIVATE_SKILL_TOOL_NAME = "activate_skill";
 const LOAD_SKILL_RESOURCE_TOOL_NAME = "load_skill_resource";
@@ -38,6 +38,7 @@ const executeSkillScriptSchema = skillBaseSchema.extend({
   scriptName: z.string().optional(),
   arguments: nullableStringArray(),
   cwd: optionalString,
+  timeout: optionalInteger,
   run_in_background: optionalBoolean,
   runInBackground: optionalBoolean,
 }).strict();
@@ -134,6 +135,12 @@ const SKILL_TOOLS: RuntimeToolDefinition[] = [
         cwd: {
           type: "string",
           description: "Working directory for the script. Relative paths resolve from workspace; absolute external paths require approval.",
+        },
+        timeout: {
+          type: "integer",
+          minimum: 1,
+          maximum: 300,
+          description: "Timeout in seconds. Defaults to 60 and is capped at 300.",
         },
         run_in_background: { type: "boolean", description: "Reserved for background execution." },
         workspace_root: { type: "string", description: "Optional workspace root for workspace Skills." },
