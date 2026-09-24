@@ -8,10 +8,10 @@
                         <div class="toolbar-right">
                             <Button variant="secondary" size="icon" aria-label="刷新向量化器" :disabled="vectorizersLoading"
                                 @click="refreshVectorizers">
-                                <IconRefresh :size="14" :class="{ 'spin': vectorizersLoading }" />
+                                <IconRefresh :class="{ 'spin': vectorizersLoading }" />
                             </Button>
-                            <Button class="toolbar-primary-action" variant="default" size="sm" @click="openAddVectorizerDialog">
-                                <IconPlus :size="14" />
+                            <Button class="toolbar-primary-action" variant="default" size="default" @click="openAddVectorizerDialog">
+                                <IconPlus />
                                 <span>新增向量化器</span>
                             </Button>
                         </div>
@@ -60,12 +60,12 @@
                                             <Button variant="action-neutral" size="action"
                                                 :disabled="vectorizers.length < 2" @click="openMigrateDialog(v)"
                                                 title="迁移数据">
-                                                <ArrowRight :size="13" />
+                                                <ArrowRight />
                                             </Button>
                                             <Button variant="action-danger" size="action"
                                                 :disabled="deletingVectorizer === v.vectorizer_key"
                                                 @click="handleDeleteVectorizer(v.vectorizer_key)" title="删除">
-                                                <IconTrash :size="13" />
+                                                <IconTrash />
                                             </Button>
                                         </div>
                                     </TableCell>
@@ -213,7 +213,7 @@ const { activeTab, showMarkdownPreview, previewFile, previewAnchor, globalLoadin
 }
 @media (max-width: 480px) {
     .primary-action-button, .toolbar-primary-action, .search-submit-button {
-        font-size: 12px;
+        font-size: var(--font-size-xs);
     }
 
     .toolbar-right {
@@ -233,7 +233,7 @@ const { activeTab, showMarkdownPreview, previewFile, previewAnchor, globalLoadin
     }
     .kb-table :deep(thead th), .kb-table :deep(tbody td) {
         padding: 6px 8px;
-        font-size: 12px;
+        font-size: var(--font-size-xs);
     }
 }
 </style>

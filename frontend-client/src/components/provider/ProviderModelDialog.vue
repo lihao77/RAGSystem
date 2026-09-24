@@ -45,7 +45,7 @@
               :aria-pressed="hasModality(form.input_modalities, option.value)"
               :title="option.value === 'text' ? '对话模型必须接受文本输入' : ''"
               @click="toggleModality('input_modalities', option.value)"
-            ><span class="modality-check" aria-hidden="true"><Check :size="11" :stroke-width="3" /></span>{{ option.label }}<Lock v-if="option.value === 'text'" class="modality-lock" :size="12" /></button>
+            ><span class="modality-check" aria-hidden="true"><Check :size="12" :stroke-width="3" /></span>{{ option.label }}<Lock v-if="option.value === 'text'" class="modality-lock" :size="12" /></button>
           </div>
           <FieldError v-if="formErrors.input_modalities">{{ formErrors.input_modalities }}</FieldError>
         </div>
@@ -63,7 +63,7 @@
               :aria-pressed="hasModality(form.output_modalities, option.value)"
               :title="option.value === 'text' ? '当前内核只消费文本输出' : ''"
               @click="toggleModality('output_modalities', option.value)"
-            ><span class="modality-check" aria-hidden="true"><Check :size="11" :stroke-width="3" /></span>{{ option.label }}<Lock v-if="option.value === 'text'" class="modality-lock" :size="12" /></button>
+            ><span class="modality-check" aria-hidden="true"><Check :size="12" :stroke-width="3" /></span>{{ option.label }}<Lock v-if="option.value === 'text'" class="modality-lock" :size="12" /></button>
           </div>
           <FieldError v-if="formErrors.output_modalities">{{ formErrors.output_modalities }}</FieldError>
         </div>
@@ -98,7 +98,7 @@
                   :class="{ 'modality-chip--on': hasThinkingLevel(option.value) }"
                   :aria-pressed="hasThinkingLevel(option.value)"
                   @click="toggleThinkingLevel(option.value)"
-                ><span class="modality-check" aria-hidden="true"><Check :size="11" :stroke-width="3" /></span>{{ option.label }}</button>
+                ><span class="modality-check" aria-hidden="true"><Check :size="12" :stroke-width="3" /></span>{{ option.label }}</button>
               </div>
             </div>
 
@@ -235,7 +235,7 @@ function toggleModality(field, token) {
 .modality-lock { flex-shrink: 0; color: var(--color-text-muted); }
 /* 高级设置折叠：与上方内容以横线分隔（不框边），收起/展开 */
 .model-dialog-advanced { border-top: 1px solid var(--color-border); }
-.model-dialog-advanced summary { display: flex; align-items: center; gap: 6px; padding: 12px 2px 10px; cursor: pointer; list-style: none; font-size: 13px; font-weight: 500; color: var(--color-text-primary); user-select: none; }
+.model-dialog-advanced summary { display: flex; align-items: center; gap: 6px; padding: 12px 2px 10px; cursor: pointer; list-style: none; font-size: var(--font-size-sm); font-weight: 500; color: var(--color-text-primary); user-select: none; }
 .model-dialog-advanced summary::-webkit-details-marker { display: none; }
 .model-dialog-advanced__chev { flex-shrink: 0; color: var(--color-text-secondary); transition: transform 0.2s; }
 .model-dialog-advanced[open] > summary .model-dialog-advanced__chev { transform: rotate(180deg); }

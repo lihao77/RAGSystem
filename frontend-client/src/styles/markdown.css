@@ -387,7 +387,7 @@
   align-items: center;
   padding: 0 5px;
   margin: 0 1px;
-  font-size: 10px;
+  font-size: var(--font-size-2xs);
   font-weight: 600;
   line-height: 16px;
   vertical-align: baseline;
@@ -471,31 +471,31 @@
 /* ===== 响应式（小屏压字号） ===== */
 @media (max-width: 767px) {
   .markdown-body {
-    font-size: 0.9rem;
+    font-size: var(--font-size-base);
     line-height: 1.6;
   }
 
-  .markdown-body h1 { font-size: 1.5rem; }
-  .markdown-body h2 { font-size: 1.3rem; }
-  .markdown-body h3 { font-size: 1.1rem; }
+  .markdown-body h1 { font-size: var(--font-size-2xl); }
+  .markdown-body h2 { font-size: var(--font-size-xl); }
+  .markdown-body h3 { font-size: var(--font-size-md); }
   .markdown-body p { margin-bottom: var(--spacing-sm); }
   .markdown-body code {
-    font-size: 0.85rem;
+    font-size: var(--font-size-sm);
     padding: 2px 4px;
   }
   .markdown-body .md-code-block pre,
-  .markdown-body .md-code-block pre code { font-size: 0.8rem; }
+  .markdown-body .md-code-block pre code { font-size: var(--font-size-sm); }
   .markdown-body .md-code-block .hljs { padding: 8px 10px; }
-  .markdown-body .md-table-block table { font-size: 0.85rem; }
+  .markdown-body .md-table-block table { font-size: var(--font-size-sm); }
 }
 
 @media (max-width: 480px) {
-  .markdown-body { font-size: 0.85rem; }
-  .markdown-body h1 { font-size: 1.3rem; }
-  .markdown-body h2 { font-size: 1.15rem; }
+  .markdown-body { font-size: var(--font-size-base); }
+  .markdown-body h1 { font-size: var(--font-size-xl); }
+  .markdown-body h2 { font-size: var(--font-size-lg); }
   .markdown-body h3 { font-size: var(--font-size-base); }
   .markdown-body .md-code-block pre,
   .markdown-body .md-code-block pre code { font-size: var(--font-size-xs); }
   .markdown-body .md-code-block .hljs { padding: 8px 10px; }
-  .markdown-body .md-table-block table { font-size: 0.8rem; }
+  .markdown-body .md-table-block table { font-size: var(--font-size-sm); }
 }

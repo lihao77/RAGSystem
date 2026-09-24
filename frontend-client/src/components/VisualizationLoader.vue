@@ -37,11 +37,11 @@
           <span class="file-inline-shell__meta">{{ categoryInfo.label }} · {{ formatSize(fileSize) }}</span>
           <div class="file-inline-shell__actions">
             <Button variant="ghost" size="sm" @click="openDialog">
-              <Maximize2 :size="14" />
+              <Maximize2 />
               放大
             </Button>
             <Button variant="ghost" size="sm" :disabled="downloading" @click="downloadFile">
-              <Download :size="14" />
+              <Download />
               {{ downloading ? '下载中…' : '下载' }}
             </Button>
           </div>
@@ -324,33 +324,33 @@ function formatSize(value) {
 .viz-skeleton { min-height: 96px; border: 1px solid var(--color-border); border-radius: 8px; overflow: hidden; background: var(--color-bg-elevated); position: relative; }
 .skel-shimmer { position: absolute; inset: 0; background: linear-gradient(105deg, transparent 30%, rgba(var(--color-interactive-rgb), .06) 50%, transparent 70%); background-size: 250% 100%; animation: skel-shimmer 2.4s ease-in-out infinite; }
 @keyframes skel-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
-.viz-error { display: flex; align-items: center; gap: .5rem; padding: .75rem 1rem; border-radius: 8px; background: var(--color-error-bg); color: var(--color-error); font-size: .875rem; }
+.viz-error { display: flex; align-items: center; gap: .5rem; padding: .75rem 1rem; border-radius: 8px; background: var(--color-error-bg); color: var(--color-error); font-size: var(--font-size-sm); }
 .error-text { flex: 1; }
 
 /* 图片 */
 .fallback-image-wrapper { text-align: center; }
 .fallback-image { margin: 0 auto; max-width: 100%; border-radius: 8px; cursor: zoom-in; }
 .fallback-image--thumb { max-height: 240px; width: auto; }
-.image-caption { margin-top: .5rem; color: var(--color-text-secondary); font-size: .875rem; }
+.image-caption { margin-top: .5rem; color: var(--color-text-secondary); font-size: var(--font-size-sm); }
 
 /* 下载卡片（attachment / 降级） */
 .workspace-file-card { display: flex; align-items: center; gap: 1rem; padding: 1rem; border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-bg-elevated); width: 100%; text-align: left; }
 .workspace-file-copy { min-width: 0; flex: 1; }
 .workspace-file-title { overflow: hidden; color: var(--color-text-primary); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
-.workspace-file-meta { margin-top: .25rem; color: var(--color-text-secondary); font-size: .8125rem; }
+.workspace-file-meta { margin-top: .25rem; color: var(--color-text-secondary); font-size: var(--font-size-sm); }
 
 /* preview 卡片 */
 .workspace-file-card--clickable { cursor: pointer; transition: border-color .18s ease, background .18s ease; }
 .workspace-file-card--clickable:hover { border-color: var(--color-border-hover, var(--color-border)); background: var(--color-hover-overlay); }
 .workspace-file-icon { color: var(--color-text-secondary); flex-shrink: 0; }
-.workspace-file-preview-hint { display: inline-flex; align-items: center; gap: 4px; color: var(--color-text-secondary); font-size: .75rem; flex-shrink: 0; }
+.workspace-file-preview-hint { display: inline-flex; align-items: center; gap: 4px; color: var(--color-text-secondary); font-size: var(--font-size-xs); flex-shrink: 0; }
 
 /* inline 内容外壳 */
 .file-inline-shell { border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-bg-elevated); overflow: hidden; }
 .file-inline-shell__head { display: flex; align-items: center; gap: .5rem; min-height: 40px; padding: 0 .5rem 0 .75rem; border-bottom: 1px solid var(--color-border); background: rgba(var(--color-bg-elevated-rgb), .24); }
 .file-inline-shell__icon { color: var(--color-text-secondary); flex-shrink: 0; }
-.file-inline-shell__title { overflow: hidden; color: var(--color-text-primary); font-weight: 600; font-size: .8125rem; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.file-inline-shell__meta { color: var(--color-text-secondary); font-size: .75rem; white-space: nowrap; flex-shrink: 0; }
+.file-inline-shell__title { overflow: hidden; color: var(--color-text-primary); font-weight: 600; font-size: var(--font-size-sm); text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.file-inline-shell__meta { color: var(--color-text-secondary); font-size: var(--font-size-xs); white-space: nowrap; flex-shrink: 0; }
 .file-inline-shell__actions { display: flex; gap: .25rem; margin-left: auto; flex-shrink: 0; }
 .file-inline-shell__body { min-width: 0; }
 .file-inline-shell__scroll { max-height: 480px; overflow-y: auto; padding: .25rem .875rem; scrollbar-width: thin; }
@@ -360,5 +360,5 @@ function formatSize(value) {
 .file-inline-shell__audio audio { width: 100%; }
 .file-inline-shell__video { display: flex; justify-content: center; padding: .75rem; background: var(--color-bg-secondary); }
 .file-inline-shell__video video { max-height: 420px; max-width: 100%; border-radius: 8px; }
-.file-inline-shell__note { padding: .375rem .875rem; border-top: 1px dashed var(--color-border); color: var(--color-text-secondary); font-size: .75rem; }
+.file-inline-shell__note { padding: .375rem .875rem; border-top: 1px dashed var(--color-border); color: var(--color-text-secondary); font-size: var(--font-size-xs); }
 </style>

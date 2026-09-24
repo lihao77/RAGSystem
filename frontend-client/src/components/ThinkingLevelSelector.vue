@@ -34,7 +34,7 @@
               <span class="option-label">跟随配置</span>
               <span class="option-sub">使用 Provider / 智能体的默认设置</span>
             </span>
-            <IconCheck v-if="!thinkingLevel" class="check-icon" :size="15" :stroke-width="2.5" />
+            <IconCheck v-if="!thinkingLevel" class="check-icon" :size="16" :stroke-width="2.5" />
           </button>
           <button
             v-for="level in capability.levels"
@@ -50,7 +50,7 @@
               <span class="option-label">{{ labelFor(level) }}</span>
               <span class="option-sub">{{ descriptionFor(level) }}</span>
             </span>
-            <IconCheck v-if="thinkingLevel === level" class="check-icon" :size="15" :stroke-width="2.5" />
+            <IconCheck v-if="thinkingLevel === level" class="check-icon" :size="16" :stroke-width="2.5" />
           </button>
         </div>
       </PopoverContent>
@@ -265,13 +265,13 @@ watch([currentSessionTeam, pendingEntryAgent], () => {
 }
 
 .option-label {
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   font-weight: 500;
   color: var(--color-text-primary);
 }
 
 .option-sub {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--color-text-muted);
   white-space: nowrap;
   overflow: hidden;

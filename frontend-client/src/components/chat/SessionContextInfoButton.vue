@@ -4,7 +4,7 @@
       <PopoverTrigger as-child>
         <Button
           variant="ghost"
-          :size="showSummary && compactSummary ? 'sm' : 'icon'"
+          :size="showSummary && compactSummary ? 'xs' : 'icon-toolbar'"
           class="session-context-summary"
           :class="{ 'is-expanded': metaExpanded }"
           :title="summaryTitle"

@@ -49,7 +49,7 @@
               <component :is="card.icon" :size="18" :stroke-width="1.8" class="transport-card__icon" />
               <span class="transport-card__label">{{ card.label }}</span>
               <span class="transport-card__desc">{{ card.desc }}</span>
-              <IconCheck v-if="installForm.transport === card.value" :size="13" :stroke-width="3" class="transport-card__check" />
+              <IconCheck v-if="installForm.transport === card.value" :size="14" :stroke-width="3" class="transport-card__check" />
             </button>
           </div>
 
@@ -91,7 +91,7 @@
 
         <section class="dialog-form-section">
           <button type="button" class="advanced-toggle" :aria-expanded="advancedOpen" @click="advancedOpen = !advancedOpen">
-            <IconChevronDown :size="15" class="advanced-toggle__chevron" :class="{ 'advanced-toggle__chevron--open': advancedOpen }" />
+            <IconChevronDown :size="16" class="advanced-toggle__chevron" :class="{ 'advanced-toggle__chevron--open': advancedOpen }" />
             <span class="advanced-toggle__title">高级设置</span>
             <span class="advanced-toggle__hint">超时、风险等级与运行开关</span>
           </button>
@@ -170,21 +170,21 @@
             <p class="registry-desc">{{ item.description || '暂无描述' }}</p>
             <div v-if="item.install_options?.length" class="install-options-row">
               <span v-for="option in item.install_options" :key="option.id" class="option-chip" :class="option.supported ? 'option-chip--ok' : 'option-chip--no'" :title="option.supported ? option.label : option.unsupported_reason">
-                <IconCheck v-if="option.supported" :size="11" :stroke-width="2.5" />
-                <IconClose v-else :size="11" :stroke-width="2.5" />
+                <IconCheck v-if="option.supported" :size="12" :stroke-width="2.5" />
+                <IconClose v-else :size="12" :stroke-width="2.5" />
                 {{ option.label }}
               </span>
             </div>
             <div v-if="firstUnsupportedReason(item)" class="inline-warning">
-              <IconWarning :size="13" />
+              <IconWarning :size="14" />
               {{ firstUnsupportedReason(item) }}
             </div>
             <div class="registry-card-actions">
               <Button size="sm" variant="default" :disabled="!item.installable || installingRegistry" @click="handleRegistryInstall(item)">{{ quickInstallButtonText(item) }}</Button>
               <Button size="sm" variant="secondary" :disabled="!item.install_options?.length" @click="openRegistryInstallDialog(item)">配置安装</Button>
               <div class="registry-links">
-                <a v-if="item.website_url" class="ext-link" @click.prevent="openExternalLink(item.website_url)" href="#"><Globe :size="13" />官网</a>
-                <a v-if="item.repository_url" class="ext-link" @click.prevent="openExternalLink(item.repository_url)" href="#"><Github :size="13" />源码</a>
+                <a v-if="item.website_url" class="ext-link" @click.prevent="openExternalLink(item.website_url)" href="#"><Globe :size="14" />官网</a>
+                <a v-if="item.repository_url" class="ext-link" @click.prevent="openExternalLink(item.repository_url)" href="#"><Github :size="14" />源码</a>
               </div>
             </div>
           </article>
@@ -198,7 +198,7 @@
         <Button variant="outline" size="sm" :disabled="installing" @click="onReset">重置</Button>
         <Button variant="default" size="sm" :disabled="installing || hasBlockingErrors" @click="onSubmit">
           <Spinner v-if="installing" data-icon="inline-start" />
-          <IconDownload v-else :size="15" />
+          <IconDownload v-else />
           <span>{{ installing ? '安装中...' : '安装服务' }}</span>
         </Button>
       </DialogFooter>

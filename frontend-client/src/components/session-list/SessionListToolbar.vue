@@ -57,7 +57,7 @@
             <template v-if="botOptions.length">
               <DropdownMenuSeparator />
               <DropdownMenuGroup>
-                <DropdownMenuLabel class="px-2 py-1 text-[11px] font-medium text-muted-foreground">
+                <DropdownMenuLabel class="px-2 py-1 text-xs font-medium text-muted-foreground">
                   Bot
                 </DropdownMenuLabel>
                 <DropdownMenuRadioItem
@@ -92,7 +92,7 @@
             <template v-if="widgetOptions.length">
               <DropdownMenuSeparator />
               <DropdownMenuGroup>
-                <DropdownMenuLabel class="px-2 py-1 text-[11px] font-medium text-muted-foreground">
+                <DropdownMenuLabel class="px-2 py-1 text-xs font-medium text-muted-foreground">
                   Widget
                 </DropdownMenuLabel>
                 <DropdownMenuRadioItem
@@ -412,7 +412,7 @@ function clearAll() {
   border-radius: 999px;
   background: transparent;
   color: var(--color-text-muted, hsl(var(--muted-foreground)));
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   line-height: 1;
   cursor: pointer;
   transition:
@@ -469,7 +469,7 @@ function clearAll() {
   min-width: 13px;
   height: 13px;
   padding: 0 3px;
-  font-size: 8px;
+  font-size: var(--font-size-2xs);
 }
 
 .session-filter-btn__icon {
@@ -502,7 +502,7 @@ function clearAll() {
   border-radius: 999px;
   background: color-mix(in srgb, var(--color-brand-accent, hsl(var(--primary))) 16%, transparent);
   color: var(--color-brand-accent, hsl(var(--primary)));
-  font-size: 10px;
+  font-size: var(--font-size-2xs);
   font-weight: 650;
   font-variant-numeric: tabular-nums;
   line-height: 1;
@@ -542,7 +542,7 @@ function clearAll() {
   gap: 6px;
   padding: 2px 8px 6px;
   color: var(--color-text-muted, hsl(var(--muted-foreground)));
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 650;
   letter-spacing: 0.02em;
 }
@@ -562,7 +562,7 @@ function clearAll() {
 .session-filter-item__count {
   margin-left: 8px;
   flex-shrink: 0;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   font-variant-numeric: tabular-nums;
   color: var(--color-text-muted, hsl(var(--muted-foreground)));
 }
@@ -584,7 +584,7 @@ function clearAll() {
   border-radius: 6px;
   background: transparent;
   color: var(--color-text-muted, hsl(var(--muted-foreground)));
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   font-weight: 550;
   cursor: pointer;
   transition: background-color 140ms ease, color 140ms ease;

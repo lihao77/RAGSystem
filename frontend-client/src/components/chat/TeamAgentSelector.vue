@@ -289,7 +289,7 @@ watch(() => props.team, (team) => { void ensureTeamAgents(team); }, { immediate:
 .ta-team,
 .ta-agent {
   color: var(--color-text-primary);
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   font-weight: 500;
   gap: 8px;
   cursor: pointer;
@@ -310,7 +310,7 @@ watch(() => props.team, (team) => { void ensureTeamAgents(team); }, { immediate:
   border-radius: 4px;
   background: rgba(var(--color-brand-accent-rgb), 0.14);
   color: var(--color-brand-accent-light);
-  font-size: 10px;
+  font-size: var(--font-size-2xs);
   font-weight: 500;
   line-height: 16px;
 }

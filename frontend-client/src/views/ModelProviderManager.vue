@@ -85,8 +85,8 @@
                 @keydown.down.prevent="moveProviderByKeyboard(provider, 1)"
               >
                 <span class="provider-side-item__icon" aria-hidden="true">
-                  <Box :size="15" class="provider-side-item__vendor-icon" />
-                  <GripVertical :size="15" class="provider-side-item__grip" />
+                  <Box :size="16" class="provider-side-item__vendor-icon" />
+                  <GripVertical :size="16" class="provider-side-item__grip" />
                 </span>
                 <span class="provider-side-item__name" :title="provider.name || getProviderKey(provider)">{{ provider.name || provider.key }}</span>
                 <span
@@ -103,7 +103,7 @@
               :aria-current="createOpen ? 'true' : undefined"
               @click="onSideAddClick"
             >
-              <span class="provider-side-item__icon" aria-hidden="true"><IconPlus :size="15" /></span>
+              <span class="provider-side-item__icon" aria-hidden="true"><IconPlus :size="16" /></span>
               <span class="provider-side-item__name">添加供应商</span>
             </button>
           </div>
@@ -181,7 +181,7 @@
                       :class="{ 'endpoint-mode-pill--full': form.endpoint_mode === 'full' }"
                       :title="form.endpoint_mode === 'full' ? '完整 URL：原样直用，填到接口路径结尾' : '基座 URL：自动拼装接口路径（裸域名自动补 /v1）'"
                     >
-                      <Link2 :size="13" />
+                      <Link2 :size="14" />
                       <span class="endpoint-mode-pill__text">{{ form.endpoint_mode === 'full' ? '完整 URL' : '基座 URL' }}</span>
                       <Switch
                         :checked="form.endpoint_mode === 'full'"
@@ -370,7 +370,7 @@
 
               <div class="provider-create-footer">
                 <span class="provider-create-footer__hint">
-                  <Info :size="13" />
+                  <Info :size="14" />
                   添加供应商前，请至少添加一个模型。
                 </span>
                 <div class="provider-create-footer__actions">
@@ -438,7 +438,7 @@
                       :class="{ 'endpoint-mode-pill--full': detailForm.endpoint_mode === 'full' }"
                       :title="detailForm.endpoint_mode === 'full' ? '完整 URL：原样直用，填到接口路径结尾' : '基座 URL：自动拼装接口路径（裸域名自动补 /v1）'"
                     >
-                      <Link2 :size="13" />
+                      <Link2 :size="14" />
                       <span class="endpoint-mode-pill__text">{{ detailForm.endpoint_mode === 'full' ? '完整 URL' : '基座 URL' }}</span>
                       <Switch
                         :checked="detailForm.endpoint_mode === 'full'"
@@ -489,8 +489,8 @@
                       :title="showApiKey ? '隐藏' : '显示'"
                       @click="showApiKey = !showApiKey"
                     >
-                      <EyeOff v-if="showApiKey" :size="15" />
-                      <Eye v-else :size="15" />
+                      <EyeOff v-if="showApiKey" :size="16" />
+                      <Eye v-else :size="16" />
                     </button>
                   </div>
                   <p v-if="fieldErrors.api_key" class="pd-field__error">{{ fieldErrors.api_key }}</p>
@@ -1830,16 +1830,16 @@ onBeforeUnmount(() => {
 
 /* 拒载告警条：损坏 provider 的报错（load_errors 通道），说明其不在列表中的原因 */
 .provider-load-errors { display: flex; gap: 10px; align-items: flex-start; margin: 10px 12px 0; padding: 10px 12px; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg-secondary); color: var(--color-text-secondary); }
-.provider-load-errors__item { margin: 0; font-size: 12px; line-height: 1.6; color: var(--color-text-primary); }
+.provider-load-errors__item { margin: 0; font-size: var(--font-size-xs); line-height: 1.6; color: var(--color-text-primary); }
 .provider-load-errors__item .font-mono { font-weight: 600; }
-.provider-load-errors__hint { margin: 4px 0 0; font-size: 11px; line-height: 1.5; color: var(--color-text-muted); }
+.provider-load-errors__hint { margin: 4px 0 0; font-size: var(--font-size-xs); line-height: 1.5; color: var(--color-text-muted); }
 
 /* ══ 左栏：供应商列表 ══ */
 .provider-side { display: flex; flex-direction: column; min-width: 0; min-height: 0; border-right: 1px solid var(--color-border); background: var(--color-bg-secondary); }
 .provider-side__search { padding: 12px 12px 8px; }
 .provider-side__scroll { position: relative; flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 0 12px; }
 .provider-side__list { position: relative; display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; }
-.provider-side-item { display: flex; align-items: center; gap: 9px; width: 100%; min-height: 36px; padding: 6px 10px; border: none; border-radius: var(--radius-md); background: transparent; color: var(--color-text-primary); font-size: 13px; font-weight: 500; text-align: left; cursor: pointer; user-select: none; transition: background var(--transition-fast); }
+.provider-side-item { display: flex; align-items: center; gap: 9px; width: 100%; min-height: 36px; padding: 6px 10px; border: none; border-radius: var(--radius-md); background: transparent; color: var(--color-text-primary); font-size: var(--font-size-sm); font-weight: 500; text-align: left; cursor: pointer; user-select: none; transition: background var(--transition-fast); }
 .provider-side-item:focus-visible { outline: 2px solid var(--color-brand-accent); outline-offset: -2px; }
 .provider-side-item--active { background: var(--color-active-bg); font-weight: 600; }
 .provider-side-item--dragging { opacity: 0; }
@@ -1857,7 +1857,7 @@ onBeforeUnmount(() => {
 .provider-side-item__dot--warn { background: var(--color-warning); opacity: 1; }
 .provider-side-item__dot--checking { background: var(--color-text-muted); opacity: 1; animation: side-dot-pulse 1s ease-in-out infinite; }
 @keyframes side-dot-pulse { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
-.provider-side__empty { padding: 24px 12px; text-align: center; color: var(--color-text-muted); font-size: 12px; }
+.provider-side__empty { padding: 24px 12px; text-align: center; color: var(--color-text-muted); font-size: var(--font-size-xs); }
 /* 添加供应商：列表尾部虚线虚拟卡片，打开新建面板时呈选中态 */
 .provider-side-item--add { margin-top: 4px; border: 1px dashed var(--color-border); color: var(--color-text-secondary); font-weight: 500; transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast); }
 .provider-side-item--add:hover { border-color: var(--color-brand-accent); color: var(--color-text-primary); }
@@ -1875,31 +1875,31 @@ onBeforeUnmount(() => {
 .provider-detail { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .provider-detail__head { display: flex; align-items: center; gap: 10px 12px; flex-wrap: wrap; padding: 16px 20px 12px; border-bottom: 1px solid var(--color-border); }
 .provider-detail__heading { display: flex; align-items: center; gap: 10px; flex: 1 1 auto; min-width: 0; flex-wrap: wrap; }
-.provider-detail__name { margin: 0; font-size: 17px; font-weight: 700; letter-spacing: -0.01em; color: var(--color-text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.provider-detail__saving { display: inline-flex; align-items: center; gap: 4px; color: var(--color-text-muted); font-size: 11px; white-space: nowrap; }
-.provider-detail__meta { display: flex; align-items: center; gap: 8px; flex-shrink: 0; font-size: 12px; color: var(--color-text-secondary); }
+.provider-detail__name { margin: 0; font-size: var(--font-size-md); font-weight: 700; letter-spacing: -0.01em; color: var(--color-text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.provider-detail__saving { display: inline-flex; align-items: center; gap: 4px; color: var(--color-text-muted); font-size: var(--font-size-xs); white-space: nowrap; }
+.provider-detail__meta { display: flex; align-items: center; gap: 8px; flex-shrink: 0; font-size: var(--font-size-xs); color: var(--color-text-secondary); }
 .provider-detail__key--ok { color: var(--color-success); }
 .provider-detail__key--missing { color: var(--color-error); font-weight: 600; }
 .provider-detail__actions { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; flex-shrink: 0; }
-.provider-detail__reorder-error { margin: 8px 20px 0; font-size: 12px; color: var(--color-error); }
+.provider-detail__reorder-error { margin: 8px 20px 0; font-size: var(--font-size-xs); color: var(--color-error); }
 .provider-detail__scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 24px; padding: 18px 20px 24px; }
 .provider-detail__section { display: flex; flex-direction: column; gap: 12px; }
 .provider-detail__section-head { display: flex; align-items: center; gap: 8px; min-height: 18px; }
-.provider-detail__section-title { margin: 0; font-size: 13px; font-weight: 600; color: var(--color-text-primary); }
+.provider-detail__section-title { margin: 0; font-size: var(--font-size-sm); font-weight: 600; color: var(--color-text-primary); }
 .provider-detail__placeholder { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 48px 16px; color: var(--color-text-muted); }
-.provider-detail__placeholder p { margin: 0; font-size: 13px; }
+.provider-detail__placeholder p { margin: 0; font-size: var(--font-size-sm); }
 
 /* 内联字段 */
 .pd-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-.pd-field__label { font-size: 12px; font-weight: 500; color: var(--color-text-secondary); }
+.pd-field__label { font-size: var(--font-size-xs); font-weight: 500; color: var(--color-text-secondary); }
 .pd-field__label-row { display: flex; align-items: center; justify-content: flex-start; gap: 8px; }
 /* 端点形态胶囊：贴在 Base URL 标签行右侧，[链接图标 + 当前形态 + 开关] 随状态切换 */
-.endpoint-mode-pill { display: inline-flex; align-items: center; gap: 5px; padding: 3px 3px 3px 9px; border: 1px solid var(--color-border); border-radius: 999px; background: var(--color-bg-elevated); color: var(--color-text-muted); font-size: 12px; line-height: 1; white-space: nowrap; }
+.endpoint-mode-pill { display: inline-flex; align-items: center; gap: 5px; padding: 3px 3px 3px 9px; border: 1px solid var(--color-border); border-radius: 999px; background: var(--color-bg-elevated); color: var(--color-text-muted); font-size: var(--font-size-xs); line-height: 1; white-space: nowrap; }
 .endpoint-mode-pill--full { color: var(--color-text-secondary); }
 .endpoint-mode-pill__switch { transform: scale(0.78); }
-.pd-field__label--switch { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; color: var(--color-text-primary); cursor: pointer; }
-.pd-field__hint { margin: 0; font-size: 11px; line-height: 1.5; color: var(--color-text-muted); }
-.pd-field__error { margin: 0; font-size: 12px; color: var(--color-error); }
+.pd-field__label--switch { display: inline-flex; align-items: center; gap: 8px; font-size: var(--font-size-sm); font-weight: 500; color: var(--color-text-primary); cursor: pointer; }
+.pd-field__hint { margin: 0; font-size: var(--font-size-xs); line-height: 1.5; color: var(--color-text-muted); }
+.pd-field__error { margin: 0; font-size: var(--font-size-xs); color: var(--color-error); }
 .pd-field-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px 16px; }
 .pd-key-wrap { position: relative; display: flex; align-items: center; }
 .pd-key-wrap input { padding-right: 38px; }
@@ -1909,12 +1909,12 @@ onBeforeUnmount(() => {
 /* 模型行 */
 .provider-detail-models { display: flex; flex-direction: column; gap: 6px; }
 .provider-model-line { display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 4px 10px; border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-bg-elevated); }
-.provider-model-line__name { flex: 1; min-width: 0; font-size: 13px; color: var(--color-text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.provider-model-line__ctx { flex-shrink: 0; padding: 1px 8px; border: 1px solid var(--color-border); border-radius: 999px; color: var(--color-text-secondary); font-size: 11px; }
+.provider-model-line__name { flex: 1; min-width: 0; font-size: var(--font-size-sm); color: var(--color-text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.provider-model-line__ctx { flex-shrink: 0; padding: 1px 8px; border: 1px solid var(--color-border); border-radius: 999px; color: var(--color-text-secondary); font-size: var(--font-size-xs); }
 .provider-model-line__caps { display: inline-flex; flex-shrink: 0; gap: 3px; }
-.provider-model-line__mark { color: var(--color-text-muted); font-size: 11px; font-weight: 600; }
+.provider-model-line__mark { color: var(--color-text-muted); font-size: var(--font-size-xs); font-weight: 600; }
 .provider-model-line__actions { display: inline-flex; flex-shrink: 0; gap: 2px; }
-.provider-detail-models__empty { margin: 0; color: var(--color-text-muted); font-size: 12px; }
+.provider-detail-models__empty { margin: 0; color: var(--color-text-muted); font-size: var(--font-size-xs); }
 .provider-model-add { align-self: flex-start; border-style: dashed; }
 
 /* 自定义请求头行（创建面板与详情面板共用） */
@@ -1925,17 +1925,17 @@ onBeforeUnmount(() => {
 .provider-header-add { align-self: flex-start; border-style: dashed; }
 
 /* 内联添加供应商面板 */
-.provider-create-intro { margin: 0; font-size: 13px; color: var(--color-text-secondary); }
-.provider-create-empty { display: flex; align-items: center; gap: 8px; margin: 0; padding: 12px 14px; border: 1px dashed var(--color-border); border-radius: var(--radius-lg); color: var(--color-text-secondary); font-size: 12px; }
-.provider-model-line__default { flex-shrink: 0; margin-left: 6px; padding: 0 6px; border-radius: var(--radius-sm); background: var(--color-hover-overlay-md); color: var(--color-text-secondary); font-size: 10px; font-weight: 500; }
+.provider-create-intro { margin: 0; font-size: var(--font-size-sm); color: var(--color-text-secondary); }
+.provider-create-empty { display: flex; align-items: center; gap: 8px; margin: 0; padding: 12px 14px; border: 1px dashed var(--color-border); border-radius: var(--radius-lg); color: var(--color-text-secondary); font-size: var(--font-size-xs); }
+.provider-model-line__default { flex-shrink: 0; margin-left: 6px; padding: 0 6px; border-radius: var(--radius-sm); background: var(--color-hover-overlay-md); color: var(--color-text-secondary); font-size: var(--font-size-2xs); font-weight: 500; }
 .provider-create-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: auto; padding-top: 12px; border-top: 1px solid var(--color-border); }
-.provider-create-footer__hint { display: inline-flex; align-items: center; gap: 6px; color: var(--color-text-muted); font-size: 12px; }
+.provider-create-footer__hint { display: inline-flex; align-items: center; gap: 6px; color: var(--color-text-muted); font-size: var(--font-size-xs); }
 .provider-create-footer__actions { display: inline-flex; flex-shrink: 0; gap: 8px; }
 
 /* 模型行内真实测试结果 */
 .provider-model-line--testing .provider-model-line__name { color: var(--color-text-muted); }
 .provider-model-line__actions--busy { opacity: 1; }
-.provider-model-line-result { display: flex; align-items: flex-start; gap: var(--spacing-sm); margin: -2px 0 0 10px; padding: 6px 10px; border: 1px solid transparent; border-radius: var(--radius-md); font-size: 12px; line-height: 1.5; word-break: break-word; }
+.provider-model-line-result { display: flex; align-items: flex-start; gap: var(--spacing-sm); margin: -2px 0 0 10px; padding: 6px 10px; border: 1px solid transparent; border-radius: var(--radius-md); font-size: var(--font-size-xs); line-height: 1.5; word-break: break-word; }
 .result--ok { background: var(--color-success-bg); border-color: rgba(var(--color-success-rgb), 0.18); color: var(--color-success); }
 .result--err { background: var(--color-error-bg); border-color: rgba(var(--color-error-rgb), 0.18); color: var(--color-error); }
 .result-icon { flex-shrink: 0; }

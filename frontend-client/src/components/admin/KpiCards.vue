@@ -109,7 +109,7 @@ onBeforeUnmount(() => cancelAnimationFrame(rafId));
 }
 
 .kpi-value {
-  font-size: 1.625rem;
+  font-size: var(--font-size-2xl);
   font-weight: 650;
   line-height: 1.2;
   font-variant-numeric: tabular-nums;

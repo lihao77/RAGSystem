@@ -3,7 +3,7 @@
     <DialogContent class="max-w-[640px] gap-0 p-0 overflow-hidden">
       <div class="fp-header">
         <div class="fp-icon">
-          <IconFile :size="22" />
+          <IconFile :size="20" />
         </div>
         <div class="fp-header-text">
           <DialogTitle>文件预览确认</DialogTitle>
@@ -25,8 +25,8 @@
 
         <div class="fp-preview-box">
           <div class="fp-preview-label">
-            <ChevronLeft :size="13" />
-            <ChevronRight :size="13" />
+            <ChevronLeft :size="14" />
+            <ChevronRight :size="14" />
             前 {{ formattedThreshold }} 预览
           </div>
           <pre class="fp-preview-content">{{ preview }}</pre>
@@ -131,7 +131,7 @@ defineExpose({ show, hide });
 
 .fp-subtitle {
   display: block;
-  font-size: 0.8125rem;
+  font-size: var(--font-size-sm);
   color: var(--color-text-secondary);
   font-family: var(--font-mono);
   overflow: hidden;
@@ -162,7 +162,7 @@ defineExpose({ show, hide });
   padding: 6px 12px;
   background: var(--color-bg-secondary);
   border-radius: var(--radius-sm);
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
   flex: 1;
   min-width: 0;
 }
@@ -198,7 +198,7 @@ defineExpose({ show, hide });
   gap: 5px;
   padding: 6px 12px;
   background: var(--color-bg-secondary);
-  font-size: 0.75rem;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   color: var(--color-text-secondary);
   text-transform: uppercase;
@@ -211,7 +211,7 @@ defineExpose({ show, hide });
   margin: 0;
   padding: 10px 12px;
   font-family: var(--font-mono);
-  font-size: 0.75rem;
+  font-size: var(--font-size-xs);
   line-height: 1.6;
   color: var(--color-text-primary);
   background: transparent;

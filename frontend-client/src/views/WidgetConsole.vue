@@ -1,13 +1,13 @@
 <template>
   <PageLayout title="Widget 凭证控制台" subtitle="管理浏览器嵌入 key、服务端 secret 与来源白名单">
     <template #header-actions>
-      <Button size="sm" @click="openCreate"><Plus :size="14" />创建应用</Button>
+      <Button size="sm" @click="openCreate"><Plus />创建应用</Button>
     </template>
 
     <KpiCards :items="kpis" />
 
     <details class="guide">
-      <summary><ChevronRight :size="13" class="guide__chevron" /><BookOpen :size="14" />publishable key 集成指引</summary>
+      <summary><ChevronRight :size="14" class="guide__chevron" /><BookOpen :size="14" />publishable key 集成指引</summary>
       <div class="guide__body">
         <pre>{{ integrationExample('wid_pk_你的key') }}</pre>
       </div>
@@ -37,21 +37,21 @@
           </header>
 
           <div class="key-line">
-            <KeyRound :size="13" class="key-line__icon" />
+            <KeyRound :size="14" class="key-line__icon" />
             <code class="key-chip">{{ item.app_key }}</code>
             <Button variant="ghost" size="sm" class="copy-btn" :class="{ 'copy-btn--done': copiedKey === item.app_key }" title="前端嵌入用这个，可公开" @click="copy(item.app_key)">
-              <component :is="copiedKey === item.app_key ? Check : Copy" :size="13" />{{ copiedKey === item.app_key ? '已复制' : '复制' }}
+              <component :is="copiedKey === item.app_key ? Check : Copy" />{{ copiedKey === item.app_key ? '已复制' : '复制' }}
             </Button>
           </div>
 
           <div class="origins">
             <template v-if="item.allowed_origins.length">
               <p v-for="origin in item.allowed_origins" :key="origin" class="meta-row">
-                <Globe :size="13" />{{ origin }}
+                <Globe :size="14" />{{ origin }}
               </p>
             </template>
             <p v-else class="meta-row meta-row--warning">
-              <TriangleAlert :size="13" />未配置 Origin，publishable key 请求将被拒绝
+              <TriangleAlert :size="14" />未配置 Origin，publishable key 请求将被拒绝
             </p>
           </div>
 
@@ -93,14 +93,14 @@
         <div class="key-line">
           <code class="key-chip">{{ secretResult?.app_key }}</code>
           <Button variant="ghost" size="sm" class="copy-btn" :class="{ 'copy-btn--done': copiedKey === secretResult?.app_key }" @click="copy(secretResult?.app_key)">
-            <component :is="copiedKey === secretResult?.app_key ? Check : Copy" :size="13" />{{ copiedKey === secretResult?.app_key ? '已复制' : '复制' }}
+            <component :is="copiedKey === secretResult?.app_key ? Check : Copy" />{{ copiedKey === secretResult?.app_key ? '已复制' : '复制' }}
           </Button>
         </div>
         <label>secret</label>
         <div class="key-line">
           <code class="key-chip">{{ secretResult?.secret }}</code>
           <Button variant="ghost" size="sm" class="copy-btn" :class="{ 'copy-btn--done': copiedKey === secretResult?.secret }" @click="copy(secretResult?.secret)">
-            <component :is="copiedKey === secretResult?.secret ? Check : Copy" :size="13" />{{ copiedKey === secretResult?.secret ? '已复制' : '复制' }}
+            <component :is="copiedKey === secretResult?.secret ? Check : Copy" />{{ copiedKey === secretResult?.secret ? '已复制' : '复制' }}
           </Button>
         </div>
         <pre>{{ secretResult ? integrationExample(secretResult.app_key) : '' }}</pre>

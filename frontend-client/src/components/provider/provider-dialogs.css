@@ -4,27 +4,27 @@
 .dialog-form-section { display: flex; flex-direction: column; gap: 14px; padding: 0 0 18px; border-bottom: 1px solid var(--color-border); }
 .dialog-form-section:last-of-type { padding-bottom: 0; border-bottom: 0; }
 .dialog-form-section__head { display: flex; flex-direction: column; gap: 4px; }
-.dialog-form-section__head h3 { margin: 0; font-size: 15px; color: var(--color-text-primary); }
+.dialog-form-section__head h3 { margin: 0; font-size: var(--font-size-base); color: var(--color-text-primary); }
 .dialog-form-section__head p { margin: 0; font-size: var(--font-size-xs); line-height: 1.6; color: var(--color-text-secondary); }
 .provider-dialog-footer { position: sticky; bottom: -24px; margin: 0 -24px -24px; padding: 14px 24px 24px; border-top: 1px solid var(--color-border); background: var(--color-bg-elevated); }
 .required { color: var(--color-error); }
 .capability-fields { gap: 10px; }
-.form-section-title { font-size: 0.83rem; font-weight: 700; color: var(--color-text-primary); border-bottom: 1px solid var(--color-border); padding-bottom: 6px; }
+.form-section-title { font-size: var(--font-size-sm); font-weight: 700; color: var(--color-text-primary); border-bottom: 1px solid var(--color-border); padding-bottom: 6px; }
 .provider-model-list { display: flex; flex-direction: column; gap: 10px; }
 .provider-model-row { display: grid; grid-template-columns: minmax(140px, 1.1fr) minmax(0, 1.5fr) auto auto; align-items: center; gap: var(--spacing-sm); padding: 6px 10px; border: 1px solid var(--color-border); border-radius: var(--radius-lg); }
 .provider-model-name { display: inline-flex; align-items: center; gap: 6px; min-width: 0; font-size: var(--font-size-xs); color: var(--color-text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.provider-model-default { flex-shrink: 0; padding: 1px 6px; border-radius: var(--radius-sm); background: var(--color-secondary-bg, var(--color-bg-secondary)); color: var(--color-text-secondary); font-size: 11px; }
-.provider-model-summary { min-width: 0; color: var(--color-text-secondary); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.provider-model-default { flex-shrink: 0; padding: 1px 6px; border-radius: var(--radius-sm); background: var(--color-secondary-bg, var(--color-bg-secondary)); color: var(--color-text-secondary); font-size: var(--font-size-xs); }
+.provider-model-summary { min-width: 0; color: var(--color-text-secondary); font-size: var(--font-size-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .provider-model-caps { display: inline-flex; gap: 4px; }
 .provider-model-actions { display: inline-flex; gap: 2px; }
-.provider-model-catalog__meta { margin: 0; color: var(--color-text-secondary); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
-.provider-model-catalog__clear { margin-left: 6px; padding: 0; border: none; background: transparent; color: var(--color-brand-accent); font-size: 12px; cursor: pointer; }
+.provider-model-catalog__meta { margin: 0; color: var(--color-text-secondary); font-size: var(--font-size-xs); line-height: 1.6; overflow-wrap: anywhere; }
+.provider-model-catalog__clear { margin-left: 6px; padding: 0; border: none; background: transparent; color: var(--color-brand-accent); font-size: var(--font-size-xs); cursor: pointer; }
 .provider-model-catalog__clear:hover { text-decoration: underline; }
 .modality-field { display: flex; flex-direction: column; gap: 6px; }
-.modality-field__head { font-size: 13px; font-weight: 600; color: var(--color-text-primary); }
+.modality-field__head { font-size: var(--font-size-sm); font-weight: 600; color: var(--color-text-primary); }
 .modality-chips { display: flex; flex-wrap: wrap; gap: 8px; }
 /* 复选框式模态 chip：前缀小方块勾选标记 + 文本 */
-.modality-chip { display: inline-flex; align-items: center; gap: 7px; padding: 5px 12px 5px 8px; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: transparent; color: var(--color-text-secondary); font-size: 13px; line-height: 1.5; cursor: pointer; transition: color var(--transition-fast), border-color var(--transition-fast), background var(--transition-fast); }
+.modality-chip { display: inline-flex; align-items: center; gap: 7px; padding: 5px 12px 5px 8px; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: transparent; color: var(--color-text-secondary); font-size: var(--font-size-sm); line-height: 1.5; cursor: pointer; transition: color var(--transition-fast), border-color var(--transition-fast), background var(--transition-fast); }
 .modality-check { display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px; flex-shrink: 0; border: 1px solid var(--color-border); border-radius: 4px; background: transparent; color: transparent; transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast); }
 .modality-chip--on { border-color: var(--color-brand-accent); color: var(--color-text-primary); background: color-mix(in srgb, var(--color-brand-accent) 6%, transparent); }
 .modality-chip--on .modality-check { border-color: var(--color-brand-accent); background: var(--color-brand-accent); color: var(--color-bg-elevated); }
@@ -33,8 +33,8 @@
 /* 仅在真有校验错误时描红（div 上的 :data-invalid="false" 会渲染成属性 "false"，须精确匹配） */
 .modality-field[data-invalid="true"] .modality-chip { border-color: var(--color-error); }
 .delete-confirm-msg { margin: 0; color: var(--color-text-secondary); line-height: 1.7; }
-.delete-usage-loading { margin: 0; color: var(--color-text-secondary); font-size: 13px; }
-.delete-usage-list { display: flex; flex-direction: column; gap: var(--spacing-sm); padding: 10px; border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-warning-bg); font-size: 13px; }
+.delete-usage-loading { margin: 0; color: var(--color-text-secondary); font-size: var(--font-size-sm); }
+.delete-usage-list { display: flex; flex-direction: column; gap: var(--spacing-sm); padding: 10px; border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-warning-bg); font-size: var(--font-size-sm); }
 .delete-usage-item { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 8px; align-items: center; }
 .delete-usage-item small { grid-column: 2; color: var(--color-text-secondary); }
 .spin { animation: g-spin 0.8s linear infinite; }

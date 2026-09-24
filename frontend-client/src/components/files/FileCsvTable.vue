@@ -57,7 +57,7 @@ const containerStyle = computed(() => (props.maxHeight > 0
 .file-csv-table table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.8125rem;
+  font-size: var(--font-size-sm);
   font-variant-numeric: tabular-nums;
 }
 .file-csv-table th,
@@ -84,7 +84,7 @@ const containerStyle = computed(() => (props.maxHeight > 0
   width: 1%;
   min-width: 40px;
   color: var(--color-text-muted);
-  font-size: 0.75rem;
+  font-size: var(--font-size-xs);
   text-align: right;
 }
 .file-csv-table__foot {
@@ -94,12 +94,12 @@ const containerStyle = computed(() => (props.maxHeight > 0
   background: var(--color-bg-elevated);
   border-top: 1px solid var(--color-border);
   color: var(--color-text-secondary);
-  font-size: 0.75rem;
+  font-size: var(--font-size-xs);
 }
 .file-csv-table__empty {
   padding: 24px;
   text-align: center;
   color: var(--color-text-muted);
-  font-size: 0.8125rem;
+  font-size: var(--font-size-sm);
 }
 </style>

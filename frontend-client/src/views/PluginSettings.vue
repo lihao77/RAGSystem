@@ -3,10 +3,10 @@
     <template #header-actions>
       <span v-if="isDirty" class="unsaved-hint">未保存</span>
       <Button variant="ghost" size="icon-sm" :disabled="loading || saving" aria-label="重新加载" :title="isDirty ? '重新加载（将丢弃未保存的修改）' : '重新加载'" @click="loadData">
-        <IconRefresh :size="16" />
+        <IconRefresh />
       </Button>
       <Button variant="ghost" size="icon-sm" :disabled="loading || saving || !isDirty" :aria-label="saving ? '保存中' : '保存配置'" :title="saving ? '保存中' : isDirty ? '保存有修改的插件配置' : '无待保存修改'" @click="handleSave">
-        <IconSave :size="16" :class="{ 'save-icon--dirty': isDirty }" />
+        <IconSave :class="{ 'save-icon--dirty': isDirty }" />
       </Button>
     </template>
 

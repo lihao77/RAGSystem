@@ -34,24 +34,24 @@
           <span class="msg-edit-att-name">{{ att.original_name || att.stored_name }}</span>
         </div>
         <Button variant="ghost" size="icon" aria-label="移除附件" title="移除附件" :disabled="submitting" @click="$emit('removeAttachment', att)">
-          <IconClose :size="14" />
+          <IconClose />
         </Button>
       </div>
     </div>
     <div class="msg-edit-action-bar">
       <Button variant="ghost" size="sm" :disabled="submitting" @click="$emit('openAttachments')">
-        <Paperclip :size="14" />
+        <Paperclip />
         <span>附件</span>
       </Button>
       <div class="msg-edit-hint">
         <span class="hint-text">{{ isFocused ? 'Ctrl+Enter 提交 · Esc 取消' : '' }}</span>
       </div>
       <Button variant="ghost" size="sm" :disabled="submitting" @click="$emit('cancel')">
-        <IconClose :size="14" />
+        <IconClose />
         <span>取消</span>
       </Button>
       <Button variant="default" size="sm" :disabled="submitting" @click="$emit('confirm')">
-        <IconCheck v-if="!submitting" :size="14" :stroke-width="2.5" />
+        <IconCheck v-if="!submitting" :stroke-width="2.5" />
         <svg v-else class="spinner" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
             <circle cx="12" cy="12" r="10" opacity="0.25"></circle>
             <path d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round"></path>
@@ -232,7 +232,7 @@ onMounted(async () => {
 
 .msg-edit-att-name {
   display: block;
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
   color: var(--color-text-primary);
   font-weight: 500;
   overflow: hidden;
@@ -285,7 +285,7 @@ onMounted(async () => {
 }
 
 .hint-text {
-  font-size: 0.75rem;
+  font-size: var(--font-size-xs);
   color: var(--color-text-muted);
   opacity: 0.8;
   white-space: nowrap;

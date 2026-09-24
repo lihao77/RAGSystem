@@ -99,7 +99,7 @@ watch(() => props.options, () => updateIndicator(), { deep: true });
 </template>
 
 <style scoped>
-.segmented-control__badge { color: var(--color-text-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.segmented-control__badge { color: var(--color-text-muted); font-size: var(--font-size-xs); font-variant-numeric: tabular-nums; }
 .segmented-control__badge-num { display: inline-block; }
 
 /* badge 数字切换：旧值上飘淡出，新值下飘淡入（out-in 串行，不抢占布局） */

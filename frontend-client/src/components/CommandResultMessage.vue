@@ -3,15 +3,15 @@
   <div v-if="isCompact" :class="['compact-divider', statusClass]">
     <span class="divider-line" />
     <span class="divider-text">
-      <IconCheck v-if="statusClass === 'success'" :size="13" />
-      <IconClose v-else :size="13" />
+      <IconCheck v-if="statusClass === 'success'" :size="14" />
+      <IconClose v-else :size="14" />
       {{ result.text }}
     </span>
     <span class="divider-line" />
   </div>
   <div v-else :class="['command-result', statusClass]">
     <span class="command-name">{{ commandName }}</span>
-    <span class="command-status"><IconCheck v-if="statusClass === 'success'" :size="13" /><IconClose v-else :size="13" /></span>
+    <span class="command-status"><IconCheck v-if="statusClass === 'success'" :size="14" /><IconClose v-else :size="14" /></span>
     <span class="command-text">{{ result.text }}</span>
   </div>
 </template>

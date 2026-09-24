@@ -9,14 +9,14 @@
       </div>
       <div class="chart-actions">
         <Button variant="ghost" size="icon" aria-label="下载图表" title="下载图表" @click="downloadChart">
-          <IconDownload :size="16" />
+          <IconDownload />
         </Button>
         <Button variant="ghost" size="icon" aria-label="全屏" title="全屏" @click="toggleFullscreen">
           <span v-if="!isFullscreen">
-            <IconExpand :size="16" />
+            <IconExpand />
           </span>
           <span v-else>
-            <IconMinimize :size="16" />
+            <IconMinimize />
           </span>
         </Button>
       </div>
@@ -32,10 +32,10 @@
           </div>
           <div class="chart-actions">
             <Button variant="ghost" size="icon" aria-label="下载图表" title="下载图表" @click="downloadChart">
-              <IconDownload :size="16" />
+              <IconDownload />
             </Button>
             <Button variant="destructive" size="icon" aria-label="退出全屏" title="退出全屏" @click="toggleFullscreen">
-              <IconMinimize :size="16" />
+              <IconMinimize />
             </Button>
           </div>
         </div>
@@ -251,7 +251,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
-  font-size: 0.9rem;
+  font-size: var(--font-size-sm);
   font-weight: 600;
   color: var(--color-text-primary);
   min-width: 0;
@@ -266,7 +266,7 @@ onUnmounted(() => {
 }
 
 .chart-icon {
-  font-size: 1rem;
+  font-size: var(--font-size-base);
   opacity: 0.9;
 }
 

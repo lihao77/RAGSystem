@@ -23,7 +23,7 @@
 .param-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: var(--font-size-sm); margin-bottom: 2px; }
 .param-name { font-family: var(--font-mono); color: var(--color-text-primary, var(--color-text-secondary)); }
 .param-type { color: var(--color-text-secondary); font-style: italic; }
-.param-required { color: var(--color-error); font-size: 11px; padding: 0 4px; border: 1px solid var(--color-error); border-radius: var(--radius-sm); }
+.param-required { color: var(--color-error); font-size: var(--font-size-xs); padding: 0 4px; border: 1px solid var(--color-error); border-radius: var(--radius-sm); }
 .param-desc { color: var(--color-text-secondary); }
 
 /* ===== 添加服务弹窗 + 安装/编辑弹窗（原 MCPManager scoped，随组件拆出） ===== */
@@ -36,7 +36,7 @@
 .dialog-form-section { display: flex; flex-direction: column; gap: 14px; padding: 0 0 18px; border-bottom: 1px solid var(--color-border); }
 .dialog-form-section:last-of-type { padding-bottom: 0; border-bottom: 0; }
 .dialog-form-section__head { display: flex; flex-direction: column; gap: 4px; }
-.dialog-form-section__head h3 { margin: 0; font-size: 15px; color: var(--color-text-primary); }
+.dialog-form-section__head h3 { margin: 0; font-size: var(--font-size-base); color: var(--color-text-primary); }
 .dialog-form-section__head p { margin: 0; font-size: var(--font-size-xs); line-height: 1.6; color: var(--color-text-secondary); }
 .required { color: var(--color-error); }
 
@@ -55,7 +55,7 @@
 .advanced-toggle { display: flex; align-items: center; gap: var(--spacing-sm); padding: 0; border: none; background: transparent; font: inherit; color: var(--color-text-primary); cursor: pointer; width: fit-content; }
 .advanced-toggle__chevron { color: var(--color-text-muted); transition: transform var(--transition-fast); }
 .advanced-toggle__chevron--open { transform: rotate(180deg); }
-.advanced-toggle__title { font-size: 15px; font-weight: 500; }
+.advanced-toggle__title { font-size: var(--font-size-base); font-weight: 500; }
 .advanced-toggle__hint { font-size: var(--font-size-xs); color: var(--color-text-muted); }
 .advanced-toggle:hover .advanced-toggle__title { color: var(--color-brand-accent-light); }
 .advanced-body { display: flex; flex-direction: column; gap: 14px; }
@@ -95,7 +95,7 @@
 .version-tag { padding: 2px 6px; border-radius: var(--radius-sm); background: var(--color-bg-secondary); border: 1px solid var(--color-border); font-family: var(--font-mono); color: var(--color-text-secondary); }
 .registry-desc { color: var(--color-text-secondary); font-size: var(--font-size-sm); line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .install-options-row { display: flex; flex-wrap: wrap; gap: 6px; }
-.option-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: var(--radius-full); font-size: 11px; border: 1px solid transparent; }
+.option-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: var(--radius-full); font-size: var(--font-size-xs); border: 1px solid transparent; }
 .option-chip--ok { background: rgba(var(--color-success-rgb), 0.1); border-color: rgba(var(--color-success-rgb), 0.25); color: var(--color-success); }
 .option-chip--no { background: rgba(var(--color-error-rgb), 0.07); border-color: rgba(var(--color-error-rgb), 0.15); color: var(--color-text-muted); }
 .inline-warning { display: flex; align-items: flex-start; gap: var(--spacing-xs); color: var(--color-warning); font-size: var(--font-size-xs); }

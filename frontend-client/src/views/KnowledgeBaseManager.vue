@@ -10,7 +10,7 @@
     >
         <template #header-actions>
             <Button variant="ghost" size="icon-sm" :disabled="globalLoading" aria-label="全局刷新" title="全局刷新" @click="refreshAll">
-                <IconRefresh :size="16" />
+                <IconRefresh />
             </Button>
         </template>
         <template #mobile-menu="{ close }">

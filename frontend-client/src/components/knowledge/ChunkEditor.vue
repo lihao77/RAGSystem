@@ -7,7 +7,7 @@
     <div class="flex justify-end gap-2">
       <Button variant="ghost" size="sm" @click="emit('cancel')">取消</Button>
       <Button variant="default" size="sm" :disabled="saving" @click="save">
-        <IconSave :size="14" />
+        <IconSave />
         {{ saving ? '保存中...' : '保存并重嵌入' }}
       </Button>
     </div>

@@ -17,10 +17,10 @@ export const toggleVariants = cva(
           "rounded-full bg-transparent text-muted-foreground hover:bg-transparent hover:text-secondary-foreground data-[state=on]:bg-primary data-[state=on]:text-primary-foreground data-[state=on]:shadow-sm",
       },
       size: {
-        default: "h-9 px-2 min-w-9",
-        sm: "h-8 px-1.5 min-w-8",
-        lg: "h-10 px-2.5 min-w-10",
-        segment: "h-[26px] px-2 min-w-0 gap-1 text-[11px] [&_svg]:size-[13px]",
+        default: "h-control-md px-2 min-w-control-md",
+        sm: "h-control-compact px-1.5 min-w-control-compact",
+        lg: "h-control-lg px-2.5 min-w-control-lg",
+        segment: "h-control-sm px-2 min-w-0 gap-1 text-xs [&_svg]:size-3.5",
       },
     },
     defaultVariants: {

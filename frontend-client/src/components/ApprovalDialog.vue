@@ -13,7 +13,7 @@
               </div>
             </div>
             <Button class="approval-header-action" variant="ghost" size="sm" @click="toggleCollapsed" title="折叠审批窗口">
-              <IconChevronDown :size="16" />
+              <IconChevronDown />
               <span>折叠</span>
             </Button>
           </div>
@@ -68,7 +68,7 @@
             <!-- 调用参数 -->
             <div v-if="hasArguments" class="approval-args-box">
               <div class="args-label">
-                <IconDocument :size="13" />
+                <IconDocument :size="14" />
                 调用参数
               </div>
               <pre class="args-content">{{ formattedArguments }}</pre>
@@ -122,13 +122,13 @@
               class="approval-btn w-full"
               variant="default"
               @click="handleApprove"
-            ><IconCheck :size="16" /> 确认允许执行</Button>
+            ><IconCheck /> 确认允许执行</Button>
             <Button
               v-if="activeMode === 'deny'"
               class="approval-btn w-full"
               variant="destructive"
               @click="handleDeny"
-            ><IconClose :size="16" /> 确认拒绝</Button>
+            ><IconClose /> 确认拒绝</Button>
           </DialogFooter>
     </DialogContent>
   </Dialog>
@@ -335,7 +335,7 @@ defineExpose({ show, hide, toggleCollapsed });
 
 .approval-title {
   margin: 0;
-  font-size: 1.25rem;
+  font-size: var(--font-size-xl);
   font-weight: 600;
   color: var(--color-text-primary);
 }
@@ -346,7 +346,7 @@ defineExpose({ show, hide, toggleCollapsed });
 
 .approval-subtitle {
   margin: 4px 0 0;
-  font-size: 0.8125rem;
+  font-size: var(--font-size-sm);
   line-height: 1.5;
   color: var(--color-text-secondary);
 }
@@ -363,7 +363,7 @@ defineExpose({ show, hide, toggleCollapsed });
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   color: var(--color-warning);
   cursor: pointer;
-  font-size: 0.8125rem;
+  font-size: var(--font-size-sm);
   font-weight: 600;
   flex-shrink: 0;
   transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
@@ -399,7 +399,7 @@ defineExpose({ show, hide, toggleCollapsed });
   padding: 6px 12px;
   background: var(--color-bg-secondary);
   border-radius: var(--radius-sm);
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
   flex: 1;
   min-width: 0;
 }
@@ -421,7 +421,7 @@ defineExpose({ show, hide, toggleCollapsed });
 
 .meta-value.mono {
   font-family: var(--font-mono);
-  font-size: 0.8125rem;
+  font-size: var(--font-size-sm);
 }
 
 /* 风险标签 */
@@ -430,7 +430,7 @@ defineExpose({ show, hide, toggleCollapsed });
   align-items: center;
   padding: 2px 10px 2px 8px;
   border-radius: 999px;
-  font-size: 0.75rem;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   white-space: nowrap;
   flex-shrink: 0;
@@ -472,7 +472,7 @@ defineExpose({ show, hide, toggleCollapsed });
 }
 
 .action-label {
-  font-size: 0.75rem;
+  font-size: var(--font-size-xs);
   text-transform: uppercase;
   letter-spacing: 0.5px;
   color: var(--color-text-secondary);
@@ -481,7 +481,7 @@ defineExpose({ show, hide, toggleCollapsed });
 }
 
 .action-description {
-  font-size: 0.9375rem;
+  font-size: var(--font-size-base);
   line-height: 1.6;
   color: var(--color-text-primary);
   font-weight: 500;
@@ -505,14 +505,14 @@ defineExpose({ show, hide, toggleCollapsed });
 }
 
 .approval-extra-label {
-  font-size: 0.75rem;
+  font-size: var(--font-size-xs);
   color: var(--color-text-secondary);
   font-weight: 600;
   letter-spacing: 0.3px;
 }
 
 .approval-extra-value {
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
   color: var(--color-text-primary);
   line-height: 1.6;
 }
@@ -528,7 +528,7 @@ defineExpose({ show, hide, toggleCollapsed });
 }
 
 .approval-extra-list-item {
-  font-size: 0.8125rem;
+  font-size: var(--font-size-sm);
   color: var(--color-text-primary);
   line-height: 1.5;
   word-break: break-all;
@@ -547,7 +547,7 @@ defineExpose({ show, hide, toggleCollapsed });
   gap: 5px;
   padding: 6px 12px;
   background: var(--color-bg-secondary);
-  font-size: 0.75rem;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   color: var(--color-text-secondary);
   text-transform: uppercase;
@@ -559,7 +559,7 @@ defineExpose({ show, hide, toggleCollapsed });
   margin: 0;
   padding: 10px 12px;
   font-family: var(--font-mono);
-  font-size: 0.8125rem;
+  font-size: var(--font-size-sm);
   line-height: 1.6;
   color: var(--color-text-primary);
   background: transparent;
@@ -578,7 +578,7 @@ defineExpose({ show, hide, toggleCollapsed });
   background: rgba(var(--color-warning-rgb), 0.08);
   border: 1px solid rgba(var(--color-warning-rgb), 0.25);
   border-radius: var(--radius-sm);
-  font-size: 0.8125rem;
+  font-size: var(--font-size-sm);
   line-height: 1.5;
   color: var(--color-warning);
 }
@@ -607,7 +607,7 @@ defineExpose({ show, hide, toggleCollapsed });
   padding: 8px 12px;
   border: none;
   border-radius: calc(var(--radius-sm) - 2px);
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
   font-weight: 500;
   cursor: pointer;
   transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
@@ -645,7 +645,7 @@ defineExpose({ show, hide, toggleCollapsed });
 }
 
 .message-label {
-  font-size: 0.8125rem;
+  font-size: var(--font-size-sm);
   color: var(--color-text-secondary);
   font-weight: 500;
 }
@@ -657,7 +657,7 @@ defineExpose({ show, hide, toggleCollapsed });
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   color: var(--color-text-primary);
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
   line-height: 1.5;
   resize: none;
   outline: none;
@@ -682,7 +682,7 @@ defineExpose({ show, hide, toggleCollapsed });
 .approval-btn {
   padding: 12px 28px;
   border-radius: var(--radius-md);
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s;
@@ -733,7 +733,7 @@ defineExpose({ show, hide, toggleCollapsed });
   border-radius: 999px;
   background: var(--color-warning);
   color: var(--color-on-color-strong);
-  font-size: 0.75rem;
+  font-size: var(--font-size-xs);
   font-weight: 700;
   line-height: 20px;
   text-align: center;
@@ -784,7 +784,7 @@ defineExpose({ show, hide, toggleCollapsed });
     min-width: 18px;
     height: 18px;
     line-height: 18px;
-    font-size: 0.6875rem;
+    font-size: var(--font-size-xs);
   }
 }
 </style>

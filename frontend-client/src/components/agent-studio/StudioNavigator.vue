@@ -56,7 +56,7 @@
                   aria-label="团队操作"
                   :disabled="teamAdmin.teamBusy.value"
                   @click.stop
-                ><MoreHorizontal :size="15" /></button>
+                ><MoreHorizontal :size="16" /></button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" :side-offset="4" class="min-w-[160px]">
                 <DropdownMenuItem
@@ -89,14 +89,14 @@
               @click="core.onSelectAgent(team.team_name, agent)"
             >
               <template #leading>
-                <Bot :size="15" />
+                <Bot :size="16" />
               </template>
               <template #title-trailing>
                 <span
                   v-if="core.isEntryAgent(team.team_name, agent)"
                   class="studio-nav__entry-tag"
                   title="Team 入口 Agent"
-                ><LogIn :size="11" />入口</span>
+                ><LogIn :size="12" />入口</span>
               </template>
               <template v-if="core.displayMap.value[agent] && core.displayMap.value[agent] !== agent">{{ agent }}</template>
             </NavigatorRow>
@@ -170,7 +170,7 @@ defineProps({
   align-items: center;
   gap: 3px;
   color: var(--color-text-muted);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
 }
 
 .wb-nav-row--active .studio-nav__entry-tag {

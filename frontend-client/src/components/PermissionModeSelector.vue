@@ -20,12 +20,12 @@
             class="permission-option pl-2 gap-2.5"
             :disabled="!canEdit || updateAction.loading.value"
           >
-            <component :is="modeIcons[mode.value]" :size="15" class="mode-option-icon" />
+            <component :is="modeIcons[mode.value]" :size="16" class="mode-option-icon" />
             <span class="flex min-w-0 flex-1 flex-col gap-0.5">
               <span>{{ mode.label }}</span>
               <span class="text-xs text-muted-foreground">{{ mode.description }}</span>
             </span>
-            <IconCheck v-if="currentMode === mode.value" class="check-icon" :size="15" :stroke-width="2.5" />
+            <IconCheck v-if="currentMode === mode.value" class="check-icon" :size="16" :stroke-width="2.5" />
           </DropdownMenuRadioItem>
         </DropdownMenuRadioGroup>
       </DropdownMenuGroup>
@@ -41,7 +41,7 @@
         :title="triggerTitle"
         :aria-label="triggerTitle"
       >
-        <component :is="modeIcon" :size="14" />
+        <component :is="modeIcon" />
       </Button>
     </DropdownMenuTrigger>
     <DropdownMenuContent align="end" class="w-72">
@@ -54,12 +54,12 @@
             class="permission-option pl-2 gap-2.5"
             :disabled="!canEdit || updateAction.loading.value"
           >
-            <component :is="modeIcons[mode.value]" :size="15" class="mode-option-icon" />
+            <component :is="modeIcons[mode.value]" :size="16" class="mode-option-icon" />
             <span class="flex min-w-0 flex-1 flex-col gap-0.5">
               <span>{{ mode.label }}</span>
               <span class="text-xs text-muted-foreground">{{ mode.description }}</span>
             </span>
-            <IconCheck v-if="currentMode === mode.value" class="check-icon" :size="15" :stroke-width="2.5" />
+            <IconCheck v-if="currentMode === mode.value" class="check-icon" :size="16" :stroke-width="2.5" />
           </DropdownMenuRadioItem>
         </DropdownMenuRadioGroup>
       </DropdownMenuGroup>

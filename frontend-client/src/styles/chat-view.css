@@ -219,7 +219,7 @@
 }
 
 .version-label {
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   font-weight: 600;
   letter-spacing: 0.05em;
 }
@@ -600,7 +600,7 @@
   border: 1px solid transparent;
   color: var(--color-text-primary);
   line-height: 1.55;
-  font-size: 14px;
+  font-size: var(--chat-font-size);
   white-space: pre-wrap;
   word-break: break-word;
   outline: none;
@@ -653,7 +653,7 @@
 .btn-editor {
   padding: 5px 14px;
   border-radius: var(--radius-full);
-  font-size: 0.7rem;
+  font-size: var(--font-size-xs);
   letter-spacing: 0.01em;
   cursor: pointer;
   border: 1px solid transparent;
@@ -795,9 +795,9 @@
 
 /* assistant 正文排版基线：最终答案消息行、执行面板轮文本（段尾输出/intent，
    AssistantExecutionNode.vue）三处同款——段尾输出降级为 intent、run 终态由
-   本行接管时文字不缩放。改动需与该组件同步。 */
+   本行接管时文字不缩放。字号走 --chat-font-size（固定 14px），改动需与该组件同步。 */
 .message.assistant .markdown-body {
-  font-size: 14px;
+  font-size: var(--chat-font-size);
   line-height: 1.7;
 }
 
@@ -805,14 +805,14 @@
 /* 与执行时间线（AssistantExecutionNode.vue 的 .assistant-step-row）排成同一条流：
    图标列 14×14 起点贴行首（无左内边距，与步骤图标同列）、间距 8px、行距
    padding-block 3px，字号/行高与最终答案、intent 轮文本同基线（14px/1.7）——
-   loading 行看起来就是时间线上正在产出的下一个步骤。字号用固定 14px 而非
-   var(--font-size-sm)：后者随断点缩小，step/final/intent 均为固定 14px。 */
+   loading 行看起来就是时间线上正在产出的下一个步骤。字号用 --chat-font-size
+   （固定 14px，不随断点缩放）而非 var(--font-size-sm)：step/final/intent 同基线。 */
 .loading-indicator {
   display: inline-flex;
   align-items: center;
   gap: 8px;
   padding-block: 3px;
-  font-size: 14px;
+  font-size: var(--chat-font-size);
   line-height: 1.7;
   color: var(--color-text-secondary);
 }
@@ -1126,10 +1126,6 @@
     gap: var(--spacing-xs);
   }
 
-  .message-content {
-    font-size: 0.9rem;
-    line-height: 1.6;
-  }
 
   /* 状态标签移动端优化 */
   .status-tag {
@@ -1146,12 +1142,9 @@
     right: var(--top-bar-divider-right);
   }
 
-  .message-content {
-    font-size: 0.85rem;
-  }
 
   .status-tag {
-    font-size: 0.65rem;
+    font-size: var(--font-size-xs);
     padding: 1px 5px;
   }
 }
@@ -1185,7 +1178,7 @@
   border: 1px solid var(--color-glass-border, rgba(255, 255, 255, 0.12));
   background: var(--glass-bg, rgba(255, 255, 255, 0.04));
   backdrop-filter: blur(var(--glass-blur, 12px));
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   overflow: hidden;
 }
 .task-notification-header {
@@ -1414,7 +1407,7 @@
 }
 
 .user-attachment-name {
-  font-size: 0.85rem;
+  font-size: var(--font-size-sm);
   color: var(--color-text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1614,7 +1607,7 @@
   border-radius: 10px;
   background: var(--color-bg-tertiary);
   color: var(--color-text-secondary);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   flex-shrink: 0;
 }
@@ -1623,7 +1616,7 @@
   flex: 1;
 }
 .user-attachment-name {
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   font-weight: 600;
   color: var(--color-text-primary);
   white-space: nowrap;
@@ -1632,7 +1625,7 @@
 }
 .user-attachment-meta {
   margin-top: 4px;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--color-text-muted);
 }
 

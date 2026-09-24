@@ -10,10 +10,10 @@
             <div class="toolbar-right">
                 <Button variant="secondary" size="icon" aria-label="刷新模型服务" :disabled="modelProvidersLoading"
                     @click="refreshModelProviders">
-                    <IconRefresh :size="14" :class="{ 'spin': modelProvidersLoading }" />
+                    <IconRefresh :class="{ 'spin': modelProvidersLoading }" />
                 </Button>
-                <Button class="toolbar-primary-action" variant="default" size="sm" @click="openAddModelProviderDialog('embedding')">
-                    <IconPlus :size="14" />
+                <Button class="toolbar-primary-action" variant="default" size="default" @click="openAddModelProviderDialog('embedding')">
+                    <IconPlus />
                     <span>新增模型服务</span>
                 </Button>
             </div>
@@ -56,12 +56,12 @@
                             <div class="row-actions">
                                 <Button variant="action-neutral" size="action" title="编辑"
                                     @click="openEditModelProviderDialog(p)">
-                                    <Pencil :size="13" />
+                                    <Pencil />
                                 </Button>
                                 <Button variant="action-danger" size="action" title="删除"
                                     :disabled="deletingModelProviderKey === p.provider_key"
                                     @click="handleDeleteModelProvider(p.provider_key)">
-                                    <IconTrash :size="13" />
+                                    <IconTrash />
                                 </Button>
                             </div>
                         </TableCell>

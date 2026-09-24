@@ -140,7 +140,7 @@ function handleSelectFile(path) {
   padding: var(--spacing-lg);
   resize: none;
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   line-height: 1.65;
 }
 

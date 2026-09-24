@@ -48,7 +48,7 @@
             :disabled="!canAttach"
             aria-label="移除附件"
           >
-            <IconClose :size="13" />
+            <IconClose :size="14" />
           </button>
         </div>
       </div>
@@ -81,7 +81,7 @@
               :disabled="!canAttach"
               @click="emit('openAttachments')"
             >
-              <IconPlus :size="14" class="attachment-icon" />
+              <IconPlus class="attachment-icon" />
             </Button>
 
             <div v-if="$slots.footerMeta" class="input-footer-meta">
@@ -100,18 +100,18 @@
               title="结束挂起任务"
               @click="handleStop"
             >
-              <IconStop aria-hidden="true" :size="14" />
+              <IconStop aria-hidden="true" />
             </Button>
             <Button
               v-if="canResume"
               class="resume-button"
               variant="default"
-              size="sm"
+              size="xs"
               aria-label="恢复执行"
               title="恢复执行"
               @click="emit('resume')"
             >
-              <IconPlay :size="18" />
+              <IconPlay />
               <span>继续运行</span>
             </Button>
             <Button
@@ -123,7 +123,7 @@
               title="停止生成"
               @click="handleStop"
             >
-              <IconStop aria-hidden="true" :size="14" />
+              <IconStop aria-hidden="true" />
             </Button>
             <Button
               v-else
@@ -135,7 +135,7 @@
               :disabled="sendDisabled"
               @click="handleSend"
             >
-              <IconSend :size="14" />
+              <IconSend />
             </Button>
           </div>
         </div>
@@ -394,14 +394,14 @@ defineExpose({ focus, extractClipboardFiles, extractDroppedFiles, canAcceptDragg
 }
 
 .window-drop-overlay__title {
-  font-size: 20px;
+  font-size: var(--font-size-xl);
   font-weight: 700;
   letter-spacing: 0.01em;
   color: var(--color-text-primary);
 }
 
 .window-drop-overlay__desc {
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   color: var(--color-text-secondary, var(--color-text-muted));
 }
 
@@ -439,7 +439,7 @@ defineExpose({ focus, extractClipboardFiles, extractDroppedFiles, canAcceptDragg
   border-radius: 10px;
   background: rgba(var(--color-warning-rgb), 0.12);
   color: var(--color-warning);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   line-height: 1.4;
 }
 
@@ -464,7 +464,7 @@ defineExpose({ focus, extractClipboardFiles, extractDroppedFiles, canAcceptDragg
   background: var(--color-bg-secondary);
   border: 1px solid var(--color-border);
   color: var(--color-text-primary);
-  font-size: 0.82rem;
+  font-size: var(--font-size-sm);
   box-shadow: var(--shadow-sm);
   transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
   animation: attachment-in 0.18s ease;
@@ -520,7 +520,7 @@ defineExpose({ focus, extractClipboardFiles, extractDroppedFiles, canAcceptDragg
 }
 
 .attachment-preview-meta {
-  font-size: 0.7rem;
+  font-size: var(--font-size-xs);
   color: var(--color-text-muted);
   line-height: 1.2;
 }

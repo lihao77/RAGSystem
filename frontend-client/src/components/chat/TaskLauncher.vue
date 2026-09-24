@@ -259,7 +259,7 @@ watch(currentWorkspace, (workspace) => {
   border: 0;
   background: transparent;
   color: var(--color-text-primary);
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   outline: none;
 }
 
@@ -329,7 +329,7 @@ watch(currentWorkspace, (workspace) => {
   text-overflow: ellipsis;
   white-space: nowrap;
   color: inherit;
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   font-weight: 500;
   line-height: 18px;
   letter-spacing: 0;
@@ -347,7 +347,7 @@ watch(currentWorkspace, (workspace) => {
   margin: 0;
   padding: 10px 14px 14px;
   color: var(--color-text-muted);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   text-align: center;
 }
 

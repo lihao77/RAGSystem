@@ -183,7 +183,7 @@ function handleFilterChange(value) {
 
 .panel-label {
   color: var(--color-text-muted);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 650;
   letter-spacing: 0.06em;
 }
@@ -194,7 +194,7 @@ function handleFilterChange(value) {
   border-radius: var(--radius-full);
   background: var(--color-hover-overlay-md);
   color: var(--color-text-secondary);
-  font-size: 10px;
+  font-size: var(--font-size-2xs);
   font-weight: 650;
   font-variant-numeric: tabular-nums;
   line-height: 16px;
@@ -378,7 +378,7 @@ function handleFilterChange(value) {
   align-items: center;
   gap: 4px 8px;
   color: var(--color-text-muted);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
 }
 
 .task-row__tag {

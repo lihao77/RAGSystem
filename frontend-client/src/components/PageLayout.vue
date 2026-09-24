@@ -10,7 +10,7 @@
           title="打开菜单"
           @click="openMobileSidebar"
         >
-          <Menu :size="20" />
+          <Menu />
         </Button>
         <div class="page-header__meta">
           <h1 class="page-header__title">{{ title }}</h1>
@@ -23,12 +23,12 @@
         <Button
           class="page-mobile-nav__menu"
           variant="ghost"
-          size="icon"
+          size="icon-toolbar"
           aria-label="打开菜单"
           title="打开菜单"
           @click="openMobileSidebar"
         >
-          <Menu :size="20" />
+          <Menu />
         </Button>
         <div class="page-mobile-nav__copy">
           <span class="page-mobile-nav__title">{{ mobileTitle || title }}</span>
@@ -39,11 +39,11 @@
               class="page-mobile-nav__more"
               :class="{ 'is-open': mobileMenuOpen }"
               variant="ghost"
-              size="icon"
+              size="icon-toolbar"
               aria-label="更多操作"
               title="更多操作"
             >
-              <MoreVertical :size="20" />
+              <MoreVertical />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent class="page-mobile-menu__list min-w-[220px]" align="end" :side-offset="4">
@@ -66,11 +66,11 @@
                       class="page-content__more-btn"
                       :class="{ 'is-open': desktopMenuOpen }"
                       variant="ghost"
-                      size="icon"
+                      size="icon-sm"
                       aria-label="更多操作"
                       title="更多操作"
                     >
-                      <MoreVertical :size="18" />
+                      <MoreVertical />
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent class="page-header__menu-list min-w-[220px]" align="end" :side-offset="8">
@@ -200,7 +200,7 @@ const openMobileSidebar = () => {
 .page-content__subtitle {
   margin: 0;
   color: var(--color-text-secondary);
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   line-height: 1.4;
   flex: 1 1 auto;
   min-width: 0;
@@ -293,7 +293,7 @@ const openMobileSidebar = () => {
   margin: 0;
   flex: 0 1 auto;
   min-width: 0;
-  font-size: 1.25rem;
+  font-size: var(--font-size-xl);
   font-weight: 600;
   color: var(--color-text-primary);
   letter-spacing: -0.02em;
@@ -374,7 +374,7 @@ const openMobileSidebar = () => {
   min-width: 0;
   max-width: 100%;
   text-align: center;
-  font-size: 15px;
+  font-size: var(--font-size-base);
   font-weight: 600;
   color: var(--color-text-primary);
   overflow: hidden;
@@ -460,7 +460,7 @@ const openMobileSidebar = () => {
   }
 
   .page-header__title {
-    font-size: 1.15rem;
+    font-size: var(--font-size-lg);
   }
 }
 </style>

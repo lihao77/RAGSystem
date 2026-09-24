@@ -3,10 +3,10 @@
     <template #header-actions>
       <span v-if="isDirty" class="unsaved-hint">未保存</span>
       <Button variant="ghost" size="icon-sm" :disabled="loading || saving" aria-label="重新加载" :title="isDirty ? '重新加载（将丢弃未保存的修改）' : '重新加载'" @click="handleReload">
-        <IconRefresh :size="16" />
+        <IconRefresh />
       </Button>
       <Button variant="ghost" size="icon-sm" :disabled="loading || saving" :aria-label="saving ? '保存中' : '保存配置'" :title="saving ? '保存中' : isDirty ? '保存配置（有未保存修改）' : '保存配置'" @click="handleSave">
-        <IconSave :size="16" :class="{ 'save-icon--dirty': isDirty }" />
+        <IconSave :class="{ 'save-icon--dirty': isDirty }" />
       </Button>
     </template>
 
@@ -47,7 +47,7 @@
                     <CustomSelect :model-value="entry.type" :options="extraParamTypeOptions" placeholder="type" @update:model-value="entry.type = $event" />
                     <Input v-model="entry.value" type="text" placeholder="value" />
                     <Button type="button" variant="ghost" size="icon-sm" class="extra-param-delete-button" aria-label="删除该参数" title="删除该参数" @click="removeExtraParam(index)">
-                      <IconTrash :size="14" />
+                      <IconTrash />
                     </Button>
                   </div>
                 </div>

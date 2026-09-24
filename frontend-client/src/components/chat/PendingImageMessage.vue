@@ -26,7 +26,7 @@
                     class="pending-image-thumb-badge pending-image-thumb-badge--ok"
                     title="识别完成"
                   >
-                    <Check :size="11" />
+                    <Check :size="12" />
                   </span>
                   <span
                     v-else
@@ -34,7 +34,7 @@
                     class="pending-image-thumb-badge pending-image-thumb-badge--failed"
                     title="识别失败"
                   >
-                    <TriangleAlert :size="11" />
+                    <TriangleAlert :size="12" />
                   </span>
                 </Transition>
               </div>

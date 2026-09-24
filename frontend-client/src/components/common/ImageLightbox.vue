@@ -39,7 +39,7 @@
           aria-label="上一张"
           @click="emit('previous')"
         >
-          <IconChevronLeft :size="22" />
+          <IconChevronLeft :size="20" />
         </button>
         <button
           v-if="images.length > 1"
@@ -47,7 +47,7 @@
           aria-label="下一张"
           @click="emit('next')"
         >
-          <IconChevronRight :size="22" />
+          <IconChevronRight :size="20" />
         </button>
 
         <div v-if="current" class="image-lightbox__toolbar">
@@ -273,7 +273,7 @@ onBeforeUnmount(() => {
 }
 .image-lightbox__title {
   color: rgba(255, 255, 255, 0.92);
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   font-weight: 500;
   max-width: 60vw;
   white-space: nowrap;
@@ -282,7 +282,7 @@ onBeforeUnmount(() => {
 }
 .image-lightbox__count {
   color: rgba(255, 255, 255, 0.55);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-variant-numeric: tabular-nums;
 }
 .image-lightbox__close { pointer-events: auto; flex-shrink: 0; }
@@ -361,7 +361,7 @@ onBeforeUnmount(() => {
 }
 .image-lightbox__zoom {
   color: rgba(255, 255, 255, 0.8);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   font-variant-numeric: tabular-nums;
   min-width: 46px;
   text-align: center;

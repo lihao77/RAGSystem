@@ -8,10 +8,10 @@
                         <div class="toolbar-right">
                             <Button variant="secondary" size="icon" aria-label="刷新重排序器" :disabled="rerankersLoading"
                                 @click="refreshRerankers">
-                                <IconRefresh :size="14" :class="{ 'spin': rerankersLoading }" />
+                                <IconRefresh :class="{ 'spin': rerankersLoading }" />
                             </Button>
-                            <Button class="toolbar-primary-action" variant="default" size="sm" @click="openAddRerankerDialog">
-                                <IconPlus :size="14" />
+                            <Button class="toolbar-primary-action" variant="default" size="default" @click="openAddRerankerDialog">
+                                <IconPlus />
                                 <span>新增重排序器</span>
                             </Button>
                         </div>
@@ -88,7 +88,7 @@
                                             <Button variant="action-danger" size="action"
                                                 :disabled="deletingReranker === r.reranker_key"
                                                 @click="handleDeleteReranker(r.reranker_key)" title="删除">
-                                                <IconTrash :size="13" />
+                                                <IconTrash />
                                             </Button>
                                         </div>
                                     </TableCell>
@@ -279,7 +279,7 @@ const { activeTab, showMarkdownPreview, previewFile, previewAnchor, globalLoadin
 }
 @media (max-width: 480px) {
     .primary-action-button, .toolbar-primary-action, .search-submit-button {
-        font-size: 12px;
+        font-size: var(--font-size-xs);
     }
 
     .toolbar-right {
@@ -311,7 +311,7 @@ const { activeTab, showMarkdownPreview, previewFile, previewAnchor, globalLoadin
     }
     .kb-table :deep(thead th), .kb-table :deep(tbody td) {
         padding: 6px 8px;
-        font-size: 12px;
+        font-size: var(--font-size-xs);
     }
     .active-bar {
         flex-wrap: wrap;

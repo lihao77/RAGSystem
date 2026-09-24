@@ -337,7 +337,7 @@ const { activeTab, showMarkdownPreview, previewFile, previewAnchor, globalLoadin
         flex: 1;
         text-align: center;
         padding: 7px 4px;
-        font-size: 12px;
+        font-size: var(--font-size-xs);
     }
 }
 </style>

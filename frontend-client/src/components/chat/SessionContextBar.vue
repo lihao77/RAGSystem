@@ -1,9 +1,13 @@
 <template>
-  <header class="session-context-bar top-controls-bar" :class="{ scrolled }" aria-label="会话顶栏">
+  <header
+    class="session-context-bar top-controls-bar"
+    :class="{ scrolled, 'is-sidebar-collapsed': showSidebarCollapsed }"
+    aria-label="会话顶栏"
+  >
     <div class="conversation-identity">
       <Button
         variant="ghost"
-        size="icon"
+        size="icon-toolbar"
         class="sidebar-menu-trigger"
         aria-label="打开菜单"
         title="打开菜单"
@@ -18,7 +22,7 @@
            放到右侧末端会离它要操作的对象太远。 -->
       <DropdownMenu>
         <DropdownMenuTrigger as-child>
-          <Button variant="ghost" size="icon" aria-label="更多会话操作" title="更多会话操作">
+          <Button variant="ghost" size="icon-toolbar" aria-label="更多会话操作" title="更多会话操作">
             <Ellipsis />
           </Button>
         </DropdownMenuTrigger>
@@ -76,7 +80,7 @@
       <Button
         v-if="currentSessionId && !workbenchOpen"
         variant="ghost"
-        size="icon"
+        size="icon-toolbar"
         title="展开运行工作台"
         aria-label="展开运行工作台"
         @click="emit('toggleWorkbench')"
@@ -88,9 +92,11 @@
 </template>
 
 <script setup>
+import { computed, inject, onUnmounted, ref } from 'vue';
 import { Download, Ellipsis, FileText, Moon, PanelRightOpen, Sun } from 'lucide-vue-next';
 import { IconMenu } from '../icons';
 import { Button } from '../ui/button';
+import { SIDEBAR_OVERLAY_QUERY } from '../../utils/breakpoints.js';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -126,6 +132,16 @@ const emit = defineEmits([
   'toggleWorkbench',
 ]);
 
+// 桌面端侧栏折叠时，窗口左上角的固定浮钮（开关/新聊天）压住本栏左缘：
+// 标题起点右移避让；移动端抽屉不涉及。
+const sidebarCollapsed = inject('sidebarCollapsed', null);
+const overlayQuery = typeof window !== 'undefined' ? window.matchMedia(SIDEBAR_OVERLAY_QUERY) : null;
+const isMobileViewport = ref(Boolean(overlayQuery?.matches));
+const onOverlayChange = (event) => { isMobileViewport.value = event.matches; };
+overlayQuery?.addEventListener('change', onOverlayChange);
+onUnmounted(() => overlayQuery?.removeEventListener('change', onOverlayChange));
+const showSidebarCollapsed = computed(() => Boolean(sidebarCollapsed?.value) && !isMobileViewport.value);
+
 </script>
 
 <style scoped>
@@ -146,7 +162,7 @@ const emit = defineEmits([
   background: var(--surface-shell);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
-  transition: background var(--transition-normal);
+  transition: background var(--transition-normal), padding-left var(--transition-normal);
   -webkit-app-region: drag;
   app-region: drag;
 }
@@ -201,6 +217,13 @@ const emit = defineEmits([
 
 .sidebar-menu-trigger {
   display: none;
+}
+
+/* 桌面端侧栏折叠：左上角固定浮轨（开关 + 新聊天）覆盖本栏左缘，标题起点右移避让。
+   让位宽度 = --sidebar-rail-reserve（浮轨宽 − 本栏内缩，定义在 MainLayout 的 .chat-layout）
+   + 本栏常规内距，浮轨尺寸变化时自动跟上。 */
+.session-context-bar.is-sidebar-collapsed {
+  padding-left: calc(var(--sidebar-rail-reserve, 68px) + var(--top-bar-padding-x));
 }
 
 @media (min-width: 1025px) {

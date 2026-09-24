@@ -17,7 +17,7 @@
           >{{ item.label }}</Button>
         </div>
         <Button v-if="viewMode === 'edit'" variant="default" size="sm" :disabled="saving || !dirty" @click="save">
-          <IconSave :size="14" />
+          <IconSave />
           {{ saving ? '保存中...' : '保存' }}
         </Button>
       </div>

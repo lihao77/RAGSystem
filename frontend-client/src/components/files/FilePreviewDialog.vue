@@ -63,7 +63,7 @@
       <div class="flex items-center justify-between gap-3 border-t border-border pt-3">
         <span class="text-xs text-muted-foreground">{{ truncated ? '内容较长，已截断展示' : '' }}</span>
         <Button variant="outline" size="sm" :disabled="downloading" @click="emit('download')">
-          <Download :size="14" />
+          <Download />
           {{ downloading ? '下载中…' : '下载文件' }}
         </Button>
       </div>

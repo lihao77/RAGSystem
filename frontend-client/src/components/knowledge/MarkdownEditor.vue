@@ -45,7 +45,7 @@ const handleKeydown = (event) => {
 <style scoped>
 .markdown-editor {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-  font-size: 14px;
+  font-size: var(--font-size-sm);
   line-height: 1.65;
   tab-size: 2;
 }

@@ -55,7 +55,7 @@ onMounted(() => {
   border: 1px solid var(--color-border);
   border-radius: 10px;
   color: var(--color-text-primary);
-  font-size: 0.9rem;
+  font-size: var(--font-size-sm);
   line-height: 1.65;
   resize: none;
   outline: none;
@@ -82,7 +82,7 @@ onMounted(() => {
   align-items: center;
   gap: 3px;
   justify-content: flex-end;
-  font-size: 0.6875rem;
+  font-size: var(--font-size-xs);
   color: var(--color-text-secondary);
   opacity: 0.65;
 }
@@ -95,7 +95,7 @@ onMounted(() => {
   border-bottom-width: 2px;
   border-radius: 4px;
   font-family: var(--font-mono);
-  font-size: 0.6875rem;
+  font-size: var(--font-size-xs);
   line-height: 1.5;
 }
 </style>

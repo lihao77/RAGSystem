@@ -9,7 +9,7 @@
   >
     <template #header-actions>
       <Button variant="ghost" size="icon-sm" :disabled="loadingServers" :aria-label="loadingServers ? '刷新中' : '全局刷新'" :title="loadingServers ? '刷新中' : '全局刷新'" @click="refreshAll">
-        <IconRefresh :size="16" />
+        <IconRefresh />
       </Button>
     </template>
 
@@ -34,11 +34,11 @@
     >
       <template #actions>
         <Button variant="default" @click="openAddService">
-          <IconPlus :size="14" />
+          <IconPlus />
           <span>添加服务</span>
         </Button>
         <Button variant="secondary" :disabled="loadingServers" @click="runLoadServers">
-          <IconRefresh :size="14" />
+          <IconRefresh />
           <span>刷新</span>
         </Button>
       </template>
@@ -103,10 +103,10 @@
               <MessageSquare />提示词 <span v-if="server.prompt_count" class="adm-action-badge">{{ server.prompt_count }}</span>
             </Button>
             <Button variant="action-neutral" size="action" @click="openEditDialog(server)" title="编辑配置">
-              <IconEdit :size="14" />编辑
+              <IconEdit />编辑
             </Button>
             <Button variant="action-danger" size="action" @click="handleDelete(server)" title="删除">
-              <IconTrash :size="14" />删除
+              <IconTrash />删除
             </Button>
           </div>
         </article>

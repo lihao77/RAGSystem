@@ -174,7 +174,7 @@ function stepTitle(step, index = 0) {
 
 .panel-label {
   color: var(--color-text-muted);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 650;
   letter-spacing: 0.06em;
 }
@@ -187,7 +187,7 @@ function stepTitle(step, index = 0) {
   border-radius: var(--radius-full);
   background: color-mix(in srgb, var(--tone) 12%, transparent);
   color: var(--tone);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 650;
   line-height: 1.5;
 }
@@ -278,7 +278,7 @@ function stepTitle(step, index = 0) {
 .goal-progress__text {
   flex: 0 0 auto;
   color: var(--color-text-muted);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-variant-numeric: tabular-nums;
 }
 
@@ -337,7 +337,7 @@ function stepTitle(step, index = 0) {
 }
 
 .goal-step__index {
-  font-size: 10px;
+  font-size: var(--font-size-2xs);
   font-weight: 650;
 }
 
@@ -357,7 +357,7 @@ function stepTitle(step, index = 0) {
 
 .goal-step__status {
   flex: 0 0 auto;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
 }
 
 .goal-actions {

@@ -17,7 +17,7 @@
         @update:model-value="onDaysChange"
       />
       <Button as-child variant="ghost" size="icon-sm" class="admin-header-link" aria-label="返回工作台" title="返回工作台">
-        <RouterLink :to="chatReturnPath"><IconChevronLeft :size="16" /></RouterLink>
+        <RouterLink :to="chatReturnPath"><IconChevronLeft /></RouterLink>
       </Button>
     </template>
 

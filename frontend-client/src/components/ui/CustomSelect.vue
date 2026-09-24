@@ -186,6 +186,6 @@ function onChange(value) {
   padding: 16px;
   text-align: center;
   color: var(--color-text-muted);
-  font-size: 13px;
+  font-size: var(--font-size-sm);
 }
 </style>

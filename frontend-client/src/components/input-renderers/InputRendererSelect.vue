@@ -12,7 +12,7 @@
       </span>
       <span class="r-label">{{ opt }}</span>
       <IconCheck v-if="modelValue === opt"
-        :size="13"
+        :size="14"
         :stroke-width="2.5"
         class="r-check" />
     </button>
@@ -57,7 +57,7 @@ const selectOption = (opt) => {
   cursor: pointer;
   text-align: left;
   color: var(--color-text-primary);
-  font-size: 0.9rem;
+  font-size: var(--font-size-sm);
   line-height: 1.4;
   transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
   width: 100%;
@@ -112,7 +112,7 @@ const selectOption = (opt) => {
 }
 
 .r-empty {
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
   color: var(--color-text-secondary);
   text-align: center;
   padding: 14px;

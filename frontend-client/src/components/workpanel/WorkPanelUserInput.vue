@@ -82,7 +82,7 @@ function submit() {
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -121,7 +121,7 @@ function submit() {
 }
 
 .wpui-prompt {
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   font-weight: 500;
   color: var(--color-text-primary);
   line-height: 1.5;
@@ -131,7 +131,7 @@ function submit() {
 
 .wpui-textarea {
   width: 100%;
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   padding: 8px 12px;
   background: rgba(var(--color-bg-elevated-rgb, 28, 28, 30), 0.16);
   border: none;
@@ -157,7 +157,7 @@ function submit() {
 .wpui-option {
   padding: 5px 12px;
   border-radius: 20px;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   border: 1px solid var(--color-border);
   background: transparent;
   color: var(--color-text-secondary);
@@ -192,7 +192,7 @@ function submit() {
 .wpui-btn {
   flex: 1;
   padding: 8px 0;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   cursor: pointer;
   border: none;

@@ -17,17 +17,17 @@
           <div class="scope-card__perms">
             <label class="scope-perm" :class="{ 'scope-perm--on': form.memory.allowed_scopes.includes(scope.name) }">
               <input :checked="form.memory.allowed_scopes.includes(scope.name)" type="checkbox" @change="toggleScope('allowed_scopes', scope.name, $event.target.checked)" />
-              <span class="scope-perm__tick"><Check :size="11" /></span>
+              <span class="scope-perm__tick"><Check :size="12" /></span>
               <span>读取</span>
             </label>
             <label class="scope-perm" :class="{ 'scope-perm--on': form.memory.write_scopes.includes(scope.name) }">
               <input :checked="form.memory.write_scopes.includes(scope.name)" type="checkbox" @change="toggleScope('write_scopes', scope.name, $event.target.checked)" />
-              <span class="scope-perm__tick"><Check :size="11" /></span>
+              <span class="scope-perm__tick"><Check :size="12" /></span>
               <span>写入</span>
             </label>
             <label class="scope-perm" :class="{ 'scope-perm--on': form.memory.archive_scopes.includes(scope.name) }">
               <input :checked="form.memory.archive_scopes.includes(scope.name)" type="checkbox" @change="toggleScope('archive_scopes', scope.name, $event.target.checked)" />
-              <span class="scope-perm__tick"><Check :size="11" /></span>
+              <span class="scope-perm__tick"><Check :size="12" /></span>
               <span>归档</span>
             </label>
           </div>

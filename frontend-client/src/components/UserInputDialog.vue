@@ -15,7 +15,7 @@
                 </div>
               </div>
               <Button class="input-header-action" variant="ghost" size="sm" @click="toggleCollapsed" title="折叠输入窗口">
-                <IconChevronDown :size="14" />
+                <IconChevronDown />
                 <span>折叠</span>
               </Button>
             </div>
@@ -61,11 +61,11 @@
             <!-- Footer -->
             <DialogFooter class="input-footer">
               <Button class="btn-stop" variant="ghost" @click="handleCancel">
-                <Square :size="13" />
+                <Square />
                 <span>停止任务</span>
               </Button>
               <Button class="btn-send" variant="default" :disabled="!canSubmit || submitting" @click="handleSubmit">
-                <Send :size="14" :stroke-width="2.5" />
+                <Send :stroke-width="2.5" />
                 <span>{{ submitting ? '发送中' : '发送' }}</span>
               </Button>
             </DialogFooter>
@@ -231,7 +231,7 @@ defineExpose({ show, hide, toggleCollapsed });
 }
 
 .header-title {
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
   font-weight: 600;
   color: var(--color-text-primary);
   letter-spacing: 0;
@@ -247,7 +247,7 @@ defineExpose({ show, hide, toggleCollapsed });
   background: rgba(var(--color-active-rgb), 0.12);
   color: var(--color-active);
   cursor: pointer;
-  font-size: 0.8125rem;
+  font-size: var(--font-size-sm);
   font-weight: 600;
   flex-shrink: 0;
   transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
@@ -263,7 +263,7 @@ defineExpose({ show, hide, toggleCollapsed });
 }
 
 .header-badge {
-  font-size: 0.6875rem;
+  font-size: var(--font-size-xs);
   font-weight: 500;
   color: var(--color-active);
   background: rgba(var(--color-active-rgb), 0.1);
@@ -306,7 +306,7 @@ defineExpose({ show, hide, toggleCollapsed });
 }
 
 .prompt-text {
-  font-size: 0.9rem;
+  font-size: var(--font-size-sm);
   line-height: 1.65;
   color: var(--color-text-primary);
   white-space: pre-wrap;
@@ -333,7 +333,7 @@ defineExpose({ show, hide, toggleCollapsed });
   border: 1px solid var(--color-border);
   border-radius: 10px;
   color: var(--color-text-primary);
-  font-size: 0.9rem;
+  font-size: var(--font-size-sm);
   line-height: 1.6;
   resize: none;
   outline: none;
@@ -352,7 +352,7 @@ defineExpose({ show, hide, toggleCollapsed });
   align-items: center;
   gap: 3px;
   justify-content: flex-end;
-  font-size: 0.6875rem;
+  font-size: var(--font-size-xs);
   color: var(--color-text-secondary);
   opacity: 0.7;
 }
@@ -365,7 +365,7 @@ defineExpose({ show, hide, toggleCollapsed });
   border-bottom-width: 2px;
   border-radius: 4px;
   font-family: var(--font-mono);
-  font-size: 0.6875rem;
+  font-size: var(--font-size-xs);
   line-height: 1.5;
 }
 
@@ -384,7 +384,7 @@ defineExpose({ show, hide, toggleCollapsed });
   gap: 6px;
   padding: 9px 18px;
   border-radius: 10px;
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s ease;
@@ -467,7 +467,7 @@ defineExpose({ show, hide, toggleCollapsed });
   border-radius: 999px;
   background: var(--color-active);
   color: var(--color-on-color);
-  font-size: 0.75rem;
+  font-size: var(--font-size-xs);
   font-weight: 700;
   line-height: 20px;
   text-align: center;
@@ -492,6 +492,6 @@ defineExpose({ show, hide, toggleCollapsed });
   .input-footer { padding: 0 16px 16px; flex-direction: column-reverse; }
   .btn-stop { flex: 1; }
   .input-dock { right: 12px; top: 76px; width: 44px; height: 44px; }
-  .input-dock-badge { min-width: 18px; height: 18px; line-height: 18px; font-size: 0.6875rem; }
+  .input-dock-badge { min-width: 18px; height: 18px; line-height: 18px; font-size: var(--font-size-xs); }
 }
 </style>

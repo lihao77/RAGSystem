@@ -132,7 +132,7 @@
 /* 次级小字分组头（如 Skill 库按来源分组） */
 .wb-nav-group__name--caps {
   color: var(--color-text-muted);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
@@ -276,7 +276,7 @@
   justify-content: space-between;
   gap: var(--spacing-xs);
   color: var(--color-text-muted);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
 }
 
 .wb-nav-row--static {

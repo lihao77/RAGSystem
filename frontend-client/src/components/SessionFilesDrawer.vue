@@ -6,7 +6,7 @@
           <DialogTitle class="ctx-drawer-title">{{ mode === 'message-edit' ? '编辑消息附件' : '添加附件' }}</DialogTitle>
         </div>
         <Button variant="ghost" size="icon-sm" aria-label="关闭" @click="emit('close')">
-          <IconClose :size="16" />
+          <IconClose />
         </Button>
       </div>
 
@@ -22,7 +22,7 @@
           </button>
           <div v-if="sessionId" class="ctx-toolbar">
             <Button variant="ghost" size="sm" :disabled="loading" @click="emit('refresh')">
-              <IconRefresh :size="14" />
+              <IconRefresh />
               <span>刷新会话文件</span>
             </Button>
           </div>
@@ -51,7 +51,7 @@
                 </div>
               </div>
               <div class="ctx-file-actions ctx-file-actions--visible">
-                <Button variant="ghost" size="icon-sm" title="移除" aria-label="移除" @click="emit('removePending', file)"><IconClose :size="14" /></Button>
+                <Button variant="ghost" size="icon-sm" title="移除" aria-label="移除" @click="emit('removePending', file)"><IconClose /></Button>
               </div>
             </div>
           </div>
@@ -80,11 +80,11 @@
                 </div>
               </div>
               <div class="ctx-file-actions">
-                <Button variant="ghost" size="icon-sm" title="下载" aria-label="下载" @click="emit('download', file)"><IconDownload :size="15" /></Button>
-                <Button variant="ghost" size="icon-sm" :title="reuseButtonText" :aria-label="reuseButtonText" @click="emit('reuse', file)"><IconPlus :size="15" /></Button>
+                <Button variant="ghost" size="icon-sm" title="下载" aria-label="下载" @click="emit('download', file)"><IconDownload /></Button>
+                <Button variant="ghost" size="icon-sm" :title="reuseButtonText" :aria-label="reuseButtonText" @click="emit('reuse', file)"><IconPlus /></Button>
                 <Button variant="ghost" size="icon-sm" class="ctx-action-danger" title="删除" aria-label="删除" :disabled="deletingFileId === file.id" @click="emit('delete', file)">
                   <span v-if="deletingFileId === file.id" class="g-spinner g-spinner--sm"></span>
-                  <IconTrash v-else :size="15" />
+                  <IconTrash v-else />
                 </Button>
               </div>
             </div>
@@ -167,8 +167,8 @@ const onFileChange = (event) => {
   border-bottom: 1px solid var(--color-border);
   flex-shrink: 0;
 }
-.ctx-drawer-title { margin: 0; font-size: 16px; font-weight: 600; color: var(--color-text-primary); }
-.ctx-subtitle { margin-top: 3px; font-size: 12px; color: var(--color-text-muted); }
+.ctx-drawer-title { margin: 0; font-size: var(--font-size-base); font-weight: 600; color: var(--color-text-primary); }
+.ctx-subtitle { margin-top: 3px; font-size: var(--font-size-xs); color: var(--color-text-muted); }
 
 .ctx-drawer-body {
   flex: 1;
@@ -178,7 +178,7 @@ const onFileChange = (event) => {
 .ctx-section { margin-bottom: 18px; }
 .ctx-section-title {
   margin: 0 8px 10px;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   color: var(--color-text-muted);
   text-transform: uppercase;
@@ -222,12 +222,12 @@ const onFileChange = (event) => {
   height: 16px;
 }
 .ctx-dropzone-title {
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   font-weight: 600;
   color: var(--color-text-primary);
 }
 .ctx-dropzone-sub {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--color-text-muted);
 }
 .ctx-toolbar {
@@ -237,7 +237,7 @@ const onFileChange = (event) => {
   padding: 0 8px;
 }
 
-.ctx-loading { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 36px 20px; font-size: 13px; color: var(--color-text-muted); }
+.ctx-loading { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 36px 20px; font-size: var(--font-size-sm); color: var(--color-text-muted); }
 
 .ctx-file-list {
   display: grid;
@@ -261,13 +261,13 @@ const onFileChange = (event) => {
 }
 .ctx-file-main { min-width: 0; flex: 1; }
 .ctx-file-name {
-  font-size: 13px; font-weight: 500;
+  font-size: var(--font-size-sm); font-weight: 500;
   color: var(--color-text-primary);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .ctx-file-meta {
   display: flex; align-items: center; gap: 8px; margin-top: 3px;
-  font-size: 11px; color: var(--color-text-muted);
+  font-size: var(--font-size-xs); color: var(--color-text-muted);
   flex-wrap: wrap;
 }
 .ctx-file-kind {
@@ -275,7 +275,7 @@ const onFileChange = (event) => {
   border-radius: 999px;
   background: rgba(var(--color-brand-accent-rgb), 0.1);
   color: var(--color-brand-accent);
-  font-size: 10px;
+  font-size: var(--font-size-2xs);
   line-height: 1.5;
 }
 

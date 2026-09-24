@@ -9,7 +9,7 @@
             <span class="panel-title">智能对话</span>
           </div>
           <Button variant="ghost" size="icon" aria-label="收起" title="收起" @click.stop="toggleCollapse(true)">
-            <IconChevronRight :size="14" />
+            <IconChevronRight />
           </Button>
         </div>
 
@@ -41,7 +41,7 @@
               rows="1"
             ></textarea>
             <Button variant="default" size="icon" aria-label="发送" title="发送" :disabled="!inputText.trim() || isStreaming" @click="sendMessage">
-              <IconSend :size="16" />
+              <IconSend />
             </Button>
           </div>
         </div>

@@ -262,7 +262,7 @@ function nodeKey(node, index) {
   gap: 6px;
   margin-top: 6px;
   padding: 2px 0;
-  font-size: 12.5px;
+  font-size: var(--font-size-xs);
   line-height: 1.5;
   /* 折叠汇总行与展开后的过程行同色（四级色），展开前后不跳色 */
   color: var(--color-text-tertiary);
@@ -274,7 +274,7 @@ function nodeKey(node, index) {
 
 .assistant-execution-running {
   color: var(--color-brand-accent);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
 }
 
 .assistant-execution-chevron {
@@ -313,7 +313,7 @@ function nodeKey(node, index) {
   gap: 8px;
   padding-block: 3px;
   color: var(--color-text-muted);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
 }
 
 /* 加载态 spinner 与步骤行图标同格（14×14，覆盖 size-4 的 16px），图标列宽一致。 */

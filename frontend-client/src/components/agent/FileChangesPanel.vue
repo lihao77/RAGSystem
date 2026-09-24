@@ -386,7 +386,7 @@ const lineClass = type => ({
 .file-changes-item__path {
   color: var(--color-text-primary);
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   font-weight: 600;
   line-height: 1.4;
 }
@@ -403,7 +403,7 @@ const lineClass = type => ({
   display: flex;
   gap: 8px;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-variant-numeric: tabular-nums;
   font-weight: 600;
   line-height: 1;
@@ -435,7 +435,7 @@ const lineClass = type => ({
   min-width: 720px;
   min-height: 100%;
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   line-height: 22px;
 }
 
@@ -508,7 +508,7 @@ const lineClass = type => ({
   border-bottom: 1px solid var(--color-border);
   background: color-mix(in srgb, var(--color-bg-secondary) 40%, var(--color-bg-primary));
   color: var(--color-text-secondary);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   line-height: 28px;
   text-transform: uppercase;
@@ -546,7 +546,7 @@ const lineClass = type => ({
   background: color-mix(in srgb, var(--color-bg-secondary) 30%, transparent);
   color: var(--color-text-muted);
   text-align: right;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   font-variant-numeric: tabular-nums;
   user-select: none;
 }
@@ -556,7 +556,7 @@ const lineClass = type => ({
   align-items: center;
   justify-content: center;
   font-weight: 700;
-  font-size: 14px;
+  font-size: var(--font-size-sm);
   user-select: none;
 }
 
@@ -649,7 +649,7 @@ const lineClass = type => ({
 
   .file-changes-line__number {
     padding: 0 8px;
-    font-size: 11px;
+    font-size: var(--font-size-xs);
   }
 }
 </style>

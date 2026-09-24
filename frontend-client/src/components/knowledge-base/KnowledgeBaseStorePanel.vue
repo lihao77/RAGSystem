@@ -31,14 +31,14 @@
                         </div>
                         <div class="toolbar-right">
                             <Button variant="secondary" size="icon" aria-label="刷新文件与索引状态" :disabled="mergedFilesLoading" @click="refreshFilesAndStatus">
-                                <IconRefresh :size="14" :class="{ 'spin': mergedFilesLoading }" />
+                                <IconRefresh :class="{ 'spin': mergedFilesLoading }" />
                             </Button>
                             <div class="filter-select-wrap">
                                 <CustomSelect v-model="filterCollection" :options="collectionSelectOptions"
                                     placeholder="全部集合" />
                             </div>
-                            <Button class="toolbar-primary-action" variant="default" size="sm" @click="showIndexDialog = true">
-                                <IconPlus :size="14" />
+                            <Button class="toolbar-primary-action" variant="default" size="default" @click="showIndexDialog = true">
+                                <IconPlus />
                                 <span>索引新文档</span>
                             </Button>
                         </div>
@@ -117,16 +117,16 @@
                                             <Button variant="action-neutral" size="action" title="预览 Markdown"
                                                 :disabled="!row.md_blob_hash" @click="openMarkdownPreview(row)">预览</Button>
                                             <Button variant="action-neutral" size="action" title="下载" @click="downloadFile(row)">
-                                                <IconDownload :size="13" />
+                                                <IconDownload />
                                             </Button>
                                             <Button variant="action-neutral" size="action"
                                                 :disabled="!row.has_index" @click="openSearchTest(row.search_collection)" title="测试检索">
-                                                <IconSearch :size="13" />
+                                                <IconSearch />
                                             </Button>
                                             <Button variant="action-danger" size="action"
                                                 :disabled="deletingFileId === row.file_id || deletingUploadedFile === row.file_id"
                                                 @click="handleDeleteMergedFile(row)" title="删除">
-                                                <IconTrash :size="13" />
+                                                <IconTrash />
                                             </Button>
                                         </div>
                                     </TableCell>
@@ -345,7 +345,7 @@ const { activeTab, showMarkdownPreview, previewFile, previewAnchor, globalLoadin
     align-items: center;
     padding: 1px 6px;
     border-radius: var(--radius-full);
-    font-size: 10px;
+    font-size: var(--font-size-2xs);
     font-weight: 500;
     line-height: 1.4;
 }
@@ -425,7 +425,7 @@ const { activeTab, showMarkdownPreview, previewFile, previewAnchor, globalLoadin
 }
 @media (max-width: 480px) {
     .primary-action-button, .toolbar-primary-action, .search-submit-button {
-        font-size: 12px;
+        font-size: var(--font-size-xs);
     }
 
     .toolbar-right {
@@ -457,7 +457,7 @@ const { activeTab, showMarkdownPreview, previewFile, previewAnchor, globalLoadin
     }
     .kb-table :deep(thead th), .kb-table :deep(tbody td) {
         padding: 6px 8px;
-        font-size: 12px;
+        font-size: var(--font-size-xs);
     }
 
     .col-filename {

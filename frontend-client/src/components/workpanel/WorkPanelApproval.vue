@@ -30,7 +30,7 @@
       <!-- Args (collapsible) -->
       <div v-if="hasArgs">
         <Button class="wpa-toggle" variant="ghost" size="sm" @click="showArgs = !showArgs">
-          <IconChevronRight class="wpa-chevron" :class="{ open: showArgs }" :size="14" />
+          <IconChevronRight class="wpa-chevron" :class="{ open: showArgs }" />
           <span>参数</span>
         </Button>
         <pre v-if="showArgs" class="wpa-pre">{{ formattedArgs }}</pre>
@@ -134,7 +134,7 @@ function submit(approved) {
   align-items: center;
   gap: 6px;
   padding: 15px 18px 6px;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   letter-spacing: 0.02em;
   color: var(--color-warning);
@@ -169,7 +169,7 @@ function submit(approved) {
   border-radius: 999px;
   background: var(--color-warning);
   color: #1c1c1e;
-  font-size: 10px;
+  font-size: var(--font-size-2xs);
   font-weight: 700;
 }
 
@@ -181,7 +181,7 @@ function submit(approved) {
 }
 
 .wpa-tool-name {
-  font-size: 16px;
+  font-size: var(--font-size-base);
   font-weight: 600;
   color: var(--color-text-primary);
   font-family: var(--font-mono);
@@ -193,7 +193,7 @@ function submit(approved) {
 }
 
 .wpa-risk-badge {
-  font-size: 10px;
+  font-size: var(--font-size-2xs);
   font-weight: 600;
   padding: 3px 9px;
   border-radius: 999px;
@@ -206,13 +206,13 @@ function submit(approved) {
 .risk-high, .risk-critical { background: rgba(var(--color-error-rgb), 0.18); color: var(--color-error); }
 
 .wpa-agent {
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   color: var(--color-text-muted);
   padding: 0 18px 3px;
 }
 
 .wpa-reason {
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   color: var(--color-text-secondary);
   line-height: 1.45;
   padding: 3px 18px 13px;
@@ -226,7 +226,7 @@ function submit(approved) {
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   font-weight: 500;
   color: var(--color-text-muted);
   background: none;
@@ -244,7 +244,7 @@ function submit(approved) {
 
 .wpa-pre {
   margin: 0 18px 12px;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-family: var(--font-mono);
   color: var(--color-text-secondary);
   background: var(--color-bg-secondary);
@@ -259,7 +259,7 @@ function submit(approved) {
 .wpa-note {
   width: auto;
   margin: 0 18px 14px;
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   padding: 9px 12px;
   background: var(--color-bg-secondary);
   border: 1px solid var(--color-border);
@@ -286,7 +286,7 @@ function submit(approved) {
   flex: 1;
   padding: 9px 18px;
   border-radius: 10px;
-  font-size: 0.875rem;
+  font-size: var(--font-size-sm);
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s ease;

@@ -96,6 +96,7 @@ export default {
         mono: 'var(--font-mono)',
       },
       fontSize: {
+        '2xs': ['var(--font-size-2xs)', { lineHeight: '1.3' }],
         xs: ['var(--font-size-xs)', { lineHeight: '1.4' }],
         sm: ['var(--font-size-sm)', { lineHeight: '1.5' }],
         base: ['var(--font-size-base)', { lineHeight: '1.6' }],
@@ -128,6 +129,16 @@ export default {
       width: {
         'icon-sm': 'var(--icon-button-size-sm)',
         'icon-md': 'var(--icon-button-size-md)',
+        'control-sm': 'var(--control-height-sm)',
+        'control-compact': 'var(--control-height-compact)',
+        'control-md': 'var(--control-height-md)',
+        'control-lg': 'var(--control-height-lg)',
+      },
+      minWidth: {
+        'control-sm': 'var(--control-height-sm)',
+        'control-compact': 'var(--control-height-compact)',
+        'control-md': 'var(--control-height-md)',
+        'control-lg': 'var(--control-height-lg)',
       },
       zIndex: {
         base: 'var(--z-base)',

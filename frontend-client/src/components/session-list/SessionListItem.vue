@@ -169,7 +169,7 @@ const timeLabel = computed(() => formatSessionTime(props.item.activity_at, props
    时间戳/次行才降到 muted），这里只把字重收常规、字号收到 13px */
 .session-title {
   color: var(--color-text-primary);
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   font-weight: 400;
 }
 
@@ -179,14 +179,18 @@ const timeLabel = computed(() => formatSessionTime(props.item.activity_at, props
 }
 
 .session-item--compact {
-  min-height: 32px;
+  min-height: 28px;
+  padding-top: 1px;
+  padding-bottom: 1px;
+}
+
+.session-item--compact > button {
   padding-top: 2px;
   padding-bottom: 2px;
 }
 
-.session-item--compact > button {
-  padding-top: 3px;
-  padding-bottom: 3px;
+.session-item--compact .session-leading-slot {
+  height: 26px;
 }
 
 .session-leading-slot {

@@ -70,13 +70,13 @@
               </span>
               <span class="provider-model-actions">
                 <Button variant="ghost" size="icon" aria-label="上移模型" title="上移（越靠前越优先）" :disabled="idx === 0" @click="emit('moveModel', idx, -1)">
-                  <ChevronUp :size="15" />
+                  <ChevronUp />
                 </Button>
                 <Button variant="ghost" size="icon" aria-label="下移模型" title="下移" :disabled="idx === modelEntries.length - 1" @click="emit('moveModel', idx, 1)">
-                  <ChevronDown :size="15" />
+                  <ChevronDown />
                 </Button>
                 <Button variant="ghost" size="icon" aria-label="编辑模型" title="编辑模型" @click="emit('editModel', idx)">
-                  <IconEdit :size="14" />
+                  <IconEdit />
                 </Button>
                 <Button variant="ghost" size="icon" aria-label="删除模型" title="删除模型" @click="emit('removeModel', idx)">
                   <IconClose />

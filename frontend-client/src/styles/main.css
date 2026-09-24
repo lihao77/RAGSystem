@@ -227,6 +227,14 @@
     --icon-button-size-md: var(--control-height-md);
     --chat-mobile-top-offset: 69.33px;
 
+    /* 图标尺寸 —— 统一档位（行内小标 14 / 常规 16 / 强调 18 / 大 20 / 特大 24，微 12） */
+    --icon-size-2xs: 12px;
+    --icon-size-xs: 14px;
+    --icon-size-sm: 16px;
+    --icon-size-md: 18px;
+    --icon-size-lg: 20px;
+    --icon-size-xl: 24px;
+
     /* 圆角 —— 收敛（去胶囊，保留 full 仅供状态点/小圆） */
     --radius-sm: 4px;
     --radius-md: 6px;
@@ -269,6 +277,8 @@
     --font-mono: ui-monospace, 'SF Mono', 'Cascadia Code', Consolas, monospace;
 
     /* 字号 */
+    --font-size-2xs: 0.625rem;
+    /* 10px —— 微标（徽章/角标），不随断点缩放 */
     --font-size-xs: 0.75rem;
     /* 12px */
     --font-size-sm: 0.875rem;
@@ -287,6 +297,10 @@
     /* 30px */
     --font-size-4xl: 2.25rem;
     /* 36px */
+    /* 聊天正文基线：最终答案/步骤/轮文本三处共用，固定不随断点缩放
+       （缩放会让正在读的流式文字跳动）。改动需同步 chat-view.css 与
+       AssistantExecutionNode.vue。 */
+    --chat-font-size: 14px;
 
     --content-max-width: 720px;
 

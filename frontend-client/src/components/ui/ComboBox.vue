@@ -217,5 +217,5 @@ function toggleOpen() {
 .combo-box__option.selected { background: var(--color-active-bg); color: var(--color-brand-accent); font-weight: 600; }
 .combo-box__option-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .combo-box__check { flex-shrink: 0; color: inherit; }
-.combo-box__empty, .combo-box__more { padding: 10px 12px; color: var(--color-text-muted); font-size: 12px; text-align: center; }
+.combo-box__empty, .combo-box__more { padding: 10px 12px; color: var(--color-text-muted); font-size: var(--font-size-xs); text-align: center; }
 </style>

@@ -20,8 +20,8 @@
         :title="autoRefreshPaused ? '恢复自动刷新' : '暂停自动刷新'"
         @click="toggleAutoRefresh"
       >
-        <IconPlay v-if="autoRefreshPaused" :size="16" />
-        <IconPause v-else :size="16" />
+        <IconPlay v-if="autoRefreshPaused" />
+        <IconPause v-else />
       </Button>
       <CustomSelect
         class="monitor-agent-select"
@@ -31,10 +31,10 @@
         @update:model-value="selectedAgent = $event; loadMetrics()"
       />
       <Button variant="ghost" size="icon-sm" :disabled="loading" aria-label="刷新" title="刷新" @click="loadMetrics">
-        <IconRefresh :size="16" />
+        <IconRefresh />
       </Button>
       <Button variant="ghost" size="icon-sm" aria-label="重置指标" title="重置指标" @click="confirmReset">
-        <IconTrash :size="16" />
+        <IconTrash />
       </Button>
     </template>
 
@@ -418,7 +418,7 @@ onUnmounted(() => { stopAutoRefresh(); });
 <style scoped>
 .execution-overview { display: flex; flex-direction: column; gap: var(--spacing-lg); }
 
-.page-hint { margin: 0; color: var(--color-text-secondary); font-size: 11px; display: flex; align-items: center; gap: 4px; }
+.page-hint { margin: 0; color: var(--color-text-secondary); font-size: var(--font-size-xs); display: flex; align-items: center; gap: 4px; }
 .page-hint span { display: inline-flex; align-items: center; min-height: 22px; padding: 0 8px; border-radius: var(--radius-sm); background: var(--color-hover-overlay-md); white-space: nowrap; }
 @media (max-width: 1200px) { .page-hint { display: none; } }
 .monitor-agent-select { width: clamp(136px, 15vw, 200px); flex: 0 1 200px; min-width: 0; }

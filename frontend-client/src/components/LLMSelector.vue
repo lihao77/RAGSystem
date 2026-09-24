@@ -197,7 +197,7 @@ defineExpose({ getSelection });
   border: 1px solid var(--color-border);
   background: var(--color-interactive);
   color: var(--color-text-primary);
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   font-weight: 600;
   letter-spacing: 0;
   cursor: pointer;
@@ -325,14 +325,14 @@ defineExpose({ getSelection });
 
 .llm-option {
   color: var(--color-text-primary);
-  font-size: 14px;
+  font-size: var(--font-size-sm);
   font-weight: 500;
   gap: 12px;
   cursor: pointer;
 }
 
 .llm-provider {
-  font-size: 13px;
+  font-size: var(--font-size-sm);
 }
 
 .option-copy {
@@ -350,7 +350,7 @@ defineExpose({ getSelection });
   text-overflow: ellipsis;
 }
 .option-sub {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--color-text-muted);
   font-weight: 400;
   white-space: nowrap;
@@ -363,7 +363,7 @@ defineExpose({ getSelection });
   border-radius: 4px;
   background: rgba(var(--color-brand-accent-rgb), 0.14);
   color: var(--color-brand-accent-light);
-  font-size: 10px;
+  font-size: var(--font-size-2xs);
   font-weight: 500;
   line-height: 16px;
 }
@@ -397,7 +397,7 @@ defineExpose({ getSelection });
 @media (max-width: 767px) {
   .llm-select-trigger {
     min-width: 140px;
-    font-size: 12px;
+    font-size: var(--font-size-xs);
     padding: 0 36px 0 12px;
   }
   .arrow-icon {

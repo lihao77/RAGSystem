@@ -7,9 +7,9 @@
         :title="currentSceneName"
         :aria-label="`场景菜单：${currentSceneName}`"
       >
-        <span class="scene-icon" aria-hidden="true"><Layers :size="15" /></span>
+        <span class="scene-icon" aria-hidden="true"><Layers :size="16" /></span>
         <span class="scene-name">{{ currentSceneName }}</span>
-        <IconChevronDown v-if="!collapsed" class="scene-caret" :size="13" />
+        <IconChevronDown v-if="!collapsed" class="scene-caret" :size="14" />
       </button>
     </DropdownMenuTrigger>
     <DropdownMenuContent class="scene-menu" :style="{ width: 'var(--reka-popper-anchor-width, 16rem)' }" align="start" side="top" :side-offset="10">
@@ -30,7 +30,7 @@
         <span class="truncate scene-item__name" :title="scene.displayName">{{ scene.displayName }}</span>
         <span class="scene-item__actions">
           <button class="scene-action" aria-label="重命名场景" :disabled="busy" @click.stop="openRename(scene)">
-            <Pencil :size="13" />
+            <Pencil :size="14" />
           </button>
           <button
             v-if="scenes.length > 1 && scene.id !== activeTenantId"
@@ -39,7 +39,7 @@
             :disabled="busy"
             @click.stop="removeScene(scene)"
           >
-            <Trash2 :size="13" />
+            <Trash2 :size="14" />
           </button>
         </span>
         <IconCheck v-if="scene.id === activeTenantId" :size="14" class="scene-item__check" />

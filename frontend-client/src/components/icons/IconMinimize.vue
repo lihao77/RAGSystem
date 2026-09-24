@@ -19,7 +19,7 @@
 
 <script setup>
 defineProps({
-  size: { type: [Number, String], default: 20 },
+  size: { type: [Number, String], default: 18 },
   color: { type: String, default: 'currentColor' },
   strokeWidth: { type: [Number, String], default: 2 }
 });

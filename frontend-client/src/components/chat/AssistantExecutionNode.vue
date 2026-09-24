@@ -471,11 +471,11 @@ function truncate(value, maxLength) {
 
 /* 轮文本排版：与最终答案消息行同款（chat-view.css 的 .message.assistant
    .markdown-body，14px/1.7）。段尾输出流式态 → 降级为 intent → run 终态由
-   最终答案行接管，三处字号/行高必须一致，任何一处偏离都会让正在读的文字
-   突然缩放；改动需与 chat-view.css 同步。 */
+   最终答案行接管，三处字号/行高必须一致（--chat-font-size，固定 14px/1.7），
+   任何一处偏离都会让正在读的文字突然缩放；改动需与 chat-view.css 同步。 */
 .assistant-step-tail-output :deep(.markdown-body),
 .assistant-step-intent :deep(.markdown-body) {
-  font-size: 14px;
+  font-size: var(--chat-font-size);
   line-height: 1.7;
 }
 
@@ -495,7 +495,7 @@ function truncate(value, maxLength) {
 .assistant-step-reasoning-text {
   overflow-wrap: anywhere;
   white-space: pre-wrap;
-  font-size: 13px;
+  font-size: var(--font-size-sm);
   line-height: 1.7;
   color: var(--color-text-secondary);
 }
@@ -512,7 +512,7 @@ function truncate(value, maxLength) {
   background: transparent;
   color: var(--color-text-secondary);
   font: inherit;
-  font-size: 14px;
+  font-size: var(--chat-font-size);
   line-height: 1.7;
   text-align: left;
   cursor: pointer;
@@ -723,7 +723,7 @@ function truncate(value, maxLength) {
 
 .assistant-step-detail-label {
   color: var(--color-text-muted);
-  font-size: 10.5px;
+  font-size: var(--font-size-2xs);
   font-weight: 600;
 }
 
@@ -734,7 +734,7 @@ function truncate(value, maxLength) {
   border-radius: var(--radius-sm);
   background: var(--color-bg-secondary);
   color: var(--color-text-secondary);
-  font-size: 11.5px;
+  font-size: var(--font-size-xs);
   line-height: 1.5;
   overflow-wrap: anywhere;
   padding: 7px 9px;
@@ -758,7 +758,7 @@ function truncate(value, maxLength) {
   border-radius: var(--radius-md);
   background: transparent;
   color: var(--color-text-secondary);
-  font-size: 11.5px;
+  font-size: var(--font-size-xs);
   font-weight: 550;
   cursor: pointer;
   transition: background var(--duration-fast) var(--ease-default), color var(--duration-fast) var(--ease-default);

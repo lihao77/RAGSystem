@@ -2,19 +2,19 @@
   <div class="message-actions" :class="{ visible }">
     <template v-if="msg.role === 'user' && messageContext.editingMessage !== msg">
       <Button v-if="messageContext.canReviseMessage(msg)" variant="ghost" size="icon-xs" :disabled="messageContext.isLoading" aria-label="编辑" title="编辑" @click="messageContext.startEditMessage(msg)">
-        <Pen :size="14" />
+        <Pen />
       </Button>
       <Button variant="ghost" size="icon-xs" :aria-label="copied ? '已复制' : '复制'" :title="copied ? '已复制' : '复制'" @click="onCopy(msg)">
-        <IconCheck v-if="copied" :size="14" />
-        <IconCopy v-else :size="14" />
+        <IconCheck v-if="copied" />
+        <IconCopy v-else />
       </Button>
     </template>
 
     <template v-if="msg.role === 'assistant'">
       <template v-if="msg.finished">
         <Button variant="ghost" size="icon-xs" :aria-label="copied ? '已复制' : '复制'" :title="copied ? '已复制' : '复制'" @click="onCopy(msg)">
-          <IconCheck v-if="copied" :size="14" />
-          <IconCopy v-else :size="14" />
+          <IconCheck v-if="copied" />
+          <IconCopy v-else />
         </Button>
         <Button
           v-if="messageContext.rateMessage"
@@ -25,7 +25,7 @@
           :title="feedbackOf(msg) === 'up' ? '取消点赞' : '点赞'"
           @click="onRate(msg, 'up')"
         >
-          <ThumbsUp :size="14" :fill="feedbackOf(msg) === 'up' ? 'currentColor' : 'none'" />
+          <ThumbsUp :fill="feedbackOf(msg) === 'up' ? 'currentColor' : 'none'" />
         </Button>
         <Button
           v-if="messageContext.rateMessage"
@@ -36,7 +36,7 @@
           :title="feedbackOf(msg) === 'down' ? '取消点踩' : '点踩'"
           @click="onRate(msg, 'down')"
         >
-          <ThumbsDown :size="14" :fill="feedbackOf(msg) === 'down' ? 'currentColor' : 'none'" />
+          <ThumbsDown :fill="feedbackOf(msg) === 'down' ? 'currentColor' : 'none'" />
         </Button>
         <Button
           v-if="retryMessage"
@@ -47,7 +47,7 @@
           title="重试"
           @click="messageContext.rollbackAndRetry(retryMessage)"
         >
-          <RefreshCcw :size="14" />
+          <RefreshCcw />
         </Button>
         <span
           v-if="getMessageExecutionTimeText(msg)"

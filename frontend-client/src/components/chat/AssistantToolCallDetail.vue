@@ -173,7 +173,7 @@ function diffMark(type) {
 
 .tool-call-detail-label {
   color: var(--color-text-muted);
-  font-size: 10.5px;
+  font-size: var(--font-size-2xs);
   font-weight: 600;
 }
 
@@ -184,7 +184,7 @@ function diffMark(type) {
   border-radius: var(--radius-sm);
   background: var(--color-bg-secondary);
   color: var(--color-text-secondary);
-  font-size: 11.5px;
+  font-size: var(--font-size-xs);
   line-height: 1.5;
   overflow-wrap: anywhere;
   padding: 7px 9px;
@@ -205,7 +205,7 @@ function diffMark(type) {
 .tool-call-detail-error {
   border-radius: var(--radius-sm);
   padding: 7px 9px;
-  font-size: 11.5px;
+  font-size: var(--font-size-xs);
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
@@ -219,7 +219,7 @@ function diffMark(type) {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: var(--font-size-xs);
   line-height: 1.55;
 }
 
@@ -253,7 +253,7 @@ function diffMark(type) {
 .tool-terminal__title {
   flex-shrink: 0;
   color: var(--color-text-secondary);
-  font-size: 10.5px;
+  font-size: var(--font-size-2xs);
   font-weight: 600;
 }
 
@@ -261,7 +261,7 @@ function diffMark(type) {
   min-width: 0;
   overflow: hidden;
   color: var(--color-text-muted);
-  font-size: 10.5px;
+  font-size: var(--font-size-2xs);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -273,7 +273,7 @@ function diffMark(type) {
   border-radius: var(--radius-full);
   background: rgba(var(--color-success-rgb), 0.14);
   color: var(--color-success);
-  font-size: 10px;
+  font-size: var(--font-size-2xs);
   font-variant-numeric: tabular-nums;
   font-weight: 600;
 }
@@ -297,7 +297,7 @@ function diffMark(type) {
 
 .tool-terminal__desc {
   color: var(--color-text-muted);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
 }
 
 .tool-terminal__command {
@@ -362,7 +362,7 @@ function diffMark(type) {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   line-height: 1.5;
 }
 
@@ -380,7 +380,7 @@ function diffMark(type) {
   min-width: 0;
   overflow: hidden;
   color: var(--color-text-secondary);
-  font-size: 10.5px;
+  font-size: var(--font-size-2xs);
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -391,7 +391,7 @@ function diffMark(type) {
   flex-shrink: 0;
   gap: 8px;
   margin-left: auto;
-  font-size: 10.5px;
+  font-size: var(--font-size-2xs);
   font-variant-numeric: tabular-nums;
   font-weight: 600;
 }
@@ -402,7 +402,7 @@ function diffMark(type) {
 .tool-diff__count {
   flex-shrink: 0;
   color: var(--color-text-muted);
-  font-size: 10.5px;
+  font-size: var(--font-size-2xs);
 }
 
 .tool-diff__lines {
@@ -425,7 +425,7 @@ function diffMark(type) {
 
 .tool-diff__hunk {
   color: var(--color-text-muted);
-  font-size: 10px;
+  font-size: var(--font-size-2xs);
   font-style: italic;
 }
 
@@ -433,7 +433,7 @@ function diffMark(type) {
   padding-right: 6px;
   border-right: 1px solid var(--color-border);
   color: var(--color-text-muted);
-  font-size: 10px;
+  font-size: var(--font-size-2xs);
   font-variant-numeric: tabular-nums;
   text-align: right;
   user-select: none;
@@ -463,7 +463,7 @@ function diffMark(type) {
 .tool-diff__empty {
   padding: 6px 10px;
   color: var(--color-text-muted);
-  font-size: 10.5px;
+  font-size: var(--font-size-2xs);
 }
 
 @keyframes tool-terminal-blink {
