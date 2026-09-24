@@ -3,39 +3,59 @@
     <div class="sidebar-backdrop" :class="{ active: mobileOpen }" @click="closeMobileSidebar"></div>
 
     <aside class="sidebar" :class="{ collapsed: sidebarCollapsed, 'mobile-open': mobileOpen }">
+      <!-- 顶栏只保留拖拽区与移动端 logo：桌面端的开关/新聊天常驻窗口左上角固定浮钮，
+           不随侧栏收起移动位置。 -->
       <div class="sidebar-top-bar">
-        <div class="sidebar-logo-wrapper" @click="toggleSidebar">
-          <IconLogo :size="32" class="sidebar-logo-icon" simple />
-          <IconChevronRight :size="20" class="sidebar-expand-icon" />
+        <div class="sidebar-top-bar__left">
+          <button
+            type="button"
+            class="sidebar-logo-wrapper"
+            :aria-label="'打开菜单'"
+            title="打开菜单"
+            @click="toggleSidebar"
+          >
+            <span class="sidebar-logo-box">
+              <IconLogo :size="28" class="sidebar-logo-icon" simple />
+            </span>
+          </button>
         </div>
-
-        <Button class="toggle-sidebar-btn" variant="ghost" size="icon" aria-label="折叠侧栏" title="Collapse sidebar" @click="toggleSidebar">
-          <IconChevronLeft :size="20" />
-        </Button>
       </div>
 
       <Transition name="sidebar-mode" mode="out-in">
-        <div v-if="isChatRoute" key="chat" class="sidebar-mode">
-      <div class="sidebar-header">
+        <div v-if="isChatRoute" key="chat" class="sidebar-mode" :class="{ 'is-stowed': isBodyStowed }">
+      <div v-show="!isFilesView && !sidebarCollapsed" class="sidebar-header">
         <button class="sidebar-btn" :class="{ active: isPageActive('chat') && !activeSessionId }" @click="startNewChat">
           <IconNewConversation class="icon" />
           <span class="btn-text">新聊天</span>
         </button>
       </div>
 
-      <SessionList
-        v-show="!sidebarCollapsed || isMobile"
-        :active-session-id="activeSessionId"
-        :chat-sdk-client="chatSdkClient"
-        :view-mode="browserView"
-        @update:view-mode="handleBrowserViewChange"
-        @select="selectSession"
-        @delete="confirmDeleteSession"
-        @select-workspace="handleWorkspaceChange"
-        @rename-workspace="openRenameWorkspace"
-        @remove-workspace="confirmRemoveWorkspace"
-        @purge-workspace="confirmPurgeWorkspace"
-      />
+      <!-- 会话列表 ↔ 文件导航：互斥切换带过渡（v-if 分支，数据都在 pinia，重挂载无成本）。
+           折叠时整个主体随 is-stowed 左滑退出，不再保留图标轨内容。 -->
+      <Transition name="sidebar-mode" mode="out-in">
+        <div v-if="isFilesView" key="workspace-files" class="sidebar-mode-body">
+          <WorkspaceFileNav
+            :workspace-id="filesWorkspaceId"
+            @update:workspace-id="(id) => { filesWorkspaceId = id }"
+            @exit="exitWorkspaceFiles"
+          />
+        </div>
+        <div v-else key="sessions" class="sidebar-mode-body">
+          <SessionList
+            :active-session-id="activeSessionId"
+            :chat-sdk-client="chatSdkClient"
+            :view-mode="browserView"
+            @update:view-mode="handleBrowserViewChange"
+            @select="selectSession"
+            @delete="confirmDeleteSession"
+            @select-workspace="handleWorkspaceChange"
+            @rename-workspace="openRenameWorkspace"
+            @remove-workspace="confirmRemoveWorkspace"
+            @purge-workspace="confirmPurgeWorkspace"
+            @browse-workspace="enterWorkspaceFiles"
+          />
+        </div>
+      </Transition>
       <WorkspaceRenameDialog
         v-model="renameWorkspaceOpen"
         :chat-sdk-client="chatSdkClient"
@@ -44,7 +64,7 @@
       />
       </div>
 
-      <div v-else key="admin" class="sidebar-mode">
+      <div v-else key="admin" class="sidebar-mode" :class="{ 'is-stowed': isBodyStowed }">
         <div class="admin-nav-list">
           <button
             v-if="canViewAdminOverview"
@@ -83,10 +103,39 @@
           :aria-label="isChatRoute ? '管理中心' : '返回聊天'"
           @click="navigateTo(isChatRoute ? managementEntryPath : '/')"
         >
-          <component :is="isChatRoute ? sidebarAdminNavItem.icon : IconChevronLeft" :size="22" />
+          <component :is="isChatRoute ? sidebarAdminNavItem.icon : IconChevronLeft" :size="20" />
         </button>
       </div>
     </aside>
+
+    <!-- 左上角固定浮钮：折叠/展开开关全程钉在同一像素位置（侧栏收起时也原地不动），
+         hover 时 logo 与方向箭头原位淡切；文件视图/折叠态时旁边出现新聊天。 -->
+    <div class="sidebar-toggle-float" :class="{ 'is-collapsed': sidebarCollapsed }">
+      <button
+        type="button"
+        class="sbf-toggle"
+        :title="sidebarCollapsed ? '展开侧栏' : '折叠侧栏'"
+        :aria-label="sidebarCollapsed ? '展开侧栏' : '折叠侧栏'"
+        @click="toggleSidebar"
+      >
+        <span class="sbf-toggle__box">
+            <IconLogo :size="28" class="sidebar-logo-icon" simple />
+            <PanelLeftClose :size="16" class="sbf-toggle__alt sbf-toggle__alt--collapse" aria-hidden="true" />
+            <PanelLeftOpen :size="16" class="sbf-toggle__alt sbf-toggle__alt--expand" aria-hidden="true" />
+          </span>
+      </button>
+      <Transition name="sidebar-mode">
+        <button
+          v-if="isFilesView || sidebarCollapsed"
+          class="sbf-action"
+          title="新聊天"
+          aria-label="新聊天"
+          @click="startNewChat"
+        >
+          <IconNewConversation :size="16" />
+        </button>
+      </Transition>
+    </div>
 
     <div :class="['layout-main-host', { 'layout-main-host--page': !isChatRoute }]">
       <component :is="pageShell" :key="isChatRoute ? 'shell-chat' : 'shell-admin'" class="layout-shell">
@@ -140,11 +189,13 @@ import { useBootstrapStore } from '../stores/bootstrap.js';
 import { useAuthStore } from '../stores/auth.js';
 import { usePermission } from '../composables/usePermission.js';
 import { destroyFrontendChatSdk, getFrontendChatSdk } from '../composables/chatSdkClient.js';
-import { IconLogo, IconChevronLeft, IconChevronRight, IconNewConversation } from '../components/icons';
+import { PanelLeftClose, PanelLeftOpen } from 'lucide-vue-next';
+import { IconLogo, IconChevronLeft, IconNewConversation } from '../components/icons';
 import { Button } from '../components/ui/button';
 import UserMenu from '../components/UserMenu.vue';
 import SceneSwitcher from '../components/SceneSwitcher.vue';
 import SessionList from '../components/session-list/SessionList.vue';
+import WorkspaceFileNav from '../components/workspace/WorkspaceFileNav.vue';
 import WorkspaceRenameDialog from '../components/workspace/WorkspaceRenameDialog.vue';
 import { SESSION_BROWSER_VIEWS, UNASSIGNED_WORKSPACE_ID, useWorkspaceStore } from '../stores/workspace.js';
 import { sidebarAdminNavItem, filterManagementNavItems, adminNavGroups, IconPluginView } from '../navigation/adminNavigation';
@@ -282,10 +333,24 @@ const closeMobileSidebar = () => {
   document.body.style.overflow = '';
 };
 
-provide('shellSidebarControl', {
-  openMobileSidebar,
-  closeMobileSidebar,
+// 会话顶栏"展开侧栏"按钮的落点：移动端开抽屉，桌面端展开并持久化
+const expandSidebar = () => {
+  if (isMobile.value) {
+    openMobileSidebar();
+    return;
+  }
+  sidebarCollapsed.value = false;
+  localStorage.setItem('sidebarCollapsed', 'false');
+};
+
+// 折叠后的展开入口只挂在聊天页会话顶栏；管理页的导航就是侧栏本身，
+// 带着折叠态进管理页会迷路——进入时自动展开兜底。
+watch(isChatRoute, (chat) => {
+  if (!chat && sidebarCollapsed.value && !isMobile.value) {
+    expandSidebar();
+  }
 });
+
 provide('sidebarCollapsed', sidebarCollapsed);
 
 const toggleSidebar = () => {
@@ -308,6 +373,12 @@ const startNewChat = async () => {
   closeMobileSidebar();
 };
 
+// 供会话顶栏/移动端抽屉使用（开关浮钮在 MainLayout 自身模板里，直接调本地函数）
+provide('shellSidebarControl', {
+  openMobileSidebar,
+  closeMobileSidebar,
+});
+
 const handleWorkspaceChange = async (workspace) => {
   workspaceStore.select(workspace?.workspace_id || UNASSIGNED_WORKSPACE_ID);
   if (activeSessionId.value) await startNewChat();
@@ -316,6 +387,20 @@ const handleWorkspaceChange = async (workspace) => {
 const handleBrowserViewChange = async (view) => {
   workspaceStore.selectView(view);
   await sessionListStore.setFilters({ originType: null, originId: null, workspaceId: null });
+};
+
+// ── 项目文件导航 ──
+// 入口在 SessionList 项目分组头的「浏览文件」按钮：带着目标项目切进文件视图。
+const isFilesView = computed(() => browserView.value === SESSION_BROWSER_VIEWS.FILES);
+// 折叠收纳：桌面端折叠时主体（列表/导航/管理导航）整体左滑退出；移动端抽屉不受折叠态影响
+const isBodyStowed = computed(() => sidebarCollapsed.value && !isMobile.value);
+const filesWorkspaceId = ref('');
+const enterWorkspaceFiles = (workspace) => {
+  if (workspace?.workspace_id) filesWorkspaceId.value = workspace.workspace_id;
+  workspaceStore.selectView(SESSION_BROWSER_VIEWS.FILES);
+};
+const exitWorkspaceFiles = () => {
+  workspaceStore.selectView(SESSION_BROWSER_VIEWS.PROJECT);
 };
 
 const confirmRemoveWorkspace = async (workspace) => {
@@ -603,6 +688,13 @@ onUnmounted(() => {
   --sidebar-btn-text-transition-in: opacity var(--duration-base) ease 0.05s;
   --sidebar-btn-text-transition-out: opacity var(--duration-fast) ease;
   --shell-gap: var(--spacing-xs);
+  /* 左上角固定浮轨宽度：15 左距 + 28 开关 + 2 缝 + 28 新聊天（折叠态两个按钮都在）。
+     折叠态会话顶栏按它让位，改浮轨尺寸只需改这里。 */
+  --sidebar-rail-width: 73px;
+  /* 浮轨相对对话卡左缘的占位：扣掉对话卡自身的内缩（外壳 gap + 卡片边框 1px），
+     顶栏让位 = 本变量 + 顶栏常规内距。 */
+  --sidebar-rail-reserve: calc(var(--sidebar-rail-width) - var(--shell-gap, 4px) - 1px);
+  position: relative;
   display: flex;
   height: 100vh;
   height: 100dvh;
@@ -634,6 +726,8 @@ onUnmounted(() => {
   box-shadow: none;
   background: var(--surface-sidebar);
   width: var(--sidebar-width);
+  /* 主体左滑退出时内容需在侧栏内裁剪（下拉菜单均经 portal 渲染，不受影响） */
+  overflow: hidden;
   /* 与对话卡之间留一条同宽的缝（侧栏不铺卡片底色，缝里是外壳底色）。
      窄屏抽屉形态下侧栏是 fixed，外边距不参与定位，无需另写覆盖。 */
   margin-right: var(--shell-gap, 0);
@@ -648,8 +742,11 @@ onUnmounted(() => {
   /* border-right: 1px solid var(--color-border); */
 }
 
+/* 折叠 = 完全退出布局：宽度归零、缝隙一并收回，对话区占满全宽；
+   左缘的 logo/新聊天/底部入口由 .sidebar-floating-rail 悬浮轨承载。 */
 .sidebar.collapsed {
-  width: var(--sidebar-collapsed-width);
+  width: 0;
+  margin-right: 0;
 }
 
 /* Electron 桌面端隐藏原生标题栏后，logo 行兼任标题栏：整行可拖拽/双击最大化，
@@ -660,7 +757,8 @@ onUnmounted(() => {
   justify-content: space-between;
   align-items: center;
   min-height: 44px;
-  padding: 6px 8px 6px 9px;
+  /* 左距让 28px logo 框中心对齐列表图标中心线（8px 容器 + 8px 按钮内边距 + 9px 半图标 = 25px） */
+  padding: 6px 8px 6px 11px;
   transition: all var(--transition-normal);
   -webkit-app-region: drag;
   app-region: drag;
@@ -671,33 +769,109 @@ onUnmounted(() => {
   app-region: no-drag;
 }
 
-.sidebar.collapsed .sidebar-top-bar {
-  justify-content: center;
+/* 顶栏左组：logo + 文件视图下的新聊天快捷入口 */
+.sidebar-top-bar__left {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: 2px;
+}
+
+.topbar-new-chat-btn {
+  flex-shrink: 0;
+}
+
+/* 会话列表/文件导航互斥分支的宿主：占满侧栏剩余高度 */
+.sidebar-mode-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
 }
 
 .sidebar-logo-wrapper {
   position: relative;
-  width: 32px;
-  height: 32px;
+  /* 与桌面浮轨 logo 开关同档（28 框装 28 logo） */
+  width: var(--control-height-sm);
+  height: var(--control-height-sm);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: left;
-  flex: 1;
-  transition: all var(--transition-normal);
+  border: none;
+  background: none;
+  padding: 0;
+}
+
+.sidebar-logo-box {
+  position: relative;
+  display: flex;
+  width: var(--control-height-sm);
+  height: var(--control-height-sm);
+  align-items: center;
+  justify-content: center;
 }
 
 .sidebar-logo-icon {
   flex-shrink: 0;
-  filter: none;
-  transition: opacity var(--transition-normal);
+  transition: opacity var(--transition-fast);
 }
 
-.sidebar-logo-wrapper:hover .sidebar-logo-icon {
-  filter: none;
+/* ── 左上角固定浮钮：折叠/展开开关 ──
+   绝对定位在窗口左上角，侧栏收起到 0 宽也不移动；
+   hover 时 logo 淡出、方向箭头（按当前态取收起/展开方向）原位淡入。 */
+.sidebar-toggle-float {
+  position: absolute;
+  top: var(--shell-gap, 4px);
+  left: 0;
+  z-index: calc(var(--z-sidebar) + 1);
+  display: flex;
+  /* 宽度显式取自变量：折叠态顶栏的让位宽度以它为准 */
+  width: var(--sidebar-rail-width);
+  height: 44px;
+  align-items: center;
+  gap: 2px;
+  /* 图标中心线对齐列表图标（外壳 4px 边距 + 侧栏 8px 容器 + 8px 按钮内边距 + 18px 图标半宽 = 29px；
+     28px 开关框居中 → 左距 29 - 14 = 15px） */
+  padding-left: 15px;
+  /* 容器本身不拦截事件：不打断下方顶栏的 Electron 拖拽，仅按钮可点 */
+  pointer-events: none;
 }
 
-.sidebar-expand-icon {
+.sidebar-toggle-float > * {
+  pointer-events: auto;
+}
+
+.sbf-toggle {
+  position: relative;
+  display: flex;
+  /* 与顶栏按钮同档（rw-collapse 28）；28px logo 在 28 框内正好贴合（logo 自带约 10% 内边距） */
+  width: var(--control-height-sm);
+  height: var(--control-height-sm);
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--radius-lg);
+  background: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.sbf-toggle:hover {
+  background: var(--color-hover-overlay-md);
+}
+
+.sbf-toggle__box {
+  position: relative;
+  display: flex;
+  width: var(--control-height-sm);
+  height: var(--control-height-sm);
+  align-items: center;
+  justify-content: center;
+}
+
+.sbf-toggle__alt {
   position: absolute;
   top: 50%;
   left: 50%;
@@ -705,31 +879,54 @@ onUnmounted(() => {
   opacity: 0;
   color: var(--color-text-secondary);
   pointer-events: none;
-  transition: opacity var(--transition-normal);
+  transition: opacity var(--transition-fast);
 }
 
-.sidebar:not(.collapsed) .sidebar-logo-icon {
-  opacity: 1;
-}
-
-.sidebar:not(.collapsed) .sidebar-expand-icon {
+.sbf-toggle:hover .sidebar-logo-icon {
   opacity: 0;
 }
 
-.sidebar.collapsed .sidebar-logo-icon {
+.sidebar-toggle-float:not(.is-collapsed) .sbf-toggle:hover .sbf-toggle__alt--collapse {
   opacity: 1;
 }
 
-.sidebar.collapsed .sidebar-expand-icon {
-  opacity: 0;
-}
-
-.sidebar.collapsed .sidebar-logo-wrapper:hover .sidebar-logo-icon {
-  opacity: 0;
-}
-
-.sidebar.collapsed .sidebar-logo-wrapper:hover .sidebar-expand-icon {
+.sidebar-toggle-float.is-collapsed .sbf-toggle:hover .sbf-toggle__alt--expand {
   opacity: 1;
+}
+
+.sbf-action {
+  display: flex;
+  /* 与顶栏按钮同档（rw-collapse 28） */
+  width: var(--control-height-sm);
+  height: var(--control-height-sm);
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--radius-lg);
+  background: none;
+  color: var(--color-text-secondary);
+  padding: 0;
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.sbf-action:hover {
+  background: var(--color-hover-overlay-md);
+  color: var(--color-text-primary);
+}
+
+/* 移动端：开关走抽屉（会话顶栏汉堡），浮钮不出现 */
+.chat-layout--sidebar-overlay .sidebar-toggle-float {
+  display: none;
+}
+
+/* 桌面端侧栏顶栏只保留拖拽区；logo 仅移动端抽屉里显示 */
+.sidebar-top-bar__left {
+  display: none;
+}
+
+.chat-layout--sidebar-overlay .sidebar-top-bar__left {
+  display: flex;
 }
 
 .toggle-sidebar-btn {
@@ -762,6 +959,8 @@ onUnmounted(() => {
   margin: 0;
   pointer-events: none;
 }
+
+
 
 .toggle-sidebar-btn:hover {
   /* 手感对齐 ghost：仅换背景与文字色，去掉 scale 弹跳（hover 背景已由上面统一规则提供） */
@@ -858,6 +1057,17 @@ onUnmounted(() => {
   flex-direction: column;
   flex: 1;
   min-height: 0;
+  transition: transform var(--transition-normal), opacity var(--transition-normal), visibility 0s;
+}
+
+/* 折叠收纳：主体整体左滑退出（logo/新聊天留在顶栏、底部图标照旧）。
+   visibility 延迟到滑动结束后再隐藏，保证动画可见且收起后不占焦点。 */
+.sidebar-mode.is-stowed {
+  transform: translateX(-100%);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: transform var(--transition-normal), opacity var(--transition-normal), visibility 0s linear var(--transition-normal);
 }
 .sidebar-mode-enter-active,
 .sidebar-mode-leave-active {
@@ -928,8 +1138,9 @@ onUnmounted(() => {
 }
 .footer-toggle-btn {
   flex-shrink: 0;
-  width: 32px;
-  height: 32px;
+  /* 与同行的场景切换/账户触发器（control-compact）同高 */
+  width: var(--control-height-compact);
+  height: var(--control-height-compact);
   padding: 5px;
   background: none;
   color: var(--color-text-secondary);

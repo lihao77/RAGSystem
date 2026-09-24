@@ -6,7 +6,9 @@ const VIEW_STORAGE_KEY = 'ragsystem:session-browser-view';
 const ORDER_STORAGE_KEY = 'ragsystem:workspace-order';
 const COLLAPSED_STORAGE_KEY = 'ragsystem:workspace-collapsed';
 export const UNASSIGNED_WORKSPACE_ID = '__unassigned__';
-export const SESSION_BROWSER_VIEWS = Object.freeze({ PROJECT: 'project', TIMELINE: 'timeline' });
+export const SESSION_BROWSER_VIEWS = Object.freeze({ PROJECT: 'project', TIMELINE: 'timeline', FILES: 'files' });
+const KNOWN_BROWSER_VIEWS = Object.values(SESSION_BROWSER_VIEWS);
+const normalizeBrowserView = (view) => (KNOWN_BROWSER_VIEWS.includes(view) ? view : SESSION_BROWSER_VIEWS.PROJECT);
 
 function byDisplayName(a, b) {
   return String(a.display_name).localeCompare(String(b.display_name));
@@ -28,15 +30,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   function setClient(nextClient) { client = nextClient || null; }
   function initializeView() {
     try {
-      browserView.value = localStorage.getItem(VIEW_STORAGE_KEY) === SESSION_BROWSER_VIEWS.TIMELINE
-        ? SESSION_BROWSER_VIEWS.TIMELINE
-        : SESSION_BROWSER_VIEWS.PROJECT;
+      browserView.value = normalizeBrowserView(localStorage.getItem(VIEW_STORAGE_KEY));
     } catch { browserView.value = SESSION_BROWSER_VIEWS.PROJECT; }
   }
   function selectView(view) {
-    browserView.value = view === SESSION_BROWSER_VIEWS.TIMELINE
-      ? SESSION_BROWSER_VIEWS.TIMELINE
-      : SESSION_BROWSER_VIEWS.PROJECT;
+    browserView.value = normalizeBrowserView(view);
     try { localStorage.setItem(VIEW_STORAGE_KEY, browserView.value); } catch { /* storage may be unavailable */ }
     return browserView.value;
   }

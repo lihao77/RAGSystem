@@ -143,11 +143,23 @@
                     <span class="min-w-0 flex-1 truncate">{{ group.name }}</span>
                     <span class="project-session-group__count">{{ (group.workspace?.session_count ?? group.items.length) || '' }}</span>
                   </button>
+                  <Button
+                    v-if="group.workspace && isLocalDeployment"
+                    variant="ghost"
+                    size="icon-xs"
+                    class="project-session-group__browse"
+                    :aria-label="`浏览项目文件 ${group.name}`"
+                    :title="`浏览「${group.name}」的文件`"
+                    @click.stop="$emit('browse-workspace', group.workspace)"
+                  >
+                    <FolderTree />
+                  </Button>
                   <DropdownMenu v-if="group.workspace">
                     <DropdownMenuTrigger as-child>
                       <Button
                         variant="ghost"
                         size="icon-xs"
+                        class="project-session-group__manage"
                         :disabled="removingWorkspaceId === group.id"
                         :aria-label="`管理项目 ${group.name}`"
                         :title="`管理项目 ${group.name}`"
@@ -158,6 +170,7 @@
                     <DropdownMenuContent align="end">
                       <DropdownMenuGroup>
                         <DropdownMenuItem
+                          class="gap-1.5 px-2 py-1 text-xs [&>svg]:size-3.5"
                           :disabled="removingWorkspaceId === group.id"
                           @select="$emit('rename-workspace', group.workspace)"
                         >
@@ -165,6 +178,7 @@
                           重命名项目
                         </DropdownMenuItem>
                         <DropdownMenuItem
+                          class="gap-1.5 px-2 py-1 text-xs [&>svg]:size-3.5"
                           :disabled="removingWorkspaceId === group.id"
                           @select="$emit('remove-workspace', group.workspace)"
                         >
@@ -174,7 +188,7 @@
                       </DropdownMenuGroup>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem
-                        class="text-destructive focus:text-destructive"
+                        class="gap-1.5 px-2 py-1 text-xs [&>svg]:size-3.5 text-destructive focus:text-destructive"
                         :disabled="removingWorkspaceId === group.id"
                         @select="$emit('purge-workspace', group.workspace)"
                       >
@@ -251,7 +265,7 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import type { SessionListItem as SessionListItemData } from '@ragsystem/api-contracts';
-import { Ellipsis, Folder, FolderMinus, FolderOpen, Pencil, Pin, Trash2 } from 'lucide-vue-next';
+import { Ellipsis, Folder, FolderMinus, FolderOpen, FolderTree, Pencil, Pin, Trash2 } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -272,6 +286,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useSessionListStore } from '@/stores/session-list.js';
 import { MAX_PINNED_SESSIONS } from '@/stores/session-list-hydration.js';
 import { UNASSIGNED_WORKSPACE_ID, useWorkspaceStore } from '@/stores/workspace.js';
+import { useBootstrapStore } from '@/stores/bootstrap.js';
 import { useSessionListTime } from '@/composables/useSessionListTime.js';
 import { useSessionListStates } from '@/composables/useSessionListStates.js';
 import { useToast } from '@/composables/useToast.js';
@@ -295,6 +310,7 @@ defineEmits<{
   'rename-workspace': [workspace: { workspace_id: string; display_name: string; root_path?: string | null }];
   'remove-workspace': [workspace: { workspace_id: string; display_name: string; root_path?: string | null }];
   'purge-workspace': [workspace: { workspace_id: string; display_name: string; root_path?: string | null; session_count?: number }];
+  'browse-workspace': [workspace: { workspace_id: string; display_name: string; root_path?: string | null }];
 }>();
 
 const store = useSessionListStore();
@@ -333,6 +349,13 @@ const hasFacetData = computed(() => (
 const isSoftRefreshing = computed(() => loadingInitial.value && items.value.length > 0);
 /** 仅冷启动或筛空后的加载才用骨架 */
 const showSkeleton = computed(() => loadingInitial.value && items.value.length === 0);
+
+// 项目文件浏览依赖项目根目录（本地部署独有），SaaS 下不显示浏览按钮
+// （bootstrap.profile 是宽松形状，这里按需窄化取部署形态字段）
+const bootstrapStore = useBootstrapStore();
+const bootstrapProfile = bootstrapStore.profile as { ui?: string; deployment?: string };
+const isLocalDeployment = computed(() =>
+  bootstrapProfile.ui === 'local' || bootstrapProfile.deployment === 'local');
 
 /** 组头拖拽排序状态：id=被拖组；previewIds=实时预览顺序；originIds=拖起前顺序（未变则不持久化）；wasCollapsed=拖起前的折叠态（释放后恢复） */
 const dragState = ref<{ id: string | null; previewIds: string[] | null; originIds: string[] | null; wasCollapsed: boolean }>({
@@ -609,7 +632,7 @@ watch(filters, () => {
   border-radius: 6px;
   background: transparent;
   color: var(--color-text-secondary);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   font-weight: 500;
 }
 
@@ -621,6 +644,22 @@ watch(filters, () => {
 .project-session-group__header.is-selected {
   color: var(--color-text-primary);
   font-weight: 600;
+}
+
+/* 组头所有图标统一 14px，与会话条目的图标口径一致（ui Button 内的 svg 默认 16px） */
+.project-session-group__header :deep(svg) {
+  width: 14px;
+  height: 14px;
+}
+
+/* 组头操作按钮（浏览文件/管理菜单）：20px 热区，与会话条目的操作按钮一致（icon-xs 默认 28px） */
+.project-session-group__browse,
+.project-session-group__manage {
+  width: 20px;
+  height: 20px;
+  min-width: 20px;
+  min-height: 20px;
+  padding: 0;
 }
 
 /* 折叠开关即文件夹图标本身：展开=FolderOpen，折叠=Folder（无 hover 反馈，避免与组头选中态抢焦点） */
@@ -703,7 +742,7 @@ watch(filters, () => {
 .project-session-group__count {
   min-width: 16px;
   color: var(--color-text-muted);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-variant-numeric: tabular-nums;
   text-align: right;
 }
@@ -719,7 +758,7 @@ watch(filters, () => {
 .project-session-group__empty {
   padding: 5px 8px 7px;
   color: var(--color-text-muted);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
 }
 
 /* 分组「加载更多」：项目视图唯一翻页入口。 */
@@ -734,7 +773,7 @@ watch(filters, () => {
   border-radius: 6px;
   background: transparent;
   color: var(--color-text-muted);
-  font-size: 12px;
+  font-size: var(--font-size-xs);
   text-align: left;
   cursor: pointer;
 }

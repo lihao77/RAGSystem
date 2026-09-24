@@ -12,7 +12,7 @@
  */
 
 import { onUnmounted, ref, shallowRef, toValue, watch } from 'vue';
-import { getWorkspaceFileContent } from '../../api/workspaceFile.js';
+import { getWorkspaceEntryContent, getWorkspaceFileContent } from '../../api/workspaceFile.js';
 import { correctMimeType } from './fileCategorize.js';
 
 const CACHE_MAX_ENTRIES = 16;
@@ -22,10 +22,6 @@ const CACHE_MAX_BYTES = 64 * 1024 * 1024;
 const assetCache = new Map();
 /** @type {Map<string, Promise<{ blob: Blob, size: number, mimeType: string, etag: string }>>} */
 const inflight = new Map();
-
-function buildKey(sessionId, filePath) {
-  return `${sessionId}::${filePath}`;
-}
 
 function cacheBytes() {
   let total = 0;
@@ -61,13 +57,15 @@ function buildEntry(response, filePath) {
 }
 
 /**
- * 获取（或复用缓存的）工作区文件资源。缓存命中时会向服务端确认版本：
+ * 获取（或复用缓存的）文件资源核心。缓存命中时会向服务端确认版本：
  * 304 复用原条目、200 替换为新内容、404 清缓存抛错；其余重验证失败（网络/5xx）
  * 退回缓存内容，不让瞬断把已能展示的文件打成加载失败。
+ * @param {string} key 缓存键（会话级/项目级各自命名空间）
+ * @param {string} filePath
+ * @param {(filePath: string, options: object) => Promise<object>} loadContent 内容请求（返回 axios 风格 response）
  * @returns {Promise<{ blob: Blob, size: number, mimeType: string, etag: string }>}
  */
-export function fetchWorkspaceFileAsset(sessionId, filePath, options = {}) {
-  const key = buildKey(sessionId, filePath);
+function fetchFileAsset(key, filePath, loadContent, options = {}) {
   const cached = assetCache.get(key);
   if (cached) {
     // 刷新 LRU 最近使用位
@@ -80,7 +78,7 @@ export function fetchWorkspaceFileAsset(sessionId, filePath, options = {}) {
   const request = (async () => {
     if (cached?.etag) {
       try {
-        const response = await getWorkspaceFileContent(sessionId, filePath, { signal: options.signal, ifNoneMatch: cached.etag });
+        const response = await loadContent(filePath, { signal: options.signal, ifNoneMatch: cached.etag });
         // 304 时经 commitEntry 回插（await 期间可能被 LRU 淘汰），并原对象复用——
         // 组件侧 asset 身份不变，不重建 objectURL、不重解码文本
         if (response.status === 304) return commitEntry(key, cached);
@@ -98,7 +96,7 @@ export function fetchWorkspaceFileAsset(sessionId, filePath, options = {}) {
       }
     }
     try {
-      const response = await getWorkspaceFileContent(sessionId, filePath, { signal: options.signal });
+      const response = await loadContent(filePath, { signal: options.signal });
       return commitEntry(key, buildEntry(response, filePath));
     } catch (cause) {
       if (cause?.status === 404) assetCache.delete(key);
@@ -111,6 +109,16 @@ export function fetchWorkspaceFileAsset(sessionId, filePath, options = {}) {
   return request;
 }
 
+/** 会话工作区文件（sessionId 命名空间，保持既有缓存键格式）。 */
+export function fetchWorkspaceFileAsset(sessionId, filePath, options = {}) {
+  return fetchFileAsset(`${sessionId}::${filePath}`, filePath, (fp, opts) => getWorkspaceFileContent(sessionId, fp, opts), options);
+}
+
+/** 项目（workspace）文件：文件浏览器右侧查看页签使用，与项目目录列表同一作用域。 */
+export function fetchWorkspaceEntryAsset(workspaceId, filePath, options = {}) {
+  return fetchFileAsset(`workspace:${workspaceId}::${filePath}`, filePath, (fp, opts) => getWorkspaceEntryContent(workspaceId, fp, opts), options);
+}
+
 /** 测试用：清空模块级缓存。 */
 export function clearWorkspaceFileAssetCache() {
   assetCache.clear();
@@ -118,70 +126,73 @@ export function clearWorkspaceFileAssetCache() {
 }
 
 /**
- * 组件级 composable：绑定 sessionId/filePath（支持 ref），暴露加载状态与资产。
+ * 组件级 composable 工厂：绑定 id/filePath 两个来源（支持 ref），暴露加载状态与资产。
  * objectUrl 惰性创建（ensureObjectUrl），来源变化/卸载时统一 revoke。
  */
-export function useWorkspaceFileAsset(sessionIdSource, filePathSource) {
-  const loading = ref(true);
-  const error = ref('');
-  const asset = shallowRef(null);
-  let requestVersion = 0;
-  let objectUrl = '';
-  // 记录 URL 对应的 asset 引用：filePath 切换期间 asset 尚未更新时，
-  // 仅凭 key 缓存会把旧文件的 URL 发给新渲染（iframe/video 会一直显示旧内容），
-  // 因此必须比较 asset 身份而非 key。
-  let objectUrlAsset = null;
+function bindFileAsset(fetchEntry) {
+  return (idSource, filePathSource) => {
+    const loading = ref(true);
+    const error = ref('');
+    const asset = shallowRef(null);
+    let requestVersion = 0;
+    let objectUrl = '';
+    // 记录 URL 对应的 asset 引用：filePath 切换期间 asset 尚未更新时，
+    // 仅凭 key 缓存会把旧文件的 URL 发给新渲染（iframe/video 会一直显示旧内容），
+    // 因此必须比较 asset 身份而非 key。
+    let objectUrlAsset = null;
 
-  async function load() {
-    const version = ++requestVersion;
-    const sessionId = toValue(sessionIdSource);
-    const filePath = toValue(filePathSource);
-    loading.value = true;
-    error.value = '';
-    try {
-      const entry = await fetchWorkspaceFileAsset(sessionId, filePath);
-      if (version !== requestVersion) return;
-      asset.value = entry;
-    } catch (cause) {
-      if (version !== requestVersion) return;
-      asset.value = null;
-      error.value = cause?.status === 404 ? '文件不存在或已过期' : (cause?.message || '加载文件失败');
-    } finally {
-      if (version === requestVersion) loading.value = false;
+    async function load() {
+      const version = ++requestVersion;
+      loading.value = true;
+      error.value = '';
+      try {
+        const entry = await fetchEntry(toValue(idSource), toValue(filePathSource));
+        if (version !== requestVersion) return;
+        asset.value = entry;
+      } catch (cause) {
+        if (version !== requestVersion) return;
+        asset.value = null;
+        error.value = cause?.status === 404 ? '文件不存在或已过期' : (cause?.message || '加载文件失败');
+      } finally {
+        if (version === requestVersion) loading.value = false;
+      }
     }
-  }
 
-  function releaseObjectUrl() {
-    if (objectUrl) URL.revokeObjectURL(objectUrl);
-    objectUrl = '';
-    objectUrlAsset = null;
-  }
+    function releaseObjectUrl() {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      objectUrl = '';
+      objectUrlAsset = null;
+    }
 
-  function ensureObjectUrl() {
-    if (!asset.value) return '';
-    if (objectUrl && objectUrlAsset === asset.value) return objectUrl;
-    releaseObjectUrl();
-    objectUrl = URL.createObjectURL(asset.value.blob);
-    objectUrlAsset = asset.value;
-    return objectUrl;
-  }
-
-  watch(
-    () => [toValue(sessionIdSource), toValue(filePathSource)],
-    () => {
+    function ensureObjectUrl() {
+      if (!asset.value) return '';
+      if (objectUrl && objectUrlAsset === asset.value) return objectUrl;
       releaseObjectUrl();
-      load();
-    },
-    { immediate: true },
-  );
+      objectUrl = URL.createObjectURL(asset.value.blob);
+      objectUrlAsset = asset.value;
+      return objectUrl;
+    }
 
-  onUnmounted(() => {
-    requestVersion += 1;
-    releaseObjectUrl();
-  });
+    watch(
+      () => [toValue(idSource), toValue(filePathSource)],
+      () => {
+        releaseObjectUrl();
+        load();
+      },
+      { immediate: true },
+    );
 
-  return { loading, error, asset, ensureObjectUrl, reload: load };
+    onUnmounted(() => {
+      requestVersion += 1;
+      releaseObjectUrl();
+    });
+
+    return { loading, error, asset, ensureObjectUrl, reload: load };
+  };
 }
+
+export const useWorkspaceFileAsset = bindFileAsset((sessionId, filePath) => fetchWorkspaceFileAsset(sessionId, filePath));
+export const useWorkspaceEntryAsset = bindFileAsset((workspaceId, filePath) => fetchWorkspaceEntryAsset(workspaceId, filePath));
 
 /** 解码文本类 blob（限流截断），供 md/code/json/csv 渲染。 */
 export async function blobToText(blob, limit) {

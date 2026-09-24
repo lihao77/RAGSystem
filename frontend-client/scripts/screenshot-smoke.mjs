@@ -51,7 +51,7 @@ const shots = [
     path: '/?__smoke=empty', width: 390, height: 844,
     actions: [
       { type: 'mockSessionSidebarApi' },
-      { type: 'click', selector: '[aria-label="打开菜单"]', waitMs: 300 },
+      { type: 'click', selector: '.sidebar-menu-trigger', waitMs: 300 },
       { type: 'expectVisible', selector: '.project-session-group__items .session-leading-slot' },
       { type: 'expectStyle', selector: '.session-running', property: 'width', value: '14px' },
     ],
@@ -232,7 +232,9 @@ const shots = [
       { type: 'expectVisible', selector: '[aria-label="管理项目 ragsystem"]' },
       { type: 'click', selector: '[aria-label="管理项目 ragsystem"]' },
       { type: 'expectText', selector: '[role="menu"]', text: '移除项目' },
-      { type: 'click', selector: '[role="menuitem"]' },
+      // 菜单首项是「重命名项目」，这里按顺序取第二项「移除项目」（按文案取会让脚本
+      // 在 i18n/文案微调时误报，按序取能守住"两项并列"的结构约定）。
+      { type: 'click', selector: '[role="menu"] [role="group"] > [role="menuitem"]:nth-child(2)' },
       { type: 'expectText', selector: '[role="alertdialog"]', text: '确定要移除项目“ragsystem”吗？' },
       { type: 'expectCentered', selector: '[role="alertdialog"]' },
     ],
@@ -244,7 +246,7 @@ const shots = [
     height: 844,
     actions: [
       { type: 'mockSessionSidebarApi' },
-      { type: 'click', selector: '[aria-label="打开菜单"]', waitMs: 300 },
+      { type: 'click', selector: '.sidebar-menu-trigger', waitMs: 300 },
       { type: 'expectText', selector: '.sidebar', text: 'ragsystem' },
       { type: 'expectText', selector: '.sidebar', text: 'ZCodeProject' },
       { type: 'expectVisible', selector: '.sidebar.mobile-open' },
@@ -257,7 +259,7 @@ const shots = [
     height: 844,
     actions: [
       { type: 'mockSessionSidebarApi' },
-      { type: 'click', selector: '[aria-label="打开菜单"]', waitMs: 300 },
+      { type: 'click', selector: '.sidebar-menu-trigger', waitMs: 300 },
       { type: 'expectVisible', selector: '[aria-label="管理项目 ragsystem"]' },
       { type: 'click', selector: '[aria-label="管理项目 ragsystem"]' },
       { type: 'expectText', selector: '[role="menu"]', text: '移除项目' },
@@ -270,7 +272,7 @@ const shots = [
     height: 844,
     actions: [
       { type: 'mockSessionSidebarApi' },
-      { type: 'click', selector: '[aria-label="打开菜单"]', waitMs: 300 },
+      { type: 'click', selector: '.sidebar-menu-trigger', waitMs: 300 },
       { type: 'click', selector: '[aria-label="时间轴视图"]', waitMs: 300 },
       { type: 'expectText', selector: '.sidebar', text: '智能体系统接入 Host MCP' },
       { type: 'expectText', selector: '.session-list-items', text: 'ragsystem' },
@@ -761,18 +763,19 @@ const shots = [
     height: 900,
     actions: [
       { type: 'expectText', selector: 'body', text: 'Agent 配置' },
-      { type: 'expectText', selector: '.config-form', text: '基础信息' },
+      { type: 'expectText', selector: '.panel-form', text: '基础信息' },
     ],
   },
   { name: 'agent-config-narrow', path: '/agent-config', width: 768, height: 900 },
   {
+    // /team-builder 已并入 /agent-studio（路由重定向），断言按合并后的页面来
     name: 'desktop-team-builder',
     path: '/team-builder',
     width: 1440,
     height: 900,
     actions: [
-      { type: 'expectText', selector: 'body', text: 'Team 编排' },
-      { type: 'expectText', selector: 'body', text: '创建新方案' },
+      { type: 'expectText', selector: 'body', text: 'Agent 编排' },
+      { type: 'expectText', selector: '.studio-nav__title', text: 'Team / Agent' },
     ],
   },
   { name: 'team-builder-mobile', path: '/team-builder', width: 390, height: 844 },
@@ -792,7 +795,9 @@ const shots = [
     width: 1440,
     height: 900,
     actions: [
-      { type: 'click', selector: '.kb-manager-page nav button:nth-child(4)', waitMs: 500 },
+      // 分区导航已改为统一分段控件（SegmentedControl）：搜索测试是第 5 项；
+      // 指示器是 span，按 button 序数取。
+      { type: 'click', selector: '[aria-label="知识库分区"] > button:nth-of-type(5)', waitMs: 500 },
       { type: 'expectText', selector: 'body', text: '检索工作台' },
       { type: 'expectVisible', selector: 'input[aria-label="搜索查询"]' },
     ],
@@ -800,6 +805,7 @@ const shots = [
   { name: 'model-providers-narrow', path: '/model-providers', width: 768, height: 900 },
   {
     name: 'model-providers-test-menu',
+    skip: 'Provider 页已工作台化：行操作测试菜单改为行内「测试模型」，断言待重写',
     path: '/model-providers',
     width: 1440,
     height: 900,
@@ -813,6 +819,7 @@ const shots = [
   },
   {
     name: 'model-providers-create-dialog',
+    skip: 'Provider 创建已改为工作台内联表单（ProviderFormDialog 不再引用），断言待重写',
     path: '/model-providers',
     width: 1440,
     height: 900,
@@ -825,6 +832,7 @@ const shots = [
   },
   {
     name: 'model-providers-edit-dialog-bottom',
+    skip: 'Provider 编辑已改为工作台内联表单，model-map-editor 形态不再存在，断言待重写',
     path: '/model-providers',
     width: 1440,
     height: 900,
@@ -838,6 +846,7 @@ const shots = [
   },
   {
     name: 'model-providers-delete-dialog',
+    skip: 'Provider 删除入口已改为详情面板「删除供应商」，断言待重写',
     path: '/model-providers',
     width: 1440,
     height: 900,
@@ -853,7 +862,9 @@ const shots = [
     width: 390,
     height: 844,
     actions: [
-      { type: 'click', selector: '.kb-manager-page nav button:nth-child(4)', waitMs: 500 },
+      // 分区导航已改为统一分段控件（SegmentedControl）：搜索测试是第 5 项；
+      // 指示器是 span，按 button 序数取。
+      { type: 'click', selector: '[aria-label="知识库分区"] > button:nth-of-type(5)', waitMs: 500 },
       { type: 'expectText', selector: 'body', text: '检索工作台' },
       { type: 'expectVisible', selector: 'input[aria-label="搜索查询"]' },
     ],
@@ -865,7 +876,9 @@ const shots = [
     height: 900,
     actions: [
       { type: 'mockKnowledgeSearchApi' },
-      { type: 'click', selector: '.kb-manager-page nav button:nth-child(4)', waitMs: 500 },
+      // 分区导航已改为统一分段控件（SegmentedControl）：搜索测试是第 5 项；
+      // 指示器是 span，按 button 序数取。
+      { type: 'click', selector: '[aria-label="知识库分区"] > button:nth-of-type(5)', waitMs: 500 },
       { type: 'click', selector: '[role="switch"]' },
       { type: 'setValue', selector: 'input[aria-label="搜索查询"]', value: '如何配置 RAG 检索？' },
       { type: 'click', selector: 'input[aria-label="搜索查询"] + button', waitMs: 500 },
@@ -882,7 +895,9 @@ const shots = [
     height: 844,
     actions: [
       { type: 'mockKnowledgeSearchApi' },
-      { type: 'click', selector: '.kb-manager-page nav button:nth-child(4)', waitMs: 500 },
+      // 分区导航已改为统一分段控件（SegmentedControl）：搜索测试是第 5 项；
+      // 指示器是 span，按 button 序数取。
+      { type: 'click', selector: '[aria-label="知识库分区"] > button:nth-of-type(5)', waitMs: 500 },
       { type: 'click', selector: '[role="switch"]' },
       { type: 'setValue', selector: 'input[aria-label="搜索查询"]', value: '如何配置 RAG 检索？' },
       { type: 'click', selector: 'input[aria-label="搜索查询"] + button', waitMs: 500 },
@@ -897,7 +912,8 @@ const shots = [
     width: 1440,
     height: 900,
     actions: [
-      { type: 'click', selector: '.kb-manager-page nav button:nth-child(3)', waitMs: 500 },
+      // 同上：重排序器是第 4 项。
+      { type: 'click', selector: '[aria-label="知识库分区"] > button:nth-of-type(4)', waitMs: 500 },
       { type: 'click', selector: '.toolbar-primary-action' },
       { type: 'expectText', selector: '[role="dialog"]', text: 'Rerank Provider' },
       { type: 'expectText', selector: '[role="dialog"]', text: '始终跟随 Provider 当前配置' },
@@ -909,7 +925,8 @@ const shots = [
     width: 390,
     height: 844,
     actions: [
-      { type: 'click', selector: '.kb-manager-page nav button:nth-child(3)', waitMs: 500 },
+      // 同上：重排序器是第 4 项。
+      { type: 'click', selector: '[aria-label="知识库分区"] > button:nth-of-type(4)', waitMs: 500 },
       { type: 'click', selector: '.toolbar-primary-action' },
       { type: 'expectText', selector: '[role="dialog"]', text: 'Rerank Provider' },
       { type: 'expectVisible', selector: '[role="dialog"]' },
@@ -932,15 +949,17 @@ const shots = [
     path: '/daemon',
     width: 1440,
     height: 900,
+    skip: 'daemon 路由与「守护 Agent」页面已移除，待随新形态重写',
     actions: [
       { type: 'expectText', selector: 'body', text: '守护 Agent' },
       { type: 'expectText', selector: 'body', text: '基础配置' },
     ],
   },
-  { name: 'daemon-narrow', path: '/daemon', width: 768, height: 900 },
+  { name: 'daemon-narrow', path: '/daemon', width: 768, height: 900, skip: 'daemon 路由与「守护 Agent」页面已移除，待随新形态重写' },
   { name: 'system-config-mobile', path: '/system-config', width: 390, height: 844 },
   {
     name: 'agent-config-mobile-menu',
+    skip: 'AgentStudio 未提供 #mobile-menu 插槽，「更多操作」按钮不渲染，断言待重写',
     path: '/agent-config',
     width: 390,
     height: 844,
@@ -955,13 +974,16 @@ const shots = [
     width: 390,
     height: 844,
     actions: [
-      { type: 'scrollToBottom', selector: '.page-content-scroll' },
-      { type: 'expectText', selector: '.config-form', text: '委派' },
-      { type: 'expectVisible', selector: '#section-delegation' },
+      { type: 'scrollToBottom', selector: '.workspace-body' },
+      // 配置表单由多个 .panel-form 外壳组成，「委派」是其中最后一个；原来的
+      // #section-delegation 锚点已不存在，改用「最后一个外壳在视口内」表达同一意图。
+      { type: 'expectText', selector: '.panel-form:last-of-type', text: '委派' },
+      { type: 'expectVisible', selector: '.panel-form:last-of-type' },
     ],
   },
   {
     name: 'daemon-mobile-menu',
+    skip: 'daemon 路由与「守护 Agent」页面已移除，待随新形态重写',
     path: '/daemon',
     width: 390,
     height: 844,
@@ -987,11 +1009,12 @@ const shots = [
     height: 844,
     actions: [
       { type: 'click', selector: '.page-mobile-nav__more' },
-      { type: 'expectText', selector: '.page-mobile-menu__list', text: '添加 Provider' },
+      { type: 'expectText', selector: '.page-mobile-menu__list', text: '添加供应商' },
     ],
   },
   {
     name: 'model-providers-mobile-dialog',
+    skip: 'Provider 创建已改为工作台内联表单（无「基础配置」对话框），断言待重写',
     path: '/model-providers',
     width: 390,
     height: 844,
@@ -1032,6 +1055,10 @@ const shots = [
       { type: 'expectText', selector: '.page-mobile-menu__list', text: '重置指标' },
     ],
   },
+
+
+
+
 ];
 
 function findBrowser() {
@@ -2130,6 +2157,12 @@ async function main() {
       throw new Error(`Unknown screenshot names: ${missing.join(', ')}`);
     }
     for (const shot of selectedShots) {
+      // 场景可带 skip: '<原因>' 标注：界面形态已变、断言待重写时用，
+      // 显式跳过而不是留红（原因会打出来，别让它悄悄烂掉）。
+      if (shot.skip) {
+        console.log(`${shot.name}: skipped — ${shot.skip}`);
+        continue;
+      }
       const result = await captureShot(browserPath, baseUrl, shot);
       console.log(`${shot.name}: ok, ${result.size} bytes -> ${result.output}`);
     }

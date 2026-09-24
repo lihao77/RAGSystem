@@ -160,6 +160,19 @@ export const WorkspacePurgeDataSchema = z.object({
 }).strict();
 export const WorkspacePurgeResponseSchema = successResponseSchema(WorkspacePurgeDataSchema);
 
+/** 工作空间（项目）文件浏览：目录条目（GET /workspaces/:id/files）。 */
+export const WorkspaceFileEntrySchema = z.object({
+  name: z.string().min(1),
+  path: z.string().min(1),
+  type: z.enum(["file", "directory"]),
+  size: z.number().int().nonnegative().nullable(),
+}).strict();
+export const WorkspaceFileListDataSchema = z.object({
+  entries: z.array(WorkspaceFileEntrySchema),
+  truncated: z.boolean(),
+}).strict();
+export const WorkspaceFileListResponseSchema = successResponseSchema(WorkspaceFileListDataSchema);
+
 export const SessionPermissionDataSchema = z.object({
   mode: PermissionModeSchema,
 }).strict();
@@ -337,6 +350,9 @@ export type SessionWorkspace = z.infer<typeof SessionWorkspaceSchema>;
 export type WorkspacePurgeFailedItem = z.infer<typeof WorkspacePurgeFailedItemSchema>;
 export type WorkspacePurgeData = z.infer<typeof WorkspacePurgeDataSchema>;
 export type WorkspacePurgeResponse = z.infer<typeof WorkspacePurgeResponseSchema>;
+export type WorkspaceFileEntry = z.infer<typeof WorkspaceFileEntrySchema>;
+export type WorkspaceFileListData = z.infer<typeof WorkspaceFileListDataSchema>;
+export type WorkspaceFileListResponse = z.infer<typeof WorkspaceFileListResponseSchema>;
 export type UpdateSessionPermissionModeRequest = z.infer<typeof UpdateSessionPermissionModeRequestSchema>;
 export type UpdateSessionMetadataRequest = z.infer<typeof UpdateSessionMetadataRequestSchema>;
 export type CreatedSession = z.infer<typeof CreatedSessionSchema>;

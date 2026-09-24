@@ -20,10 +20,15 @@ export const createActiveRunState = () => ({
 });
 
 /**
- * 运行工作台的概览页签。页签取值只有两种：这个常量（运行概览）或参与者 id。
- * 取值落在与参与者 id 同一个命名空间里，'overview' 不是合法参与者 id，不会撞。
+ * 运行工作台的概览页签。页签取值有三种：这个常量（运行概览）、参与者 id、
+ * 以及 'file:' 前缀的文件页签 id（file:<workspaceId>:<path>，项目文件浏览打开的文件）。
+ * 取值落在同一个字符串命名空间里，'overview' 不是合法参与者 id，'file:' 前缀同理，不会撞。
  */
 export const WORKBENCH_OVERVIEW_TAB = 'overview';
+export const WORKBENCH_FILE_TAB_PREFIX = 'file:';
+
+const isFileTabId = (id) => typeof id === 'string' && id.startsWith(WORKBENCH_FILE_TAB_PREFIX);
+const fileTabIdOf = (workspaceId, filePath) => `${WORKBENCH_FILE_TAB_PREFIX}${workspaceId}:${filePath}`;
 
 export const resetActiveRunState = (activeRun) => {
   if (!activeRun) return;
@@ -141,14 +146,17 @@ const sortParticipantMessages = (items) => {
 export const useSessionRunStore = defineStore('session-run', () => {
   const currentSessionId = ref(null);
   const participantMessages = ref({ root: [] });
-  // 运行工作台：右侧第三张卡。workbenchTab 是 'overview' 或参与者 id。
+  // 运行工作台：右侧第三张卡。workbenchTab 是 'overview'、参与者 id 或 'file:' 文件页签 id。
   const workbenchOpen = ref(false);
   const workbenchTab = ref(WORKBENCH_OVERVIEW_TAB);
-  // 已打开的参与者页签（概览页签常驻，不在这里）。关闭页签只影响工作台，不动会话。
+  // 已打开的参与者/文件页签（概览页签常驻，不在这里）。关闭页签只影响工作台，不动会话。
   const workbenchTabs = ref([]);
-  // 工作台当前聚焦的参与者：概览页签即根会话（根会话就在主对话列里）。
+  // 文件页签的渲染身份（面板内容按 workspaceId+path 现拉，不存消息）。
+  const workbenchFiles = ref({});
+  // 工作台当前聚焦的参与者：概览页签即根会话（根会话就在主对话列里）；
+  // 文件页签不属于任何参与者，同样回落 'root'，避免把页签 id 泄漏成参与者身份。
   const selectedParticipantId = computed(() => (
-    workbenchTab.value === WORKBENCH_OVERVIEW_TAB ? 'root' : workbenchTab.value
+    workbenchTab.value === WORKBENCH_OVERVIEW_TAB || isFileTabId(workbenchTab.value) ? 'root' : workbenchTab.value
   ));
   const workbenchThreadMessages = computed(() => participantMessages.value[workbenchTab.value] || []);
   // 主对话列 = 根会话。子参与者线程不再占用主对话列，messages 因此不随选中参与者切换。
@@ -337,11 +345,12 @@ export const useSessionRunStore = defineStore('session-run', () => {
     sessionWorkspaceDisplay.value = '';
   };
 
-  /** 工作台回到初始形态：收起、概览页签、无参与者页签。会话切换/退出时调用。 */
+  /** 工作台回到初始形态：收起、概览页签、无参与者/文件页签。会话切换/退出时调用。 */
   const resetWorkbench = () => {
     workbenchOpen.value = false;
     workbenchTab.value = WORKBENCH_OVERVIEW_TAB;
     workbenchTabs.value = [];
+    workbenchFiles.value = {};
   };
 
   const resetSessionParticipants = () => {
@@ -354,11 +363,14 @@ export const useSessionRunStore = defineStore('session-run', () => {
   const setParticipants = (items) => {
     participants.value = Array.isArray(items) ? items : [];
     // 列表是权威事实：参与者下线后它的页签不能留着（点进去只会是空线程）。
+    // 文件页签与参与者生命周期无关，不参与剪枝。
     const known = new Set(participants.value.map(item => item?.participant_id).filter(Boolean));
-    if (workbenchTabs.value.some(id => !known.has(id))) {
-      workbenchTabs.value = workbenchTabs.value.filter(id => known.has(id));
+    if (workbenchTabs.value.some(id => !isFileTabId(id) && !known.has(id))) {
+      workbenchTabs.value = workbenchTabs.value.filter(id => isFileTabId(id) || known.has(id));
     }
-    if (workbenchTab.value !== WORKBENCH_OVERVIEW_TAB && !known.has(workbenchTab.value)) {
+    if (workbenchTab.value !== WORKBENCH_OVERVIEW_TAB
+      && !isFileTabId(workbenchTab.value)
+      && !known.has(workbenchTab.value)) {
       workbenchTab.value = WORKBENCH_OVERVIEW_TAB;
     }
   };
@@ -388,11 +400,35 @@ export const useSessionRunStore = defineStore('session-run', () => {
     return id;
   };
 
-  /** 关闭参与者页签（不动面板）：关的是当前页签时退回概览。 */
-  const closeWorkbenchTab = (participantId) => {
-    const id = typeof participantId === 'string' ? participantId.trim() : '';
+  /**
+   * 打开（并激活）项目文件的查看页签，同时展开工作台。幂等：同一文件已开则仅激活。
+   * 内容不在这里缓存，面板按 (workspaceId, path) 走资源层现拉（带 etag 重验证）。
+   */
+  const openWorkbenchFile = ({ workspaceId, path } = {}) => {
+    const wsId = typeof workspaceId === 'string' ? workspaceId.trim() : '';
+    const filePath = typeof path === 'string' && path.trim() ? path.trim() : '';
+    if (!wsId || !filePath) return '';
+    const id = fileTabIdOf(wsId, filePath);
+    workbenchFiles.value = {
+      ...workbenchFiles.value,
+      [id]: { workspaceId: wsId, path: filePath, name: filePath.split('/').pop() || filePath },
+    };
+    if (!workbenchTabs.value.includes(id)) workbenchTabs.value = [...workbenchTabs.value, id];
+    setWorkbenchTab(id);
+    workbenchOpen.value = true;
+    return id;
+  };
+
+  /** 关闭参与者/文件页签（不动面板）：关的是当前页签时退回概览。 */
+  const closeWorkbenchTab = (tabId) => {
+    const id = typeof tabId === 'string' ? tabId.trim() : '';
     if (!id || !workbenchTabs.value.includes(id)) return;
     workbenchTabs.value = workbenchTabs.value.filter(tab => tab !== id);
+    if (isFileTabId(id)) {
+      const next = { ...workbenchFiles.value };
+      delete next[id];
+      workbenchFiles.value = next;
+    }
     if (workbenchTab.value === id) workbenchTab.value = WORKBENCH_OVERVIEW_TAB;
   };
 
@@ -478,8 +514,9 @@ export const useSessionRunStore = defineStore('session-run', () => {
   const clearChildParticipantMessages = () => {
     participantMessages.value = { root: participantMessages.value.root || [] };
     // 子线程数据没了，指向子参与者的页签也就没有内容可显示：一并退回概览。
-    workbenchTabs.value = [];
-    workbenchTab.value = WORKBENCH_OVERVIEW_TAB;
+    // 文件页签内容不依赖参与者消息，保留。
+    workbenchTabs.value = workbenchTabs.value.filter(id => isFileTabId(id));
+    if (!isFileTabId(workbenchTab.value)) workbenchTab.value = WORKBENCH_OVERVIEW_TAB;
   };
 
   const applySessionContext = ({
@@ -542,10 +579,12 @@ export const useSessionRunStore = defineStore('session-run', () => {
     workbenchOpen,
     workbenchTab,
     workbenchTabs,
+    workbenchFiles,
     workbenchThreadMessages,
     resetWorkbench,
     setWorkbenchTab,
     openWorkbenchParticipant,
+    openWorkbenchFile,
     closeWorkbenchTab,
     openWorkbench,
     closeWorkbench,

@@ -4,7 +4,11 @@ import Fastify from "fastify";
 import { registerWorkspaceFileRoutes } from "../src/routes/agent/workspace-files.js";
 import type { SessionApplication } from "../src/contracts/session/session-application.js";
 import type { SessionInfo } from "../src/contracts/session/session.js";
-import type { WorkspaceFileApplication, WorkspaceFileReadResult } from "../src/contracts/application/workspace-file-application.js";
+import type {
+  WorkspaceFileApplication,
+  WorkspaceFileListResult,
+  WorkspaceFileReadResult,
+} from "../src/contracts/application/workspace-file-application.js";
 import type { RequestApplications } from "../src/app/request-applications.js";
 import type { AgentRouteOptions } from "../src/routes/route-options.js";
 import { LOCAL_USER_ID } from "../src/services/identity/local-identity.js";
@@ -13,8 +17,14 @@ import { createTenantId } from "../src/identity/types.js";
 
 const tenantId = createTenantId("tnt_test");
 const CONTENT_URL = "/api/agent/sessions/ses_1/workspace-files/content?path=report.md";
+const LIST_URL = "/api/agent/workspaces/ws_1/files";
+const ENTRY_CONTENT_URL = "/api/agent/workspaces/ws_1/files/content?path=report.md";
 
 interface FileState { body: string; etag: string | null }
+interface WorkspaceState {
+  list?: WorkspaceFileListResult;
+  entryStatus?: "found" | "not_found" | "unsupported";
+}
 
 function sessionInfo(): SessionInfo {
   return {
@@ -25,14 +35,40 @@ function sessionInfo(): SessionInfo {
   } as unknown as SessionInfo;
 }
 
-async function createApp(state: FileState) {
+async function createApp(state: FileState, workspace: WorkspaceState = {}) {
   const reads: Array<{ sessionId: string; filePath: string }> = [];
+  const listCalls: Array<{ workspaceId: string; directoryPath: string }> = [];
+  const entryReads: Array<{ workspaceId: string; filePath: string }> = [];
   const sessions = {
     getSession: async (sessionId: string) => (sessionId === "ses_1" ? sessionInfo() : null),
   } as unknown as SessionApplication;
   const files: WorkspaceFileApplication = {
     async read(sessionId, filePath): Promise<WorkspaceFileReadResult> {
       reads.push({ sessionId, filePath });
+      return {
+        status: "found",
+        body: new TextEncoder().encode(state.body),
+        contentType: "text/plain",
+        size: state.body.length,
+        path: filePath,
+        etag: state.etag,
+      };
+    },
+    async listWorkspaceEntries(workspaceId, directoryPath): Promise<WorkspaceFileListResult> {
+      listCalls.push({ workspaceId, directoryPath });
+      return workspace.list ?? {
+        status: "ok",
+        entries: [
+          { name: "src", path: "src", type: "directory", size: null },
+          { name: "a.md", path: "a.md", type: "file", size: 3 },
+        ],
+        truncated: false,
+      };
+    },
+    async readWorkspaceEntry(workspaceId, filePath): Promise<WorkspaceFileReadResult> {
+      entryReads.push({ workspaceId, filePath });
+      if (workspace.entryStatus === "not_found") return { status: "not_found" };
+      if (workspace.entryStatus === "unsupported") return { status: "unsupported" };
       return {
         status: "found",
         body: new TextEncoder().encode(state.body),
@@ -61,7 +97,7 @@ async function createApp(state: FileState) {
     resolveSessionApplication: async () => sessions,
     resolveWorkspaceFileApplication: async () => files,
   } as unknown as AgentRouteOptions);
-  return { app, reads };
+  return { app, reads, listCalls, entryReads };
 }
 
 describe("workspace file content route caching headers", () => {
@@ -154,6 +190,102 @@ describe("workspace file content route caching headers", () => {
       expect(noSession.statusCode).toBe(404);
     } finally {
       await app.close();
+    }
+  });
+});
+
+describe("workspace entry list route", () => {
+  it("returns directory entries with subpath passthrough", async () => {
+    const { app, listCalls } = await createApp({ body: "v1", etag: "local-ws-100-2" });
+    try {
+      const response = await app.inject({ method: "GET", url: `${LIST_URL}?path=src` });
+      expect(response.statusCode).toBe(200);
+      const payload = JSON.parse(response.body);
+      expect(payload.success).toBe(true);
+      expect(payload.data.entries).toEqual([
+        { name: "src", path: "src", type: "directory", size: null },
+        { name: "a.md", path: "a.md", type: "file", size: 3 },
+      ]);
+      expect(payload.data.truncated).toBe(false);
+      expect(listCalls).toEqual([{ workspaceId: "ws_1", directoryPath: "src" }]);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("defaults to the workspace root when path is absent", async () => {
+    const { app, listCalls } = await createApp({ body: "v1", etag: "local-ws-100-2" });
+    try {
+      const response = await app.inject({ method: "GET", url: LIST_URL });
+      expect(response.statusCode).toBe(200);
+      expect(listCalls).toEqual([{ workspaceId: "ws_1", directoryPath: "" }]);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("maps not_found to 404 and unsupported to 501", async () => {
+    const missing = await createApp(
+      { body: "v1", etag: null },
+      { list: { status: "not_found", entries: [], truncated: false } },
+    );
+    const unsupported = await createApp(
+      { body: "v1", etag: null },
+      { list: { status: "unsupported", entries: [], truncated: false, reason: "SaaS 部署暂不支持项目文件浏览" } },
+    );
+    try {
+      const notFound = await missing.app.inject({ method: "GET", url: LIST_URL });
+      expect(notFound.statusCode).toBe(404);
+
+      const notSupported = await unsupported.app.inject({ method: "GET", url: LIST_URL });
+      expect(notSupported.statusCode).toBe(501);
+      expect(JSON.parse(notSupported.body).message).toBe("SaaS 部署暂不支持项目文件浏览");
+    } finally {
+      await missing.app.close();
+      await unsupported.app.close();
+    }
+  });
+});
+
+describe("workspace entry content route", () => {
+  it("shares the etag/no-store/304 semantics of the session content route", async () => {
+    const state = { body: "v1", etag: "local-ws-100-2" };
+    const { app, entryReads } = await createApp(state);
+    try {
+      const first = await app.inject({ method: "GET", url: ENTRY_CONTENT_URL });
+      expect(first.statusCode).toBe(200);
+      expect(first.body).toBe("v1");
+      expect(first.headers.etag).toBe('"local-ws-100-2"');
+      expect(first.headers["cache-control"]).toBe("private, no-store");
+
+      const revalidated = await app.inject({
+        method: "GET",
+        url: ENTRY_CONTENT_URL,
+        headers: { "if-none-match": '"local-ws-100-2"' },
+      });
+      expect(revalidated.statusCode).toBe(304);
+      expect(revalidated.body).toBe("");
+      expect(entryReads).toHaveLength(2);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("rejects missing path with 400 and maps application statuses", async () => {
+    const missing = await createApp({ body: "v1", etag: null }, { entryStatus: "not_found" });
+    const unsupported = await createApp({ body: "v1", etag: null }, { entryStatus: "unsupported" });
+    try {
+      const noPath = await missing.app.inject({ method: "GET", url: "/api/agent/workspaces/ws_1/files/content" });
+      expect(noPath.statusCode).toBe(400);
+
+      const notFound = await missing.app.inject({ method: "GET", url: ENTRY_CONTENT_URL });
+      expect(notFound.statusCode).toBe(404);
+
+      const notSupported = await unsupported.app.inject({ method: "GET", url: ENTRY_CONTENT_URL });
+      expect(notSupported.statusCode).toBe(501);
+    } finally {
+      await missing.app.close();
+      await unsupported.app.close();
     }
   });
 });

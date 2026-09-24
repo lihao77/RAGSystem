@@ -33,25 +33,26 @@
           </button>
 
           <button
-            v-for="participantId in workbenchTabs"
-            :key="participantId"
+            v-for="tabId in workbenchTabs"
+            :key="tabId"
             type="button"
             role="tab"
             class="rw-tab"
-            :class="{ 'is-active': participantId === workbenchTab }"
-            :style="{ '--participant-accent': accentOf(participantId) }"
-            :title="tabTitle(participantId)"
-            :aria-selected="participantId === workbenchTab ? 'true' : 'false'"
-            @click="selectTab(participantId)"
+            :class="{ 'is-active': tabId === workbenchTab }"
+            :style="{ '--participant-accent': accentOf(tabId) }"
+            :title="tabTitleOf(tabId)"
+            :aria-selected="tabId === workbenchTab ? 'true' : 'false'"
+            @click="selectTab(tabId)"
           >
-            <GitBranch class="rw-tab__icon" aria-hidden="true" />
-            <span class="rw-tab__name">{{ nameOf(participantId) }}</span>
+            <FileText v-if="fileTabOf(tabId)" class="rw-tab__icon" aria-hidden="true" />
+            <GitBranch v-else class="rw-tab__icon" aria-hidden="true" />
+            <span class="rw-tab__name">{{ tabNameOf(tabId) }}</span>
             <span
               class="rw-tab__close"
               role="button"
               tabindex="-1"
-              :aria-label="`关闭 ${nameOf(participantId)} 页签`"
-              @click.stop="closeWorkbenchTab(participantId)"
+              :aria-label="`关闭 ${tabNameOf(tabId)} 页签`"
+              @click.stop="closeWorkbenchTab(tabId)"
             >
               <X aria-hidden="true" />
             </span>
@@ -114,6 +115,11 @@
           <RuntimeOverviewPanel :task-state="taskState" :goal-state="goalState" />
         </div>
 
+        <!-- 文件页签：项目文件查看器（左侧文件导航点开的文件）。 -->
+        <div v-else-if="activeFileTab" class="rw-file">
+          <WorkbenchFilePanel :file="activeFileTab" />
+        </div>
+
         <!-- 子智能体页签：这条线程自己的消息与执行过程（主对话列始终是根会话）。
              身份与状态都交给上面的页签承载：页签名就是这条线程的名字，图标在异常态换色，
              正文区不再重复一行表头。 -->
@@ -134,10 +140,11 @@
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
-import { Activity, Bot, GitBranch, PanelRightClose, X } from 'lucide-vue-next';
+import { Activity, Bot, FileText, GitBranch, PanelRightClose, X } from 'lucide-vue-next';
 import ChatMessageList from '../chat/ChatMessageList.vue';
 import ParticipantThreadEmpty from '../chat/ParticipantThreadEmpty.vue';
 import RuntimeOverviewPanel from './RuntimeOverviewPanel.vue';
+import WorkbenchFilePanel from './WorkbenchFilePanel.vue';
 import { useSessionRunStore, WORKBENCH_OVERVIEW_TAB } from '../../stores/session-run.js';
 import { useChatScrolling } from '../../composables/useChatScrolling.js';
 import { useMessageListView } from '../../composables/useMessageListView.js';
@@ -168,6 +175,7 @@ const {
   workbenchOpen,
   workbenchTab,
   workbenchTabs,
+  workbenchFiles,
   workbenchThreadMessages,
 } = storeToRefs(sessionRunStore);
 const { setWorkbenchTab, closeWorkbenchTab, closeWorkbench } = sessionRunStore;
@@ -186,6 +194,10 @@ const isOverviewTab = computed(() => workbenchTab.value === WORKBENCH_OVERVIEW_T
 const orderedParticipants = computed(() => orderParticipants(participants.value));
 const threadMessages = workbenchThreadMessages;
 
+// 文件页签：页签 id 以 'file:' 前缀登记在 workbenchFiles（含 workspaceId/path/name）。
+const fileTabOf = (tabId) => workbenchFiles.value[tabId] || null;
+const activeFileTab = computed(() => fileTabOf(workbenchTab.value));
+
 const activeParticipant = computed(() => participants.value.find(
   item => item?.participant_id === workbenchTab.value,
 ) || null);
@@ -194,27 +206,32 @@ const participantOf = (participantId) => participants.value.find(
   item => item?.participant_id === participantId,
 ) || null;
 const nameOf = (participantId) => participantName(participantOf(participantId)) || '子智能体';
+const tabNameOf = (tabId) => fileTabOf(tabId)?.name || nameOf(tabId);
 // 页签图标染色：正常态用身份色（与概览列表、执行树 agent 行同色），异常态换成状态色——
-// 面板里没有第二处地方能说明"这条线程挂了"，而页签永远可见。
-const accentOf = (participantId) => {
-  const participant = participantOf(participantId);
+// 面板里没有第二处地方能说明"这条线程挂了"，而页签永远可见。文件页签用品牌色。
+const accentOf = (tabId) => {
+  if (fileTabOf(tabId)) return 'var(--color-brand-accent)';
+  const participant = participantOf(tabId);
   if (!participant) return 'var(--color-brand-accent)';
   return participantStatusText(participant)
     ? statusToneColor(participantStatus(participant))
     : participantAccentColor(participant);
 };
-const tabTitle = (participantId) => {
-  const participant = participantOf(participantId);
+const tabTitleOf = (tabId) => {
+  const file = fileTabOf(tabId);
+  if (file) return file.path;
+  const participant = participantOf(tabId);
   if (!participant) return '子智能体';
   const status = participantStatusText(participant);
   return [participantName(participant), participantMeta(participant), status].filter(Boolean).join(' · ');
 };
 
-const selectTab = (participantId) => {
-  const changed = setWorkbenchTab(participantId);
+const selectTab = (tabId) => {
+  const changed = setWorkbenchTab(tabId);
   // 切到一条还没拉过内容的线程时请上层取一次消息；已有内容就直接切，不重复请求。
-  if (changed && participantId !== WORKBENCH_OVERVIEW_TAB && !threadMessages.value.length) {
-    emit('select-participant', participantId);
+  // 文件页签的内容由面板自取，不经这条消息通路。
+  if (changed && tabId !== WORKBENCH_OVERVIEW_TAB && !fileTabOf(tabId) && !threadMessages.value.length) {
+    emit('select-participant', tabId);
   }
 };
 
@@ -234,8 +251,9 @@ const {
 } = useChatScrolling({ messages: threadMessages, topControlsBarScrolled: threadTopScrolled });
 
 // 换页签或刚展开面板：线程从底部开始看（跟新到的内容，而不是停在旧位置的顶部）。
+// 文件页签没有线程滚动容器，跳过。
 watch([workbenchTab, workbenchOpen], async () => {
-  if (!workbenchOpen.value) return;
+  if (!workbenchOpen.value || activeFileTab.value) return;
   await nextTick();
   stickToBottom();
 });
@@ -422,8 +440,8 @@ onUnmounted(() => {
 }
 
 .rw-tab__icon {
-  width: 13px;
-  height: 13px;
+  width: 14px;
+  height: 14px;
   flex: 0 0 auto;
   color: var(--participant-accent, var(--color-text-muted));
 }
@@ -453,8 +471,8 @@ onUnmounted(() => {
 }
 
 .rw-tab__close svg {
-  width: 11px;
-  height: 11px;
+  width: 12px;
+  height: 12px;
 }
 
 .rw-collapse {
@@ -514,7 +532,7 @@ onUnmounted(() => {
 
 .rw-section-label {
   color: var(--color-text-muted);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 650;
   letter-spacing: 0.06em;
 }
@@ -525,7 +543,7 @@ onUnmounted(() => {
   border-radius: var(--radius-full);
   background: var(--color-hover-overlay-md);
   color: var(--color-text-secondary);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 650;
   line-height: 1.5;
   text-align: center;
@@ -599,7 +617,7 @@ onUnmounted(() => {
 .rw-agent__meta {
   overflow: hidden;
   color: var(--color-text-muted);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   line-height: 1.25;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -615,7 +633,7 @@ onUnmounted(() => {
 
 .rw-agent__status-text {
   color: var(--color-text-muted);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   line-height: 1;
 }
 
@@ -639,6 +657,13 @@ onUnmounted(() => {
 
 /* ===== 子智能体线程 ===== */
 .rw-thread {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.rw-file {
   display: flex;
   min-height: 0;
   flex: 1;

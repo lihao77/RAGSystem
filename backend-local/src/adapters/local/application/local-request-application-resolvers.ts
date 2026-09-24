@@ -31,7 +31,16 @@ export function createLocalWorkspaceFileApplicationResolver() {
   return (request: Parameters<RequestApplicationResolvers["resolveSessionApplication"]>[0]) => {
     const local = requireLocalCapabilities(request);
     const sessions = local.createSessionApplication(request.identity.tenantId);
-    return new LocalWorkspaceFileApplication((sessionId) => sessions.resolveWorkspaceRoot(sessionId));
+    return new LocalWorkspaceFileApplication(
+      (sessionId) => sessions.resolveWorkspaceRoot(sessionId),
+      // 项目级浏览的根解析。listWorkspacesByIds 不筛软删（见 workspace-ops.listByIds），
+      // 这里显式排除 removed_at，软删项目按不存在处理；构造时已绑定 tenant，天然租户隔离。
+      async (workspaceId) => {
+        const workspace = (await sessions.listWorkspacesByIds([workspaceId]))[0];
+        if (!workspace || workspace.removed_at) return null;
+        return workspace.root_path ?? null;
+      },
+    );
   };
 }
 
