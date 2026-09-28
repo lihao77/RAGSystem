@@ -2,7 +2,7 @@
 
 中文 | [English](#english)
 
-`frontend-client/` 是 RAGSystem 的 Vue 3 前端，提供聊天、执行过程、Team 编排、Agent 配置、MCP 管理、知识库、模型提供方、守护 Agent 和系统配置界面。
+`frontend-client/` 是 RAGSystem 的 Vue 3 前端，提供聊天、执行过程、运行工作台、Agent 编排、MCP 管理、知识库、模型提供方、Skill 库、记忆、定时任务和系统配置界面。
 
 ## 开发启动 / Development
 
@@ -17,13 +17,16 @@ npm run dev
 ## 主要页面 / Main pages
 
 - `/` 或 `/chat/:id?` — 聊天页面
+- `/admin` — 管理中心
+- `/agent-studio` — Agent 编排（Team 与 Agent 配置；`/team-builder`、`/agent-config` 重定向至此）
 - `/monitor`、`/agent-monitor` — 执行监控
-- `/team-builder` — Team 编排
-- `/agent-config` — Agent 配置
 - `/mcp` — MCP 管理
 - `/knowledge-base` — 知识库管理
+- `/skill-library` — Skill 库
 - `/model-providers` — 模型提供方管理
-- `/daemon` — 守护 Agent 管理
+- `/memory` — 记忆管理
+- `/scheduler` — 定时任务
+- `/bots` — 机器人
 - `/system-config` — 系统配置
 
 ## 构建 / Build
@@ -50,7 +53,7 @@ npm run screenshot:smoke
 
 ## English
 
-`frontend-client/` is the Vue 3 frontend for RAGSystem. It provides chat, execution process inspection, team composition, agent configuration, MCP management, knowledge base management, model provider management, daemon agent management, and system configuration.
+`frontend-client/` is the Vue 3 frontend for RAGSystem. It provides chat, execution process inspection, the run workbench, agent studio, MCP management, knowledge base management, model provider management, the skill library, memory management, scheduled tasks, and system configuration.
 
 ### Development
 
@@ -65,13 +68,16 @@ The dev server runs on `http://localhost:5174` by default and proxies `/api` plu
 ### Main pages
 
 - `/` or `/chat/:id?` — chat
+- `/admin` — admin center
+- `/agent-studio` — agent studio for team and agent configuration (`/team-builder` and `/agent-config` redirect here)
 - `/monitor`, `/agent-monitor` — execution monitoring
-- `/team-builder` — team composition
-- `/agent-config` — agent configuration
 - `/mcp` — MCP management
 - `/knowledge-base` — knowledge base management
+- `/skill-library` — skill library
 - `/model-providers` — model provider management
-- `/daemon` — daemon agent management
+- `/memory` — memory management
+- `/scheduler` — scheduled tasks
+- `/bots` — bots
 - `/system-config` — system configuration
 
 ### Build

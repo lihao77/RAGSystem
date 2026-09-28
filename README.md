@@ -11,32 +11,28 @@ RAGSystem 是一个面向多智能体协作场景的 Agent-first 全栈项目，
 - 实时交互：`POST /api/agent/stream` 启动任务，session WebSocket 推送消息流、执行树、审批、输入和重连回放事件
 - 工具与扩展：内置工具运行时、Skills、MCP Server 集成
 - 记忆与钩子：支持按需记忆召回、会话记忆写入与 Hook 事件扩展
-- 配置化运行：支持 Agent Team、模型提供方、MCP 服务、向量化器与守护 Agent 的运行时配置
-- 可视化前端：聊天、执行过程、Team 编排、Agent 配置、MCP 管理、知识库、模型管理、守护 Agent 与系统配置页面
+- 配置化运行：支持 Agent Team、模型提供方、MCP 服务与向量化器的运行时配置
+- 可视化前端：聊天、执行过程、运行工作台、Agent 编排、MCP 管理、知识库、模型管理、Skill 库与系统配置页面
 
-安装 Agent Builder 插件后，每个租户会得到可激活的 `agent-builder` Team。用户可在 TeamBuilder（`/team-builder`）激活它并返回聊天，由专职 Agent 协作完成需求调研、能力分析、架构、评估与调优；管理员再在 TeamBuilder 审查 Draft，并发布或持续更新同名业务 Team。完整流程见 [Agent Builder](docs/AGENT_BUILDER.md)。
+安装 Agent Builder 插件后，每个租户会得到可激活的 `agent-builder` Team。用户可在 Agent 编排页（`/agent-studio`）激活它并返回聊天，由专职 Agent 协作完成需求调研、能力分析、架构、评估与调优；管理员再审查 Draft，并发布或持续更新同名业务 Team。完整流程见 [Agent Builder](docs/AGENT_BUILDER.md)。
 
 ## 界面预览
 
 <p align="center">
-  <img src="docs/assets/screenshots/desktop-workbench-files.png" alt="Agent 工作台、执行过程与可视化产物" width="920">
+  <img src="docs/assets/screenshots/desktop-workbench-artifact.png" alt="Agent 工作台：聊天、执行过程与可视化产物" width="920">
 </p>
 
 <p align="center">
-  <img src="docs/assets/screenshots/desktop-agent-config.png" alt="电脑端 Agent 配置页面" width="450">
-  <img src="docs/assets/screenshots/desktop-team-builder.png" alt="电脑端 Team 编排页面" width="450">
+  <img src="docs/assets/screenshots/desktop-workbench-thread.png" alt="运行工作台中的子智能体线程" width="450">
+  <img src="docs/assets/screenshots/desktop-agent-config.png" alt="Agent 编排：Team 与 Agent 配置" width="450">
 </p>
 
 <p align="center">
-  <img src="docs/assets/screenshots/desktop-knowledge-base.png" alt="电脑端知识库管理页面" width="450">
-  <img src="docs/assets/screenshots/desktop-mcp-manager.png" alt="电脑端 MCP 服务管理页面" width="450">
+  <img src="docs/assets/screenshots/desktop-knowledge-base.png" alt="知识库管理页面" width="450">
+  <img src="docs/assets/screenshots/desktop-mcp-manager.png" alt="MCP 服务管理页面" width="450">
 </p>
 
-<p align="center">
-  <img src="docs/assets/screenshots/desktop-daemon.png" alt="电脑端守护 Agent 页面" width="920">
-</p>
-
-截图由前端 smoke 截图工具生成，可通过 `cd frontend-client && npm run screenshot:smoke` 重新生成并检查关键页面。
+截图由前端 smoke 截图工具生成，管理页使用内置演示数据（不依赖本机运行时配置），可通过 `cd frontend-client && npm run screenshot:smoke` 重新生成并检查关键页面。
 
 ## 仓库结构
 
@@ -73,7 +69,7 @@ cp backend-local/.env.example .env
 cp frontend-client/.env.example frontend-client/.env
 ```
 
-TypeScript 后端从运行时目录读取配置；模型 Provider、MCP Server、向量化器、Agent Team 与守护 Agent 配置可通过前端管理页面写入。
+TypeScript 后端从运行时目录读取配置；模型 Provider、MCP Server、向量化器与 Agent Team 配置可通过前端管理页面写入。
 
 后端插件完全由 `backend-local/backend.plugins.yaml` 或 `backend-saas/backend.plugins.yaml` 声明模块、启停、顺序和初始化参数；第三方插件通常只需安装 npm 包并修改对应 YAML。完整格式和插件模块契约见 [后端插件配置](docs/BACKEND_PLUGIN_CONFIG.md)。
 
@@ -86,7 +82,6 @@ TypeScript 后端从运行时目录读取配置；模型 Provider、MCP Server�
   - `model_adapter/providers.yaml`
   - `vector_store/vectorizers.yaml`
   - `mcp/mcp_servers.yaml`
-  - `daemon/daemon.yaml`
 
 更完整的运行、配置与验证说明见 [docs/OPERATIONS.md](docs/OPERATIONS.md)。
 

@@ -762,6 +762,7 @@ const shots = [
     width: 1440,
     height: 900,
     actions: [
+      { type: 'mockAgentStudioApi' },
       { type: 'expectText', selector: 'body', text: 'Agent 配置' },
       { type: 'expectText', selector: '.panel-form', text: '基础信息' },
     ],
@@ -774,6 +775,7 @@ const shots = [
     width: 1440,
     height: 900,
     actions: [
+      { type: 'mockAgentStudioApi' },
       { type: 'expectText', selector: 'body', text: 'Agent 编排' },
       { type: 'expectText', selector: '.studio-nav__title', text: 'Team / Agent' },
     ],
@@ -785,6 +787,7 @@ const shots = [
     width: 1440,
     height: 900,
     actions: [
+      { type: 'mockKnowledgeBaseApi' },
       { type: 'expectText', selector: 'body', text: '知识库管理' },
       { type: 'expectText', selector: 'body', text: '文件与索引' },
     ],
@@ -938,6 +941,7 @@ const shots = [
     width: 1440,
     height: 900,
     actions: [
+      { type: 'mockMcpApi' },
       { type: 'expectText', selector: 'body', text: 'MCP 服务管理' },
       { type: 'expectText', selector: 'body', text: '已安装服务' },
     ],
@@ -1254,12 +1258,286 @@ class CdpClient {
   }
 }
 
+// —— 管理页演示数据（README 截图用）——
+// 全部为虚构内容：不得混入真实 provider、真实文件名、真实 MCP 服务或任何密钥，
+// 让管理页截图不依赖也不暴露本机运行时数据。
+const demoAgentTier = (modelName) => ({
+  provider: 'demo-openai',
+  provider_type: 'openai',
+  model_name: modelName,
+  temperature: 0.7,
+  max_completion_tokens: 32768,
+  max_context_tokens: 131072,
+  thinking_level: null,
+  extra_params: {},
+});
+
+const DEMO_AGENT_CONFIGS = {
+  orchestrator_agent: {
+    agent_name: 'orchestrator_agent',
+    display_name: 'Orchestrator',
+    description: '主编排智能体：理解需求、拆解任务、委派协作并整合最终结果。',
+    enabled: true,
+    default_entry: true,
+    llm_tiers: { default: demoAgentTier('demo-chat-64k') },
+    tools: { enabled_tools: ['read_file', 'write_file', 'edit_file', 'grep', 'glob', 'execute_code', 'web_fetch'] },
+    goals: { enabled: true },
+    tasks: { background: true },
+    delegation: { enabled_agents: ['analysis_agent', 'report_agent', 'review_agent'], parallel_children: true },
+    custom_params: {},
+  },
+  analysis_agent: {
+    agent_name: 'analysis_agent',
+    display_name: '水位分析',
+    description: '读取监测数据、计算水位与流量指标，输出趋势结论。',
+    enabled: true,
+    default_entry: false,
+    llm_tiers: { default: demoAgentTier('demo-chat-32k') },
+    tools: { enabled_tools: ['read_file', 'preview_data_structure', 'execute_code'] },
+    goals: { enabled: false },
+    tasks: { background: false },
+    delegation: { enabled_agents: [], parallel_children: false },
+    custom_params: {},
+  },
+  report_agent: {
+    agent_name: 'report_agent',
+    display_name: '报告撰写',
+    description: '把分析结论整理成结构化报告，并按模板生成可视化图表。',
+    enabled: true,
+    default_entry: false,
+    llm_tiers: { default: demoAgentTier('demo-chat-32k') },
+    tools: { enabled_tools: ['read_file', 'write_file'] },
+    goals: { enabled: false },
+    tasks: { background: false },
+    delegation: { enabled_agents: [], parallel_children: false },
+    custom_params: {},
+  },
+  review_agent: {
+    agent_name: 'review_agent',
+    display_name: '审校',
+    description: '复核报告的事实一致性与格式规范，提出修订建议。',
+    enabled: true,
+    default_entry: false,
+    llm_tiers: { default: demoAgentTier('demo-chat-32k') },
+    tools: { enabled_tools: ['read_file'] },
+    goals: { enabled: false },
+    tasks: { background: false },
+    delegation: { enabled_agents: [], parallel_children: false },
+    custom_params: {},
+  },
+};
+
+const DEMO_AGENT_TEAMS = {
+  active_team: 'water-quality',
+  teams: [
+    {
+      team_name: 'water-quality',
+      team_revision: 'demo000000000000000000000000000000000000000000000000000000001',
+      file_path: 'teams/water-quality.yaml',
+      agents: ['orchestrator_agent', 'analysis_agent', 'report_agent', 'review_agent'],
+    },
+    {
+      team_name: 'doc-assist',
+      team_revision: 'demo000000000000000000000000000000000000000000000000000000002',
+      file_path: 'teams/doc-assist.yaml',
+      agents: ['orchestrator_agent', 'analysis_agent'],
+    },
+  ],
+};
+
+const DEMO_MODEL_PROVIDERS = [
+  { key: 'demo-openai', name: 'Demo OpenAI', provider_type: 'openai' },
+  { key: 'demo-local', name: 'Demo Local vLLM', provider_type: 'openai-compatible' },
+];
+
+const DEMO_KB_UPLOADS = [
+  { original_name: '供水管网巡检手册.pdf', size: 3355443, mime: 'application/pdf', uploaded_at: '2026-09-18T02:31:04.000Z', chunk_count: 24 },
+  { original_name: '水质监测周报-0921.md', size: 49152, mime: 'text/markdown', uploaded_at: '2026-09-21T06:12:40.000Z', chunk_count: 16 },
+  { original_name: '站点基础台账.json', size: 12288, mime: 'application/json', uploaded_at: '2026-09-22T09:05:18.000Z', chunk_count: 8 },
+  { original_name: '应急响应预案.docx', size: 1153434, mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', uploaded_at: '2026-09-25T11:47:52.000Z', chunk_count: 9 },
+];
+
+const DEMO_KB_FILES = DEMO_KB_UPLOADS.map((file, index) => ({
+  id: `demo0${index + 1}a2b3c`,
+  original_name: file.original_name,
+  stored_name: `demo_stored_${index + 1}`,
+  stored_path: `demo://knowledge-uploads/demo_stored_${index + 1}`,
+  size: file.size,
+  mime: file.mime,
+  uploaded_at: file.uploaded_at,
+  md_blob_hash: `demo_md_hash_${index + 1}`,
+}));
+
+const DEMO_KB_STATUS = {
+  files: DEMO_KB_UPLOADS.map((file, index) => ({
+    file_name: file.original_name,
+    file_id: `demo0${index + 1}a2b3c`,
+    collection: 'documents',
+    chunk_count: file.chunk_count,
+    vectorizer_status: file.chunk_count > 0 ? { 'demo-embedding': 'ready' } : {},
+    uploaded_at: file.uploaded_at,
+    size: file.size,
+    mime: file.mime,
+  })),
+  vectorizers: [{ vectorizer_key: 'demo-embedding', is_active: true, model_name: 'demo-embedding-small' }],
+};
+
+const DEMO_VECTORIZERS = [
+  {
+    vectorizer_key: 'demo-embedding',
+    provider_key: 'demo-openai',
+    provider_type: 'openai',
+    model_name: 'demo-embedding-small',
+    api_endpoint: '',
+    created_at: '2026-09-01T08:00:00.000Z',
+    is_active: true,
+    api_key_set: true,
+    provider_managed: false,
+    provider_available: true,
+  },
+];
+
+const DEMO_RERANKERS = [
+  {
+    reranker_key: 'demo-reranker',
+    mode: 'model',
+    provider_key: 'demo-openai',
+    provider_type: 'openai',
+    model_name: 'demo-reranker-v2',
+    api_endpoint: '',
+    created_at: '2026-09-02T08:00:00.000Z',
+    is_active: true,
+    api_key_set: true,
+    provider_managed: false,
+    provider_available: true,
+  },
+];
+
+const DEMO_MCP_SERVERS = [
+  {
+    name: 'demo_web_search',
+    display_name: 'demo-web-search',
+    transport: 'stdio',
+    command: 'npx',
+    args: ['-y', 'demo-web-search@1.2.0'],
+    env: {},
+    url: null,
+    headers: {},
+    enabled: true,
+    auto_connect: true,
+    timeout: 30,
+    risk_level: 'low',
+    tool_risk_overrides: {},
+    trusted: true,
+    created_at: '2026-09-10T08:00:00.000Z',
+    status: 'connected',
+    tool_count: 6,
+    error_message: '',
+    resource_count: 2,
+    prompt_count: 0,
+    capability_faces: { tools: true, resources: true, prompts: false, logging: false },
+    server_name: 'demo_web_search',
+  },
+  {
+    name: 'demo_file_docs',
+    display_name: 'demo-file-docs',
+    transport: 'http',
+    command: '',
+    args: [],
+    env: {},
+    url: 'https://mcp.demo.example.com/file-docs',
+    headers: {},
+    enabled: true,
+    auto_connect: false,
+    timeout: 30,
+    risk_level: 'medium',
+    tool_risk_overrides: {},
+    trusted: false,
+    created_at: '2026-09-12T08:00:00.000Z',
+    status: 'disconnected',
+    tool_count: 0,
+    error_message: '',
+    resource_count: 0,
+    prompt_count: 0,
+    capability_faces: { tools: true, resources: false, prompts: false, logging: false },
+    server_name: 'demo_file_docs',
+  },
+];
+
+function demoAgentConfigBody(path) {
+  if (path === '/api/agent-config/teams') {
+    return { success: true, message: 'team 列表', data: DEMO_AGENT_TEAMS };
+  }
+  if (path === '/api/agent-config/configs') {
+    return { success: true, message: 'ok', data: DEMO_AGENT_CONFIGS };
+  }
+  const singleMatch = path.match(/^\/api\/agent-config\/configs\/([^/]+)$/);
+  if (singleMatch) {
+    const config = DEMO_AGENT_CONFIGS[decodeURIComponent(singleMatch[1])] || DEMO_AGENT_CONFIGS.orchestrator_agent;
+    return { success: true, message: 'ok', data: config };
+  }
+  if (path === '/api/agent-config/tools' || path === '/api/agent-config/mcp-servers') {
+    return { success: true, message: 'ok', data: [] };
+  }
+  if (path === '/api/model-adapter/providers') {
+    return { success: true, message: 'ok', providers: DEMO_MODEL_PROVIDERS };
+  }
+  if (path === '/api/skills/available') {
+    return { success: true, message: 'ok', data: [] };
+  }
+  if (path === '/api/memory/config-metadata') {
+    return { success: true, message: 'ok', data: {} };
+  }
+  if (/^\/api\/(skills|memory|knowledge-bases)\/agents\/[^/]+\/config$/.test(path)) {
+    return { success: true, message: 'ok', data: {} };
+  }
+  return undefined;
+}
+
+function demoKnowledgeBaseBody(path) {
+  if (path === '/api/knowledge-bases/files') {
+    return { success: true, files: DEMO_KB_FILES };
+  }
+  if (path === '/api/knowledge-bases/file-status') {
+    return { success: true, message: 'success', data: DEMO_KB_STATUS };
+  }
+  if (path === '/api/knowledge-bases/vectorizers') {
+    return { success: true, message: 'success', data: DEMO_VECTORIZERS };
+  }
+  if (path === '/api/knowledge-bases/rerankers') {
+    return { success: true, message: 'success', data: DEMO_RERANKERS };
+  }
+  if (path.startsWith('/api/knowledge-bases/model-providers')) {
+    return { success: true, message: 'success', data: DEMO_MODEL_PROVIDERS };
+  }
+  if (/^\/api\/knowledge-bases\/agents\/[^/]+\/config$/.test(path)) {
+    return { success: true, message: 'ok', data: {} };
+  }
+  return undefined;
+}
+
+function demoMcpBody(path) {
+  if (path === '/api/mcp/servers') {
+    return { success: true, message: 'success', data: DEMO_MCP_SERVERS };
+  }
+  if (path.startsWith('/api/mcp/registry/servers')) {
+    return { success: true, message: 'ok', data: [] };
+  }
+  return undefined;
+}
+
 async function setupShotMocks(client, shot) {
   const mockArtifactApi = (shot.actions || []).some(action => action.type === 'mockArtifactApi');
   const mockKnowledgeSearchApi = (shot.actions || []).some(action => action.type === 'mockKnowledgeSearchApi');
   const mockSessionSidebarApi = (shot.actions || []).some(action => action.type === 'mockSessionSidebarApi');
   const mockFileRefApi = (shot.actions || []).some(action => action.type === 'mockFileRefApi');
-  if (!mockArtifactApi && !mockKnowledgeSearchApi && !mockSessionSidebarApi && !mockFileRefApi) return;
+  const mockAgentStudioApi = (shot.actions || []).some(action => action.type === 'mockAgentStudioApi');
+  const mockKnowledgeBaseApi = (shot.actions || []).some(action => action.type === 'mockKnowledgeBaseApi');
+  const mockMcpApi = (shot.actions || []).some(action => action.type === 'mockMcpApi');
+  if (
+    !mockArtifactApi && !mockKnowledgeSearchApi && !mockSessionSidebarApi && !mockFileRefApi
+    && !mockAgentStudioApi && !mockKnowledgeBaseApi && !mockMcpApi
+  ) return;
 
   await client.send('Fetch.enable', {
     patterns: [
@@ -1308,6 +1586,19 @@ async function setupShotMocks(client, shot) {
           urlPattern: '*://*/api/agent/sessions/smoke-fileref-session/workspace-files/content*',
           requestStage: 'Request',
         },
+      ] : []),
+      ...(mockAgentStudioApi ? [
+        { urlPattern: '*://*/api/agent-config/*', requestStage: 'Request' },
+        { urlPattern: '*://*/api/model-adapter/providers*', requestStage: 'Request' },
+        { urlPattern: '*://*/api/skills/*', requestStage: 'Request' },
+        { urlPattern: '*://*/api/memory/*', requestStage: 'Request' },
+        { urlPattern: '*://*/api/knowledge-bases/agents/*', requestStage: 'Request' },
+      ] : []),
+      ...(mockKnowledgeBaseApi ? [
+        { urlPattern: '*://*/api/knowledge-bases/*', requestStage: 'Request' },
+      ] : []),
+      ...(mockMcpApi ? [
+        { urlPattern: '*://*/api/mcp/*', requestStage: 'Request' },
       ] : []),
     ],
   });
@@ -1626,6 +1917,27 @@ async function setupShotMocks(client, shot) {
       return;
     }
 
+    // 管理页演示数据：按 pathname 命中则直接应答，未命中放行到真实请求
+    let demoPath = '';
+    try {
+      demoPath = new URL(event.request.url).pathname;
+    } catch {
+      demoPath = '';
+    }
+    let demoBody;
+    if (mockAgentStudioApi) demoBody = demoAgentConfigBody(demoPath);
+    if (!demoBody && mockKnowledgeBaseApi) demoBody = demoKnowledgeBaseBody(demoPath);
+    if (!demoBody && mockMcpApi) demoBody = demoMcpBody(demoPath);
+    if (demoBody) {
+      await client.send('Fetch.fulfillRequest', { requestId: event.requestId, responseCode: 200,
+        responseHeaders: [
+          { name: 'Content-Type', value: 'application/json; charset=utf-8' },
+          { name: 'Cache-Control', value: 'no-store' },
+        ],
+        body: Buffer.from(JSON.stringify(demoBody), 'utf8').toString('base64') });
+      return;
+    }
+
     if (!event.request?.url?.includes('/api/artifacts/art_smoke_chart')) {
       await client.send('Fetch.continueRequest', { requestId: event.requestId });
       return;
@@ -1798,7 +2110,8 @@ function jsString(value) {
 
 async function runShotActions(client, shot) {
   for (const action of shot.actions || []) {
-    if (action.type === 'mockArtifactApi' || action.type === 'mockKnowledgeSearchApi' || action.type === 'mockSessionSidebarApi' || action.type === 'mockFileRefApi') {
+    if (action.type === 'mockArtifactApi' || action.type === 'mockKnowledgeSearchApi' || action.type === 'mockSessionSidebarApi' || action.type === 'mockFileRefApi'
+      || action.type === 'mockAgentStudioApi' || action.type === 'mockKnowledgeBaseApi' || action.type === 'mockMcpApi') {
       continue;
     }
 

@@ -10,7 +10,8 @@
 
 ```bash
 npm ci
-cp backend-local/.env.example backend-local/.env
+# 仓库级 npm 命令从发起目录读取 .env，因此复制到仓库根目录
+cp backend-local/.env.example .env
 cp frontend-client/.env.example frontend-client/.env
 ```
 
@@ -54,9 +55,8 @@ Windows 下也可在仓库根目录运行 `start_server.bat` 同时启动前后�
 - `model_adapter/providers.yaml`
 - `vector_store/vectorizers.yaml`
 - `mcp/mcp_servers.yaml`
-- `daemon/daemon.yaml`
 
-模型 Provider、Agent Team、MCP、向量化器与守护 Agent 配置可通过前端管理页面维护。不要提交真实密钥或本地运行时配置。
+模型 Provider、Agent Team、MCP 与向量化器配置可通过前端管理页面维护。不要提交真实密钥或本地运行时配置。
 
 ## 验证 / Verification
 
@@ -88,7 +88,6 @@ npm run build:installer
 - `POST /api/agent/execute`：同步执行
 - `GET /api/agent/execution/overview`：执行概览
 - `/monitor`：监控页面
-- `/team-builder`：Team 编排
-- `/agent-config`：Agent 配置
+- `/agent-studio`：Agent 编排（Team 与 Agent 配置；`/team-builder`、`/agent-config` 重定向至此）
 - `/mcp`：MCP 管理
 - `/knowledge-base`：知识库管理
