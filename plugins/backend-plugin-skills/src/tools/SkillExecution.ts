@@ -1,5 +1,6 @@
 import { isRecord, normalizeString, asString, asRecord } from "@ragsystem/backend-core/utils/guards.js";
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -485,10 +486,11 @@ export class SkillToolService {
    * 准备 Skill 运行所需的 Python 环境，返回应使用的解释器路径。
    *
    * - shared 模式或无 requirements.txt：直接使用系统/共享解释器。
-   * - venv 模式且存在 requirements.txt：在 skill 目录下维护 .venv，并按
-   *   .installed marker 与 requirements.txt 的 mtime 决定是否重装依赖。
+   * - venv 模式且存在 requirements.txt：venv 位置由 resolveVenvDirectory 决定——
+   *   包仓库技能按「requirements 哈希 + Python 版本」跨快照共享；就地技能沿用
+   *   skillDir/.venv 并按 .installed marker 与 requirements.txt 的 mtime 决定重装。
    *
-   * 同一 skill 目录的环境准备通过 envLocks 串行化，避免并发创建 venv 竞态。
+   * 同一 venv 目录的环境准备通过 envLocks 串行化，避免并发创建/安装竞态。
    */
   private async ensureSkillEnvironment(skill: SkillInfo, signal?: AbortSignal): Promise<{ python: string } | { error: string }> {
     if (this.skillIsolationMode === "shared") {
@@ -498,9 +500,10 @@ export class SkillToolService {
     if (!fs.existsSync(requirementsFile)) {
       return { python: resolvePythonExecutable() };
     }
-    const previous = this.envLocks.get(skill.skillDir) ?? Promise.resolve();
-    const current = previous.catch(() => undefined).then(() => prepareVenv(skill.skillDir, requirementsFile, signal));
-    this.envLocks.set(skill.skillDir, current.catch(() => undefined));
+    const venvDir = await resolveVenvDirectory(skill.skillDir, requirementsFile);
+    const previous = this.envLocks.get(venvDir) ?? Promise.resolve();
+    const current = previous.catch(() => undefined).then(() => prepareVenv(venvDir, requirementsFile, signal));
+    this.envLocks.set(venvDir, current.catch(() => undefined));
     return current;
   }
 
@@ -996,16 +999,76 @@ function venvPipExecutable(venvDir: string): string {
     : path.join(venvDir, "bin", "pip");
 }
 
+const SHARED_VENV_DIR_NAME = ".venvs";
+
+let cachedPythonVersion: string | null = null;
+
+function pythonVersionLabel(): Promise<string> {
+  if (cachedPythonVersion !== null) return Promise.resolve(cachedPythonVersion);
+  return spawnProcess(resolvePythonExecutable(), ["--version"], { timeoutMs: 15_000 }).then(
+    (result) => {
+      const label = /Python \d+(?:\.\d+)*/i.exec(result.stdout)?.[0] ?? "";
+      if (result.returnCode !== 0 || !label) return "python"; // 探测失败不缓存，下次重试
+      cachedPythonVersion = label;
+      return label;
+    },
+    () => "python",
+  );
+}
+
+let cachedUvAvailable: Promise<boolean> | null = null;
+
+function uvAvailable(): Promise<boolean> {
+  cachedUvAvailable ??= spawnProcess(process.platform === "win32" ? "uv.exe" : "uv", ["--version"], { timeoutMs: 15_000 }).then(
+    (result) => result.returnCode === 0,
+    () => false,
+  );
+  return cachedUvAvailable;
+}
+
 /**
- * 在 skill 目录下维护 .venv，并确保 requirements.txt 中的依赖已安装。
- * 返回 venv 内的 Python 解释器路径，失败时返回 error。
+ * 计算 skill 的 venv 位置。
+ * - 包仓库技能（skillDir 形如 <root>/.runtime/<revision>）：venv 按
+ *   「requirements 内容哈希 + Python 版本」共享于 <root>/.runtime/.venvs/<key>，
+ *   技能内容变更只重建快照，不再连带重建整份 venv。
+ * - requirements 含可编辑安装/相对路径引用（-e、file:./、./…、-r …）时不共享：
+ *   这类安装会把路径锚定到物化时刻的快照目录，快照被 GC 后留下坏环境。
+ * - 其余（workspace 等就地目录）：沿用 skillDir/.venv。
+ * 注意：共享 venv 的创建/安装仅在本进程内串行（envLocks）；同一 dataRoot
+ * 起多个后端实例时可能并发安装，共享的前提是单实例部署。
+ */
+async function resolveVenvDirectory(skillDir: string, requirementsFile: string): Promise<string> {
+  const runtimeDir = path.dirname(skillDir);
+  if (path.basename(runtimeDir) !== ".runtime") return path.join(skillDir, ".venv");
+  const requirements = fs.readFileSync(requirementsFile, "utf8");
+  if (requirementsUseRelativeReferences(requirements)) return path.join(skillDir, ".venv");
+  const digest = createHash("sha256").update(requirements).digest("hex").slice(0, 16);
+  const version = await pythonVersionLabel();
+  const key = `${digest}-${version}`.replace(/[^A-Za-z0-9._-]+/g, "-").slice(0, 96);
+  return path.join(runtimeDir, SHARED_VENV_DIR_NAME, key);
+}
+
+/** 检测 requirements 是否含可编辑安装、相对路径或嵌套 requirements 引用（均锚定本地目录，不能跨快照共享 venv）。 */
+function requirementsUseRelativeReferences(requirements: string): boolean {
+  return requirements.split(/\r?\n/).some((line) => {
+    const entry = line.trim();
+    if (!entry || entry.startsWith("#")) return false;
+    if (/^(?:-e|--editable|-r|--requirement)\b/i.test(entry)) return true;
+    const target = entry.split(/\s+/).pop() ?? "";
+    return /^(?:\.{1,2}(?:[/\\]|$)|file:[./\\])/i.test(target);
+  });
+}
+
+/**
+ * 确保 venv 存在且 requirements.txt 中的依赖已安装，返回 venv 内的 Python 解释器路径。
+ * 依赖安装优先走 uv（命中本地缓存时秒级完成），uv 不可用或失败时回退 venv 自带的 pip。
  */
 async function prepareVenv(
-  skillDir: string,
+  venvDir: string,
   requirementsFile: string,
   signal?: AbortSignal,
 ): Promise<{ python: string } | { error: string }> {
-  const venvDir = path.join(skillDir, ".venv");
+  const shared = path.basename(path.dirname(venvDir)) === SHARED_VENV_DIR_NAME;
   if (!fs.existsSync(venvDir)) {
     const create = await spawnProcess(resolvePythonExecutable(), ["-m", "venv", venvDir], {
       timeoutMs: 60_000,
@@ -1017,11 +1080,37 @@ async function prepareVenv(
   }
 
   const installedMarker = path.join(venvDir, ".installed");
-  const requirementsMtime = fs.statSync(requirementsFile).mtimeMs;
-  if (fs.existsSync(installedMarker) && fs.statSync(installedMarker).mtimeMs >= requirementsMtime) {
-    return { python: venvPythonExecutable(venvDir) };
+  if (fs.existsSync(installedMarker)) {
+    if (shared) {
+      // 共享 venv 目录名已含 requirements 哈希，命中即视为安装完成；续期 mtime 供运行时 GC 保留。
+      try {
+        const now = new Date();
+        fs.utimesSync(venvDir, now, now);
+      } catch { /* best effort */ }
+      return { python: venvPythonExecutable(venvDir) };
+    }
+    const requirementsMtime = fs.statSync(requirementsFile).mtimeMs;
+    if (fs.statSync(installedMarker).mtimeMs >= requirementsMtime) {
+      return { python: venvPythonExecutable(venvDir) };
+    }
   }
 
+  if (await uvAvailable()) {
+    const install = await spawnProcess(
+      process.platform === "win32" ? "uv.exe" : "uv",
+      ["pip", "install", "-r", requirementsFile, "--python", venvPythonExecutable(venvDir)],
+      { timeoutMs: 300_000, ...(signal ? { signal } : {}) },
+    );
+    if (install.returnCode === 0) {
+      fs.writeFileSync(installedMarker, "");
+      return { python: venvPythonExecutable(venvDir) };
+    }
+    if (install.returnCode === 124) {
+      // uv 卡死超时，重试 pip 大概率同样卡住且让最坏等待翻倍，直接报错。
+      return { error: `uv 安装依赖超时: ${install.stderr.trim() || install.stdout.trim()}` };
+    }
+    // uv 失败（代理/索引不兼容等）时回退 pip 重试。
+  }
   const install = await spawnProcess(venvPipExecutable(venvDir), ["install", "-r", requirementsFile], {
     timeoutMs: 300_000,
     ...(signal ? { signal } : {}),
