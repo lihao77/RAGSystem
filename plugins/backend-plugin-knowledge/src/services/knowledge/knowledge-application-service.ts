@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { AsyncKnowledgeConfigStore } from "../../contracts/knowledge/async-knowledge-config.js";
 import type { AsyncKnowledgeVectorStore } from "../../contracts/knowledge/async-vector-store.js";
 import type { GenericVectorRequest, IndexFileRequest, RerankerConfig, RerankerCreate, SearchVectorsRequest, VectorFileStatusResponse, VectorizerConfig, VectorizerCreate, VectorSearchResult } from "../../contracts/knowledge/knowledge-base.js";
@@ -30,7 +31,7 @@ export type KnowledgeRerankerFactory = (stored: StoredReranker) => IReranker;
 
 /** Deployment-neutral knowledge orchestration over tenant-scoped storage ports. */
 export class KnowledgeApplicationService {
-  private readonly embedderCache = new Map<string, IEmbedder>();
+  private readonly embedderCache = new Map<string, { fingerprint: string; embedder: IEmbedder }>();
   private readonly embedderFactory: KnowledgeEmbedderFactory;
   private readonly rerankerFactory: KnowledgeRerankerFactory;
 
@@ -112,7 +113,7 @@ export class KnowledgeApplicationService {
     const providers = await this.modelProviders.listProviders(this.tenantId);
     return providers
       .filter((provider) => !kind || provider.kind === kind)
-      .map((provider) => ({ ...provider, api_key_configured: Boolean(provider.api_key.trim()) }));
+      .map(publicModelProvider);
   }
 
   async upsertModelProvider(input: {
@@ -143,7 +144,7 @@ export class KnowledgeApplicationService {
       model_name: modelName,
       is_active: input.is_active !== false,
     }, { keepExistingApiKey: !apiKey });
-    return { ...upserted, api_key_configured: Boolean(upserted.api_key.trim()) };
+    return publicModelProvider(upserted);
   }
 
   async deleteModelProvider(providerKey: string): Promise<{ deleted_provider_key: string }> {
@@ -626,13 +627,20 @@ export class KnowledgeApplicationService {
     return this.config.createVectorizer(this.tenantId, { vectorizer_key: "local_hash_embedding", provider_key: "local", provider_type: "local", model_name: "hash-embedding", distance_metric: "cosine" });
   }
   private async resolveEmbedder(vectorizer: StoredVectorizer) {
-    const cached = this.embedderCache.get(vectorizer.vectorizer_key);
-    if (cached) return cached;
     const provider = vectorizer.provider_key !== "local"
       ? await this.modelProviders.getProvider(this.tenantId, vectorizer.provider_key)
       : null;
+    // Read the current Provider even on cache hits: another runtime/process can rotate
+    // credentials or restore a missing Provider through the shared store.
+    const fingerprint = createHash("sha256").update(JSON.stringify([
+      vectorizer.provider_key,
+      vectorizer.model_name,
+      provider ? [provider.kind, provider.api_endpoint, provider.api_key, provider.model_name, provider.is_active] : null,
+    ])).digest("hex");
+    const cached = this.embedderCache.get(vectorizer.vectorizer_key);
+    if (cached?.fingerprint === fingerprint) return cached.embedder;
     const embedder = this.embedderFactory(provider, vectorizer.model_name);
-    this.embedderCache.set(vectorizer.vectorizer_key, embedder);
+    this.embedderCache.set(vectorizer.vectorizer_key, { fingerprint, embedder });
     return embedder;
   }
   private async requireRerankProvider(providerKey: string): Promise<KnowledgeModelProvider> {
@@ -748,6 +756,20 @@ function normalizeRerankerMode(value: string | undefined): StoredReranker["mode"
   if (["lexical", "bm25", "keyword", "local"].includes(mode)) return "lexical";
   if (["none", "noop"].includes(mode)) return "none";
   return "model";
+}
+
+/** Explicit output allowlist: TypeScript's Omit does not remove runtime secrets. */
+function publicModelProvider(provider: KnowledgeModelProvider): KnowledgeModelProviderInfo {
+  return {
+    provider_key: provider.provider_key,
+    kind: provider.kind,
+    name: provider.name,
+    api_endpoint: provider.api_endpoint,
+    model_name: provider.model_name,
+    is_active: provider.is_active,
+    ...(provider.created_at !== undefined ? { created_at: provider.created_at } : {}),
+    api_key_configured: Boolean(provider.api_key.trim()),
+  };
 }
 
 function normalizeRerankerKey(mode: StoredReranker["mode"], providerKey: string, modelName: string): string {

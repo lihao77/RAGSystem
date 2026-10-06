@@ -3,7 +3,16 @@ name: Repository Checks
 on:
   pull_request:
     paths:
-      - 'backend-ts/**'
+      - 'backend-core/**'
+      - 'backend-local/**'
+      - 'backend-saas/**'
+      - 'plugins/**'
+      - 'sandbox-service/**'
+      - 'scripts/**'
+      - 'docker-compose*.yml'
+      - '.dockerignore'
+      - 'AGENTS.md'
+      - 'CONTRIBUTING.md'
       - 'frontend-client/**'
       - 'desktop-electron/**'
       - 'packages/**'
@@ -20,7 +29,16 @@ on:
       - main
       - master
     paths:
-      - 'backend-ts/**'
+      - 'backend-core/**'
+      - 'backend-local/**'
+      - 'backend-saas/**'
+      - 'plugins/**'
+      - 'sandbox-service/**'
+      - 'scripts/**'
+      - 'docker-compose*.yml'
+      - '.dockerignore'
+      - 'AGENTS.md'
+      - 'CONTRIBUTING.md'
       - 'frontend-client/**'
       - 'desktop-electron/**'
       - 'packages/**'
@@ -42,11 +60,13 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22.5'
+          node-version: '24'
           cache: npm
           cache-dependency-path: package-lock.json
       - name: Install workspace dependencies
         run: npm ci
+      - name: Check CI backend package coverage
+        run: npm run check:ci
       - name: Check shared packages
         run: npm run check:packages
 
@@ -74,7 +94,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22.5'
+          node-version: '24'
           cache: npm
           cache-dependency-path: package-lock.json
       - name: Install workspace dependencies
@@ -92,7 +112,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22.5'
+          node-version: '24'
           cache: npm
           cache-dependency-path: package-lock.json
       - name: Install workspace dependencies
@@ -112,7 +132,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22.5'
+          node-version: '24'
           cache: npm
           cache-dependency-path: |
             package-lock.json

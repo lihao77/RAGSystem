@@ -62,12 +62,19 @@ Windows 下也可在仓库根目录运行 `start_server.bat` 同时启动前后�
 
 ```bash
 npm run check:packages
+npm run check:ci
 npm run check:backend
 npm run check:frontend
 npm run check:widget
 ```
 
-后端门禁包含生产与脚本类型检查、完整测试和生产构建。前端门禁包含测试与构建；widget 门禁包含源码/测试类型检查和所有发布产物构建。
+CI 统一使用 Node.js 24，以支持测试直接加载 `node:sqlite` 以及前端测试覆盖率阈值参数。后端门禁包含生产与脚本类型检查、全部内置后端插件与 Sandbox Service 的测试和生产构建。`check:ci` 自动核对后端 workspace 是否接入类型检查、构建与测试门禁，新增插件漏接会直接失败。前端门禁包含测试与构建；widget 门禁包含源码/测试类型检查、运行时测试和所有发布产物构建。
+
+### 知识库模型配置 / Knowledge Model Configuration
+
+知识库 embedding / rerank Provider 的列表与保存接口仅返回公开元数据和 `api_key_configured`，不会返回 `api_key`。更新时省略密钥或提交空密钥会保留已有凭证；需要轮换时提交新的非空密钥。
+
+Embedding 执行每次从所属租户的存储读取当前 Provider，并按配置指纹复用或刷新客户端，因此修改端点、轮换凭证或从其他运行实例更新配置后，后续调用无需重启即可使用新配置。已有的进行中调用仍使用开始时取得的配置。更新客户端不会重建已有文档向量；变更向量模型仍需按原有索引流程同步文档。
 
 ## 桌面安装包 / Desktop Installer
 
