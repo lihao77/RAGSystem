@@ -1,78 +1,88 @@
 <template>
-  <Teleport to="body">
-    <Transition name="lightbox-fade">
-      <div
-        v-if="open"
-        class="image-lightbox"
-        tabindex="-1"
-        @click.self="emit('close')"
-        @wheel.prevent="onWheel"
-      >
-        <AuthenticatedImage
-          v-if="current"
-          ref="imageRef"
-          :src="current.src"
-          :alt="current.alt || ''"
-          class="image-lightbox__image"
-          :class="{ 'image-lightbox__image--dragging': dragging }"
-          :style="{ transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale}) rotate(${rotation}deg)` }"
-          draggable="false"
-          @pointerdown="onPointerDown"
-          @pointermove="onPointerMove"
-          @pointerup="onPointerUp"
-          @pointercancel="onPointerUp"
-        />
+  <DialogRoot :open="open" @update:open="onOpenChange">
+    <DialogPortal>
+      <Transition name="lightbox-fade">
+        <DialogContent
+          v-if="open"
+          force-mount
+          class="image-lightbox"
+          :aria-describedby="undefined"
+          tabindex="-1"
+          @close-auto-focus="restoreFocus"
+          @keydown="onKey"
+          @click.self="emit('close')"
+          @wheel.prevent="onWheel"
+        >
+          <DialogTitle class="sr-only">图片预览</DialogTitle>
+          <AuthenticatedImage
+            v-if="current"
+            ref="imageRef"
+            :src="current.src"
+            retain-while-loading
+            :alt="current.alt || ''"
+            class="image-lightbox__image"
+            :class="{ 'image-lightbox__image--dragging': dragging, 'image-lightbox__image--changing': changingImage }"
+            :style="{ transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale}) rotate(${rotation}deg)` }"
+            draggable="false"
+            @source-ready="onImageReady"
+            @pointerdown="onPointerDown"
+            @pointermove="onPointerMove"
+            @pointerup="onPointerUp"
+            @pointercancel="onPointerUp"
+          />
 
-        <div v-if="current" class="image-lightbox__topbar">
-          <div class="image-lightbox__meta">
-            <span v-if="current.alt" class="image-lightbox__title" :title="current.alt">{{ current.alt }}</span>
-            <span v-if="images.length > 1" class="image-lightbox__count">{{ index + 1 }} / {{ images.length }}</span>
+          <div v-if="current" class="image-lightbox__topbar">
+            <div class="image-lightbox__meta">
+              <span v-if="current.alt" class="image-lightbox__title" :title="current.alt">{{ current.alt }}</span>
+              <span v-if="images.length > 1" class="image-lightbox__count">{{ index + 1 }} / {{ images.length }}</span>
+            </div>
+            <button class="image-lightbox__iconbtn image-lightbox__close" aria-label="关闭预览" @click="emit('close')">
+              <IconClose :size="18" />
+            </button>
           </div>
-          <button class="image-lightbox__iconbtn image-lightbox__close" aria-label="关闭预览" @click="emit('close')">
-            <IconClose :size="18" />
-          </button>
-        </div>
 
-        <button
-          v-if="images.length > 1"
-          class="image-lightbox__nav image-lightbox__nav--prev"
-          aria-label="上一张"
-          @click="emit('previous')"
-        >
-          <IconChevronLeft :size="20" />
-        </button>
-        <button
-          v-if="images.length > 1"
-          class="image-lightbox__nav image-lightbox__nav--next"
-          aria-label="下一张"
-          @click="emit('next')"
-        >
-          <IconChevronRight :size="20" />
-        </button>
+          <button
+            v-if="images.length > 1"
+            class="image-lightbox__nav image-lightbox__nav--prev"
+            aria-label="上一张"
+            @click="emit('previous')"
+          >
+            <IconChevronLeft :size="20" />
+          </button>
+          <button
+            v-if="images.length > 1"
+            class="image-lightbox__nav image-lightbox__nav--next"
+            aria-label="下一张"
+            @click="emit('next')"
+          >
+            <IconChevronRight :size="20" />
+          </button>
 
-        <div v-if="current" class="image-lightbox__toolbar">
-          <button class="image-lightbox__toolbtn" aria-label="缩小" title="缩小" @click="zoom(-0.2)">
-            <Minus :size="18" />
-          </button>
-          <span class="image-lightbox__zoom">{{ Math.round(scale * 100) }}%</span>
-          <button class="image-lightbox__toolbtn" aria-label="放大" title="放大" @click="zoom(0.2)">
-            <Plus :size="18" />
-          </button>
-          <span class="image-lightbox__sep" />
-          <button class="image-lightbox__toolbtn" aria-label="旋转" title="旋转" @click="rotation += 90">
-            <RotateCw :size="18" />
-          </button>
-          <button class="image-lightbox__toolbtn" aria-label="重置视图" title="重置视图" @click="reset">
-            <IconExpand :size="18" />
-          </button>
-        </div>
-      </div>
-    </Transition>
-  </Teleport>
+          <div v-if="current" class="image-lightbox__toolbar">
+            <button class="image-lightbox__toolbtn" aria-label="缩小" title="缩小" @click="zoom(-0.2)">
+              <Minus :size="18" />
+            </button>
+            <span class="image-lightbox__zoom">{{ Math.round(scale * 100) }}%</span>
+            <button class="image-lightbox__toolbtn" aria-label="放大" title="放大" @click="zoom(0.2)">
+              <Plus :size="18" />
+            </button>
+            <span class="image-lightbox__sep" />
+            <button class="image-lightbox__toolbtn" aria-label="旋转" title="旋转" @click="rotation += 90">
+              <RotateCw :size="18" />
+            </button>
+            <button class="image-lightbox__toolbtn" aria-label="重置视图" title="重置视图" @click="reset">
+              <IconExpand :size="18" />
+            </button>
+          </div>
+        </DialogContent>
+      </Transition>
+    </DialogPortal>
+  </DialogRoot>
 </template>
 
 <script setup>
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { DialogContent, DialogPortal, DialogRoot, DialogTitle } from 'reka-ui';
 import IconClose from '../icons/IconClose.vue';
 import IconExpand from '../icons/IconExpand.vue';
 import IconChevronLeft from '../icons/IconChevronLeft.vue';
@@ -87,12 +97,22 @@ const props = defineProps({
   current: { type: Object, default: null },
 });
 const emit = defineEmits(['close', 'previous', 'next']);
+const onOpenChange = (open) => { if (!open) emit('close'); };
+
+// 预览没有 DialogTrigger：关闭后将焦点还给打开它的缩略图。
+let previousFocus = null;
+const restoreFocus = (event) => {
+  event.preventDefault();
+  if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true });
+};
 
 const scale = ref(1);
 const rotation = ref(0);
 const offset = ref({ x: 0, y: 0 });
 const dragging = ref(false);
 const imageRef = ref(null);
+const changingImage = ref(false);
+let imageReadyFrame = null;
 
 // 布局尺寸（offsetWidth/Height 不受 transform 影响），旋转 90°/270° 时宽高互换
 function imageHalfExtents() {
@@ -119,6 +139,17 @@ const reset = () => {
   scale.value = 1;
   rotation.value = 0;
   offset.value = { x: 0, y: 0 };
+};
+// 新图与默认视图在同一次更新中替换，不把旧图先缩回原位，也不继承旧图的缩放动画。
+const onImageReady = () => {
+  cancelAnimationFrame(imageReadyFrame);
+  changingImage.value = true;
+  dragging.value = false;
+  drag.pointerId = null;
+  reset();
+  imageReadyFrame = requestAnimationFrame(() => {
+    imageReadyFrame = requestAnimationFrame(() => { changingImage.value = false; });
+  });
 };
 // 以 (clientX, clientY) 为锚点缩放：变换为 translate + scale + rotate，
 // 锚点换算 t1 = (1-k)c + k·t0（k 为新旧缩放比，c 为锚点相对视口中心的向量），
@@ -194,7 +225,6 @@ const onPointerUp = (event) => {
 
 const onKey = (event) => {
   if (!props.open) return;
-  if (event.key === 'Escape') emit('close');
   if (event.key === 'ArrowLeft') emit('previous');
   if (event.key === 'ArrowRight') emit('next');
 };
@@ -206,16 +236,18 @@ const onResize = () => {
     y: Math.min(limit.y, Math.max(-limit.y, offset.value.y)),
   };
 };
-watch(() => props.index, reset);
 watch(() => props.open, (open) => {
+  if (open) {
+    previousFocus = document.activeElement;
+    reset();
+  }
   if (!open) { dragging.value = false; drag.pointerId = null; }
 });
 onMounted(() => {
-  window.addEventListener('keydown', onKey);
   window.addEventListener('resize', onResize);
 });
 onBeforeUnmount(() => {
-  window.removeEventListener('keydown', onKey);
+  cancelAnimationFrame(imageReadyFrame);
   window.removeEventListener('resize', onResize);
 });
 </script>
@@ -246,8 +278,11 @@ onBeforeUnmount(() => {
   cursor: grab;
 }
 /* 拖动跟随需要关闭 transform 过渡 */
+.image-lightbox__image--changing,
 .image-lightbox__image--dragging {
   transition: none;
+}
+.image-lightbox__image--dragging {
   cursor: grabbing;
 }
 
@@ -307,7 +342,6 @@ onBeforeUnmount(() => {
   color: #fff;
 }
 .image-lightbox__iconbtn:active,
-.image-lightbox__nav:active,
 .image-lightbox__toolbtn:active {
   transform: scale(0.94);
 }
@@ -320,6 +354,7 @@ onBeforeUnmount(() => {
 }
 
 /* 左右导航：大圆形 */
+/* 按下时保持位置和尺寸，避免覆盖 translateY 后松手落到背景触发关闭。 */
 .image-lightbox__nav {
   position: absolute;
   top: 50%;

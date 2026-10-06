@@ -9,67 +9,25 @@
 </template>
 
 <script setup>
-import { inject, onBeforeUnmount, ref, watch } from 'vue';
-import { isAuthenticatedApiUrl, resolveAuthenticatedMediaUrl } from '../../utils/authenticatedMedia.js';
+import { inject, toRef } from 'vue';
+import { useAuthenticatedImageSource } from '../../composables/useAuthenticatedImageSource.js';
 
 defineOptions({ inheritAttrs: false });
 
 const props = defineProps({
   src: { type: String, default: '' },
+  retainWhileLoading: Boolean,
 });
-const emit = defineEmits(['load', 'error']);
+const emit = defineEmits(['load', 'error', 'source-ready']);
 const chatSdkClient = inject('chatSdkClient', null);
 
 const TRANSPARENT_PIXEL = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
-const resolvedSrc = ref('');
-const loading = ref(false);
-let requestVersion = 0;
-let controller = null;
-let releaseCurrent = () => {};
-
-function clearCurrent() {
-  releaseCurrent();
-  releaseCurrent = () => {};
-  resolvedSrc.value = '';
-}
-
-async function updateSource(source) {
-  const version = ++requestVersion;
-  controller?.abort();
-  controller = null;
-  clearCurrent();
-
-  if (!source) {
-    loading.value = false;
-    return;
-  }
-  if (!isAuthenticatedApiUrl(source)) {
-    resolvedSrc.value = source;
-    loading.value = false;
-    return;
-  }
-
-  controller = new AbortController();
-  loading.value = true;
-  try {
-    const result = await resolveAuthenticatedMediaUrl(source, {
-      signal: controller.signal,
-      ...(chatSdkClient?.fetchAsset ? { fetchAsset: chatSdkClient.fetchAsset.bind(chatSdkClient) } : {}),
-    });
-    if (version !== requestVersion) {
-      result.release();
-      return;
-    }
-    resolvedSrc.value = result.src;
-    releaseCurrent = result.release;
-  } catch (error) {
-    if (version === requestVersion && error?.code !== 'ERR_CANCELED' && error?.name !== 'CanceledError') {
-      emit('error', error);
-    }
-  } finally {
-    if (version === requestVersion) loading.value = false;
-  }
-}
+const { resolvedSrc, loading } = useAuthenticatedImageSource(toRef(props, 'src'), {
+  retainWhileLoading: toRef(props, 'retainWhileLoading'),
+  fetchAsset: chatSdkClient?.fetchAsset?.bind(chatSdkClient),
+  onReady: () => emit('source-ready'),
+  onError: (error) => emit('error', error),
+});
 
 function onLoad(event) {
   if (resolvedSrc.value) emit('load', event);
@@ -78,12 +36,4 @@ function onLoad(event) {
 function onError(event) {
   if (resolvedSrc.value) emit('error', event);
 }
-
-watch(() => props.src, updateSource, { immediate: true });
-
-onBeforeUnmount(() => {
-  requestVersion += 1;
-  controller?.abort();
-  clearCurrent();
-});
 </script>

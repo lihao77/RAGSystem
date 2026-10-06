@@ -658,6 +658,58 @@ const shots = [
       { type: 'expectImagesDecoded', selector: '.image-lightbox' },
     ],
   },
+  ...[{ name: 'desktop', width: 1440, height: 900 }, { name: 'mobile', width: 390, height: 844 }].map(viewport => ({
+    name: `attachment-lightbox-${viewport.name}`,
+    path: '/?__smoke=empty',
+    width: viewport.width,
+    height: viewport.height,
+    actions: [
+      { type: 'pointerClick', selector: '[aria-label="添加图片或文件"]' },
+      { type: 'selectImageFixtures', selector: '.ctx-drawer-body input[type="file"]' },
+      { type: 'expectCount', selector: '.ctx-file-thumb-btn', count: 2 },
+      { type: 'pointerClick', selector: '.ctx-file-thumb-btn' },
+      { type: 'expectImagesDecoded', selector: '.image-lightbox' },
+      { type: 'expectStyle', selector: '.image-lightbox', property: 'pointerEvents', value: 'auto' },
+      { type: 'pointerClick', selector: '.image-lightbox [aria-label="放大"]' },
+      { type: 'expectText', selector: '.image-lightbox__zoom', text: '120%' },
+      { type: 'pointerClick', selector: '.image-lightbox [aria-label="缩小"]' },
+      { type: 'expectText', selector: '.image-lightbox__zoom', text: '100%' },
+      { type: 'wheel', selector: '.image-lightbox__image', deltaY: -100 },
+      { type: 'expectText', selector: '.image-lightbox__zoom', text: '115%' },
+      { type: 'wheel', selector: '.image-lightbox__image', deltaY: 100 },
+      { type: 'expectText', selector: '.image-lightbox__zoom', text: '100%' },
+      { type: 'drag', selector: '.image-lightbox__image', deltaX: 60, deltaY: 30 },
+      { type: 'expectExpression', script: "return document.querySelector('.image-lightbox__image').style.transform.includes('translate(60px, 30px)');" },
+      { type: 'pointerClick', selector: '.image-lightbox [aria-label="重置视图"]' },
+      { type: 'expectExpression', script: "return document.querySelector('.image-lightbox__image').style.transform.includes('translate(0px, 0px)');" },
+      { type: 'pointerClick', selector: '.image-lightbox [aria-label="放大"]' },
+      { type: 'holdImageDecode' },
+      { type: 'pointerClick', selector: '.image-lightbox [aria-label="下一张"]', holdMs: 180, expectStableBounds: true },
+      { type: 'expectExpression', script: "const image = document.querySelector('.image-lightbox__image'); return image.src === window.__smokeImageDecode.previousSrc && image.naturalWidth > 1 && image.getAttribute('aria-busy') === 'true' && image.style.transform.includes('scale(1.2)');" },
+      { type: 'releaseImageDecode' },
+      { type: 'expectExpression', script: "const image = document.querySelector('.image-lightbox__image'); return image.src !== window.__smokeImageDecode.previousSrc && image.complete && image.naturalWidth > 1 && !window.__smokeImageDecode.blankSource;" },
+      { type: 'expectText', selector: '.image-lightbox__zoom', text: '100%' },
+      { type: 'expectText', selector: '.image-lightbox__title', text: '现场照片-下游.png' },
+      { type: 'expectVisible', selector: '.image-lightbox' },
+      { type: 'pointerClick', selector: '.image-lightbox [aria-label="上一张"]', holdMs: 180, expectStableBounds: true },
+      { type: 'expectText', selector: '.image-lightbox__title', text: '现场照片-上游.png' },
+      { type: 'key', key: 'ArrowRight' },
+      { type: 'expectText', selector: '.image-lightbox__title', text: '现场照片-下游.png' },
+      { type: 'key', key: 'ArrowLeft' },
+      { type: 'expectText', selector: '.image-lightbox__title', text: '现场照片-上游.png' },
+      { type: 'key', key: 'Escape' },
+      { type: 'expectHidden', selector: '.image-lightbox' },
+      { type: 'expectVisible', selector: '.ctx-drawer-body' },
+      { type: 'expectExpression', script: "return document.activeElement?.classList.contains('ctx-file-thumb-btn');" },
+      { type: 'pointerClick', selector: '.ctx-file-thumb-btn' },
+      { type: 'pointerClick', selector: '.image-lightbox [aria-label="放大"]' },
+      { type: 'pointerClick', selector: '.image-lightbox [aria-label="关闭预览"]' },
+      { type: 'expectHidden', selector: '.image-lightbox' },
+      { type: 'expectVisible', selector: '.ctx-drawer-body' },
+      { type: 'pointerClick', selector: '.ctx-file-thumb-btn' },
+      { type: 'expectText', selector: '.image-lightbox__zoom', text: '100%' },
+    ],
+  })),
   {
     name: 'chat-fileref-mobile',
     path: '/?__smoke=fileref',
@@ -2110,6 +2162,91 @@ function jsString(value) {
 
 async function runShotActions(client, shot) {
   for (const action of shot.actions || []) {
+    if (action.type === 'holdImageDecode') {
+      await evaluate(client, `(() => {
+        const image = document.querySelector('.image-lightbox__image');
+        const original = Image.prototype.decode;
+        const state = window.__smokeImageDecode = { previousSrc: image.src, blankSource: false };
+        state.observer = new MutationObserver(() => {
+          if (!image.getAttribute('src') || image.src.startsWith('data:image/gif')) state.blankSource = true;
+        });
+        state.observer.observe(image, { attributes: true, attributeFilter: ['src'] });
+        Image.prototype.decode = function () {
+          return original.call(this).then(() => new Promise(resolve => { state.release = resolve; }));
+        };
+        state.restore = () => { Image.prototype.decode = original; };
+      })()`);
+      continue;
+    }
+
+    if (action.type === 'releaseImageDecode') {
+      if (!await waitForEvaluation(client, '!!window.__smokeImageDecode?.release', 5000)) {
+        throw new Error(`${shot.name} did not stage the next image for decoding`);
+      }
+      await evaluate(client, `(() => {
+        const state = window.__smokeImageDecode;
+        state.restore();
+        state.release();
+      })()`);
+      await wait(300);
+      await evaluate(client, 'window.__smokeImageDecode.observer.disconnect()');
+      continue;
+    }
+
+    if (action.type === 'selectImageFixtures') {
+      const selected = await evaluate(client, `(async () => {
+        const input = document.querySelector(${jsString(action.selector)});
+        if (!input) return false;
+        const { createSmokePendingImageAttachments } = await import('/src/utils/smokeFixtures.js');
+        const transfer = new DataTransfer();
+        for (const attachment of await createSmokePendingImageAttachments()) transfer.items.add(attachment.file);
+        input.files = transfer.files;
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+        return true;
+      })()`);
+      if (!selected) throw new Error(`${shot.name} could not find file input: ${action.selector}`);
+      await wait(250);
+      continue;
+    }
+
+    if (action.type === 'key') {
+      await client.send('Input.dispatchKeyEvent', { type: 'keyDown', key: action.key, code: action.key });
+      await client.send('Input.dispatchKeyEvent', { type: 'keyUp', key: action.key, code: action.key });
+      await wait(300);
+      continue;
+    }
+
+    // 原生输入参与浏览器命中测试，避免 element.click() 绕过弹层的 pointer-events 禁用。
+    if (['pointerClick', 'wheel', 'drag'].includes(action.type)) {
+      await waitForEvaluation(client, `!!document.querySelector(${jsString(action.selector)})`, 5000);
+      const point = await evaluate(client, `(() => {
+        const rect = document.querySelector(${jsString(action.selector)})?.getBoundingClientRect();
+        return rect ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2, width: rect.width, height: rect.height } : null;
+      })()`);
+      if (!point) throw new Error(`${shot.name} could not find input selector: ${action.selector}`);
+      await client.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...point });
+      if (action.type === 'wheel') {
+        await client.send('Input.dispatchMouseEvent', { type: 'mouseWheel', ...point, deltaX: 0, deltaY: action.deltaY });
+      } else {
+        await client.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: 'left', clickCount: 1 });
+        if (action.holdMs) await wait(action.holdMs);
+        if (action.expectStableBounds) {
+          const pressed = await evaluate(client, `(() => {
+            const rect = document.querySelector(${jsString(action.selector)}).getBoundingClientRect();
+            return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2, width: rect.width, height: rect.height };
+          })()`);
+          if (['x', 'y', 'width', 'height'].some(key => Math.abs(point[key] - pressed[key]) > 0.5)) {
+            throw new Error(`${shot.name} pressed button moved: ${action.selector}; before=${JSON.stringify(point)}, pressed=${JSON.stringify(pressed)}`);
+          }
+        }
+        const end = action.type === 'drag' ? { x: point.x + action.deltaX, y: point.y + action.deltaY } : point;
+        if (action.type === 'drag') await client.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...end, button: 'left', buttons: 1 });
+        await client.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...end, button: 'left', clickCount: 1 });
+      }
+      await wait(300);
+      continue;
+    }
+
     if (action.type === 'mockArtifactApi' || action.type === 'mockKnowledgeSearchApi' || action.type === 'mockSessionSidebarApi' || action.type === 'mockFileRefApi'
       || action.type === 'mockAgentStudioApi' || action.type === 'mockKnowledgeBaseApi' || action.type === 'mockMcpApi') {
       continue;
