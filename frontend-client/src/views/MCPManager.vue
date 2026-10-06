@@ -84,14 +84,14 @@
           </div>
 
           <div class="server-actions">
-            <Button variant="action-success" size="action" :disabled="!server.enabled || server.status === 'connected'" @click="handleConnect(server)" title="连接">
-              <Wifi />连接
+            <Button variant="action-success" size="action" :disabled="!server.enabled || server.status === 'connected' || !!serverActionPending[server.name]" @click="handleConnect(server)" title="连接">
+              <Wifi />{{ serverActionPending[server.name] === 'connect' ? '连接中' : '连接' }}
             </Button>
-            <Button variant="action-warning" size="action" :disabled="server.status !== 'connected'" @click="handleDisconnect(server)" title="断开">
-              <WifiOff />断开
+            <Button variant="action-warning" size="action" :disabled="server.status !== 'connected' || !!serverActionPending[server.name]" @click="handleDisconnect(server)" title="断开">
+              <WifiOff />{{ serverActionPending[server.name] === 'disconnect' ? '断开中' : '断开' }}
             </Button>
-            <Button variant="action-neutral" size="action" @click="handleTest(server)" title="测试连接">
-              <Clock />测试
+            <Button variant="action-neutral" size="action" :disabled="!!serverActionPending[server.name]" @click="handleTest(server)" title="测试连接">
+              <Clock />{{ serverActionPending[server.name] === 'test' ? '测试中' : '测试' }}
             </Button>
             <Button variant="action-neutral" size="action" @click="showTools(server)" title="查看工具">
               <Wrench />工具 <span v-if="server.tool_count" class="adm-action-badge">{{ server.tool_count }}</span>
@@ -250,6 +250,8 @@ const registryInstallDialogVisible = ref(false);
 const editDialogVisible = ref(false);
 const toolsDialogVisible = ref(false);
 const editForm = ref(null);
+// 记录每张卡片进行中的操作(connect/disconnect/test),用于按钮禁用与“连接中”等即时反馈
+const serverActionPending = reactive({});
 
 const riskOptions = [{ value: 'low', label: 'Low' }, { value: 'medium', label: 'Medium' }, { value: 'high', label: 'High' }];
 const transportOptions = [
@@ -361,15 +363,26 @@ function openAddService() {
   addServiceVisible.value = true;
 }
 
+async function fetchServers() {
+  const res = await listMCPServers();
+  servers.value = res.data || [];
+  useMcpStore().reloadPrompts();
+}
+
 const { run: runLoadServers, loading: loadingServers } = useAsyncAction(
-  async () => {
-    const res = await listMCPServers();
-    servers.value = res.data || [];
-    useMcpStore().reloadPrompts();
-  },
+  fetchServers,
   { errorPrefix: '加载服务失败' },
 );
 function refreshAll() { runLoadServers(); }
+
+// 操作成功后的列表同步必须走静默刷新:只更新数据,不置 loadingServers,否则 EntityListLayout 会用骨架屏整体替换列表造成“整页刷新”闪烁。
+async function silentRefreshServers() {
+  try {
+    await fetchServers();
+  } catch (e) {
+    toast.error(e?.message || '刷新服务列表失败');
+  }
+}
 
 const { run: runSearch, loading: loadingRegistryResults } = useAsyncAction(
   async (opts = {}) => {
@@ -393,7 +406,7 @@ const { run: runInstall, loading: installing } = useAsyncAction(
   async (payload) => {
     await addMCPServer(payload);
     resetInstallForm();
-    await runLoadServers();
+    await silentRefreshServers();
     addServiceVisible.value = false;
   },
   { successMessage: (r) => r?.message || '安装成功', errorPrefix: '安装失败' },
@@ -422,7 +435,7 @@ const { run: runRegistryInstall, loading: installingRegistry } = useAsyncAction(
   async (payload) => {
     await installMCPRegistryServer(payload);
     closeRegistryInstallDialog();
-    await runLoadServers();
+    await silentRefreshServers();
     addServiceVisible.value = false;
   },
   { successMessage: (r) => r?.message || '安装成功', errorPrefix: 'Registry 安装失败' },
@@ -469,7 +482,7 @@ const { run: runSaveEdit, loading: savingEdit } = useAsyncAction(
       headers: isStdio ? {} : parsedHeaders, url: isStdio ? null : editForm.value.url,
     });
     closeEditDialog();
-    await runLoadServers();
+    await silentRefreshServers();
     return res;
   },
   { successMessage: (r) => r?.message || '保存成功', errorPrefix: '保存失败' },
@@ -477,17 +490,44 @@ const { run: runSaveEdit, loading: savingEdit } = useAsyncAction(
 function saveEdit() { runSaveEdit(); }
 
 const { run: runConnect } = useAsyncAction(
-  async (server) => { const res = await connectMCPServer(server.name); await runLoadServers(); return res; },
+  async (server) => {
+    serverActionPending[server.name] = 'connect';
+    server.status = 'connecting';
+    try {
+      return await connectMCPServer(server.name);
+    } finally {
+      delete serverActionPending[server.name];
+      silentRefreshServers();
+    }
+  },
   { successMessage: (r) => r?.message || '连接成功', errorPrefix: '连接失败' },
 );
 function handleConnect(server) { runConnect(server); }
 const { run: runDisconnect } = useAsyncAction(
-  async (server) => { const res = await disconnectMCPServer(server.name); await runLoadServers(); return res; },
+  async (server) => {
+    serverActionPending[server.name] = 'disconnect';
+    try {
+      const res = await disconnectMCPServer(server.name);
+      server.status = 'disconnected';
+      return res;
+    } finally {
+      delete serverActionPending[server.name];
+      silentRefreshServers();
+    }
+  },
   { successMessage: (r) => r?.message || '断开成功', errorPrefix: '断开失败' },
 );
 function handleDisconnect(server) { runDisconnect(server); }
 const { run: runTest } = useAsyncAction(
-  async (server) => { const res = await testMCPServer(server.name); await runLoadServers(); return res; },
+  async (server) => {
+    serverActionPending[server.name] = 'test';
+    try {
+      return await testMCPServer(server.name);
+    } finally {
+      delete serverActionPending[server.name];
+      silentRefreshServers();
+    }
+  },
   { successMessage: (r) => r?.message || '测试成功', errorPrefix: '测试失败' },
 );
 function handleTest(server) { runTest(server); }
@@ -585,7 +625,12 @@ async function showPrompts(server) {
 function closePromptsDialog() { promptsDialogVisible.value = false; }
 
 const { run: runDelete } = useAsyncAction(
-  async (server) => { const res = await deleteMCPServer(server.name); await runLoadServers(); return res; },
+  async (server) => {
+    const res = await deleteMCPServer(server.name);
+    servers.value = servers.value.filter((s) => s.name !== server.name);
+    silentRefreshServers();
+    return res;
+  },
   { successMessage: (r) => r?.message || '删除成功', errorPrefix: '删除失败' },
 );
 async function handleDelete(server) {
