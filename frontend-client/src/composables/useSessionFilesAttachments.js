@@ -23,6 +23,18 @@ export function useSessionFilesAttachments(deps) {
   const deletingSessionFileId = ref(null);
   const sessionFilesDrawerVisible = deps.sessionFilesDrawerVisible || ref(false);
   const sessionFilesDrawerTarget = deps.sessionFilesDrawerTarget || ref('composer');
+  const getPathForFile = deps.getPathForFile ?? ((file) =>
+    typeof window !== 'undefined' ? window.ragsystemDesktop?.getPathForFile?.(file) || '' : '');
+  // 部分登记成功后失败时，重试沿用已创建的引用；同一草稿不能跨会话复用引用。
+  const materializedLocalAttachments = new Map();
+
+  const forgetMaterializedAttachment = (attachment) => {
+    if (!isLocalAttachment(attachment)) return;
+    for (const [sessionId, files] of materializedLocalAttachments) {
+      files.delete(attachment.local_id);
+      if (!files.size) materializedLocalAttachments.delete(sessionId);
+    }
+  };
 
   const getAttachmentPreviewUrl = (attachment) => {
     if (isLocalAttachment(attachment)) return attachment.preview_url || '';
@@ -43,6 +55,7 @@ export function useSessionFilesAttachments(deps) {
   const releaseAttachmentResources = (attachments) => {
     for (const attachment of attachments || []) {
       revokeAttachmentPreviewUrl(attachment);
+      forgetMaterializedAttachment(attachment);
     }
   };
 
@@ -153,18 +166,51 @@ export function useSessionFilesAttachments(deps) {
     uploadingSessionFiles.value = true;
     try {
       if (!deps.chatSdkClient) throw new Error('Chat SDK 未初始化');
-      const res = await deps.chatSdkClient.uploadFiles(sessionId, localAttachments.map(attachment => attachment.file));
-      const createdFiles = (res.files || []).map(normalizeSessionAttachment).filter(Boolean);
-      if (createdFiles.length !== localAttachments.length) {
-        throw new Error('附件上传结果数量不匹配');
+      const createdFiles = new Map();
+      const uploads = [];
+      const rememberCreatedFile = (attachment, file) => {
+        let cachedFiles = materializedLocalAttachments.get(sessionId);
+        if (!cachedFiles) {
+          cachedFiles = new Map();
+          materializedLocalAttachments.set(sessionId, cachedFiles);
+        }
+        cachedFiles.set(attachment.local_id, file);
+        createdFiles.set(attachment.local_id, file);
+      };
+      for (const attachment of localAttachments) {
+        const cached = materializedLocalAttachments.get(sessionId)?.get(attachment.local_id);
+        if (cached) {
+          createdFiles.set(attachment.local_id, cached);
+          continue;
+        }
+        // 只有模型可内联的图片进入受管存储；TIFF 等格式按普通文件链接。
+        const localPath = isImageAttachment(attachment) ? '' : getPathForFile(attachment.file);
+        if (!localPath) {
+          uploads.push(attachment);
+          continue;
+        }
+        const res = await deps.chatSdkClient.linkLocalFile(sessionId, {
+          path: localPath,
+          original_name: attachment.original_name,
+          mime: attachment.mime || 'application/octet-stream',
+        });
+        const linked = normalizeSessionAttachment(res.file);
+        if (!linked) throw new Error('附件链接结果无效');
+        rememberCreatedFile(attachment, linked);
+      }
+      if (uploads.length) {
+        const res = await deps.chatSdkClient.uploadFiles(sessionId, uploads.map(attachment => attachment.file));
+        const uploaded = (res.files || []).map(normalizeSessionAttachment).filter(Boolean);
+        if (uploaded.length !== uploads.length) throw new Error('附件上传结果数量不匹配');
+        uploads.forEach((attachment, index) => rememberCreatedFile(attachment, uploaded[index]));
       }
       const mapped = [];
-      let localIndex = 0;
       for (const attachment of attachments) {
         if (isLocalAttachment(attachment)) {
-          mapped.push(createdFiles[localIndex]);
+          mapped.push(createdFiles.get(attachment.local_id));
           revokeAttachmentPreviewUrl(attachment);
-          localIndex += 1;
+          // 全部成功后返回值已包含持久引用，缓存只服务物化过程中的失败重试。
+          forgetMaterializedAttachment(attachment);
         } else {
           const normalized = normalizeSessionAttachment(attachment);
           if (normalized) mapped.push(normalized);
@@ -207,12 +253,22 @@ export function useSessionFilesAttachments(deps) {
   };
 
   const removeSessionFile = async (file) => {
-    if (!deps.currentSessionId.value || !file?.id) return;
+    const sessionId = deps.currentSessionId.value;
+    if (!sessionId || !file?.id) return;
     deletingSessionFileId.value = file.id;
     try {
       if (!deps.chatSdkClient) throw new Error('Chat SDK 未初始化');
-      await deps.chatSdkClient.deleteFile(deps.currentSessionId.value, file.id);
-      sessionFiles.value = sessionFiles.value.filter(item => item.id !== file.id);
+      await deps.chatSdkClient.deleteFile(sessionId, file.id);
+      const cachedFiles = materializedLocalAttachments.get(sessionId);
+      if (cachedFiles) {
+        for (const [localId, cached] of cachedFiles) {
+          if ((cached.file_id || cached.id) === file.id) cachedFiles.delete(localId);
+        }
+        if (!cachedFiles.size) materializedLocalAttachments.delete(sessionId);
+      }
+      if (deps.currentSessionId.value === sessionId) {
+        sessionFiles.value = sessionFiles.value.filter(item => item.id !== file.id);
+      }
       deps.showToast('会话文件已删除', 'success');
     } catch (error) {
       deps.showToast(error.message || '删除会话文件失败');

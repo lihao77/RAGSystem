@@ -1,7 +1,9 @@
-const { contextBridge, ipcRenderer } = require('electron')
+const { contextBridge, ipcRenderer, webUtils } = require('electron')
 
 contextBridge.exposeInMainWorld('ragsystemDesktop', {
   platform: process.platform,
+  // 只接受渲染进程中的 File；剪贴板/程序生成的 File 没有磁盘路径，返回空字符串。
+  getPathForFile: (file) => webUtils.getPathForFile(file),
   selectProjectFolder: () => ipcRenderer.invoke('dialog:select-project-folder'),
   setPetClickThrough: (interactive) => ipcRenderer.invoke('pet:set-click-through', Boolean(interactive)),
   setPetFocus: (focus) => ipcRenderer.invoke('pet:set-focus', Boolean(focus)),

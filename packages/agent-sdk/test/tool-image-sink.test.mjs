@@ -33,7 +33,7 @@ function visionProvider() {
 
 test("media 经 ToolImageSink 持久化：file_id 进 metadata、in-band 用 sink 字节、files 标 session 生命周期", async () => {
   const result = imageResult();
-  const adapted = new Uint8Array([9, 9, 9]);
+  const adapted = Buffer.from("524946460400000057454250", "hex");
   let saved = null;
   const parts = await buildToolMediaModelContent({
     result,
@@ -77,6 +77,60 @@ test("media 经 ToolImageSink 持久化：file_id 进 metadata、in-band 用 sin
   assert.equal(result.files[0].mimeType, "image/png");
   assert.equal(result.files[0].size, TINY_PNG.byteLength);
   assert.deepEqual(result.media, [{ kind: "image", mimeType: "image/png", source: { type: "file", path: "D:/data/sessions/session-1/uploads/x.png" }, alt: "photo.png" }]);
+});
+
+test("JavaScript 插件的未知 MIME 或声明与字节不符的图片在持久化和模型请求前被拒绝", async () => {
+  for (const [mimeType, bytes] of [
+    ["image/tiff", Buffer.from("524946460400000057454250", "hex")],
+    ["image/avif", TINY_PNG],
+    ["image/png", Buffer.from("49492a0008000000", "hex")],
+    ["image/jpeg", TINY_PNG],
+  ]) {
+    const result = imageResult();
+    result.media[0].mimeType = mimeType;
+    result.media[0].source.data = bytes.toString("base64");
+    const parts = await buildToolMediaModelContent({
+      result, observation: "obs", provider: visionProvider(), dataRoot: os.tmpdir(), sessionId: "session-1",
+      imageSink: { save: async () => assert.fail("invalid input must not reach the image sink") },
+    });
+    assert.equal(parts, null);
+    assert.deepEqual(result.media, []);
+    assert.deepEqual(result.files, []);
+    assert.equal(result.metadata.tool_result_media_rejected, 1);
+  }
+});
+
+test("sink 的不支持、误标或损坏产物回退原图，保留原始持久化引用", async () => {
+  for (const [mimeType, bytes] of [
+    ["image/tiff", Buffer.from("524946460400000057454250", "hex")],
+    ["image/png", Buffer.from("49492a0008000000", "hex")],
+    ["image/webp", Buffer.from([9, 9, 9])],
+    ["image/png", new Uint8Array()],
+  ]) {
+    const result = imageResult();
+    const parts = await buildToolMediaModelContent({
+      result, observation: "obs", provider: visionProvider(), dataRoot: os.tmpdir(), sessionId: "session-1",
+      imageSink: { save: async () => ({ fileId: "file-42", storedPath: "D:/data/original.png", storedSize: TINY_PNG.length, bytes, mimeType }) },
+    });
+    assert.equal(parts.find(part => part.type === "image_url").image_url.url, `data:image/png;base64,${TINY_PNG.toString("base64")}`);
+    assert.equal(result.metadata.tool_result_media[0].file_id, "file-42");
+    assert.equal(result.metadata.tool_result_media[0].mime, "image/png");
+    assert.equal(result.files[0].path, "D:/data/original.png");
+    assert.equal(result.files[0].mimeType, "image/png");
+    assert.equal(result.media[0].source.path, "D:/data/original.png");
+  }
+});
+
+test("sink 换码结果的 data URL 使用实际编码，原始 metadata 仍保持 PNG", async () => {
+  const result = imageResult();
+  const jpeg = Buffer.from([0xff, 0xd8, 0xff]);
+  const parts = await buildToolMediaModelContent({
+    result, observation: "obs", provider: visionProvider(), dataRoot: os.tmpdir(), sessionId: "session-1",
+    imageSink: { save: async () => ({ fileId: "file-42", storedPath: "D:/data/original.png", storedSize: TINY_PNG.length, bytes: jpeg, mimeType: "image/webp" }) },
+  });
+  assert.equal(parts.find(part => part.type === "image_url").image_url.url, `data:image/jpeg;base64,${jpeg.toString("base64")}`);
+  assert.equal(result.metadata.tool_result_media[0].mime, "image/png");
+  assert.equal(result.files[0].mimeType, "image/png");
 });
 
 test("sink 抛错或未注入时回退临时文件通道：无 file_id、lifecycle transient", async () => {

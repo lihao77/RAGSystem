@@ -144,30 +144,41 @@
         <div class="registry-search-bar">
           <div class="search-input-wrap">
             <IconSearch :size="16" />
-            <input v-model.trim="registrySearch.query" type="text" placeholder="搜索服务名称，如 github / filesystem / mysql ..." class="registry-search-input" @keyup.enter="searchRegistryServers" />
+            <input v-model.trim="registrySearch.query" type="text" placeholder="搜索服务名称，如 github / filesystem / mysql ..." class="registry-search-input" @keyup.enter="searchRegistryNow" />
           </div>
           <label class="toggle-field toggle-field--inline"><Switch v-model:checked="registrySearch.latest_only" /><span>仅最新版本</span></label>
-          <Button variant="secondary" :disabled="loadingRegistryResults" @click="searchRegistryServers">{{ loadingRegistryResults ? '搜索中...' : '搜索' }}</Button>
+          <Button variant="secondary" :disabled="loadingRegistryResults" @click="searchRegistryNow">{{ loadingRegistryResults ? '搜索中...' : '搜索' }}</Button>
         </div>
 
+        <!-- 骨架屏只出现在没有任何结果时；追加加载/重新搜索期间保留现有网格，避免整体闪烁 -->
         <EntityListLayout
-          v-if="loadingRegistryResults || !registryResults.length"
+          v-if="!registryResults.length"
           title="Registry 结果"
           :loading="loadingRegistryResults"
           loading-text="正在搜索 Registry..."
+          :error="registrySearchError"
+          :empty="!loadingRegistryResults && !registrySearchError"
           empty-title="暂无搜索结果"
           empty-hint="尝试输入关键词后点击搜索"
+          @retry="searchRegistryNow"
         />
-        <div v-else class="registry-grid">
+        <template v-else>
+          <div class="registry-grid">
           <article v-for="item in registryResults" :key="`${item.name}-${item.version}`" class="registry-card">
             <div class="registry-card-head">
               <div class="registry-card-icon"><Package :size="16" :stroke-width="1.8" /></div>
               <div class="registry-card-title">
-                <h3>{{ item.display_name || item.name }}</h3>
-                <div class="registry-card-meta"><code>{{ item.name }}</code><span class="version-tag">v{{ item.version }}</span><Badge v-if="item.latest" variant="success">Latest</Badge></div>
+                <h3 :title="item.display_name || item.name">{{ item.display_name || item.name }}</h3>
+                <div class="registry-card-meta">
+                  <code :title="item.name">{{ item.name }}</code>
+                  <span v-if="item.version" class="version-tag">v{{ item.version }}</span>
+                  <Badge v-if="item.latest" variant="success">Latest</Badge>
+                </div>
               </div>
+              <Badge v-if="isInstalled(item)" variant="outline" class="registry-card-flag">已安装</Badge>
+              <Badge v-else-if="item.installable" variant="info" class="registry-card-flag">可安装</Badge>
             </div>
-            <p class="registry-desc">{{ item.description || '暂无描述' }}</p>
+            <p class="registry-desc" :class="{ 'registry-desc--empty': !item.description }">{{ item.description || '暂无描述' }}</p>
             <div v-if="item.install_options?.length" class="install-options-row">
               <span v-for="option in item.install_options" :key="option.id" class="option-chip" :class="option.supported ? 'option-chip--ok' : 'option-chip--no'" :title="option.supported ? option.label : option.unsupported_reason">
                 <IconCheck v-if="option.supported" :size="12" :stroke-width="2.5" />
@@ -180,17 +191,22 @@
               {{ firstUnsupportedReason(item) }}
             </div>
             <div class="registry-card-actions">
-              <Button size="sm" variant="default" :disabled="!item.installable || installingRegistry" @click="handleRegistryInstall(item)">{{ quickInstallButtonText(item) }}</Button>
-              <Button size="sm" variant="secondary" :disabled="!item.install_options?.length" @click="openRegistryInstallDialog(item)">配置安装</Button>
+              <Button size="sm" variant="default" :disabled="!item.installable || installingRegistry || isInstalled(item)" @click="handleRegistryInstall(item)"><IconDownload />{{ isInstalled(item) ? '已安装' : quickInstallButtonText(item) }}</Button>
+              <Button size="sm" variant="outline" :disabled="!item.install_options?.length" @click="openRegistryInstallDialog(item)"><Settings2 :size="14" />配置安装</Button>
               <div class="registry-links">
-                <a v-if="item.website_url" class="ext-link" @click.prevent="openExternalLink(item.website_url)" href="#"><Globe :size="14" />官网</a>
-                <a v-if="item.repository_url" class="ext-link" @click.prevent="openExternalLink(item.repository_url)" href="#"><Github :size="14" />源码</a>
+                <a v-if="item.website_url" class="ext-link ext-link--icon" title="访问官网" aria-label="访问官网" @click.prevent="openExternalLink(item.website_url)" href="#"><Globe :size="14" /></a>
+                <a v-if="item.repository_url" class="ext-link ext-link--icon" title="查看源码" aria-label="查看源码" @click.prevent="openExternalLink(item.repository_url)" href="#"><Github :size="14" /></a>
               </div>
             </div>
           </article>
-        </div>
+          </div>
+        </template>
         <div v-if="registryNextCursor" class="load-more-row">
-          <Button variant="secondary" :disabled="loadingMoreRegistry" @click="loadMoreRegistryServers">{{ loadingMoreRegistry ? '加载中...' : '加载更多结果' }}</Button>
+          <button type="button" class="load-more-btn" :disabled="loadingMoreRegistry" @click="loadMoreRegistryServers">
+            <Spinner v-if="loadingMoreRegistry" class="load-more-btn__spinner" />
+            <IconChevronDown v-else :size="15" class="load-more-btn__chevron" />
+            {{ loadingMoreRegistry ? '正在加载更多...' : '加载更多结果' }}
+          </button>
         </div>
       </div>
 
@@ -209,8 +225,9 @@
 <script setup>
 // 「添加 MCP 服务」弹窗：手动配置 + Registry 搜索安装两种方式。
 // 手动配置内联实时校验（blur 或首次提交后展示错误）；校验通过后才会调用父级 submitManualInstall。
-import { computed, reactive, ref } from 'vue';
-import { Github, Globe, Package, Rss, Terminal } from 'lucide-vue-next';
+import { computed, onBeforeUnmount, reactive, ref } from 'vue';
+import { useMcpRegistryAutoSearch } from '../../composables/useMcpRegistrySearch.js';
+import { Github, Globe, Package, Rss, Settings2, Terminal } from 'lucide-vue-next';
 import CustomSelect from '../ui/CustomSelect.vue';
 import NumberInput from '../NumberInput.vue';
 import EntityListLayout from '../admin/EntityListLayout.vue';
@@ -243,7 +260,9 @@ const props = defineProps({
   installing: { type: Boolean, default: false },
   registrySearch: { type: Object, required: true },
   loadingRegistryResults: { type: Boolean, default: false },
+  registrySearchError: { type: String, default: '' },
   registryResults: { type: Array, default: () => [] },
+  installedServerNames: { type: Set, default: () => new Set() },
   installingRegistry: { type: Boolean, default: false },
   registryNextCursor: { default: null },
   loadingMoreRegistry: { type: Boolean, default: false },
@@ -261,6 +280,20 @@ const props = defineProps({
 const emit = defineEmits(['update:open', 'update:addMode']);
 
 const advancedOpen = ref(false);
+
+// 输入/切换“仅最新版本”后 400ms 防抖自动搜索;弹窗关闭或手动配置页不触发
+const { searchNow: searchRegistryNow, dispose: disposeAutoSearch } = useMcpRegistryAutoSearch({
+  query: props.registrySearch,
+  active: () => props.open && props.addMode === 'registry',
+  onSearch: () => props.searchRegistryServers(),
+});
+onBeforeUnmount(disposeAutoSearch);
+
+// Registry 条目的可安装名与各安装方式默认名命中已安装集合即视为已安装
+function isInstalled(item) {
+  const candidates = [item.default_server_name, ...(item.install_options || []).map((o) => o.default_server_name)];
+  return candidates.some((n) => n && props.installedServerNames.has(n));
+}
 
 const addModeOptions = [
   { value: 'manual', label: '手动配置', icon: IconPlus },

@@ -54,6 +54,7 @@ import type {
   RagChatInteractionHandler,
   RagChatRequestContext,
   UploadFilesOptions,
+  LinkLocalFileInput,
 } from "./types.js";
 
 const EMPTY_RUNTIME: SessionRuntimePayload = {
@@ -400,6 +401,10 @@ export class RagChatClient {
     const formData = new FormData();
     for (const file of Array.from(files)) formData.append(options.fieldName ?? "files", file);
     return this.request("uploadFiles", { method: "POST", context: { sessionId }, formData });
+  }
+
+  async linkLocalFile(sessionId: string, input: LinkLocalFileInput): Promise<unknown> {
+    return this.request("linkLocalFile", { method: "POST", context: { sessionId }, body: input });
   }
 
   async validateFiles(sessionId: string, fileIds: string[]): Promise<unknown> {
@@ -801,6 +806,7 @@ function defaultEndpoint(name: RagChatEndpointName, context: Record<string, unkn
     case "clearMessageFeedback": return `/api/agent/sessions/${sessionId}/messages/${encodeURIComponent(String(context.messageId ?? ""))}/feedback`;
     case "listFiles": return `/api/agent/sessions/${sessionId}/files`;
     case "uploadFiles": return `/api/agent/sessions/${sessionId}/files/upload`;
+    case "linkLocalFile": return `/api/agent/sessions/${sessionId}/files/link`;
     case "validateFiles": return `/api/agent/sessions/${sessionId}/files/validate`;
     case "deleteFile": return `/api/agent/sessions/${sessionId}/files/${fileId}`;
     case "downloadFile": return `/api/agent/sessions/${sessionId}/files/${fileId}/download`;

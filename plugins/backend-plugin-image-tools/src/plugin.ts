@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { buildTool, type Tool, type ToolAccessDecision, type ToolExecContext, type ToolExecutionResult, type ToolResultMedia } from "@ragsystem/agent-sdk";
-import type { MessageContentPart } from "@ragsystem/agent-protocol";
+import { resolveInlineImageBytesMime, resolveInlineImageMime, type MessageContentPart } from "@ragsystem/agent-protocol";
 import { isAbsolutePathLike, isPathUnder, resolvePathLike } from "@ragsystem/backend-core/tools/shared/paths.js";
 import type { PathAccessPolicy } from "@ragsystem/backend-core/contracts/runtime/path-access-policy.js";
 import {
@@ -61,19 +61,6 @@ function emitImageEvent(
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024; // 10 MB
 
-/** 读取结果的 contentType 是字节真实编码（归一化变体可能换编码）；非图片值回退上传声明。 */
-function imageMimeOr(contentType: string | null | undefined, fallback: string): string {
-  const mime = contentType?.trim();
-  return mime && /^image\/[a-z0-9.+-]+$/i.test(mime) ? mime : fallback;
-}
-const IMAGE_MIME_BY_EXT: Readonly<Record<string, ToolResultMedia["mimeType"]>> = {
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".gif": "image/gif",
-  ".webp": "image/webp",
-};
-
 const TOOL_DESCRIPTORS: readonly BackendToolDescriptor[] = [
   {
     name: VIEW_IMAGE_TOOL_NAME,
@@ -121,7 +108,7 @@ export async function describeUserMessageImagesWithHelper(
   if (!isVisionHelperEnabled(config)) return null;
   const imageParts = input.contentParts.filter(
     (part): part is Extract<MessageContentPart, { type: "attachment_ref" }> =>
-      part.type === "attachment_ref" && part.kind === "image",
+      part.type === "attachment_ref" && part.kind === "image" && Boolean(resolveInlineImageMime(part.mime, part.original_name)),
   );
   if (imageParts.length === 0) return null;
   const provider = findConfiguredProviderFromList(input.modelAdapter.listProviders(), config);
@@ -140,12 +127,11 @@ export async function describeUserMessageImagesWithHelper(
     // 结果按下标对齐，保证描述 part 仍紧跟各自 attachment_ref 持久化。
     const descriptions = await Promise.all(imageParts.map(async (part, index) => {
       const source = await input.readAttachment(part.file_id);
-      const text = source && source.body.length > 0
+      const mime = source ? resolveInlineImageBytesMime(source.body, source.contentType) : null;
+      const text = source && mime
         ? await helper.describeImage({
             bytes: source.body,
-            // 读取结果的 contentType 是字节的真实编码（归一化变体可能 png→webp/jpeg，
-            // 与投影层同源优先），缺失或非图片值时回退上传声明。
-            mime: imageMimeOr(source.contentType, part.mime),
+            mime,
             signal: input.signal ?? null,
           })
         : null;
@@ -165,7 +151,7 @@ export async function describeUserMessageImagesWithHelper(
     let imageCursor = 0;
     for (const part of input.contentParts) {
       parts.push(part);
-      if (part.type !== "attachment_ref" || part.kind !== "image") continue;
+      if (part.type !== "attachment_ref" || !imageParts.includes(part)) continue;
       const description = descriptions[imageCursor];
       imageCursor += 1;
       if (description) {
@@ -273,6 +259,9 @@ async function readWorkspaceImage(
     }
   }
   if (bytes.length > MAX_IMAGE_BYTES) return imageError("Image exceeds the 10 MB limit");
+  const actualMime = resolveInlineImageBytesMime(bytes, effectiveMime);
+  if (!actualMime) return imageError("Image encoding is unsupported; only PNG, JPEG, GIF, and WebP are supported");
+  effectiveMime = actualMime;
 
   // 视觉辅助描述：配置启用时生成，非视觉主模型也能"看懂"图片内容（描述随工具结果消息持久化）。
   const description = await describeImageIfConfigured(context, bytes, effectiveMime, ctx);
@@ -408,5 +397,5 @@ function viewImageExternalCandidates(
 }
 
 function imageMime(filePath: string): ToolResultMedia["mimeType"] | null {
-  return IMAGE_MIME_BY_EXT[path.extname(filePath).toLowerCase()] ?? null;
+  return resolveInlineImageMime("", filePath);
 }

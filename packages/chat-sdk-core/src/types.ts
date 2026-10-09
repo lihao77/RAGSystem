@@ -41,6 +41,7 @@ export type RagChatEndpointName =
   | "clearMessageFeedback"
   | "listFiles"
   | "uploadFiles"
+  | "linkLocalFile"
   | "validateFiles"
   | "deleteFile"
   | "downloadFile"
@@ -119,6 +120,13 @@ export interface ListMessagesOptions {
 
 export interface UploadFilesOptions {
   fieldName?: string;
+}
+
+/** Local deployments only: register an existing file without copying its contents. */
+export interface LinkLocalFileInput {
+  path: string;
+  original_name?: string;
+  mime?: string;
 }
 
 export type { DelegatedToolSpec, InteractionResponse, PendingInteraction, ToolCallHandler, WebSocketFactory };

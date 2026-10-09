@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createLocalAttachment, getAttachmentKey, isLocalAttachment, normalizeSessionAttachment } from './sessionAttachments.js';
+import { createLocalAttachment, getAttachmentKey, isImageAttachment, isLocalAttachment, normalizeSessionAttachment } from './sessionAttachments.js';
 
 test('createLocalAttachment 为本地文件生成待发送附件模型', () => {
   const originalCreateObjectURL = URL.createObjectURL;
@@ -42,4 +42,28 @@ test('normalizeSessionAttachment 规范化后端会话附件引用', () => {
   assert.equal(attachment.file_id, 'file-1');
   assert.equal(attachment.kind, 'file');
   assert.equal(getAttachmentKey(attachment), 'session:file-1');
+});
+
+test('不支持的图片格式保留为普通文件，历史 image 标记也不会创建图片预览', () => {
+  for (const [name, mime] of [['scan.tif', 'image/tiff'], ['scan.tiff', 'image/tiff'], ['vector.svg', 'image/svg+xml'], ['photo.bmp', 'image/bmp'], ['scan.tif', 'image/png']]) {
+    const local = createLocalAttachment(new File(['bytes'], name, { type: mime }));
+    assert.equal(local.kind, 'file');
+    assert.equal(local.preview_url, '');
+    assert.equal(isImageAttachment(local), false);
+    const historical = normalizeSessionAttachment({ id: 'old-file', kind: 'image', mime, original_name: name });
+    assert.equal(historical.kind, 'file');
+    assert.equal(isImageAttachment(historical), false);
+    assert.deepEqual(normalizeSessionAttachment(historical), historical);
+  }
+});
+
+test('支持的图片缺少 MIME 时按扩展名推断格式', () => {
+  const local = createLocalAttachment(new File(['bytes'], 'PHOTO.JPG'));
+  try {
+    assert.equal(local.kind, 'image');
+    assert.equal(local.mime, 'image/jpeg');
+    assert.equal(isImageAttachment(local), true);
+  } finally {
+    URL.revokeObjectURL(local.preview_url);
+  }
 });

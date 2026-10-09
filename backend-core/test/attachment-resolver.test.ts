@@ -22,6 +22,21 @@ const record = {
 };
 
 describe("AttachmentResolver", () => {
+  it.each([
+    ["image/png", "photo.png", "image"], ["image/jpeg", "photo.jpg", "image"],
+    ["image/webp", "photo.webp", "image"], ["image/gif", "photo.gif", "image"],
+    ["", "photo.png", "image"], ["image/tiff", "scan.tif", "file"],
+    ["image/tiff", "scan.tiff", "file"], ["image/png", "scan.tif", "file"],
+    ["image/bmp", "photo.bmp", "file"], ["image/svg+xml", "vector.svg", "file"],
+  ])("classifies stored %s / %s without trusting a client image flag", async (mime, original_name, kind) => {
+    const resolver = new AttachmentResolver({
+      get: vi.fn().mockResolvedValue({ ...record, mime, original_name }), read: vi.fn(),
+    });
+    const result = await resolver.resolve("session-1", [{ file_id: record.id }]);
+    expect(result.attachments[0]?.kind).toBe(kind);
+    if (!mime) expect(result.attachments[0]?.mime).toBe("image/png");
+  });
+
   it("projects a server-authorized local link as an absolute attachment path", async () => {
     const get = vi.fn<SessionFileLookupPort["get"]>().mockResolvedValue(record);
     const resolver = new AttachmentResolver({ get, read: vi.fn().mockResolvedValue(null) });

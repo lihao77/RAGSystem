@@ -35,6 +35,10 @@ export const McpRegistryInstallSchema = z
     timeout: z.number().optional(),
     risk_level: z.string().optional(),
     input_values: z.record(z.unknown()).optional(),
+    // 配置安装的自定义补充:追加启动参数、合并环境变量/请求头(配方之外用户可改的部分)
+    extra_args: z.array(z.string()).optional(),
+    extra_env: z.record(z.string()).optional(),
+    extra_headers: z.record(z.string()).optional(),
   })
   .catchall(z.unknown());
 

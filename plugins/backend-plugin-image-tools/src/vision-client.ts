@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { resolveInlineImageBytesMime } from "@ragsystem/agent-protocol";
 
 import { LlmProviderClient, type ProviderConfig } from "@ragsystem/agent-llm";
 import type { ModelProviderConfig } from "@ragsystem/backend-core/contracts/integrations/model-adapter.js";
@@ -57,7 +58,8 @@ export class OpenAiVisionHelper implements VisionHelper {
   }
 
   async describeImage({ bytes, mime, signal }: DescribeImageOptions): Promise<string | null> {
-    if (bytes.length === 0) return null;
+    const requestMime = resolveInlineImageBytesMime(bytes, mime);
+    if (!requestMime) return null;
     const cacheKey = this.cacheKey(bytes);
     if (this.cacheEnabled) {
       const cached = this.cache.get(cacheKey);
@@ -69,7 +71,7 @@ export class OpenAiVisionHelper implements VisionHelper {
       const onAbort = () => controller.abort();
       signal?.addEventListener("abort", onAbort, { once: true });
       try {
-        const dataUrl = `data:${normalizeImageMime(mime)};base64,${Buffer.from(bytes).toString("base64")}`;
+        const dataUrl = `data:${requestMime};base64,${Buffer.from(bytes).toString("base64")}`;
         const result = await this.client.complete({
           provider: this.provider,
           model: this.modelName,
@@ -108,11 +110,6 @@ export class OpenAiVisionHelper implements VisionHelper {
     hash.update(bytes);
     return hash.digest("hex");
   }
-}
-
-function normalizeImageMime(mime: string): string {
-  const normalized = mime.trim().toLowerCase();
-  return normalized.startsWith("image/") ? normalized : "image/png";
 }
 
 /**

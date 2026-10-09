@@ -53,6 +53,8 @@ void mcp.autoConnectEnabledServers();
 | `GET` | `/registry/servers` | 搜索 MCP Registry 服务器，支持 `search`/`cursor`/`limit`/`latest_only` 查询参数 |
 | `POST` | `/registry/install` | 从 Registry 安装服务器（body 走 `McpRegistryInstallSchema` 校验） |
 
+Registry 的“配置安装”允许补充配方未声明的参数。本地进程可填写 `extra_args`（字符串数组，追加到配方参数之后）与 `extra_env`（字符串对象，同名环境变量覆盖配方值）；远程服务可填写 `extra_headers`（字符串对象，请求头按大小写不敏感覆盖）。这些值会合入现有的 `args`、`env`、`headers` 配置，安装方式不适用的补充项会忽略。
+
 ### 服务器管理
 
 | 方法 | 路径 | 说明 |

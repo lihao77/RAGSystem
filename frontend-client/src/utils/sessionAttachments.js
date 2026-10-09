@@ -1,7 +1,9 @@
+import { resolveInlineImageMime } from '@ragsystem/agent-protocol';
+
 let localAttachmentCounter = 0;
 
-function inferAttachmentKind(mime) {
-  return String(mime || '').startsWith('image/') ? 'image' : 'file';
+function inferAttachmentKind(mime, filename) {
+  return resolveInlineImageMime(mime, filename) ? 'image' : 'file';
 }
 
 export function normalizeSessionAttachment(file) {
@@ -12,7 +14,7 @@ export function normalizeSessionAttachment(file) {
     ...file,
     source: 'session',
     file_id: fileId,
-    kind: file.kind || inferAttachmentKind(file?.mime),
+    kind: inferAttachmentKind(file.mime, file.original_name || file.stored_name),
   };
 }
 
@@ -22,16 +24,18 @@ export function getSessionFileDownloadUrl(sessionId, fileId) {
 
 export function createLocalAttachment(file) {
   if (!(file instanceof File)) return null;
+  const mime = resolveInlineImageMime(file.type, file.name) || file.type || '';
+  const kind = inferAttachmentKind(mime, file.name);
   return {
     source: 'local',
     local_id: `local-${Date.now()}-${localAttachmentCounter++}`,
     file,
     original_name: file.name,
     stored_name: file.name,
-    mime: file.type || '',
+    mime,
     size: file.size || 0,
-    kind: inferAttachmentKind(file.type),
-    preview_url: String(file.type || '').startsWith('image/') ? URL.createObjectURL(file) : '',
+    kind,
+    preview_url: kind === 'image' ? URL.createObjectURL(file) : '',
   };
 }
 
@@ -56,7 +60,7 @@ export function revokeAttachmentPreviewUrl(attachment) {
 }
 
 export function isImageAttachment(attachment) {
-  return String(attachment?.mime || '').startsWith('image/');
+  return Boolean(resolveInlineImageMime(attachment?.mime, attachment?.original_name || attachment?.stored_name));
 }
 
 export function formatAttachmentSize(size) {

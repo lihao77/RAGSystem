@@ -18,6 +18,7 @@ export type {
   ListSessionWorkspacePreviewOptions,
   ListMessagesOptions,
   UploadFilesOptions,
+  LinkLocalFileInput,
 } from "./types.js";
 export type {
   AguiEvent,

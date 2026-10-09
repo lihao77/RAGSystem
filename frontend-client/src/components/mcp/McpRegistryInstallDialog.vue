@@ -14,8 +14,8 @@
           <label class="field">
             <span>安装方式</span>
             <CustomSelect :model-value="form.option_id" :options="[{ value: '', label: '请选择安装方式' }, ...(server?.install_options || []).map(o => ({ value: o.id, label: o.supported ? o.label : `${o.label}（暂不支持）`, disabled: !o.supported }))]" placeholder="请选择安装方式" @update:model-value="form.option_id = $event; emit('optionChange', $event)" />
-            <small v-if="selectedOption?.command_preview">命令：{{ selectedOption.command_preview }}</small>
-            <small v-if="selectedOption?.url_preview">地址：{{ selectedOption.url_preview }}</small>
+            <code v-if="selectedOption?.command_preview" class="config-preview">命令：{{ selectedOption.command_preview }}</code>
+            <code v-if="selectedOption?.url_preview" class="config-preview">地址：{{ selectedOption.url_preview }}</code>
             <small v-if="selectedOption?.unsupported_reason" class="text-warning">{{ selectedOption.unsupported_reason }}</small>
           </label>
         </div>
@@ -26,7 +26,7 @@
         <div v-if="fields.length" class="form-grid">
           <label v-for="field in fields" :key="field.key" class="field">
             <span>{{ field.label }}<em v-if="field.required">*</em></span>
-            <CustomSelect v-if="field.format === 'select'" :model-value="form.input_values[field.key]" :options="field.options || []" :placeholder="field.placeholder || ''" @update:model-value="form.input_values[field.key] = $event" />
+            <CustomSelect v-if="field.format === 'select' && field.options?.length" :model-value="form.input_values[field.key]" :options="field.options" :placeholder="field.placeholder || ''" @update:model-value="form.input_values[field.key] = $event" />
             <Textarea v-else-if="field.format === 'textarea'" v-model="form.input_values[field.key]" rows="4" class="font-mono-input" :placeholder="field.placeholder || ''" />
             <Input v-else-if="field.format !== 'boolean'" v-model="form.input_values[field.key]" :type="field.secret ? 'password' : field.format === 'number' ? 'number' : 'text'" :placeholder="field.placeholder || ''" />
             <label v-else class="toggle-field toggle-field--inner"><Switch v-model:checked="form.input_values[field.key]" /><span>启用</span></label>
@@ -38,6 +38,26 @@
         <div class="form-grid">
           <label class="field"><span>超时秒数</span><NumberInput :model-value="form.timeout" :min="1" :max="300" @update:model-value="form.timeout = $event" /></label>
           <label class="field"><span>风险等级</span><CustomSelect :model-value="form.risk_level" :options="riskOptions" @update:model-value="form.risk_level = $event" /></label>
+        </div>
+        <!-- 高级补充参数:配方未声明/固化的部分由用户补充(stdio 追加参数与环境变量,远程合并请求头) -->
+        <div v-if="selectedOption" class="form-grid">
+          <template v-if="selectedOption.kind === 'package'">
+            <label class="field">
+              <span>额外启动参数</span>
+              <Textarea v-model="form.extraArgsJson" rows="2" class="font-mono-input" placeholder='["/path/to/dir", "--flag"]' />
+              <small>JSON 数组，追加在配方参数之后；配方未声明的参数（如额外目录）在这里补充。</small>
+            </label>
+            <label class="field">
+              <span>额外环境变量</span>
+              <Textarea v-model="form.extraEnvJson" rows="2" class="font-mono-input" placeholder='{"KEY": "value"}' />
+              <small>JSON 对象，合并到进程环境，同名变量覆盖配方值。</small>
+            </label>
+          </template>
+          <label v-else class="field">
+            <span>额外请求头</span>
+            <Textarea v-model="form.extraHeadersJson" rows="2" class="font-mono-input" placeholder='{"Authorization": "Bearer ..."}' />
+            <small>JSON 对象，合并到请求头，同名覆盖配方值。</small>
+          </label>
         </div>
         <div class="toggle-row">
           <label class="toggle-field"><Switch v-model:checked="form.enabled" /><span>启用服务</span></label>

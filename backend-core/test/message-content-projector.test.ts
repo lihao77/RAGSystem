@@ -129,7 +129,7 @@ describe("projectCanonicalMessageContent", () => {
     await projectCanonicalMessageContent(conversation, [raw], {
       sessionId: "session-1",
       supportsVision: true,
-      readAttachment: vi.fn().mockResolvedValue({ body: new Uint8Array([1, 2, 3]), contentType: "image/jpeg" }),
+      readAttachment: vi.fn().mockResolvedValue({ body: new Uint8Array([0xff, 0xd8, 0xff]), contentType: "image/jpeg" }),
     });
 
     const content = conversation[0]?.content;
@@ -138,5 +138,43 @@ describe("projectCanonicalMessageContent", () => {
       (part) => part.type === "image_url",
     );
     expect(imagePart?.image_url?.url.startsWith("data:image/jpeg;base64,")).toBe(true);
+  });
+
+  it.each([
+    ["scan.tif", "image/tiff"], ["scan.tiff", "image/tiff"], ["scan.tif", "image/png"],
+    ["vector.svg", "image/svg+xml"], ["photo.bmp", "image/bmp"], ["photo.heic", "image/heic"],
+  ])("downgrades historical kind=image attachments %s to file descriptions without reading bytes", async (original_name, mime) => {
+    const conversation: ChatMessage[] = [{ role: "user", content: "" }];
+    const raw = message({ role: "user", content_parts: [{
+      type: "attachment_ref", file_id: "old-file", original_name, stored_name: original_name,
+      mime, size: 42, kind: "image", presentation: "inline",
+    }] });
+    const readAttachment = vi.fn();
+    await projectCanonicalMessageContent(conversation, [raw], { sessionId: "session-1", supportsVision: true, readAttachment });
+    expect(readAttachment).not.toHaveBeenCalled();
+    expect(conversation[0]?.content).toContain('kind="file"');
+    expect(conversation[0]?.content).toContain(original_name);
+    const once = conversation[0]?.content;
+    await projectCanonicalMessageContent(conversation, [raw], { sessionId: "session-1", supportsVision: true, readAttachment });
+    expect(conversation[0]?.content).toBe(once);
+  });
+
+  it.each([
+    ["image/tiff", "49492a0008000000"],
+    ["image/png", "49492a0008000000"],
+    ["image/png", "000102"],
+  ])("never sends unsupported bytes from a normalization fallback (%s)", async (contentType, hex) => {
+    const conversation: ChatMessage[] = [{ role: "user", content: "" }];
+    const raw = message({ role: "user", content_parts: [{
+      type: "attachment_ref", file_id: "file-1", original_name: "photo.png", stored_name: "photo.png",
+      mime: "image/png", size: 42, kind: "image", presentation: "inline",
+    }] });
+    await projectCanonicalMessageContent(conversation, [raw], {
+      sessionId: "session-1", supportsVision: true,
+      readAttachment: vi.fn().mockResolvedValue({ body: Buffer.from(hex, "hex"), contentType }),
+    });
+    expect(typeof conversation[0]?.content).toBe("string");
+    expect(conversation[0]?.content).toContain('file_id="file-1"');
+    expect(conversation[0]?.content).toContain('kind="file"');
   });
 });

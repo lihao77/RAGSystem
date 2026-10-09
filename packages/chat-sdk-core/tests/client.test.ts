@@ -95,6 +95,24 @@ describe("loginRagSystem", () => {
 });
 
 describe("RagChatClient", () => {
+  it("registers a local attachment through the authenticated session link endpoint", async () => {
+    const file = { id: "file-1", storage_kind: "linked_local", local_path: "D:\\资料\\报告.pdf" };
+    const fetchMock = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({ success: true, file }), {
+      status: 200, headers: { "content-type": "application/json" },
+    }));
+    const client = createRagChatClient({ baseUrl: "http://127.0.0.1:5002", token: "jwt-1", fetch: fetchMock });
+    const input = { path: file.local_path, original_name: "报告.pdf", mime: "application/pdf" };
+
+    expect(await client.linkLocalFile("session/1", input)).toEqual({ success: true, file });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:5002/api/agent/sessions/session%2F1/files/link",
+      expect.objectContaining({ method: "POST", body: JSON.stringify(input) }),
+    );
+    const headers = new Headers(fetchMock.mock.calls[0]?.[1]?.headers);
+    expect(headers.get("authorization")).toBe("Bearer jwt-1");
+    expect(headers.get("content-type")).toBe("application/json");
+  });
+
   it("lists every Run owned by a participant", async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({
       success: true,

@@ -9,7 +9,7 @@ import { FileIndexService } from "../dist/adapters/local/files/file-index-servic
 
 test("linked local session files stay external and follow current source contents", async () => {
   const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-linked-local-"));
-  const externalRoot = path.join(dataRoot, "sessions", "session-1", "uploads");
+  const externalRoot = path.join(dataRoot, "external");
   const sourcePath = path.join(externalRoot, "external.nc");
   fs.mkdirSync(externalRoot, { recursive: true });
   fs.writeFileSync(sourcePath, "ABCD", "utf8");
@@ -24,6 +24,7 @@ test("linked local session files stay external and follow current source content
     assert.equal(record.storage_kind, "linked_local");
     assert.equal(record.local_path, fs.realpathSync(sourcePath));
     assert.equal(record.size, 4);
+    assert.equal(fs.existsSync(files.getSessionUploadsRoot("session-1")), false, "linking must not create an upload copy");
     assert.deepEqual(await application.validate("session-1", [record.id]), { valid: [record.id], invalid: [] });
 
     fs.writeFileSync(sourcePath, "updated contents", "utf8");

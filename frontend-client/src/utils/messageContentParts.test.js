@@ -14,6 +14,18 @@ import {
   reconcileMessageContentParts,
 } from './messageContentParts.js';
 
+test('历史 TIFF inline/image 附件在读取时归一为普通附件且幂等', () => {
+  const historical = [{
+    type: 'attachment_ref', file_id: 'old-tiff', original_name: 'scan.tif', stored_name: 'old_scan.tif',
+    mime: 'image/tiff', size: 42, kind: 'image', presentation: 'inline',
+  }];
+  const normalized = normalizeMessageContentParts(historical);
+  assert.equal(normalized[0].kind, 'file');
+  assert.equal(normalized[0].presentation, 'attachment');
+  assert.deepEqual(normalizeMessageContentParts(normalized), normalized);
+  assert.equal(getMessageAttachments({ content_parts: historical })[0].kind, 'file');
+});
+
 test('createUserContentParts 生成用户文本和附件的唯一结构化快照', () => {
   const parts = createUserContentParts('查看图片', [{
     file_id: 'file-1',

@@ -180,7 +180,7 @@ import { useLlmRetryState } from '../composables/useLlmRetryState';
 import { useChatMessageRuntime } from '../composables/useChatMessageRuntime';
 import { useMessageListView } from '../composables/useMessageListView';
 import { useRuntimeStatusView } from '../composables/useRuntimeStatusView';
-import { normalizeSessionAttachment as normalizeAttachmentUtil } from '../utils/sessionAttachments';
+import { isImageAttachment, normalizeSessionAttachment as normalizeAttachmentUtil } from '../utils/sessionAttachments';
 import { getUserDisplayText } from '../utils/messageContentParts';
 import SessionFilesDrawer from '../components/SessionFilesDrawer.vue';
 import ChatComposer from '../components/chat/ChatComposer.vue';
@@ -291,7 +291,7 @@ const imageLightbox = useImageLightbox();
 const showCitationViewer = ref(false);
 const citationFile = reactive({ file_id: '', file_name: '', char_start: undefined, heading: '' });
 function openCitation(citation) { citationFile.file_id = citation?.file_id || ''; citationFile.file_name = citation?.file_name || ''; citationFile.char_start = Number.isFinite(citation?.char_start) ? citation.char_start : undefined; citationFile.heading = citation?.heading || ''; showCitationViewer.value = Boolean(citationFile.file_id); }
-function openAttachmentImages(attachments, selected) { const items = (attachments || []).filter(item => item && (item.mime?.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(item.original_name || item.stored_name || ''))).map(item => ({ src: getAttachmentPreviewUrl(item), alt: item.original_name || item.stored_name || '图片', source: item })); const index = Math.max(0, items.findIndex(item => item.source === selected)); imageLightbox.show(items, index); }
+function openAttachmentImages(attachments, selected) { const items = (attachments || []).filter(isImageAttachment).map(item => ({ src: getAttachmentPreviewUrl(item), alt: item.original_name || item.stored_name || '图片', source: item })); const index = Math.max(0, items.findIndex(item => item.source === selected)); imageLightbox.show(items, index); }
 const sessionFilesDrawerTarget = ref('composer');
 const chatComposerRef = ref(null);
 const filePreviewDialogRef = ref(null);

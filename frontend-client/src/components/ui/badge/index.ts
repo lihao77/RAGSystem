@@ -10,7 +10,8 @@ export const badgeVariants = cva('inline-flex items-center rounded-full border p
       outline: 'border-border text-muted-foreground',
       success: 'border-transparent bg-success-bg text-success',
       warning: 'border-transparent bg-warning-bg text-warning',
-      info: 'border-transparent bg-accent text-brand-accent',
+      // accent 在本主题是中性灰阶,文字必须用 accent-foreground(主文本色)才能保证对比度
+      info: 'border-border bg-accent text-accent-foreground',
       destructive: 'border-transparent bg-error-bg text-destructive',
     },
   },

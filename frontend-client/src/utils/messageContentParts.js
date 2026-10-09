@@ -1,4 +1,4 @@
-import { normalizeSessionAttachment } from './sessionAttachments.js';
+import { isImageAttachment, normalizeSessionAttachment } from './sessionAttachments.js';
 
 const FILE_PRESENTATIONS = new Set(['inline', 'attachment', 'preview']);
 
@@ -36,6 +36,7 @@ export function normalizeMessageContentParts(parts) {
       && part.original_name
       && typeof part.stored_name === 'string'
       && part.stored_name) {
+      const isImage = part.kind === 'image' && isImageAttachment(part);
       return [{
         type: 'attachment_ref',
         file_id: part.file_id,
@@ -43,10 +44,10 @@ export function normalizeMessageContentParts(parts) {
         stored_name: part.stored_name,
         mime: typeof part.mime === 'string' ? part.mime : '',
         size: Number.isSafeInteger(part.size) && part.size >= 0 ? part.size : 0,
-        kind: part.kind === 'image' ? 'image' : 'file',
-        presentation: FILE_PRESENTATIONS.has(part.presentation)
-          ? part.presentation
-          : (part.kind === 'image' ? 'inline' : 'attachment'),
+        kind: isImage ? 'image' : 'file',
+        presentation: part.kind === 'image' && !isImage
+          ? 'attachment'
+          : FILE_PRESENTATIONS.has(part.presentation) ? part.presentation : (isImage ? 'inline' : 'attachment'),
         ...(typeof part.file_path === 'string' && part.file_path ? { file_path: part.file_path } : {}),
         ...(['uploads', 'absolute'].includes(part.file_path_space) ? { file_path_space: part.file_path_space } : {}),
       }];

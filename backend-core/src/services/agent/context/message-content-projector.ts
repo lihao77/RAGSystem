@@ -1,6 +1,6 @@
 import { Buffer } from "node:buffer";
 import type { ChatMessage, ContentPart } from "@ragsystem/agent-llm";
-import type { MessageContentPart } from "@ragsystem/agent-protocol";
+import { resolveInlineImageBytesMime, resolveInlineImageMime, type MessageContentPart } from "@ragsystem/agent-protocol";
 
 import type { MessageInfo } from "../../../contracts/session/session.js";
 import type { AttachmentReader } from "./extensions/types.js";
@@ -68,15 +68,19 @@ async function projectParts(
     if (part.type === "attachment_ref") {
       if (role !== "user") continue;
       renderedText.push(renderAttachment(part));
-      if (part.kind !== "image" || !options.supportsVision) continue;
+      // 重放历史消息也重新判定，不能信任存量的 kind=image（旧版本接受所有 image/*）。
+      if (part.kind !== "image" || !resolveInlineImageMime(part.mime, part.original_name) || !options.supportsVision) continue;
       const source = await options.readAttachment(options.sessionId, part.file_id);
       if (!source) {
         renderedText.push(`[图片加载失败:${part.original_name}]`);
         continue;
       }
-      // 读取结果的 contentType 优先：归一化变体可能换编码（如 png→jpeg/webp），
-      // part.mime 只是上传时的原始声明；两者都缺时兜底 png。
-      const mime = normalizeImageMime(source.contentType) ?? normalizeImageMime(part.mime) ?? "image/png";
+      // 归一化可能换编码，也可能回退原字节；只发送实际为白名单格式的字节。
+      const mime = resolveInlineImageBytesMime(source.body, source.contentType);
+      if (!mime) {
+        renderedText[renderedText.length - 1] = renderAttachment({ ...part, kind: "file" });
+        continue;
+      }
       images.push({
         type: "image_url",
         image_url: { url: `data:${mime};base64,${Buffer.from(source.body).toString("base64")}`, detail: "auto" },
@@ -96,21 +100,17 @@ async function projectParts(
 }
 
 function renderAttachment(part: Extract<MessageContentPart, { type: "attachment_ref" }>): string {
+  const kind = part.kind === "image" && resolveInlineImageMime(part.mime, part.original_name) ? "image" : "file";
   const attributes = [
     `file_id="${escapeXmlAttribute(part.file_id)}"`,
     `name="${escapeXmlAttribute(part.original_name)}"`,
     `mime="${escapeXmlAttribute(part.mime || "application/octet-stream")}"`,
     `size="${part.size}"`,
-    `kind="${part.kind}"`,
+    `kind="${kind}"`,
     `file_path="${escapeXmlAttribute(part.file_path ?? part.stored_name)}"`,
     `file_path_space="${part.file_path_space ?? "uploads"}"`,
   ];
   return `<attachments version="1"><attachment ${attributes.join(" ")}/></attachments>`;
-}
-
-function normalizeImageMime(value: string | null | undefined): string | null {
-  const mime = value?.trim();
-  return mime && /^image\/[a-z0-9.+-]+$/i.test(mime) ? mime : null;
 }
 
 function escapeXmlAttribute(value: string): string {

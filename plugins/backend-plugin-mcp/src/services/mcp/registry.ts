@@ -74,7 +74,7 @@ export function buildServerConfigFromRegistryInstall(payload: McpRegistryInstall
       throw new McpServiceError(`暂不支持从 Registry 一键安装 transport=${transport} 的本地包`, 400);
     }
     const { command, args } = resolvePackageRuntime(recipe, inputValues);
-    return normalizeServerConfig({
+    return applyRegistryExtras(normalizeServerConfig({
       ...base,
       transport: "stdio",
       command,
@@ -82,7 +82,7 @@ export function buildServerConfigFromRegistryInstall(payload: McpRegistryInstall
       env: resolveKeyValueItems(recipe.environmentVariables, inputValues),
       headers: {},
       url: null,
-    });
+    }), payload);
   }
 
   if (kind === "remote") {
@@ -95,7 +95,7 @@ export function buildServerConfigFromRegistryInstall(payload: McpRegistryInstall
     if (!url) {
       throw new McpServiceError("Registry 远程服务缺少 URL", 400);
     }
-    return normalizeServerConfig({
+    return applyRegistryExtras(normalizeServerConfig({
       ...base,
       transport,
       command: null,
@@ -103,10 +103,34 @@ export function buildServerConfigFromRegistryInstall(payload: McpRegistryInstall
       env: {},
       headers: resolveKeyValueItems(recipe.headers, inputValues),
       url,
-    });
+    }), payload);
   }
 
   throw new McpServiceError(`未知的安装方式: ${kind || "unknown"}`, 400);
+}
+
+/** 合并配置安装时用户补充的启动参数/环境变量/请求头(追加在配方解析结果之后,允许覆盖同名 env/header)。 */
+export function applyRegistryExtras(config: McpServerConfig, payload: McpRegistryInstall): McpServerConfig {
+  const isStdio = config.transport === "stdio";
+  const extraArgs = Array.isArray(payload.extra_args) ? payload.extra_args.filter((item) => typeof item === "string" && item.trim() !== "") : [];
+  if (isStdio && extraArgs.length) {
+    config.args = [...config.args, ...extraArgs];
+  }
+  if (isStdio && isRecord(payload.extra_env)) {
+    config.env = { ...config.env, ...payload.extra_env };
+  }
+  if (!isStdio && isRecord(payload.extra_headers)) {
+    const headers = { ...config.headers };
+    for (const [name, value] of Object.entries(payload.extra_headers)) {
+      // HTTP 字段名大小写不敏感，保留两个写法会被 fetch 合并为逗号分隔值。
+      for (const existingName of Object.keys(headers)) {
+        if (existingName.toLowerCase() === name.toLowerCase()) delete headers[existingName];
+      }
+      headers[name] = value;
+    }
+    config.headers = headers;
+  }
+  return config;
 }
 
 export function resolvePackageRuntime(recipe: Record<string, unknown>, inputValues: Record<string, unknown>): { command: string; args: string[] } {

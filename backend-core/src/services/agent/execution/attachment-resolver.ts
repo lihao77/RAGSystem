@@ -1,6 +1,6 @@
 import type { AttachmentRef } from "../../../contracts/execution/execution.js";
 import type { SessionFileLookupPort } from "../../../contracts/session/session-file-storage.js";
-import type { MessageAttachment } from "@ragsystem/agent-protocol";
+import { resolveInlineImageMime, type MessageAttachment } from "@ragsystem/agent-protocol";
 
 export interface AttachmentResolution {
   attachments: MessageAttachment[];
@@ -25,13 +25,14 @@ export class AttachmentResolver {
       }
       const record = await this.files.get(sessionId, fileId);
       if (!record) return { attachments: [], error: `附件不存在或不属于当前会话: ${fileId}` };
+      const inlineMime = resolveInlineImageMime(record.mime, record.original_name);
       resolved.push({
         file_id: record.id,
         original_name: record.original_name,
         stored_name: record.stored_name,
-        mime: record.mime || "",
+        mime: inlineMime ?? record.mime ?? "",
         size: record.size,
-        kind: record.mime.startsWith("image/") ? "image" : "file",
+        kind: inlineMime ? "image" : "file",
         ...(record.storage_kind === "linked_local" && record.local_path ? {
           file_path: record.local_path,
           file_path_space: "absolute" as const,

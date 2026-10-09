@@ -19,6 +19,7 @@ import os from "node:os";
 import path from "node:path";
 import { Buffer } from "node:buffer";
 import type { ContentPart, ProviderConfig } from "@ragsystem/agent-llm";
+import { resolveInlineImageBytesMime, resolveInlineImageMime } from "@ragsystem/agent-protocol";
 import type { ToolFile, ToolExecutionResult, ToolImagePersisted, ToolImageSink, ToolResultMedia } from "../contracts.js";
 import type { ObservationPolicy } from "../prompt/tool-types.js";
 import { renderSemanticBlock } from "../llm-protocol/xml/rendering.js";
@@ -82,8 +83,15 @@ export async function buildToolMediaModelContent(input: {
   const rejectedReasons: string[] = [];
   let totalBytes = 0;
 
-  for (const item of media) {
+  for (const candidate of media) {
     try {
+      // 插件可能来自 JavaScript，不能仅靠 ToolResultMedia 的类型约束 MIME。
+      const inputMime = resolveInlineImageMime(candidate.mimeType);
+      if (!inputMime) {
+        rejectedReasons.push("invalid_or_unreadable_image");
+        continue;
+      }
+      const item = { ...candidate, mimeType: inputMime };
       const bytes = await readToolImageBytes(item, input.dataRoot);
       if (!bytes) {
         rejectedReasons.push("invalid_or_unreadable_image");
@@ -128,10 +136,16 @@ export async function buildToolMediaModelContent(input: {
         materialized.push({ ...item, source: { type: "file", path: persisted.storedPath } });
         persistedFileIds.push(persisted.fileId);
         if (input.provider.supports_vision === true) {
+          // sink 换码产物也处在运行时边界；无效产物回退已校验的原始图片，
+          // files/media/metadata 仍描述原始字节的持久化落点。
+          const adaptedMime = resolveInlineImageBytesMime(persisted.bytes, persisted.mimeType);
+          const useAdapted = adaptedMime && persisted.bytes.length <= MAX_TOOL_IMAGE_BYTES;
+          const requestBytes = useAdapted ? persisted.bytes : bytes;
+          const requestMime = useAdapted ? adaptedMime : item.mimeType;
           parts.push({
             type: "image_url",
             image_url: {
-              url: `data:${persisted.mimeType};base64,${Buffer.from(persisted.bytes).toString("base64")}`,
+              url: `data:${requestMime};base64,${Buffer.from(requestBytes).toString("base64")}`,
               detail: item.detail ?? "auto",
             },
           });
@@ -200,10 +214,8 @@ function decodeBase64(value: string, mimeType: ToolResultMedia["mimeType"]): Buf
 }
 
 function matchesImageSignature(bytes: Buffer, mimeType: ToolResultMedia["mimeType"]): boolean {
-  if (mimeType === "image/png") return bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
-  if (mimeType === "image/jpeg") return bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
-  if (mimeType === "image/gif") return bytes.length >= 6 && (bytes.subarray(0, 6).toString("ascii") === "GIF87a" || bytes.subarray(0, 6).toString("ascii") === "GIF89a");
-  return bytes.length >= 12 && bytes.subarray(0, 4).toString("ascii") === "RIFF" && bytes.subarray(8, 12).toString("ascii") === "WEBP";
+  const expected = resolveInlineImageMime(mimeType);
+  return expected !== null && resolveInlineImageBytesMime(bytes, mimeType) === expected;
 }
 
 async function saveToolImageFile(input: {

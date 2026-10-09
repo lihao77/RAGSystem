@@ -10,6 +10,7 @@ import { PathApprovalService } from "@ragsystem/backend-core/services/runtime/pa
 import {
   backendPluginModule,
   createImageToolsPlugin,
+  OpenAiVisionHelper,
   toProviderConfig,
   VIEW_IMAGE_TOOL_NAME,
 } from "../dist/index.js";
@@ -64,7 +65,7 @@ function transformerInput(overrides = {}) {
     tenantId: "tenant-1",
     contentParts: [textPart(), imagePart()],
     attachments: [{ file_id: "file-1", original_name: "photo.png", stored_name: "photo.png", mime: "image/png", size: 42, kind: "image" }],
-    readAttachment: async () => ({ body: new Uint8Array([1, 2, 3]), contentType: "image/png" }),
+    readAttachment: async () => ({ body: Buffer.from("89504e470d0a1a0a", "hex"), contentType: "image/png" }),
     modelAdapter: modelAdapterWith(visionProvider),
     systemConfig: systemConfigWith(),
     ...overrides,
@@ -107,6 +108,47 @@ test("transformer returns null when there are no image parts", async () => {
   });
   const result = await describeUserMessageImagesWithHelper(input, stubHelper);
   assert.equal(result, null);
+});
+
+test("transformer skips TIFF and other unsupported historical image parts without reading or calling a helper", async () => {
+  const input = transformerInput({
+    systemConfig: systemConfigWith({ enabled: true, provider: "vision", model_name: "gpt-4o" }),
+    contentParts: [imagePart("tiff", "scan.tif", "image/tiff"), imagePart("svg", "vector.svg", "image/svg+xml")],
+    readAttachment: async () => assert.fail("unsupported images must not be read"),
+  });
+  assert.equal(await describeUserMessageImagesWithHelper(input, () => assert.fail("must not create helper")), null);
+});
+
+test("transformer keeps descriptions aligned in a mixture of PNG and old TIFF image parts", async () => {
+  const input = transformerInput({
+    systemConfig: systemConfigWith({ enabled: true, provider: "vision", model_name: "gpt-4o" }),
+    contentParts: [imagePart("tiff", "scan.tif", "image/tiff"), imagePart("png", "photo.png")],
+    readAttachment: async fileId => {
+      assert.equal(fileId, "png");
+      return { body: Buffer.from("89504e470d0a1a0a", "hex"), contentType: "image/png" };
+    },
+  });
+  const parts = await describeUserMessageImagesWithHelper(input, () => stubHelper("PNG description"));
+  assert.deepEqual(parts.filter(part => part.type === "image_description").map(part => part.file_id), ["png"]);
+});
+
+test("unsupported or mislabeled TIFF bytes never reach the auxiliary provider API", async () => {
+  let requests = 0;
+  const helper = new OpenAiVisionHelper({
+    provider: { ...visionProvider, models: [] }, modelName: "vision-model", maxCompletionTokens: 100,
+    timeoutSeconds: 1, cacheEnabled: false,
+    client: { complete: async () => { requests += 1; assert.fail("unsupported image reached the API"); } },
+  });
+  for (const mime of ["image/tiff", "image/png"]) {
+    assert.equal(await helper.describeImage({ bytes: Buffer.from("49492a0008000000", "hex"), mime }), null);
+    const input = transformerInput({
+      systemConfig: systemConfigWith({ enabled: true, provider: "vision", model_name: "gpt-4o" }),
+      readAttachment: async () => ({ body: Buffer.from("49492a0008000000", "hex"), contentType: mime }),
+    });
+    const result = await describeUserMessageImagesWithHelper(input, () => ({ describeImage: () => assert.fail("unsupported bytes reached helper") }));
+    assert.equal(result.some(part => part.type === "image_description"), false);
+  }
+  assert.equal(requests, 0);
 });
 
 test("transformer appends an image_description part after each image part", async () => {
@@ -551,7 +593,7 @@ test("view_image normalizes media through the image request normalizer capabilit
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "image-tools-"));
   const png = Buffer.from("89504e470d0a1a0a0000000d49484452", "hex");
   fs.writeFileSync(path.join(tmp, "photo.png"), png);
-  const normalizedBytes = Buffer.from("normalized-webp-bytes");
+  const normalizedBytes = Buffer.from("524946460400000057454250", "hex");
   const registry = normalizerRegistry({
     kind: "normalized",
     data: normalizedBytes,
@@ -585,7 +627,7 @@ test("view_image lets oversized images through when the normalizer shrinks them"
     Buffer.alloc(11 * 1024 * 1024),
   ]);
   fs.writeFileSync(path.join(tmp, "big.png"), oversized);
-  const small = Buffer.from("shrunk");
+  const small = Buffer.from([0xff, 0xd8, 0xff]);
   const registry = normalizerRegistry({ kind: "normalized", data: small, mime: "image/jpeg", width: 100, height: 50 });
   try {
     const [tool] = buildViewImageTool([VIEW_IMAGE_TOOL_NAME], { capabilities: registry });
@@ -631,7 +673,7 @@ test("transformer describes with the variant content type instead of the upload-
   const seen = [];
   const input = transformerInput({
     systemConfig: systemConfigWith({ enabled: true, provider: "vision", model_name: "gpt-4o" }),
-    readAttachment: async () => ({ body: new Uint8Array([9, 9, 9]), contentType: "image/webp" }),
+    readAttachment: async () => ({ body: Buffer.from("524946460400000057454250", "hex"), contentType: "image/webp" }),
   });
   const result = await describeUserMessageImagesWithHelper(input, () => ({
     describeImage: async ({ bytes, mime }) => {
@@ -641,13 +683,13 @@ test("transformer describes with the variant content type instead of the upload-
   }));
   assert.equal(seen.length, 1);
   assert.equal(seen[0].mime, "image/webp");
-  assert.equal(seen[0].bytes.byteLength, 3);
+  assert.equal(seen[0].bytes.byteLength, 12);
   assert.equal(result.some((part) => part.type === "image_description"), true);
 
-  // contentType 缺失或非图片值时回退上传声明
+  // contentType 缺失时按实际字节推断，不能随意假定为 PNG。
   const fallback = transformerInput({
     systemConfig: systemConfigWith({ enabled: true, provider: "vision", model_name: "gpt-4o" }),
-    readAttachment: async () => ({ body: new Uint8Array([9]), contentType: null }),
+    readAttachment: async () => ({ body: Buffer.from("89504e470d0a1a0a", "hex"), contentType: null }),
   });
   const fallbackSeen = [];
   await describeUserMessageImagesWithHelper(fallback, () => ({

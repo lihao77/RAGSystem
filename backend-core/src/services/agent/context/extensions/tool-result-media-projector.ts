@@ -1,4 +1,5 @@
 import type { ContentPart } from "@ragsystem/agent-llm";
+import { resolveInlineImageBytesMime, resolveInlineImageMime } from "@ragsystem/agent-protocol";
 import type { ExtensionProjector } from "./types.js";
 
 interface StoredToolImage {
@@ -41,23 +42,25 @@ async function readStoredToolImage(
   item: StoredToolImage,
   ctx: { sessionId: string; readAttachment: import("./types.js").AttachmentReader; readToolImage: import("./types.js").ToolImageReader },
 ): Promise<string | null> {
+  // 工具图片的 mime 可能记录归一化后的编码，路径仍指向原文件；此处不按路径扩展名比对。
+  if (!resolveInlineImageMime(item.mime)) return null;
   if (item.file_id) {
     try {
       const source = await ctx.readAttachment(ctx.sessionId, item.file_id);
       if (source && source.body.length > 0) {
-        const mime = normalizeImageMime(source.contentType) ?? normalizeImageMime(item.mime) ?? "image/png";
-        return `data:${mime};base64,${Buffer.from(source.body).toString("base64")}`;
+        const mime = resolveInlineImageBytesMime(source.body, source.contentType);
+        return mime ? `data:${mime};base64,${Buffer.from(source.body).toString("base64")}` : null;
       }
     } catch {
       // 附件通道失败不阻断：落回旧通道再试一次。
     }
   }
-  return ctx.readToolImage(item.stored_path, item.mime);
-}
-
-function normalizeImageMime(value: string | null | undefined): string | null {
-  const mime = value?.trim();
-  return mime && /^image\/[a-z0-9.+-]+$/i.test(mime) ? mime : null;
+  const legacy = ctx.readToolImage(item.stored_path, item.mime);
+  const match = legacy?.match(/^data:([^;]+);base64,([A-Za-z0-9+/=]+)$/);
+  if (!match) return null;
+  const body = Buffer.from(match[2]!, "base64");
+  const mime = resolveInlineImageBytesMime(body, match[1]);
+  return mime ? `data:${mime};base64,${body.toString("base64")}` : null;
 }
 
 function extractToolImages(value: unknown): StoredToolImage[] {

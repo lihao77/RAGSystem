@@ -122,7 +122,9 @@
       :installing="installing"
       :registry-search="registrySearch"
       :loading-registry-results="loadingRegistryResults"
+      :registry-search-error="registrySearchError"
       :registry-results="registryResults"
+      :installed-server-names="installedServerNames"
       :installing-registry="installingRegistry"
       :registry-next-cursor="registryNextCursor"
       :loading-more-registry="loadingMoreRegistry"
@@ -190,7 +192,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
 import { CheckCircle2, Clock, Database, Globe, MessageSquare, Monitor, Terminal, Wifi, WifiOff, Wrench } from 'lucide-vue-next';
 import EntityListLayout from '../components/admin/EntityListLayout.vue';
 import KpiCards from '../components/admin/KpiCards.vue';
@@ -213,6 +215,7 @@ import { Button } from '../components/ui/button';
 import { useToast } from '../composables/useToast.js';
 import { useConfirm } from '../composables/useConfirm.js';
 import { useAsyncAction } from '../composables/useAsyncAction.js';
+import { useMcpRegistrySearch } from '../composables/useMcpRegistrySearch.js';
 import {
   addMCPServer, connectMCPServer, deleteMCPServer, disconnectMCPServer,
   getMCPServerTools, getMCPServerMetrics, installMCPRegistryServer, listMCPRegistryServers,
@@ -233,8 +236,6 @@ const addServiceVisible = ref(false);
 const addMode = ref('manual');
 
 const servers = ref([]);
-const registryResults = ref([]);
-const registryNextCursor = ref('');
 const serverTools = ref([]);
 const activeToolsServerName = ref('');
 const activeToolsServer = ref(null);
@@ -262,7 +263,7 @@ const transportOptions = [
 
 const installForm = reactive({ server_name: '', display_name: '', transport: 'stdio', command: '', argsJson: '[]', envJson: '{}', url: '', headersJson: '{}', enabled: true, auto_connect: true, timeout: 30, risk_level: 'medium', toolRiskOverridesJson: '{}', trusted: true });
 const registrySearch = reactive({ query: '', latest_only: true, limit: 6 });
-const registryInstallForm = reactive({ option_id: '', server_name: '', display_name: '', enabled: true, auto_connect: true, timeout: 30, risk_level: 'medium', input_values: {} });
+const registryInstallForm = reactive({ option_id: '', server_name: '', display_name: '', enabled: true, auto_connect: true, timeout: 30, risk_level: 'medium', input_values: {}, extraArgsJson: '[]', extraEnvJson: '{}', extraHeadersJson: '{}' });
 
 const summary = computed(() => ({
   total: servers.value.length,
@@ -327,6 +328,9 @@ function applyRegistryInstallDefaults(server, option) {
   registryInstallForm.auto_connect = true;
   registryInstallForm.timeout = option?.default_timeout || 30;
   registryInstallForm.risk_level = option?.default_risk_level || 'medium';
+  registryInstallForm.extraArgsJson = '[]';
+  registryInstallForm.extraEnvJson = '{}';
+  registryInstallForm.extraHeadersJson = '{}';
   initializeRegistryInputValues(option);
 }
 function openRegistryInstallDialog(server) { selectedRegistryServer.value = server; applyRegistryInstallDefaults(server, getPreferredInstallOption(server)); registryInstallDialogVisible.value = true; }
@@ -384,23 +388,17 @@ async function silentRefreshServers() {
   }
 }
 
-const { run: runSearch, loading: loadingRegistryResults } = useAsyncAction(
-  async (opts = {}) => {
-    const append = opts.append === true;
-    if (append && !registryNextCursor.value) return;
-    const res = await listMCPRegistryServers({ search: registrySearch.query, limit: registrySearch.limit, cursor: append ? registryNextCursor.value : '', latest_only: registrySearch.latest_only });
-    const items = res.data?.items || [];
-    registryResults.value = append ? [...registryResults.value, ...items] : items;
-    registryNextCursor.value = res.data?.next_cursor || '';
-  },
-  { errorPrefix: '搜索 Registry 失败', showErrorToast: false },
-);
-function searchRegistryServers() { runSearch({ append: false }); }
-const { run: runLoadMore, loading: loadingMoreRegistry } = useAsyncAction(
-  () => runSearch({ append: true }),
-  { showErrorToast: false },
-);
-function loadMoreRegistryServers() { runLoadMore(); }
+const {
+  results: registryResults, nextCursor: registryNextCursor,
+  loading: loadingRegistryResults, loadingMore: loadingMoreRegistry,
+  error: registrySearchError, run: runRegistrySearch, dispose: disposeRegistrySearch,
+} = useMcpRegistrySearch({ query: registrySearch, fetchPage: listMCPRegistryServers, onError: (message) => toast.error(message) });
+onBeforeUnmount(disposeRegistrySearch);
+function searchRegistryServers() { return runRegistrySearch(); }
+function loadMoreRegistryServers() { return runRegistrySearch({ append: true }); }
+
+// 已安装服务名集合,用于 Registry 卡片“已安装”标记
+const installedServerNames = computed(() => new Set(servers.value.map((s) => s.name)));
 
 const { run: runInstall, loading: installing } = useAsyncAction(
   async (payload) => {
@@ -436,7 +434,6 @@ const { run: runRegistryInstall, loading: installingRegistry } = useAsyncAction(
     await installMCPRegistryServer(payload);
     closeRegistryInstallDialog();
     await silentRefreshServers();
-    addServiceVisible.value = false;
   },
   { successMessage: (r) => r?.message || '安装成功', errorPrefix: 'Registry 安装失败' },
 );
@@ -444,11 +441,22 @@ function submitRegistryInstall(customPayload = null) {
   const option = selectedRegistryOption.value || customPayload?.install_option;
   if (!option) return toast.warning('请选择一个可用的安装方式');
   if (!option.supported) return toast.warning(option.unsupported_reason || '当前安装方式暂不支持');
-  const payload = customPayload || {
-    install_option: option, server_name: registryInstallForm.server_name, display_name: registryInstallForm.display_name,
-    enabled: registryInstallForm.enabled, auto_connect: registryInstallForm.auto_connect, timeout: registryInstallForm.timeout,
-    risk_level: registryInstallForm.risk_level, input_values: registryInstallForm.input_values,
-  };
+  let payload = customPayload;
+  if (!payload) {
+    let extraArgs, extraEnv, extraHeaders;
+    try {
+      extraArgs = JSON.parse(registryInstallForm.extraArgsJson || '[]');
+      extraEnv = JSON.parse(registryInstallForm.extraEnvJson || '{}');
+      extraHeaders = JSON.parse(registryInstallForm.extraHeadersJson || '{}');
+    } catch { return toast.warning('高级参数 JSON 格式错误'); }
+    if (!Array.isArray(extraArgs)) return toast.warning('额外启动参数需为 JSON 数组');
+    payload = {
+      install_option: option, server_name: registryInstallForm.server_name, display_name: registryInstallForm.display_name,
+      enabled: registryInstallForm.enabled, auto_connect: registryInstallForm.auto_connect, timeout: registryInstallForm.timeout,
+      risk_level: registryInstallForm.risk_level, input_values: registryInstallForm.input_values,
+      extra_args: extraArgs, extra_env: extraEnv, extra_headers: extraHeaders,
+    };
+  }
   const missing = (option.form_fields || []).find((f) => f.required && (payload.input_values?.[f.key] === '' || payload.input_values?.[f.key] == null));
   if (missing) return toast.warning(`请填写 ${missing.label}`);
   runRegistryInstall(payload);
@@ -641,7 +649,7 @@ async function handleDelete(server) {
 
 onMounted(() => {
   runLoadServers();
-  runSearch({ append: false });
+  searchRegistryServers();
 });
 </script>
 
