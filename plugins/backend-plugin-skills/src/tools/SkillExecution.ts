@@ -63,6 +63,7 @@ export interface SkillListItem {
   source_type: string;
   source_label: string;
   is_auto_inject_candidate: boolean;
+  requires?: SkillRequires;
 }
 
 export interface SkillToolInput {
@@ -141,6 +142,8 @@ export class SkillToolService {
   private hydrateChain: Promise<void> = Promise.resolve();
   /** Last hydrate result from packageStore.list(); only used when packageStore is set. */
   private userGlobalPackageCache: SkillPackageRecord[] = [];
+  /** Discovery never promises an execution directory; scripts resolve their selected package via get(). */
+  private userGlobalDiscoveryCache: SkillPackageRecord[] | null = null;
 
   /**
    * Load tenant user_global packages from packageStore (materialize as needed).
@@ -151,8 +154,22 @@ export class SkillToolService {
     if (!this.packageStore) return;
     const run = async (): Promise<void> => {
       this.userGlobalPackageCache = await this.packageStore!.list();
+      this.userGlobalDiscoveryCache = null;
     };
     // Chain even after rejection so a failed list does not permanently poison later hydrates.
+    this.hydrateChain = this.hydrateChain.then(run, run);
+    await this.hydrateChain;
+  }
+
+  /** Tool definitions and context previews need metadata, not every package's resource bytes. */
+  async hydrateUserGlobalMetadata(): Promise<void> {
+    if (!this.packageStore?.listMetadata) return this.hydrateUserGlobalPackages();
+    const run = async (): Promise<void> => {
+      const records = await this.packageStore!.listMetadata!();
+      this.userGlobalDiscoveryCache = records.map((record) => ({
+        ...record, skillDir: path.join(this.userGlobalSkillsRoot, record.name),
+      }));
+    };
     this.hydrateChain = this.hydrateChain.then(run, run);
     await this.hydrateChain;
   }
@@ -174,17 +191,31 @@ export class SkillToolService {
   }
 
   listAvailableSkills(workspaceRoot?: string | null): SkillListItem[] {
-    return this.loadAllSkills(workspaceRoot).map((skill) => ({
+    return this.toListItems(this.loadAllSkills(workspaceRoot));
+  }
+
+  private toListItems(skills: SkillInfo[]): SkillListItem[] {
+    return skills.map((skill) => ({
       name: skill.name,
       display_name: titleCase(skill.name.replaceAll("-", " ")),
       description: skill.description,
       source_type: skill.sourceType,
       source_label: skill.sourceLabel,
       is_auto_inject_candidate: skill.isAutoInjectCandidate,
+      ...(skill.requires ? { requires: skill.requires } : {}),
     }));
   }
 
   async listAvailableSkillsAsync(workspaceRoot?: string | null): Promise<SkillListItem[]> {
+    if (this.packageStore?.listMetadata) {
+      const records = await this.packageStore.listMetadata();
+      // These directories are only placeholders for discovery. Never publish metadata
+      // into userGlobalPackageCache: execution still hydrates immutable snapshots.
+      const skills = records.map((record) => skillInfoFromPackageRecord(
+        { ...record, skillDir: this.userGlobalSkillsRoot }, this.userGlobalSkillsRoot,
+      ));
+      return this.toListItems(this.mergeSkillSources(skills, workspaceRoot));
+    }
     await this.hydrateUserGlobalPackages();
     return this.listAvailableSkills(workspaceRoot);
   }
@@ -207,13 +238,13 @@ export class SkillToolService {
   }
 
   async listVisibleSkillsAsync(agent: AgentConfig | null, config: SkillsAgentConfig, workspaceRoot?: string | null): Promise<SkillInfo[]> {
-    await this.hydrateUserGlobalPackages();
+    await this.hydrateUserGlobalMetadata();
     return this.listVisibleSkills(agent, config, workspaceRoot);
   }
 
   async activateSkill(input: SkillToolInput, context: ToolExecContext, agent: AgentConfig | null, config: SkillsAgentConfig): Promise<ToolExecutionResult> {
     const toolName = "activate_skill";
-    await this.hydrateUserGlobalPackages();
+    await this.hydrateUserGlobalMetadata();
     const workspaceRoot = input.workspaceRoot ?? resolveWorkspaceRoot(context, agent);
     const skill = this.findVisibleSkill(input.skillName, agent, config, context, workspaceRoot);
     if (!skill) {
@@ -247,9 +278,9 @@ export class SkillToolService {
     if (!resourceFile) {
       return errorResult("resource_file 不能为空", toolName);
     }
-    await this.hydrateUserGlobalPackages();
+    await this.hydrateUserGlobalMetadata();
     const workspaceRoot = input.workspaceRoot ?? resolveWorkspaceRoot(context, agent);
-    const skill = this.findVisibleSkill(input.skillName, agent, config, context, workspaceRoot);
+    const skill = await this.findVisibleExecutionSkill(input.skillName, agent, config, context, workspaceRoot);
     if (!skill) {
       return errorResult(`Skill '${input.skillName}' 不存在或当前 Agent 无权使用`, toolName);
     }
@@ -289,9 +320,9 @@ export class SkillToolService {
     if (!scriptName) {
       return errorResult("script_name 不能为空", toolName);
     }
-    await this.hydrateUserGlobalPackages();
+    await this.hydrateUserGlobalMetadata();
     const workspaceRoot = input.workspaceRoot ?? resolveWorkspaceRoot(context, agent);
-    const skill = this.findVisibleSkill(input.skillName, agent, config, context, workspaceRoot);
+    const skill = await this.findVisibleExecutionSkill(input.skillName, agent, config, context, workspaceRoot);
     if (!skill) {
       return errorResult(`Skill '${input.skillName}' 不存在或当前 Agent 无权使用`, toolName);
     }
@@ -385,8 +416,12 @@ export class SkillToolService {
   }
 
   loadAllSkills(workspaceRoot?: string | null): SkillInfo[] {
+    return this.mergeSkillSources(this.loadUserGlobalSkills(), workspaceRoot);
+  }
+
+  private mergeSkillSources(userGlobalSkills: SkillInfo[], workspaceRoot?: string | null): SkillInfo[] {
     const deduped = new Map<string, SkillInfo>();
-    for (const skill of this.loadUserGlobalSkills()) {
+    for (const skill of userGlobalSkills) {
       deduped.set(skill.name, skill);
     }
     for (const spec of this.diskSkillSources(workspaceRoot)) {
@@ -411,7 +446,8 @@ export class SkillToolService {
    */
   private loadUserGlobalSkills(): SkillInfo[] {
     if (this.packageStore) {
-      return this.userGlobalPackageCache.map((record) => skillInfoFromPackageRecord(record, this.userGlobalSkillsRoot));
+      return (this.userGlobalDiscoveryCache ?? this.userGlobalPackageCache)
+        .map((record) => skillInfoFromPackageRecord(record, this.userGlobalSkillsRoot));
     }
     const spec: SkillSourceSpec = {
       root: this.userGlobalSkillsRoot,
@@ -435,6 +471,13 @@ export class SkillToolService {
   private findVisibleSkill(skillName: string, agent: AgentConfig | null, config: SkillsAgentConfig, context: ToolExecContext, workspaceRoot?: string | null): SkillInfo | null {
     const normalized = skillName.trim();
     return this.resolveVisibleSkills(agent, config, workspaceRoot ?? resolveWorkspaceRoot(context, agent)).find((skill) => skill.name === normalized) ?? null;
+  }
+
+  private async findVisibleExecutionSkill(skillName: string, agent: AgentConfig | null, config: SkillsAgentConfig, context: ToolExecContext, workspaceRoot?: string | null): Promise<SkillInfo | null> {
+    const skill = this.findVisibleSkill(skillName, agent, config, context, workspaceRoot);
+    if (!skill || skill.sourceType !== "user_global" || !this.packageStore) return skill;
+    const record = await this.packageStore.get(skill.name);
+    return record ? skillInfoFromPackageRecord(record, this.userGlobalSkillsRoot) : null;
   }
 
   private resolveVisibleSkills(agent: AgentConfig | null, config: SkillsAgentConfig, workspaceRoot?: string | null): SkillInfo[] {

@@ -8,6 +8,7 @@ import type {
   ISkillPackageStore,
   SkillPackageFileNode,
   SkillPackageRecord,
+  SkillPackageMetadata,
 } from "../../contracts/skills/skill-package-store.js";
 import type { ObjectStorage } from "@ragsystem/backend-core/contracts/storage/object-storage.js";
 import type { TenantId } from "@ragsystem/backend-core/identity/types.js";
@@ -35,6 +36,16 @@ export class SaaSSkillPackageStore implements ISkillPackageStore {
   async list(): Promise<SkillPackageRecord[]> {
     const records = await Promise.all((await this.repository.list(this.tenantId)).map((row) => this.get(row.skill_name)));
     return records.filter((record): record is SkillPackageRecord => record !== null);
+  }
+
+  async listMetadata(): Promise<SkillPackageMetadata[]> {
+    return (await this.repository.list(this.tenantId)).map((row) => {
+      const requires = parseRequires(row.metadata);
+      return {
+        name: row.skill_name, description: row.description, content: row.content,
+        metadata: row.metadata, ...(requires ? { requires } : {}),
+      };
+    });
   }
 
   async readBundle(name: string): Promise<{ bundle: CreateSkillPackageBundleInput; revision: string } | null> {

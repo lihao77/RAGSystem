@@ -4,7 +4,9 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import Fastify from "fastify";
-import { FilesystemSkillPackageStore, SkillAuthoringService, SkillToolService, createSkillAuthoringTools, validateSkillBundle } from "../dist/index.js";
+import { FilesystemSkillPackageStore, SkillAuthoringService, SkillToolService, createSkillAuthoringTools, createSkillsPlugin, validateSkillBundle } from "../dist/index.js";
+import { BackendPluginManager } from "@ragsystem/backend-core/plugins/plugin-manager.js";
+import { listAgentCapabilityProviders } from "@ragsystem/backend-core/plugins/agent-capability-provider.js";
 import { SkillLibraryService } from "../dist/services/skill-library-service.js";
 import { SaaSSkillPackageStore } from "../dist/storage/postgres/package-store.js";
 import { runPostgresSkillPackageMigrations } from "../dist/storage/postgres/migrations.js";
@@ -32,6 +34,125 @@ function fixture(t) {
   const authoring = new SkillAuthoringService(library);
   return { root, store, tools, library, authoring };
 }
+
+test("Skill discovery reads metadata only, observes edits, and preserves execution snapshots", async (t) => {
+  const { root, store, tools, library } = fixture(t);
+  await store.createBundle(bundle());
+  const readFile = fs.readFileSync;
+  const reads = [];
+  try {
+    fs.readFileSync = (file, ...args) => {
+      reads.push(String(file));
+      assert.equal(path.basename(String(file)), "SKILL.md", "discovery must not read scripts or assets");
+      return readFile(file, ...args);
+    };
+    const listed = await library.listSkills();
+    assert.deepEqual(listed.map((skill) => [skill.name, skill.source_type]), [["example", "user_global"]]);
+    assert.equal(reads.length, 1);
+    assert.equal(fs.existsSync(path.join(root, "skills/.runtime")), false);
+    assert.deepEqual(tools.loadAllSkills(), [], "metadata must not become an execution record");
+  } finally { fs.readFileSync = readFile; }
+
+  await tools.hydrateUserGlobalPackages();
+  const previous = tools.loadAllSkills()[0];
+  assert.equal(path.dirname(previous.skillDir), path.join(root, "skills/.runtime"));
+  const revision = (await store.readBundle("example")).revision;
+  await store.saveBundle(bundle("Updated instructions"), revision);
+  const markdown = path.join(root, "skills/example/SKILL.md");
+  fs.writeFileSync(markdown, fs.readFileSync(markdown, "utf8").replace("description: Example", "description: Edited externally"));
+  assert.equal((await library.listSkills())[0].description, "Edited externally");
+  assert.equal(tools.loadAllSkills()[0].skillDir, previous.skillDir);
+  assert.match(fs.readFileSync(path.join(previous.skillDir, "SKILL.md"), "utf8"), /Useful instructions/);
+  await tools.hydrateUserGlobalPackages();
+  assert.notEqual(tools.loadAllSkills()[0].skillDir, previous.skillDir);
+  await store.delete("example");
+  assert.deepEqual(await library.listSkills(), []);
+});
+
+test("metadata discovery preserves workspace/global/builtin precedence and legacy-store fallback", async (t) => {
+  const { root, store, tools } = fixture(t);
+  await store.createBundle(bundle());
+  for (const [directory, description] of [["builtin/example", "Builtin"], [".ragsystem/skills/example", "Workspace"]]) {
+    fs.mkdirSync(path.join(root, directory), { recursive: true });
+    fs.writeFileSync(path.join(root, directory, "SKILL.md"), `---\nname: example\ndescription: ${description}\n---\nBody\n`);
+  }
+  assert.equal((await tools.listAvailableSkillsAsync())[0].source_type, "user_global");
+  assert.equal((await tools.listAvailableSkillsAsync(root))[0].source_type, "workspace");
+  store.listMetadata = undefined;
+  assert.equal((await tools.listAvailableSkillsAsync())[0].source_type, "user_global");
+  assert.equal(path.dirname(tools.loadAllSkills()[0].skillDir), path.join(root, "skills/.runtime"));
+});
+
+test("SaaS metadata discovery does not download objects or materialize packages", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "skill-metadata-saas-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const store = new SaaSSkillPackageStore("tnt_a", {
+    async list(tenantId) {
+      assert.equal(tenantId, "tnt_a");
+      return [{ skill_name: "example", description: "Metadata only", content: "Body", metadata: { ragsystem_requires_tools: "execute_code" } }];
+    },
+    async withSnapshot() { assert.fail("discovery must not load bundle snapshots"); },
+  }, { async get() { assert.fail("discovery must not download objects"); } }, path.join(root, "cache"));
+  const tools = new SkillToolService({ dataRoot: root, builtinSkillsRoot: path.join(root, "builtin"), packageStore: store });
+  assert.deepEqual((await store.listMetadata())[0].requires, { tools: ["execute_code"] });
+  assert.equal((await tools.listAvailableSkillsAsync())[0].description, "Metadata only");
+  assert.equal(fs.existsSync(path.join(root, "cache")), false);
+  assert.deepEqual(tools.loadAllSkills(), []);
+});
+
+test("tool preparation and activation use metadata; resources and scripts materialize only the selected package", async (t) => {
+  const { root, store, tools } = fixture(t);
+  await store.createBundle(bundle());
+  await store.createBundle(bundle("Unrelated instructions", "unrelated"));
+  const selected = [];
+  const get = store.get.bind(store);
+  store.list = async () => assert.fail("tool preparation must not materialize all packages");
+  store.get = async (name) => { selected.push(name); return get(name); };
+  const config = { enabled_skills: ["example"] };
+  const context = { sessionId: "test", runId: "test", workspaceRoot: root };
+  const agent = { agent_name: "writer", default_entry: false, tasks: { background: false }, custom_params: {} };
+  await tools.hydrateUserGlobalMetadata();
+  assert.deepEqual(tools.listVisibleSkills(agent, config).map((skill) => skill.name), ["example"]);
+  assert.equal((await tools.activateSkill({ skillName: "example" }, context, agent, config)).success, true);
+  assert.deepEqual(selected, []);
+  assert.equal(fs.existsSync(path.join(root, "skills/.runtime")), false);
+  const resource = await tools.loadSkillResource({ skillName: "example", resourceFile: "SKILL.md" }, context, agent, config);
+  assert.equal(resource.success, true);
+  assert.match(resource.content, /Useful instructions/);
+  assert.deepEqual(selected, ["example"]);
+  assert.equal(fs.readdirSync(path.join(root, "skills/.runtime")).length, 1);
+  let scriptDirectory;
+  tools.runScript = async (skill) => {
+    scriptDirectory = skill.skillDir;
+    return { returnCode: 0, stdout: "ok", stderr: "" };
+  };
+  assert.equal((await tools.executeSkillScript({ skillName: "example", scriptName: "check.py" }, context, agent, config)).success, true);
+  assert.equal(path.dirname(scriptDirectory), path.join(root, "skills/.runtime"));
+  assert.deepEqual(selected, ["example", "example"]);
+  const denied = await tools.loadSkillResource({ skillName: "unrelated", resourceFile: "SKILL.md" }, context, agent, config);
+  assert.equal(denied.success, false);
+  assert.deepEqual(selected, ["example", "example"], "invisible Skills must not be materialized");
+});
+
+test("plugin tool assembly and capability inventory preserve metadata without execution hydration", async (t) => {
+  const { root, store, tools, library, authoring } = fixture(t);
+  const value = bundle();
+  value.files[0].body = Buffer.from(Buffer.from(value.files[0].body).toString().replace("custom: true", "custom: true\n  ragsystem_requires_tools: execute_code"));
+  await store.createBundle(value);
+  store.list = async () => assert.fail("assembling tools must not list execution snapshots");
+  const manager = new BackendPluginManager([createSkillsPlugin({ runtimeFactory: async () => ({
+    tools, library, authoring, agentConfig: { getEffective: async () => ({ enabled_skills: ["example"] }) },
+  }) })]);
+  await manager.register();
+  const contributions = manager.runtimeContributions();
+  const runtime = await contributions.createRuntime({ deploymentKind: "local", tenantId: "test" });
+  const provider = listAgentCapabilityProviders(runtime.capabilities).find((item) => item.id === "skills");
+  assert.deepEqual((await provider.listItems())[0].metadata.requires, { tools: ["execute_code"] });
+  const prepared = await contributions.createTools({ agent: { agent_name: "writer", tools: { enabled_tools: [] }, custom_params: {} }, teamName: "default", capabilities: runtime.capabilities });
+  assert.deepEqual(prepared.map((tool) => tool.name), ["activate_skill", "load_skill_resource", "execute_skill_script"]);
+  assert.equal(fs.existsSync(path.join(root, "skills/.runtime")), false);
+  runtime.dispose();
+});
 
 test("new workspace is unavailable until a validated complete save; subsequent saves preserve all files", async (t) => {
   const { root, authoring, library } = fixture(t);

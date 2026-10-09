@@ -36,7 +36,7 @@ export function createSkillsPlugin(dependencies: SkillsPluginDependencies): Back
                   (runtime.tools?.loadAllSkills?.() ?? []).map((info) => [info.name, info]),
                 );
                 return items.map((item) => {
-                  const requires = infos.get(item.name)?.requires;
+                  const requires = item.requires ?? infos.get(item.name)?.requires;
                   return {
                     name: item.name,
                     display_name: item.display_name,
@@ -89,7 +89,7 @@ export function createSkillsPlugin(dependencies: SkillsPluginDependencies): Back
       context.tools.register(async ({ agent, teamName, capabilities, pathAccessPolicy }) => {
         if (!capabilities) throw new Error("Skills plugin requires runtime capabilities");
         const runtime = capabilities.require(SKILLS_RUNTIME_CAPABILITY);
-        await runtime.tools.hydrateUserGlobalPackages();
+        await runtime.tools.hydrateUserGlobalMetadata();
         const config = await runtime.agentConfig.getEffective({
           teamName: teamName ?? "default",
           agentName: agent.agent_name,

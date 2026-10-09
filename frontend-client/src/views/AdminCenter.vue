@@ -146,6 +146,8 @@ const kpiItems = computed(() => [
   { key: 'skills', label: 'Skill', value: counts.value.skills ?? '—' },
 ]);
 onMounted(async () => {
+  // 图表与资源计数互不依赖，避免慢资源接口推迟全部分析请求。
+  void reloadAnalytics();
   const results = await Promise.allSettled([
     dictStore.ensureTeams(),
     dictStore.ensureProviders(),
@@ -162,8 +164,6 @@ onMounted(async () => {
     skills: skills.status === 'fulfilled' ? (skills.value?.data?.length ?? len(skills.value)) : null,
   };
   loadError.value = failed.length ? failed.join('; ') : '';
-
-  reloadAnalytics();
 });
 
 function buildHeatmapData(points) {

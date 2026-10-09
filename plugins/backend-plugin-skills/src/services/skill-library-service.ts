@@ -45,7 +45,7 @@ export class SkillLibraryService {
   }
 
   async getSkillDetail(name: string): Promise<SkillDetail> {
-    await this.skillTools.hydrateUserGlobalPackages();
+    await this.skillTools.hydrateUserGlobalMetadata();
     const skill = this.findSkill(name);
     const files = skill.sourceType === "user_global"
       ? await this.packageStore.listFiles(skill.name)
@@ -63,7 +63,7 @@ export class SkillLibraryService {
   }
 
   async readSkillFile(name: string, relativePath: string): Promise<{ buffer: Buffer; mime: string }> {
-    await this.skillTools.hydrateUserGlobalPackages();
+    await this.skillTools.hydrateUserGlobalMetadata();
     const skill = this.findSkill(name);
     if (skill.sourceType === "user_global") {
       try {
@@ -100,11 +100,11 @@ export class SkillLibraryService {
     const existing = (await this.listSkills()).find((skill) => skill.name === input.name);
     if (existing && existing.source_type !== "user_global") throw new HttpError(403, "forbidden", "内置和工作区 Skill 只读");
     await this.packageStore.saveBundle(input, expectedRevision);
-    await this.skillTools.hydrateUserGlobalPackages();
+    await this.skillTools.hydrateUserGlobalMetadata();
   }
 
   async deleteSkill(name: string, expectedRevision?: string): Promise<{ name: string; purged_agents: string[] }> {
-    await this.skillTools.hydrateUserGlobalPackages();
+    await this.skillTools.hydrateUserGlobalMetadata();
     const skill = this.findSkill(name);
     this.assertWritable(skill);
     const deleted = await this.packageStore.delete(skill.name, expectedRevision);
@@ -112,7 +112,7 @@ export class SkillLibraryService {
       throw new HttpError(404, "not_found", `Skill '${name}' 不存在`);
     }
     // Drop deleted package from discovery cache immediately.
-    await this.skillTools.hydrateUserGlobalPackages();
+    await this.skillTools.hydrateUserGlobalMetadata();
     const purged_agents = await this.skillTools.purgeSkillReference(name);
     return { name, purged_agents };
   }

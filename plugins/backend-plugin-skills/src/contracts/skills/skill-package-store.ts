@@ -22,6 +22,9 @@ export interface SkillPackageRecord {
   };
 }
 
+/** Discovery metadata has no execution directory and must not populate execution caches. */
+export type SkillPackageMetadata = Omit<SkillPackageRecord, "skillDir">;
+
 export interface SkillPackageBundleFile {
   relativePath: string;
   body: Uint8Array;
@@ -42,6 +45,8 @@ export interface CreateSkillPackageBundleInput {
  */
 export interface ISkillPackageStore {
   list(): Promise<SkillPackageRecord[]>;
+  /** List descriptions without reading resource bytes or materializing execution snapshots. */
+  listMetadata?(): Promise<SkillPackageMetadata[]>;
   get(name: string): Promise<SkillPackageRecord | null>;
   createBundle(input: CreateSkillPackageBundleInput): Promise<SkillPackageRecord>;
   /** Read a consistent editable snapshot. Revision is opaque to callers. */

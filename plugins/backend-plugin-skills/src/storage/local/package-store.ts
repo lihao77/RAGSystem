@@ -10,6 +10,7 @@ import type {
   ISkillPackageStore,
   SkillPackageFileNode,
   SkillPackageRecord,
+  SkillPackageMetadata,
 } from "../../contracts/skills/skill-package-store.js";
 import { parseSkillMarkdown } from "../../contracts/skills/skill-markdown.js";
 
@@ -188,6 +189,16 @@ export class FilesystemSkillPackageStore implements ISkillPackageStore {
       .filter((record): record is SkillPackageRecord => record !== null).sort((a, b) => a.name.localeCompare(b.name)));
     scheduleRuntimeGc(this.root, records.map((record) => path.basename(record.skillDir)));
     return records;
+  }
+
+  async listMetadata(): Promise<SkillPackageMetadata[]> {
+    return this.locked(() => listSkillDirs(this.root)
+      .map((directory) => parseSkillDir(this.directory(path.basename(directory))))
+      .filter((record): record is SkillPackageRecord => record !== null)
+      .map(({ name, description, content, metadata, requires }) => ({
+        name, description, content, metadata, ...(requires ? { requires } : {}),
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name)));
   }
 
   async get(name: string): Promise<SkillPackageRecord | null> {
