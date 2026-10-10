@@ -35,7 +35,6 @@ import type {
 } from "../../contracts/mcp.js";
 import type { RiskLevel } from "@ragsystem/backend-core/contracts/runtime/permissions.js";
 import type { ToolExecutionResult, ToolResultMedia } from "@ragsystem/agent-sdk";
-import { toolError, toolSuccess } from "@ragsystem/backend-core/services/agent/sdk/tool-results.js";
 import { createMcpTransport, McpClient, McpTool, McpLogParams, normalizeLogLevel } from "./transport.js";
 import { normalizeMcpTools, normalizePromptArgument } from "./config-normalization.js";
 import { formatError } from "./registry.js";

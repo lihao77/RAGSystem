@@ -35,7 +35,6 @@ import type {
 } from "../../contracts/mcp.js";
 import type { RiskLevel } from "@ragsystem/backend-core/contracts/runtime/permissions.js";
 import type { ToolExecutionResult, ToolResultMedia } from "@ragsystem/agent-sdk";
-import { toolError, toolSuccess } from "@ragsystem/backend-core/services/agent/sdk/tool-results.js";
 import { resolveSpawnCommand } from "./config-normalization.js";
 
 
