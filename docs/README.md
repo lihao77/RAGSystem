@@ -15,6 +15,7 @@ This directory is the canonical repository-level documentation center for mainli
 - [OPERATIONS.md](OPERATIONS.md) — 运行、配置与验证 / operations, configuration, and verification
 - [BACKEND_PLUGIN_CONFIG.md](BACKEND_PLUGIN_CONFIG.md) — 后端插件配置与接入契约 / backend plugin configuration and module contract
 - [AGENT_BUILDER.md](AGENT_BUILDER.md) — Agent 草稿与发布、Skill 校验保存与持续更新 / Agent drafts and publishing, Skill validation and saving
+- [SESSION_RECOVERY.md](SESSION_RECOVERY.md) — 会话快照恢复、事件交接与传输中断契约 / session snapshot recovery
 - [agent-runtime-sdk-design.md](agent-runtime-sdk-design.md) — Agent Runtime SDK 设计 / Agent Runtime SDK design
 - [mcp-config/README.md](mcp-config/README.md) — Host Tool MCP 三方接入配置 / Host Tool MCP integration guide
 

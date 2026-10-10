@@ -24,7 +24,7 @@ test('deleteDeliveredOutbox 清理终态 run 的老行，保护非终态 run 的
     teamSnapshot,
     metadata: {},
   });
-  const createRun = (runId) => store.createRun({
+  const createRun = (runId, parentRunId = null) => store.createRun({
     runId,
     sessionId: 'session-1',
     entrypoint: 'agent_stream',
@@ -36,14 +36,16 @@ test('deleteDeliveredOutbox 清理终态 run 的老行，保护非终态 run 的
     agentCallId: `call-${runId}`,
     lineageParentCallId: null,
     agentDisplayName: 'Root',
-    leaseRootRunId: runId,
+    leaseRootRunId: parentRunId ?? runId,
     threadKey: 'root',
-    parentRunId: null,
+    parentRunId,
     parentCallId: null,
     childAgentId: null,
   });
   createRun('run-active');
   createRun('run-done');
+  createRun('child-done', 'run-active');
+  store.updateRunStatus('child-done', 'session-1', 'completed');
   store.updateRunStatus('run-done', 'session-1', 'completed');
 
   // before 取未来时刻 → 时间谓词全命中，隔离出 run 状态谓词的语义。
@@ -62,6 +64,7 @@ test('deleteDeliveredOutbox 清理终态 run 的老行，保护非终态 run 的
     return row;
   };
   const activeRow = appendDelivered('evt-active', 'run-active');
+  const childRow = appendDelivered('evt-child-done', 'child-done');
   const doneRow = appendDelivered('evt-done', 'run-done');
   const runlessRow = appendDelivered('evt-none', null);
   const pendingRow = store.appendOutbox({
@@ -81,4 +84,8 @@ test('deleteDeliveredOutbox 清理终态 run 的老行，保护非终态 run 的
   assert.equal(store.getOutboxRow(doneRow.id), null, '终态 run 的 delivered 行被清理');
   assert.equal(store.getOutboxRow(runlessRow.id), null, '无 run 归属的 delivered 行被清理');
   assert.ok(store.getOutboxRow(pendingRow.id), '未投递行不受 GC 影响');
+  assert.ok(store.getOutboxRow(childRow.id), '活跃根运行的已完成子运行仍是恢复执行树的一部分');
+  store.updateRunStatus('run-active', 'session-1', 'completed');
+  assert.equal(store.deleteDeliveredOutbox({ before, limit: 100 }), 2);
+  assert.equal(store.getOutboxRow(childRow.id), null);
 });

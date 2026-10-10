@@ -587,7 +587,9 @@ export async function executeRunWithSdk(
     // 快照帧覆盖。检查点与结构事件保持 durable，重放语义不变。顺序由 journal 串行化保证。
     const ephemeral = event.type === "output_delta" || event.type === "reasoning_delta";
     for (const envelope of translateKernelEvent(event, wireCtx)) {
-      if (ephemeral) await deps.eventPublisher.publishEphemeralEnvelope(envelope);
+      if (ephemeral) await deps.eventPublisher.publishEphemeralEnvelope({ ...envelope,
+        payload: { ...envelope.payload as Record<string, unknown>, round: partialRound.round },
+      });
       else await deps.eventPublisher.commitEnvelope(envelope);
     }
     if (event.type === "tool_call") {

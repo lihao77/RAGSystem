@@ -63,6 +63,10 @@ export class OutboxOps {
       | undefined;
     if (!session?.tenant_id) throw new Error(`会话缺少租户归属: ${input.sessionId}`);
     const sessionSeq = input.sessionSeq ?? this.nextSessionSeqInTransaction(input.sessionId);
+    if (input.sessionSeq !== undefined) {
+      this.db.prepare(`INSERT INTO session_event_seq (session_id, last_seq) VALUES (?, ?)
+        ON CONFLICT(session_id) DO UPDATE SET last_seq=MAX(last_seq, excluded.last_seq)`).run(input.sessionId, sessionSeq);
+    }
     const result = this.db
       .prepare(`
         INSERT INTO event_outbox (
@@ -220,11 +224,12 @@ export class OutboxOps {
   getSessionOutboxWatermark(sessionId: string): number {
     const row = this.db
       .prepare(`
-        SELECT COALESCE(MAX(session_seq), 0) AS watermark
-        FROM event_outbox
-        WHERE session_id=? AND event_type LIKE 'client.%'
+        SELECT MAX(
+          COALESCE((SELECT last_seq FROM session_event_seq WHERE session_id=?), 0),
+          COALESCE((SELECT MAX(session_seq) FROM event_outbox WHERE session_id=?), 0)
+        ) AS watermark
       `)
-      .get(sessionId) as { watermark: number | null } | undefined;
+      .get(sessionId, sessionId) as { watermark: number | null } | undefined;
     const watermark = Number(row?.watermark ?? 0);
     return Number.isSafeInteger(watermark) && watermark >= 0 ? watermark : 0;
   }
@@ -357,15 +362,20 @@ export class OutboxOps {
   deleteDeliveredOutbox(input: DeleteDeliveredOutboxInput): number {
     const limit = normalizeLimit(input.limit, 100, 10_000);
     // delivered 行同时是重连/attach 的回放源：非终态 run（running/suspended）的行
-    // 必须活到 run 终结之后，否则长 run 中途 attach 会静默丢失早期执行树。
+    // 及其已结束子 run 必须活到整棵运行树终结，否则长 run 中途恢复会丢失早期执行树。
     const ids = this.db
       .prepare(`
+        WITH RECURSIVE protected_runs(run_id) AS (
+          SELECT run_id FROM runs WHERE status IN ('running', 'suspended')
+          UNION
+          SELECT child.run_id FROM runs child JOIN protected_runs parent ON child.parent_run_id=parent.run_id
+        )
         SELECT id
         FROM event_outbox
         WHERE status='delivered'
           AND COALESCE(delivered_at, created_at) < ?
           AND (run_id IS NULL OR run_id NOT IN (
-            SELECT run_id FROM runs WHERE status IN ('running', 'suspended')
+            SELECT run_id FROM protected_runs
           ))
         ORDER BY id ASC
         LIMIT ?
@@ -446,10 +456,10 @@ export class OutboxOps {
     this.db
       .prepare(`
         INSERT INTO session_event_seq (session_id, last_seq)
-        VALUES (?, 0)
-        ON CONFLICT(session_id) DO NOTHING
+        VALUES (?, COALESCE((SELECT MAX(session_seq) FROM event_outbox WHERE session_id=?), 0))
+        ON CONFLICT(session_id) DO UPDATE SET last_seq=MAX(last_seq, excluded.last_seq)
       `)
-      .run(sessionId);
+      .run(sessionId, sessionId);
     this.db.prepare("UPDATE session_event_seq SET last_seq=last_seq + 1 WHERE session_id=?").run(sessionId);
     const row = this.db
       .prepare("SELECT last_seq FROM session_event_seq WHERE session_id=?")

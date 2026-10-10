@@ -16,6 +16,7 @@ import {
   applyEnvelope,
   createExecutionTreeState,
   getExecutionTree,
+  restoreExecutionTreeState,
 } from "../src/execution-tree.js";
 
 describe("agent-protocol envelope compatibility", () => {
@@ -557,15 +558,15 @@ describe("agent-protocol envelope compatibility", () => {
 });
 
 describe("Envelope delivery cursor", () => {
-  it("deduplicates durable events and advances from heartbeat cursors", () => {
+  it("deduplicates durable events without letting heartbeat skip missing events", () => {
     const cursor = new EnvelopeDeliveryCursor();
 
     expect(cursor.accept({ type: "stream_output", seq: 4 })).toBe(true);
     expect(cursor.accept({ type: "stream_output", seq: 4 })).toBe(false);
     expect(cursor.accept({ type: "stream_output", seq: 3 })).toBe(false);
     expect(cursor.accept({ type: "heartbeat", payload: { last_seq: 8 } })).toBe(true);
-    expect(cursor.lastSeq).toBe(8);
-    expect(cursor.accept({ type: "run_ended", seq: 7 })).toBe(false);
+    expect(cursor.lastSeq).toBe(4);
+    expect(cursor.accept({ type: "run_ended", seq: 7 })).toBe(true);
     expect(cursor.accept({ type: "session.reconnect" })).toBe(true);
   });
 
@@ -865,4 +866,46 @@ describe("tool_result raw_result（结构化结果透传）", () => {
     expect(tool.observation).toBe("legacy text");
     expect(tool.rawResult).toBeUndefined();
   });
+});
+
+
+describe("recovery baseline and native execution restore", () => {
+  it("installs an authoritative baseline even when restoring a lower-watermark backup", () => {
+    const cursor = new EnvelopeDeliveryCursor();
+    cursor.reset(100);
+    expect(cursor.accept({ type: "session.snapshot", payload: { event_watermark: 12 } })).toBe(true);
+    expect(cursor.accept({ type: "tool_result", seq: 13 })).toBe(true);
+    expect(cursor.accept({ type: "tool_result", seq: 13 })).toBe(false);
+    expect(cursor.accept({ type: "session.snapshot", payload: { event_watermark: 0 } })).toBe(true);
+    expect(cursor.lastSeq).toBe(0);
+  });
+
+  it("rebuilds indexes so live tool results continue the native snapshot without mutating it", () => {
+    const source = createExecutionTreeState();
+    applyEnvelope(source, { type: "agent_started", call_id: "root", agent_id: "root", payload: { phase: "start" } });
+    applyEnvelope(source, { type: "agent_started", call_id: "child", agent_id: "child", payload: { phase: "start", lineage: { parent_call_id: "root" } } });
+    applyEnvelope(source, { type: "tool_call", call_id: "tool", payload: { tool: "lookup", phase: "start", lineage: { parent_call_id: "child" } } });
+    const snapshot = getExecutionTree(source);
+    const restored = restoreExecutionTreeState(snapshot);
+    applyEnvelope(restored, { type: "tool_result", call_id: "tool", payload: { tool: "lookup", phase: "end", ok: true, output: "found" } });
+    expect(restored.agentsByCallId.size).toBe(2);
+    expect(getExecutionTree(restored).root?.children[0]?.rounds[0]?.toolCalls[0]?.status).toBe("succeeded");
+    expect(snapshot.root?.children[0]?.rounds[0]?.toolCalls[0]?.status).toBe("running");
+  });
+});
+
+
+it("ignores buffered deltas and partial snapshots already superseded by a durable round checkpoint", () => {
+  const state = createExecutionTreeState();
+  applyEnvelope(state, { type: "agent_started", call_id: "root", agent_id: "root", payload: { phase: "start" } });
+  applyEnvelope(state, { type: "stream_output", call_id: "root", payload: { phase: "delta", round: 1, content: "old" } });
+  applyEnvelope(state, { type: "stream_output", call_id: "root", payload: { phase: "intent_complete", round: 1, content: "complete" } });
+  applyEnvelope(state, { type: "stream_output", call_id: "root", payload: { phase: "delta", round: 1, content: "old" } });
+  applyEnvelope(state, { type: "stream_output", call_id: "root", payload: { phase: "snapshot", round: 1, content: "old", reasoning: "old" } });
+  const root = getExecutionTree(state).root!;
+  expect(root.rounds).toHaveLength(1);
+  expect(root.rounds[0]?.intent).toBe("complete");
+  applyEnvelope(state, { type: "stream_output", call_id: "root", payload: { phase: "delta", round: 2, content: "next" } });
+  expect(root.rounds).toHaveLength(2);
+  expect(root.rounds[1]?.text).toBe("next");
 });

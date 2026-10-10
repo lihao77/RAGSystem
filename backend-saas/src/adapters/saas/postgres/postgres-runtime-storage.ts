@@ -51,6 +51,7 @@ import type {
   RuntimeStorage,
   RuntimeSessionMaintenanceInput,
   RuntimeSessionFacts,
+  RuntimeSessionRecoveryFacts,
   RuntimeSessionStateFacts,
   RuntimeStorageRepositories,
 } from "@ragsystem/backend-core/contracts/storage/runtime-storage.js";
@@ -166,6 +167,7 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
       getActiveRootRun: (sessionId) => this.getActiveRootRun(sessionId),
       getLatestThreadRun: (sessionId, threadKey) => this.getLatestThreadRun(sessionId, threadKey),
       getSessionRuntimeFacts: (sessionId) => this.getSessionRuntimeFacts(sessionId),
+      getSessionRecoveryFacts: (sessionId) => this.getSessionRecoveryFacts(sessionId),
       getSessionStateFacts: (sessionIds) => this.getSessionStateFacts(sessionIds),
       claimSessionMaintenance: (input) => this.claimSessionMaintenance(input),
       renewSessionMaintenance: (input) => this.renewSessionMaintenance(input),
@@ -199,110 +201,170 @@ export class PostgresRuntimeStorage implements RuntimeStorage {
   }
 
   private async getSessionRuntimeFacts(sessionId: string): Promise<RuntimeSessionFacts> {
-    return this.executor.transaction(async (transactionExecutor) => {
-      await lockAdvisoryKey(transactionExecutor, `session-control:${this.tenantId}:${sessionId}`);
-      const exists = await assertTenantSession(transactionExecutor, this.tenantId, sessionId, true);
-      if (!exists) {
-        return {
-          session: null,
-          activeRootRun: null,
-          latestTerminalRootRun: null,
-          pendingInteractions: [],
-          activeRunEvents: [],
-          ownedByCurrentInstance: false,
-        };
-      }
-      const tx = createTransactionFacade(this.tenantId, transactionExecutor);
-      const session = await tx.conversation.getSession(sessionId);
-      const activeRoots = await transactionExecutor.query<Record<string, unknown>>(
-        `SELECT run_id, session_id, tenant_id, entrypoint, status, task_summary, terminal_reason,
-                request_id, user_id, agent_name, agent_call_id, lineage_parent_call_id,
-                agent_display_name, lease_root_run_id, thread_key, parent_run_id, parent_call_id,
-                child_agent_id, final_message_id, created_at, updated_at,
-                owner_instance_id, lease_expires_at,
-                (owner_instance_id=$3 AND lease_expires_at > CURRENT_TIMESTAMP) AS owned_by_current_instance
-         FROM saas_runs
-         WHERE tenant_id=$1 AND session_id=$2
-           AND (
-             (parent_run_id IS NULL AND child_agent_id IS NULL)
-             OR EXISTS (
-               SELECT 1 FROM pending_interactions AS pending
-               WHERE pending.session_id=$2
-                 AND pending.root_run_id=saas_runs.run_id
-                 AND pending.status IN ('waiting','suspended','resolved','resuming')
-             )
-           )
-           AND status IN ('running','suspended')
-         ORDER BY (parent_run_id IS NULL AND child_agent_id IS NULL) DESC,
-                  updated_at DESC, created_at DESC, run_id DESC
-         LIMIT 1`,
-        [this.tenantId, sessionId, this.ownerInstanceId],
-      );
-      const terminalRoots = await transactionExecutor.query<Record<string, unknown>>(
-        `SELECT run_id, session_id, tenant_id, entrypoint, status, task_summary, terminal_reason,
-                request_id, user_id, agent_name, agent_call_id, lineage_parent_call_id,
-                agent_display_name, lease_root_run_id, thread_key, parent_run_id, parent_call_id,
-                child_agent_id, final_message_id, created_at, updated_at
-         FROM saas_runs
-         WHERE tenant_id=$1 AND session_id=$2 AND parent_run_id IS NULL AND child_agent_id IS NULL
-           AND status IN ('completed','failed','interrupted')
-         ORDER BY updated_at DESC, created_at DESC, run_id DESC
-         LIMIT 1`,
-        [this.tenantId, sessionId],
-      );
-      const activeRow = activeRoots.rows[0] ?? null;
-      const activeRootRun = activeRow ? mapRun(activeRow) : null;
-      const pendingInteractions = await tx.pendingInteractions.listPendingInteractions({
-        sessionId,
-        statuses: ["waiting", "suspended", "resolved", "resuming"],
-      });
-      const activeRunIds = activeRootRun
-        ? (await transactionExecutor.query<{ run_id: string }>(
-            `WITH RECURSIVE run_tree AS (
-               SELECT run_id FROM saas_runs WHERE tenant_id=$1 AND session_id=$2 AND run_id=$3
-               UNION ALL
-               SELECT child.run_id
-               FROM saas_runs AS child
-               JOIN run_tree AS parent ON child.parent_run_id=parent.run_id
-               WHERE child.tenant_id=$1 AND child.session_id=$2
-             )
-             SELECT run_id FROM run_tree`,
-            [this.tenantId, sessionId, activeRootRun.run_id],
-          )).rows.map((row) => row.run_id)
-        : [];
+    return this.executor.transaction(tx => this.readSessionRuntimeFacts(tx, sessionId));
+  }
+
+  private async readSessionRuntimeFacts(transactionExecutor: PostgresExecutor, sessionId: string, recovery = false): Promise<RuntimeSessionFacts> {
+    if (!recovery) await lockAdvisoryKey(transactionExecutor, `session-control:${this.tenantId}:${sessionId}`);
+    const exists = await assertTenantSession(transactionExecutor, this.tenantId, sessionId, true, !recovery);
+    if (!exists) {
       return {
-        session,
-        activeRootRun,
-        latestTerminalRootRun: terminalRoots.rows[0] ? mapRun(terminalRoots.rows[0]) : null,
-        pendingInteractions,
-        activeRunEvents: activeRunIds.length > 0
-          ? (await Promise.all([
-              tx.outbox.listOutboxForReplay({
-                sessionId,
-                runIds: activeRunIds,
-                limit: 500,
-                latest: true,
-                eventTypes: [
-                  "client.agent_ended",
-                  "client.model_request",
-                  "client.model_attempt_started",
-                  "client.model_attempt_failed",
-                  "client.model_attempt_completed",
-                  "client.tool_call",
-                  "client.tool_result",
-                ],
-              }),
-              tx.outbox.listOutboxForReplay({
-                sessionId,
-                runIds: activeRunIds,
-                limit: 100,
-                latest: true,
-                eventTypes: ["client.stream_output"],
-              }),
-            ])).flat().sort((left, right) => left.session_seq - right.session_seq)
-          : [],
-        ownedByCurrentInstance: activeRootRun?.status === "running"
-          && activeRow?.owned_by_current_instance === true,
+        session: null,
+        activeRootRun: null,
+        latestTerminalRootRun: null,
+        pendingInteractions: [],
+        activeRunEvents: [],
+        ownedByCurrentInstance: false,
+      };
+    }
+    const tx = createTransactionFacade(this.tenantId, transactionExecutor);
+    const session = await tx.conversation.getSession(sessionId);
+    const activeRoots = await transactionExecutor.query<Record<string, unknown>>(
+      `SELECT run_id, session_id, tenant_id, entrypoint, status, task_summary, terminal_reason,
+              request_id, user_id, agent_name, agent_call_id, lineage_parent_call_id,
+              agent_display_name, lease_root_run_id, thread_key, parent_run_id, parent_call_id,
+              child_agent_id, final_message_id, created_at, updated_at,
+              owner_instance_id, lease_expires_at,
+              (owner_instance_id=$3 AND lease_expires_at > CURRENT_TIMESTAMP) AS owned_by_current_instance
+       FROM saas_runs
+       WHERE tenant_id=$1 AND session_id=$2
+         AND (
+           (parent_run_id IS NULL AND child_agent_id IS NULL)
+           OR EXISTS (
+             SELECT 1 FROM pending_interactions AS pending
+             WHERE pending.session_id=$2
+               AND pending.root_run_id=saas_runs.run_id
+               AND pending.status IN ('waiting','suspended','resolved','resuming')
+           )
+         )
+         AND status IN ('running','suspended')
+       ORDER BY (parent_run_id IS NULL AND child_agent_id IS NULL) DESC,
+                updated_at DESC, created_at DESC, run_id DESC
+       LIMIT 1`,
+      [this.tenantId, sessionId, this.ownerInstanceId],
+    );
+    const terminalRoots = await transactionExecutor.query<Record<string, unknown>>(
+      `SELECT run_id, session_id, tenant_id, entrypoint, status, task_summary, terminal_reason,
+              request_id, user_id, agent_name, agent_call_id, lineage_parent_call_id,
+              agent_display_name, lease_root_run_id, thread_key, parent_run_id, parent_call_id,
+              child_agent_id, final_message_id, created_at, updated_at
+       FROM saas_runs
+       WHERE tenant_id=$1 AND session_id=$2 AND parent_run_id IS NULL AND child_agent_id IS NULL
+         AND status IN ('completed','failed','interrupted')
+       ORDER BY updated_at DESC, created_at DESC, run_id DESC
+       LIMIT 1`,
+      [this.tenantId, sessionId],
+    );
+    const activeRow = activeRoots.rows[0] ?? null;
+    const activeRootRun = activeRow ? mapRun(activeRow) : null;
+    const pendingInteractions = await tx.pendingInteractions.listPendingInteractions({
+      sessionId,
+      statuses: ["waiting", "suspended", "resolved", "resuming"],
+    });
+    const activeRunIds = activeRootRun
+      ? (await transactionExecutor.query<{ run_id: string }>(
+          `WITH RECURSIVE run_tree AS (
+             SELECT run_id FROM saas_runs WHERE tenant_id=$1 AND session_id=$2 AND run_id=$3
+             UNION ALL
+             SELECT child.run_id
+             FROM saas_runs AS child
+             JOIN run_tree AS parent ON child.parent_run_id=parent.run_id
+             WHERE child.tenant_id=$1 AND child.session_id=$2
+           )
+           SELECT run_id FROM run_tree`,
+          [this.tenantId, sessionId, activeRootRun.run_id],
+        )).rows.map((row) => row.run_id)
+      : [];
+    return {
+      session,
+      activeRootRun,
+      latestTerminalRootRun: terminalRoots.rows[0] ? mapRun(terminalRoots.rows[0]) : null,
+      pendingInteractions,
+      activeRunEvents: activeRunIds.length > 0
+        ? (await Promise.all([
+            tx.outbox.listOutboxForReplay({
+              sessionId,
+              runIds: activeRunIds,
+              limit: 500,
+              latest: true,
+              eventTypes: [
+                "client.agent_ended",
+                "client.model_request",
+                "client.model_attempt_started",
+                "client.model_attempt_failed",
+                "client.model_attempt_completed",
+                "client.tool_call",
+                "client.tool_result",
+              ],
+            }),
+            tx.outbox.listOutboxForReplay({
+              sessionId,
+              runIds: activeRunIds,
+              limit: 100,
+              latest: true,
+              eventTypes: ["client.stream_output"],
+            }),
+          ])).flat().sort((left, right) => left.session_seq - right.session_seq)
+        : [],
+      eventWatermark: await new PostgresOutboxRepository(transactionExecutor).getSessionOutboxWatermark(this.tenantId, sessionId),
+      ownedByCurrentInstance: activeRootRun?.status === "running"
+        && activeRow?.owned_by_current_instance === true,
+    };
+  }
+
+  private async getSessionRecoveryFacts(sessionId: string): Promise<RuntimeSessionRecoveryFacts> {
+    return this.executor.transaction(async tx => {
+      await tx.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY");
+      const facts = await this.readSessionRuntimeFacts(tx, sessionId, true);
+      if (!facts.session) throw new Error(`session not found: ${sessionId}`);
+      const conversations = new PostgresConversationRepository(tx);
+      const children = (await new PostgresChildAgentRepository(tx).listChildAgents(this.tenantId, { sessionId, limit: 10_000 })).items;
+      const runRows = await tx.query<Record<string, unknown>>(`WITH RECURSIVE run_tree AS (
+        SELECT run_id FROM saas_runs WHERE tenant_id=$1 AND session_id=$2 AND run_id=$3
+        UNION ALL
+        SELECT child.run_id FROM saas_runs child JOIN run_tree parent ON child.parent_run_id=parent.run_id
+        WHERE child.tenant_id=$1 AND child.session_id=$2
+      ) SELECT * FROM saas_runs WHERE tenant_id=$1 AND session_id=$2
+        AND (run_id IN (SELECT run_id FROM run_tree) OR run_id=ANY($4::text[]))
+        ORDER BY created_at DESC, run_id DESC`, [this.tenantId, sessionId, facts.activeRootRun?.run_id ?? null,
+        [facts.latestTerminalRootRun?.run_id, ...children.map(child => child.last_run_id)].filter(Boolean)]);
+      const runs = runRows.rows.map(mapRun);
+      const runIds = new Set(facts.activeRootRun ? [facts.activeRootRun.run_id] : []);
+      for (let changed = true; changed;) {
+        changed = false;
+        for (const run of runs) {
+          if (run.parent_run_id && runIds.has(run.parent_run_id) && !runIds.has(run.run_id)) {
+            runIds.add(run.run_id); changed = true;
+          }
+        }
+      }
+      const outbox = new PostgresOutboxRepository(tx);
+      const activeRunEvents: typeof facts.activeRunEvents = [];
+      let afterSeq = 0;
+      while (runIds.size > 0) {
+        const page = await outbox.listOutboxForReplay({ tenantId: this.tenantId, sessionId, runIds: [...runIds], afterSeq, limit: 500 });
+        activeRunEvents.push(...page);
+        if (page.length < 500) break;
+        afterSeq = page.at(-1)!.session_seq;
+      }
+      const page = await conversations.listVisibleMessagesSnapshot(this.tenantId, sessionId, "root", 100, 0);
+      const candidateRunIds = [...new Set(page.items.map(message => message.metadata.consumed_by_run_id ?? message.metadata.run_id)
+        .filter((id): id is string => typeof id === "string"))];
+      if (facts.activeRootRun && !candidateRunIds.includes(facts.activeRootRun.run_id)) candidateRunIds.push(facts.activeRootRun.run_id);
+      const executionRows: MessageInfo[] = [];
+      for (let offset = 0; candidateRunIds.length > 0;) {
+        const raw = await conversations.listMessages(sessionId, 1000, offset, "root", candidateRunIds);
+        executionRows.push(...raw.items);
+        if (!raw.has_more || !raw.items.length) break;
+        offset += raw.items.length;
+      }
+      executionRows.sort((a, b) => a.seq - b.seq);
+      return {
+        ...facts, activeRunEvents, runs,
+        eventWatermark: await outbox.getSessionOutboxWatermark(this.tenantId, sessionId),
+        messages: page.items, hasMoreMessages: page.has_more, executionRows,
+        children,
+        pendingRequests: await conversations.readMessageRequestStatuses(sessionId),
       };
     });
   }
@@ -1687,9 +1749,10 @@ async function assertTenantSession(
   tenantId: TenantId,
   sessionId: string,
   allowMissing = false,
+  lock = true,
 ): Promise<boolean> {
   const result = await executor.query<{ tenant_id: string }>(
-    "SELECT tenant_id FROM conversation_sessions WHERE session_id=$1 FOR UPDATE",
+    `SELECT tenant_id FROM conversation_sessions WHERE session_id=$1${lock ? " FOR UPDATE" : ""}`,
     [sessionId],
   );
   const owner = result.rows[0]?.tenant_id;

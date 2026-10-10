@@ -191,7 +191,7 @@ describe("RagChatClient", () => {
     await client.connect("s-1");
 
     expect(sockets).toHaveLength(1);
-    expect(sockets[0]?.url).toBe("wss://rag.example.test/api/agent/sessions/s-1/ws?ticket=ticket-1");
+    expect(sockets[0]?.url).toBe("wss://rag.example.test/api/agent/sessions/s-1/ws?recovery_snapshot=1&ticket=ticket-1");
     expect(fetchMock).toHaveBeenLastCalledWith(
       "https://rag.example.test/api/agent/sessions/s-1/ws-ticket",
       expect.objectContaining({ headers: { authorization: "Bearer jwt-1" } }),

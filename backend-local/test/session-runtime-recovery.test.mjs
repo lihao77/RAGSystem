@@ -869,3 +869,77 @@ test('Local claim 被恢复回滚后不能伪装成已 attach', async (t) => {
   assert.equal(store.getRun('session-1', 'run-1').status, 'suspended');
   assert.equal(attached.attached, false);
 });
+
+
+test('recovery snapshot restores native execution, interaction and messages at one watermark', async (t) => {
+  const { store, runtime } = await createHarness(t);
+  store.addMessage({ sessionId: 'session-1', messageId: 'input-1', role: 'user',
+    contentParts: [{ type: 'text', text: 'task' }], metadata: { run_id: 'run-1' }, threadKey: 'root' });
+  store.addMessage({ sessionId: 'session-1', messageId: 'step-1', role: 'assistant',
+    contentParts: [{ type: 'text', text: 'working' }], toolCalls: [{ id: 'tool-1', type: 'function', function: { name: 'read_file', arguments: '{}' } }],
+    metadata: { run_id: 'run-1', react_intermediate: true }, threadKey: 'root' });
+  for (const event of [
+    { type: 'agent_started', call_id: 'root-call-1', agent_id: 'root', payload: { task: 'task' } },
+    { type: 'stream_output', call_id: 'root-call-1', agent_id: 'root', boundary_message_id: 'input-1',
+      payload: { phase: 'intent_complete', content: 'working', round: 1 } },
+    { type: 'tool_call', call_id: 'tool-1', agent_id: 'root', boundary_message_id: 'input-1',
+      payload: { tool: 'read_file', phase: 'start', lineage: { parent_call_id: 'root-call-1' } } },
+  ]) store.appendOutbox({ sessionId: 'session-1', runId: 'run-1', eventType: `client.${event.type}`,
+    aggregateType: 'run', aggregateId: 'run-1', payload: { client_event: event } });
+  store.createRun({ runId: 'child-1', sessionId: 'session-1', status: 'completed', agentName: 'child',
+    agentCallId: 'child-call', lineageParentCallId: 'root-call-1', agentDisplayName: 'Child', leaseRootRunId: 'run-1',
+    parentRunId: 'run-1', parentCallId: 'tool-1', threadKey: 'child-thread' });
+  for (const event of [
+    { type: 'agent_started', payload: { phase: 'start', task: 'child task', invocation_call_id: 'tool-1', lineage: { parent_call_id: 'root-call-1' } } },
+    { type: 'agent_ended', payload: { phase: 'end', status: 'succeeded', success: true, result: 'child done', lineage: { parent_call_id: 'root-call-1' } } },
+  ]) store.appendOutbox({ sessionId: 'session-1', runId: 'child-1', eventType: `client.${event.type}`,
+    aggregateType: 'run', aggregateId: 'child-1', payload: { client_event: { ...event, call_id: 'child-call', agent_id: 'child' } } });
+  createInteraction(store);
+  const snapshot = await runtime.getRecoverySnapshot('session-1');
+  assert.equal(snapshot.event_watermark, 5);
+  assert.equal(snapshot.runtime.event_watermark, snapshot.event_watermark);
+  assert.equal(snapshot.runtime.state, 'waiting_interaction');
+  assert.equal(snapshot.runtime.pending_interactions[0].interaction_id, 'interaction-1');
+  assert.deepEqual(snapshot.messages.items.map(message => message.id), ['input-1']);
+  assert.equal(snapshot.messages.items[0].has_execution, true);
+  assert.equal(snapshot.tree.root.callId, 'root-call-1');
+  assert.equal(snapshot.tree.root.children[0].callId, 'child-call');
+  assert.equal(snapshot.tree.root.children[0].status, 'succeeded');
+  assert.equal(snapshot.execution[0].boundary_message_id, 'input-1');
+  assert.equal(snapshot.execution[0].tree.root.rounds[0].intent, 'working');
+  assert.equal(snapshot.participants[0].last_run_id, 'run-1');
+});
+
+test('completed run recovers from messages after all delivered events are collected', async (t) => {
+  const { store, runtime } = await createHarness(t);
+  store.addMessage({ sessionId: 'session-1', messageId: 'final-1', role: 'assistant',
+    contentParts: [{ type: 'text', text: 'done' }], metadata: { run_id: 'run-1' }, threadKey: 'root' });
+  store.updateRunStatus('run-1', 'session-1', 'completed', 'final-1');
+  const row = store.appendOutbox({ sessionId: 'session-1', runId: 'run-1', sessionSeq: 42,
+    eventType: 'client.run_ended', aggregateType: 'run', aggregateId: 'run-1',
+    payload: { client_event: { type: 'run_ended', payload: { status: 'completed' } } } });
+  store.markOutboxDelivered(row.id);
+  assert.equal(store.deleteDeliveredOutbox({ before: new Date(Date.now() + 60000).toISOString(), limit: 100 }), 1);
+  const snapshot = await runtime.getRecoverySnapshot('session-1');
+  assert.equal(snapshot.event_watermark, 42);
+  assert.equal(snapshot.runtime.state, 'idle');
+  assert.equal(snapshot.runtime.last_run.status, 'completed');
+  assert.equal(snapshot.messages.items[0].id, 'final-1');
+  assert.deepEqual(snapshot.execution, []);
+  assert.equal(store.getNextSessionSeq('session-1'), 43);
+});
+
+test('legacy missing or stale event counter converges before allocating the next sequence', async (t) => {
+  const { store, dbPath } = await createHarness(t);
+  store.appendOutbox({ sessionId: 'session-1', runId: 'run-1', sessionSeq: 50,
+    eventType: 'client.run_started', aggregateType: 'run', aggregateId: 'run-1', payload: { client_event: { type: 'run_started' } } });
+  const db = new DatabaseSync(dbPath);
+  try {
+    db.prepare('DELETE FROM session_event_seq WHERE session_id=?').run('session-1');
+    assert.equal(store.getSessionOutboxWatermark('session-1'), 50);
+    assert.equal(store.getNextSessionSeq('session-1'), 51);
+    db.prepare('UPDATE session_event_seq SET last_seq=1 WHERE session_id=?').run('session-1');
+    assert.equal(store.getNextSessionSeq('session-1'), 51);
+    assert.equal(store.getNextSessionSeq('session-1'), 52);
+  } finally { db.close(); }
+});

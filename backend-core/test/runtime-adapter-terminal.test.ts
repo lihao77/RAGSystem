@@ -872,10 +872,12 @@ describe("executeRunWithSdk terminal convergence", () => {
       },
     };
     const ephemeralPhases: string[] = [];
+    const ephemeralRounds: number[] = [];
     const durablePhases: string[] = [];
     let snapshot: any = null;
     (base.eventPublisher as any).publishEphemeralEnvelope = vi.fn(async (envelope: any) => {
       ephemeralPhases.push(envelope.payload?.phase);
+      ephemeralRounds.push(envelope.payload?.round);
       if (envelope.payload?.phase === "snapshot") {
         snapshot = envelope;
         return;
@@ -913,6 +915,7 @@ describe("executeRunWithSdk terminal convergence", () => {
     expect(result.success).toBe(true);
     // delta 帧全部走 ephemeral；durable 侧只剩检查点/结构事件。
     expect(ephemeralPhases).toEqual(["reasoning_delta", "reasoning_delta", "delta", "delta", "snapshot"]);
+    expect(ephemeralRounds).toEqual([0, 0, 0, 0, 0]);
     expect(durablePhases).not.toContain("delta");
     expect(durablePhases).not.toContain("reasoning_delta");
     expect(durablePhases).toContain("reasoning_complete");

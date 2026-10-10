@@ -58,7 +58,7 @@ describe("execution tree snapshot projection（在飞轮全量取像）", () => 
     expect(parsed.success).toBe(true);
   });
 
-  it("陈旧快照写回已完成轮，不产生幻影新轮（intent 展示优先于 text）", () => {
+  it("陈旧快照不能覆盖已完成轮，也不产生幻影新轮", () => {
     // 工具执行窗口重连场景：round 0 的文本已随 intent_complete 毕业，迟到快照
     // 必须落回 round 0 而不是新建 round 1——否则同一段文本渲染两次。
     const state = createExecutionTreeState();
@@ -68,7 +68,7 @@ describe("execution tree snapshot projection（在飞轮全量取像）", () => 
     expect(root.rounds).toHaveLength(1);
     expect(root.rounds[0]!.intent).toBe("整轮全文");
     expect(root.rounds[0]!.intentComplete).toBe(true);
-    expect(root.rounds[0]!.text).toBe("整轮全文");
+    expect(root.rounds[0]!.text).toBe("");
   });
 
   it("快照重建跨轮 agent.output（已完成轮 intent 之和 + 当轮全文）", () => {

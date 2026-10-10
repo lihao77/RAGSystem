@@ -95,7 +95,7 @@ describe("WidgetAgentClient websocket ticket", () => {
     );
     expect(FakeWebSocket.instances).toHaveLength(1);
     expect(FakeWebSocket.instances[0]?.url).toBe(
-      "wss://api.example.test/api/agent/sessions/session-1/ws?ticket=one-time-ticket",
+      "wss://api.example.test/api/agent/sessions/session-1/ws?recovery_snapshot=1&ticket=one-time-ticket",
     );
     expect(FakeWebSocket.instances[0]?.url).not.toContain("widget-jwt");
     client.disconnect();

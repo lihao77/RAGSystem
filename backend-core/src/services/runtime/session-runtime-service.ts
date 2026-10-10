@@ -8,6 +8,7 @@ import {
 import type { PendingInteractionRecord, RunInfo } from "../../contracts/conversation-store/index.js";
 import type { RuntimeSessionFacts, RuntimeSessionStateFacts, RuntimeStorage } from "../../contracts/storage/runtime-storage.js";
 import { EnvelopeProjector } from "./event-outbox/projector.js";
+import { projectSessionRecovery } from "./session-recovery-snapshot.js";
 
 /** Projects all durable Session lifecycle facts into the single client-facing runtime snapshot. */
 export class SessionRuntimeService {
@@ -17,6 +18,10 @@ export class SessionRuntimeService {
     const facts = await this.storage.operations.getSessionRuntimeFacts(sessionId);
     if (!facts.session) throw new Error(`session not found: ${sessionId}`);
     return projectSessionRuntime(facts);
+  }
+
+  async getRecoverySnapshot(sessionId: string) {
+    return projectSessionRecovery(await this.storage.operations.getSessionRecoveryFacts(sessionId));
   }
 
   async getStates(sessionIds: readonly string[]): Promise<Map<string, SessionRuntimeState>> {
@@ -55,6 +60,7 @@ export function projectSessionRuntime(facts: RuntimeSessionFacts): SessionRuntim
     ? facts.pendingInteractions.find((interaction) => interaction.status === "resolved")?.interaction_id ?? null
     : null;
   const payload = {
+    ...(facts.eventWatermark !== undefined ? { event_watermark: facts.eventWatermark } : {}),
     state,
     load_strategy: SESSION_LOAD_STRATEGY_BY_STATE[state],
     allowed_actions: allowedActions(

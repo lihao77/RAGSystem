@@ -88,7 +88,7 @@ export interface DispatcherOptions {
   runtime: RunRuntimeContext;
   recovery: RunRecoveryContext;
   interaction: InteractionContext;
-  applySessionRuntime: (snapshot: OpenRecord) => void;
+  applySessionRuntime: (snapshot: OpenRecord) => void | boolean;
   finishPendingCommand: (requestId?: string | null) => void;
   reorderMessages: () => SessionMessage[];
   onRuntimeSnapshot?: (sessionId: string, snapshot: OpenRecord) => void;

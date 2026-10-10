@@ -111,6 +111,10 @@ export class MessageRequestOps {
         OR EXISTS (SELECT 1 FROM agent_mailbox b WHERE b.session_id=r.session_id AND b.target_thread_key='root'
           AND b.input_type='user_message' AND b.status='acked' AND json_extract(b.metadata, '$.request_id')=r.request_id))`)
       .run(new Date().toISOString(), sessionId);
+    return this.readMessageRequestStatuses(sessionId, requestIds);
+  }
+
+  readMessageRequestStatuses(sessionId: string, requestIds: readonly string[] = []) {
     const rows = this.db.prepare(`SELECT r.request_id, r.content,
       CASE WHEN m.id IS NOT NULL OR r.status='consumed' OR b.status='acked' THEN 'consumed' WHEN r.status='cancelled' THEN 'cancelled' WHEN r.status='failed' OR b.status='expired' THEN 'failed'
         WHEN b.status IN ('queued', 'claimed') THEN 'queued' ELSE r.status END AS status,

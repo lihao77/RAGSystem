@@ -382,7 +382,7 @@ const {
 
 const {
   messagesLoading, cacheMessages, deleteMessageCache,
-  loadSessionMessages, mergeMessageIdsFromServer,
+  loadSessionMessages, applySnapshotMessages, mergeMessageIdsFromServer,
 } = useSessionMessages({
   normalizeAssistantExecutionState,
   createAssistantMessageFromHistory,
@@ -533,6 +533,7 @@ const {
   cacheMessages,
   deleteMessageCache,
   loadSessionMessages,
+  applySnapshotMessages,
   mergeMessageIdsFromServer,
   updateRecentSession: (...a) => updateRecentSession(...a),
   applyEnvelopeToMessage,
@@ -663,6 +664,7 @@ const {
   sessionFilesDrawerVisible,
   sessionFilesDrawerTarget,
   loadSessionMessages,
+  loadContextSnapshot,
   loadSessionFiles,
   connectSessionWS,
   disconnectSessionWS,

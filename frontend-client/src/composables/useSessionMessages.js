@@ -80,14 +80,67 @@ export function useSessionMessages(deps) {
     }
   };
 
+  const mapHistoryItems = (items) => items
+    .filter(item => {
+      const meta = item.metadata || {};
+      if (meta.visible_to_user === false && !meta.display_only && meta.agent_message !== true) return false;
+      if (meta.hidden === true || meta.react_intermediate === true) return false;
+      // Tool observations are execution/context records, not chat bubbles.
+      // They are rendered through the assistant message's execution tree.
+      if (item.role === 'tool') return false;
+      return true;
+    })
+    .map(item => {
+      if (item.role === 'assistant') {
+        return deps.createAssistantMessageFromHistory(item);
+      }
+      if (item.role === 'system') {
+        return {
+          role: 'system',
+          id: item.id,
+          seq: item.seq,
+          content: partsToPlainText(item.content_parts),
+          content_parts: normalizeMessageContentParts(item.content_parts),
+          metadata: item.metadata || {},
+        };
+      }
+      const contentParts = normalizeMessageContentParts(item.content_parts);
+      const metadata = item.metadata || {};
+      const agentMessage = metadata.agent_message === true;
+      const content = agentMessage ? getAgentMessageDisplayContent(item) : partsToPlainText(item.content_parts);
+      const message = {
+        role: 'user',
+        id: item.id,
+        seq: item.seq,
+        thread_key: item.thread_key,
+        child_agent_id: item.child_agent_id ?? null,
+        content,
+        content_parts: agentMessage ? [{ type: 'text', text: content }] : contentParts,
+        finished: true,
+        has_execution: Boolean(item.has_execution),
+        executionTree: { root: null },
+        executionStepsLoaded: false,
+        executionStepsLoading: false,
+        executionStepsLoadError: '',
+        run_id: metadata.consumed_by_run_id || metadata.run_id || null,
+        _execState: null,
+        metadata: agentMessage
+          ? { ...metadata, agent_message_display_content: content }
+          : metadata,
+      };
+      return deps.normalizeAssistantExecutionState({
+        ...message,
+        attachments: getMessageAttachments(message),
+      });
+    });
+
   /**
-   * 只负责消息列表与缓存，不负责 Session 生命周期。
-   * 进入/切换会话时由 WebSocket 首帧 session.runtime 决定后续加载策略。
-   *
+   * 历史与子线程的按需加载；会话恢复入口由 WebSocket session.snapshot 提供。
+   * @param {string} sessionId
    * @param {Object} [options]
-   * @param {boolean} [options.viewEffects] 加载完成后是否接管主对话列的滚动与聚焦。
-   *   运行工作台里的子智能体线程自己滚自己，传 false。
+   * @param {boolean} [options.viewEffects] 子线程传 false，由自己的视图管理滚动。
    */
+
   const loadSessionMessages = async (sessionId, {
     silent = false,
     participantId = 'root',
@@ -99,6 +152,7 @@ export function useSessionMessages(deps) {
     if (!sessionId) return null;
     const targetParticipantId = participantId || 'root';
     const loadKey = cacheKey(sessionId, targetParticipantId);
+    const projectionRevision = sessionRunStore.messageProjectionRevision;
     const seq = (messageLoadSeqByKey.get(loadKey) || 0) + 1;
     messageLoadSeqByKey.set(loadKey, seq);
     // 主对话列永远是根会话，所以根加载只认会话；子参与者加载额外认"工作台还在看它"，
@@ -161,60 +215,9 @@ export function useSessionMessages(deps) {
       const outboxWatermark = Number.isSafeInteger(rawOutboxWatermark) && rawOutboxWatermark >= 0
         ? rawOutboxWatermark
         : 0;
-      const mapped = items
-        .filter(item => {
-          const meta = item.metadata || {};
-          if (meta.visible_to_user === false && !meta.display_only && meta.agent_message !== true) return false;
-          if (meta.hidden === true || meta.react_intermediate === true) return false;
-          // Tool observations are execution/context records, not chat bubbles.
-          // They are rendered through the assistant message's execution tree.
-          if (item.role === 'tool') return false;
-          return true;
-        })
-        .map(item => {
-          if (item.role === 'assistant') {
-            return deps.createAssistantMessageFromHistory(item);
-          }
-          if (item.role === 'system') {
-            return {
-              role: 'system',
-              id: item.id,
-              seq: item.seq,
-              content: partsToPlainText(item.content_parts),
-              content_parts: normalizeMessageContentParts(item.content_parts),
-              metadata: item.metadata || {},
-            };
-          }
-          const contentParts = normalizeMessageContentParts(item.content_parts);
-          const metadata = item.metadata || {};
-          const agentMessage = metadata.agent_message === true;
-          const content = agentMessage ? getAgentMessageDisplayContent(item) : partsToPlainText(item.content_parts);
-          const message = {
-            role: 'user',
-            id: item.id,
-            seq: item.seq,
-            thread_key: item.thread_key,
-            child_agent_id: item.child_agent_id ?? null,
-            content,
-            content_parts: agentMessage ? [{ type: 'text', text: content }] : contentParts,
-            finished: true,
-            has_execution: Boolean(item.has_execution),
-            executionTree: { root: null },
-            executionStepsLoaded: false,
-            executionStepsLoading: false,
-            executionStepsLoadError: '',
-            run_id: metadata.consumed_by_run_id || metadata.run_id || null,
-            _execState: null,
-            metadata: agentMessage
-              ? { ...metadata, agent_message_display_content: content }
-              : metadata,
-          };
-          return deps.normalizeAssistantExecutionState({
-            ...message,
-            attachments: getMessageAttachments(message),
-          });
-        });
+      const mapped = mapHistoryItems(items);
       if (!isCurrent()) return;
+      if (!preserveStream && projectionRevision !== sessionRunStore.messageProjectionRevision) return;
       const nextMessages = targetParticipantId !== 'root' || preserveStream || reconcileMode === 'live'
         ? sessionRunStore.reconcileParticipantMessages(targetParticipantId, mapped, {
             preserveLiveExecution: reconcileMode === 'live',
@@ -261,6 +264,26 @@ export function useSessionMessages(deps) {
     }
   };
 
+  const applySnapshotMessages = (sessionId, snapshot) => {
+    if (sessionId !== currentSessionId.value) return false;
+    messageMergeSeq++;
+    // Supersede all HTTP work already in flight, including participant histories.
+    for (const [key, seq] of messageLoadSeqByKey) {
+      if (key.startsWith(`${sessionId}::`)) messageLoadSeqByKey.set(key, seq + 1);
+    }
+    deleteMessageCache(sessionId);
+    const loadedChildren = Object.keys(sessionRunStore.participantMessages).filter(id => id !== 'root');
+    for (const id of loadedChildren) sessionRunStore.setParticipantMessages(id, []);
+    sessionRunStore.setParticipantMessages('root', mapHistoryItems(snapshot.messages.items));
+    sessionRunStore.setParticipants(snapshot.participants);
+    messagesLoading.value = false;
+    for (const participantId of loadedChildren) {
+      void loadSessionMessages(sessionId, { participantId, silent: true, bypassCache: true,
+        preserveStream: true, viewEffects: false });
+    }
+    return true;
+  };
+
   /** 仅从服务端拉取并合并 id/seq 到当前列表（不替换整表，避免闪烁） */
   const mergeMessageIdsFromServer = async (sessionId) => {
     if (!sessionId || currentSessionId.value !== sessionId || rootMessages.value.length === 0) return;
@@ -293,6 +316,7 @@ export function useSessionMessages(deps) {
     cacheMessages,
     deleteMessageCache,
     loadSessionMessages,
+    applySnapshotMessages,
     mergeMessageIdsFromServer,
   };
 }

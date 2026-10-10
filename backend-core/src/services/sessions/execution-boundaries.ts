@@ -49,8 +49,13 @@ export async function getExecutionCarrierIds(
     offset += page.items.length;
     if (!page.has_more || !page.items.length) break;
   }
+  return executionCarrierIdsFromRows(messages, rows);
+}
+
+export function executionCarrierIdsFromRows(messages: readonly MessageInfo[], rows: readonly MessageInfo[]): Set<string> {
   const segments = groupExecutionRowsByBoundary(rows);
-  return new Set(candidates
+  return new Set(messages.filter(message => message.role === "user"
+    && message.metadata?.execution_history_discarded !== true)
     .filter((message) => segments.get(message.id)?.some(hasExecutionRowContent))
     .map((message) => message.id));
 }

@@ -287,3 +287,19 @@ describe("SessionAgentClient connection lifecycle", () => {
     client.disconnect();
   });
 });
+
+
+it("does not emit buffered partial output after the same round's durable checkpoint", async () => {
+  vi.useFakeTimers();
+  const { client, socket } = await connectedClient();
+  const emitted: string[] = [];
+  client.events.subscribe(event => { if (event.type === "stream_output") emitted.push(String(event.payload?.phase)); });
+  const markers = { session_id: "session-1", run_id: "run-1", call_id: "root", agent_id: "root" };
+  deliver(socket, { ...markers, type: "agent_started", payload: { phase: "start", task: "task" } });
+  deliver(socket, { ...markers, type: "stream_output", seq: 10, payload: { phase: "intent_complete", content: "complete", round: 1 } });
+  deliver(socket, { ...markers, type: "stream_output", payload: { phase: "delta", content: "old", round: 1 } });
+  deliver(socket, { ...markers, type: "stream_output", payload: { phase: "snapshot", content: "old", round: 1 } });
+  expect(emitted).toEqual(["intent_complete"]);
+  expect(client.executionTree.get().root?.rounds).toHaveLength(1);
+  client.disconnect();
+});

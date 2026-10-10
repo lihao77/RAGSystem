@@ -685,12 +685,12 @@ test('non-delta events flush queued deltas first to preserve tree order', () => 
   globalThis.requestAnimationFrame = cb => { rafCallbacks.push(cb); return rafCallbacks.length; };
   globalThis.cancelAnimationFrame = () => {};
   try {
-    const textDelta = content => ({
+    const textDelta = (content, round = 0) => ({
       type: 'stream_output',
       session_id: 'session-1',
       run_id: 'child-run',
       call_id: 'child-call',
-      payload: { phase: 'delta', content, round: 0 },
+      payload: { phase: 'delta', content, round },
     });
     execution.applyEnvelopeToMessage(message, childStarted());
     execution.applyEnvelopeToMessage(message, textDelta('正在'));
@@ -701,7 +701,7 @@ test('non-delta events flush queued deltas first to preserve tree order', () => 
     assert.equal(message.executionTree.root.rounds[0].text, '正在检查');
     assert.equal(message.executionTree.root.rounds[0].toolCalls[0].callId, 'tool-1');
     // 新 delta 只入队不落地；被消费过的帧回调已失效，需重新排帧。
-    execution.applyEnvelopeToMessage(message, textDelta('！'));
+    execution.applyEnvelopeToMessage(message, textDelta('！', 1));
     assert.equal(message.executionTree.root.rounds.length, 1);
     rafCallbacks.shift()();
     // 工具之后的正文增量按 ReAct 语义开启新轮，且顺序在工具之后。

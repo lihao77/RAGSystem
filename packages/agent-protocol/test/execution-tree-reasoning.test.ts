@@ -25,10 +25,10 @@ describe("execution tree reasoning projection", () => {
     round = getExecutionTree(state).root.rounds[0]!;
     expect(round.reasoning).toBe("think twice (final)");
     expect(round.reasoningComplete).toBe(true);
-    // complete 后迟到的 delta 按覆盖语义处理（与 intent 投影完全同构）。
+    // durable 全文已封口，迟到的增量不能倒灌。
     applyEnvelope(state, envelope("reasoning_delta", "straggler", 0) as never);
     round = getExecutionTree(state).root.rounds[0]!;
-    expect(round.reasoning).toBe("straggler");
+    expect(round.reasoning).toBe("think twice (final)");
   });
 
   it("reasoning 与 intent 同轮共存、多轮独立", () => {

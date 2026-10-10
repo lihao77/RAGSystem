@@ -514,6 +514,19 @@ export interface RuntimeSessionFacts {
   /** Ordered durable client envelopes for the active root run and all descendants. */
   activeRunEvents: OutboxRow[];
   ownedByCurrentInstance: boolean;
+  /** Captured in the same read transaction; survives delivered-event GC. */
+  eventWatermark?: number;
+}
+
+export interface RuntimeSessionRecoveryFacts extends RuntimeSessionFacts {
+  eventWatermark: number;
+  messages: MessageInfo[];
+  /** Raw execution rows scoped to the visible page's runs, from the same transaction. */
+  executionRows: MessageInfo[];
+  hasMoreMessages: boolean;
+  runs: RunInfo[];
+  children: import("../conversation-store/index.js").ChildAgentInfo[];
+  pendingRequests: import("../session/message-request-status.js").MessageRequestStatus[];
 }
 
 /** Lightweight facts for list status; excludes messages and execution events. */
@@ -564,6 +577,8 @@ export interface RuntimeAtomicOperations {
   getLatestThreadRun?(sessionId: string, threadKey: string): Promise<RunInfo | null>;
   /** One authoritative read model for Session lifecycle projection and initial loading. */
   getSessionRuntimeFacts(sessionId: string): Promise<RuntimeSessionFacts>;
+  /** Messages, execution, interactions and cursor from one database snapshot. */
+  getSessionRecoveryFacts(sessionId: string): Promise<RuntimeSessionRecoveryFacts>;
   getSessionStateFacts(sessionIds: readonly string[]): Promise<RuntimeSessionStateFacts[]>;
   claimSessionMaintenance(input: RuntimeSessionMaintenanceInput): Promise<RuntimeClaimSessionMaintenanceResult>;
   renewSessionMaintenance(input: Pick<RuntimeSessionMaintenanceInput, "sessionId" | "token" | "ttlMs">): Promise<boolean>;

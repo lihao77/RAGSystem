@@ -1,14 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { nextTick } from 'vue';
+import { nextTick, ref } from 'vue';
 import MockAdapter from 'axios-mock-adapter';
 import { createPinia, setActivePinia, storeToRefs } from 'pinia';
 
 import { useSessionAgentClient } from './useSessionAgentClient.js';
 import { useMessageExecution } from './useMessageExecution.js';
+import { useSessionMessages } from './useSessionMessages.js';
+import { useApprovalQueue } from './useApprovalQueue.js';
 import { useSessionRunStore } from '../stores/session-run.js';
 import { httpClient } from '../api/http.js';
 import { buildExecutionTree } from '../utils/executionTreeBuilder.js';
+import { buildExecutionTree as buildNativeExecutionTree } from '@ragsystem/agent-protocol';
 
 function createAssistantMessage(overrides = {}) {
   return {
@@ -2627,4 +2630,90 @@ test('error 帧不带 request_id 时不 toast（run 内错误只落消息状态�
   }, 'session-1');
 
   assert.equal(calls.showToast.length, 0);
+});
+
+
+test('session snapshot replaces the recovery baseline and restores native trees before incremental events', () => {
+  const { deps, sessionRunStore: store, emitSdkEvent } = createDeps();
+  deps.applySnapshotMessages = (_sessionId, snapshot) => {
+    store.setParticipantMessages('root', snapshot.messages.items.map(item => ({ ...item, run_id: item.metadata.run_id })));
+    store.setParticipants(snapshot.participants);
+  };
+  const client = useSessionAgentClient(deps);
+  const tree = buildNativeExecutionTree([{ type: 'agent_started', call_id: 'root-call-1', agent_id: 'root', payload: { phase: 'start' } },
+    { type: 'tool_call', call_id: 'tool-1', payload: { tool: 'read_file', phase: 'start', lineage: { parent_call_id: 'root-call-1' } } }]);
+  store.applySessionRuntime(runtimeSnapshot('running', { event_watermark: 100 }));
+  client.initializeSessionEventCursor('session-1', 100);
+  emitSdkEvent({ type: 'session.snapshot', session_id: 'session-1', payload: {
+    event_watermark: 12, runtime: runtimeSnapshot('running', { event_watermark: 12 }),
+    messages: { items: [{ id: 'input', role: 'user', content: 'task', metadata: { run_id: 'run-1' } }] },
+    participants: [{ participant_id: 'root' }], pending_requests: [],
+    execution: [{ run_id: 'run-1', boundary_message_id: 'input', tree }], tree,
+  } });
+  assert.equal(client.getLastEventSeq('session-1'), 12);
+  assert.equal(store.sessionRuntime.event_watermark, 12);
+  assert.equal(store.rootMessages[0].executionTree.root.callId, 'root-call-1');
+  assert.ok(store.rootMessages[0]._execState.toolsByCallId.has('tool-1'));
+  assert.equal(store.rootMessages[store.activeRun.assistantMsgIndex].executionTree.root.callId, 'root-call-1');
+  emitSdkEvent({ type: 'heartbeat', session_id: 'session-1', payload: { last_seq: 30 } });
+  assert.equal(client.getLastEventSeq('session-1'), 12);
+  client.dispose();
+  assert.equal(client.getLastEventSeq('session-1'), 0);
+});
+
+test('older runtime facts cannot undo a completed recovery snapshot', () => {
+  const { deps, sessionRunStore: store, emitSdkEvent } = createDeps();
+  const client = useSessionAgentClient(deps);
+  emitSdkEvent({ type: 'session.snapshot', session_id: 'session-1', payload: {
+    event_watermark: 12, runtime: runtimeSnapshot('idle', { event_watermark: 12 }),
+    messages: { items: [] }, participants: [], pending_requests: [], execution: [], tree: { root: null },
+  } });
+  emitSdkEvent({ type: 'session.runtime', session_id: 'session-1', payload: runtimeSnapshot('running', { event_watermark: 11 }) });
+  assert.equal(store.sessionRuntime.state, 'idle');
+  assert.equal(store.activeRun.active, false);
+  assert.equal(store.rootMessages.length, 0);
+  client.dispose();
+});
+
+test('runtime-only events do not invalidate an authoritative message reload', async () => {
+  const { deps, sessionRunStore: store, emitSdkEvent } = createDeps();
+  let resolve;
+  deps.chatSdkClient.listMessages = () => new Promise(done => { resolve = done; });
+  const loader = useSessionMessages({ ...deps, normalizeAssistantExecutionState: item => item,
+    createAssistantMessageFromHistory: item => ({ ...item, content: 'terminal', finished: true }) });
+  const client = useSessionAgentClient(deps);
+  const loading = loader.loadSessionMessages('session-1', { silent: true, bypassCache: true, viewEffects: false });
+  emitSdkEvent({ type: 'session.runtime', session_id: 'session-1', payload: runtimeSnapshot('idle') });
+  emitSdkEvent({ type: 'state_sync', session_id: 'session-1', payload: { category: 'context_usage', ref: { total_tokens: 10 } } });
+  resolve({ data: { items: [{ id: 'terminal', role: 'assistant', content: 'terminal', metadata: {} }] } });
+  await loading;
+  assert.equal(store.rootMessages[0].id, 'terminal');
+  client.dispose();
+});
+
+test('snapshot clears old interaction UI before presenting authoritative pending interactions', () => {
+  const { deps, emitSdkEvent } = createDeps();
+  const queue = useApprovalQueue({ currentSessionId: deps.currentSessionId, filePreviewDialogRef: ref(null) });
+  Object.assign(deps, { enqueueApproval: queue.enqueueApproval, showUserInput: queue.showUserInput,
+    handleApprovalResolved: queue.handleApprovalResolved, handleUserInputResolved: queue.handleUserInputResolved,
+    resetApprovalState: queue.resetApprovalState });
+  const client = useSessionAgentClient(deps);
+  emitSdkEvent({ type: 'session.runtime', session_id: 'session-1', payload: runtimeSnapshot('waiting_interaction', {
+    pending_interactions: [pendingInteraction('approval', 'old-approval'), pendingInteraction('user_input', 'old-input')],
+  }) });
+  assert.equal(queue.approvalQueue.value.length, 1);
+  assert.equal(queue.pendingUserInput.value.data.input_id, 'old-input');
+  emitSdkEvent({ type: 'session.snapshot', session_id: 'session-1', payload: {
+    event_watermark: 12, runtime: runtimeSnapshot('idle'), messages: { items: [] }, participants: [],
+    pending_requests: [], execution: [], tree: { root: null },
+  } });
+  assert.deepEqual(queue.approvalQueue.value, []);
+  assert.equal(queue.pendingUserInput.value, null);
+  emitSdkEvent({ type: 'session.snapshot', session_id: 'session-1', payload: {
+    event_watermark: 13, runtime: runtimeSnapshot('waiting_interaction', {
+      pending_interactions: [pendingInteraction('user_input', 'new-input')],
+    }), messages: { items: [] }, participants: [], pending_requests: [], execution: [], tree: { root: null },
+  } });
+  assert.equal(queue.pendingUserInput.value.data.input_id, 'new-input');
+  client.dispose();
 });

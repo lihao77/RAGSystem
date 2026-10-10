@@ -14,6 +14,7 @@ export interface SessionWebSocketUrlOptions {
   cursor: number | null;
   /** HTTP 历史快照后首次接入时，要求后端补放 active run。 */
   historySnapshot?: boolean;
+  recoverySnapshot?: boolean;
 }
 
 /**
@@ -37,12 +38,13 @@ export function buildSessionWebSocketUrl(options: SessionWebSocketUrlOptions): s
   if (options.historySnapshot) {
     query.set("history_snapshot", "1");
   }
+  if (options.recoverySnapshot) query.set("recovery_snapshot", "1");
   query.set("ticket", options.ticket);
   const qs = query.toString();
   return `${protocol}//${base.host}${path}?${qs}`;
 }
 
-/** 顶层 seq 优先，heartbeat 帧回退 payload.last_seq（ws.ts 每 20s 回吐）。 */
+/** Durable event sequence or an authoritative recovery snapshot boundary. Heartbeat is liveness only. */
 export function extractCursor(envelope: Envelope): number | null {
   return getEnvelopeCursorSeq(envelope);
 }

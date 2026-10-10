@@ -361,3 +361,44 @@ test('静默缓存恢复路径同样保留压缩进行中的瞬态横线', async
     1,
   );
 });
+
+
+test('a delayed HTTP history cannot replace a newer realtime projection', async () => {
+  setActivePinia(createPinia());
+  const store = useSessionRunStore();
+  store.currentSessionId = 'session-1';
+  let resolve;
+  const loader = useSessionMessages(createDeps({ chatSdkClient: { listMessages: () => new Promise(done => { resolve = done; }) } }));
+  const loading = loader.loadSessionMessages('session-1', { silent: true, bypassCache: true });
+  store.setParticipantMessages('root', [{ id: 'final', role: 'assistant', content: 'done', finished: true }]);
+  resolve({ data: { items: [{ id: 'old', role: 'assistant', content: 'working', metadata: {} }] } });
+  await loading;
+  assert.equal(store.rootMessages[0].id, 'final');
+});
+
+test('authoritative snapshot invalidates HTTP work already in flight', async () => {
+  setActivePinia(createPinia());
+  const store = useSessionRunStore();
+  store.currentSessionId = 'session-1';
+  let resolve;
+  const loader = useSessionMessages(createDeps({ chatSdkClient: { listMessages: () => new Promise(done => { resolve = done; }) } }));
+  const loading = loader.loadSessionMessages('session-1', { silent: true, bypassCache: true, preserveStream: true });
+  loader.applySnapshotMessages('session-1', { messages: { items: [{ id: 'final', role: 'assistant', content: 'done', metadata: {} }] }, participants: [] });
+  resolve({ data: { items: [{ id: 'old', role: 'assistant', content: 'working', metadata: {} }] } });
+  await loading;
+  assert.equal(store.rootMessages[0].id, 'final');
+});
+
+test('authoritative snapshot invalidates an identity merge already in flight', async () => {
+  setActivePinia(createPinia());
+  const store = useSessionRunStore();
+  store.currentSessionId = 'session-1';
+  store.setParticipantMessages('root', [{ id: 'initial', role: 'assistant', content: 'initial' }]);
+  let resolve;
+  const loader = useSessionMessages(createDeps({ chatSdkClient: { listMessages: () => new Promise(done => { resolve = done; }) } }));
+  const loading = loader.mergeMessageIdsFromServer('session-1');
+  loader.applySnapshotMessages('session-1', { messages: { items: [{ id: 'recovered', role: 'assistant', content: 'done', metadata: {} }] }, participants: [] });
+  resolve({ data: { items: [{ id: 'stale', seq: 1, role: 'assistant', content: 'initial' }] } });
+  await loading;
+  assert.equal(store.rootMessages[0].id, 'recovered');
+});

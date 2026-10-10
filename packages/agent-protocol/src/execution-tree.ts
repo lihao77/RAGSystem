@@ -41,6 +41,21 @@ export function createExecutionTreeState(): ExecutionTreeState {
   };
 }
 
+/** Rebuild indexes once from a server projection; subsequent events remain incremental. */
+export function restoreExecutionTreeState(tree: ExecutionTree): ExecutionTreeState {
+  const state = createExecutionTreeState();
+  const root = structuredClone(tree.root);
+  const visit = (agent: ExecutionAgent): void => {
+    state.agentsByCallId.set(agent.callId, agent);
+    for (const round of agent.rounds) {
+      for (const tool of round.toolCalls) state.toolsByCallId.set(tool.callId, tool);
+    }
+    for (const child of agent.children) visit(child);
+  };
+  if (root) visit(root);
+  return state;
+}
+
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
 }
@@ -206,7 +221,7 @@ function applySnapshotStream(state: ExecutionTreeState, env: Envelope, payload: 
   const round = asNumber(payload.round) ?? latestRound(agent);
   const r = ensureRound(agent, round);
   const reasoning = asString(payload.reasoning);
-  if (reasoning) {
+  if (reasoning && !r.reasoningComplete) {
     r.reasoning = reasoning;
     if (payload.reasoning_complete === true) r.reasoningComplete = true;
   }
@@ -242,7 +257,8 @@ function applyOutputStream(state: ExecutionTreeState, env: Envelope, payload: Re
   const phase = asString(payload.phase);
   if (phase !== "delta" && phase !== "part_added" && phase !== "final") return;
   const agent = routeStreamAgent(state, env);
-  const r = ensureActiveRound(agent);
+  const explicitRound = asNumber(payload.round);
+  const r = explicitRound === undefined ? ensureActiveRound(agent) : ensureRound(agent, explicitRound);
   if (phase === "part_added") {
     const part = asAssistantContentPart(payload.part);
     const partIndex = asNumber(payload.part_index);
@@ -416,8 +432,23 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+/** A durable round checkpoint supersedes buffered partial output for that round. */
+export function isSupersededStreamEnvelope(state: ExecutionTreeState, env: Envelope): boolean {
+  if (env.type !== "stream_output") return false;
+  const payload = asRecord(env.payload);
+  const phase = payload.phase;
+  if (phase !== "delta" && phase !== "reasoning_delta" && phase !== "snapshot") return false;
+  const agent = state.agentsByCallId.get(asString(env.call_id) ?? IMPLICIT_ROOT_CALL_ID);
+  if (!agent) return false;
+  if (agent.status !== "running") return true;
+  const round = agent.rounds.find(item => item.round === payload.round);
+  if (!round) return false;
+  return round.intentComplete || round.textComplete || (phase === "reasoning_delta" && round.reasoningComplete);
+}
+
 /** 将一条 envelope 投影进状态机。 */
 export function applyEnvelope(state: ExecutionTreeState, env: Envelope): void {
+  if (isSupersededStreamEnvelope(state, env)) return;
   const payload = asRecord(env.payload);
   switch (env.type) {
     case "agent_started": {

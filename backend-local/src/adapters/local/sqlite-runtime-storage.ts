@@ -43,6 +43,7 @@ import type {
   RuntimeStorage,
   RuntimeSessionMaintenanceInput,
   RuntimeSessionFacts,
+  RuntimeSessionRecoveryFacts,
 } from "@ragsystem/backend-core/contracts/storage/runtime-storage.js";
 import {
   buildRunTerminalRecords,
@@ -94,6 +95,7 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
       getActiveRootRun: (sessionId) => this.getActiveRootRun(sessionId),
       getLatestThreadRun: (sessionId, threadKey) => this.getLatestThreadRun(sessionId, threadKey),
       getSessionRuntimeFacts: (sessionId) => this.getSessionRuntimeFacts(sessionId),
+      getSessionRecoveryFacts: (sessionId) => this.getSessionRecoveryFacts(sessionId),
       getSessionStateFacts: (sessionIds) => this.serial.run(() => this.store.getSessionStateFacts(this.tenantId, sessionIds)),
       claimSessionMaintenance: (input) => this.claimSessionMaintenance(input),
       renewSessionMaintenance: (input) => this.renewSessionMaintenance(input),
@@ -119,45 +121,84 @@ export class SqliteRuntimeStorage implements RuntimeStorage {
   }
 
   private getSessionRuntimeFacts(sessionId: string): Promise<RuntimeSessionFacts> {
-    return this.serial.run(() => {
-      const session = this.store.getSession(sessionId);
-      if (!session || session.tenant_id !== this.tenantId) {
-        return {
-          session: null,
-          activeRootRun: null,
-          latestTerminalRootRun: null,
-          pendingInteractions: [],
-          activeRunEvents: [],
-          ownedByCurrentInstance: false,
-        };
-      }
-      const activeRoots = this.store.listActiveRootRuns(sessionId, 2);
-      if (activeRoots.length > 1) {
-        throw new Error(`session has multiple active root runs: ${sessionId}`);
-      }
-      const pendingInteractions = this.store.listPendingInteractions({
-        sessionId,
-        statuses: ["waiting", "suspended", "resolved", "resuming"],
-      });
-      const interactionRootIds = new Set(pendingInteractions.map((item) => item.root_run_id));
-      const runs = this.store.listRuns(sessionId, Number.MAX_SAFE_INTEGER).items;
-      const activeRootRun = activeRoots[0]
-        ?? runs.find((run) =>
-          interactionRootIds.has(run.run_id) && (run.status === "running" || run.status === "suspended")
-        )
-        ?? null;
-      const activeRunIds = activeRootRun ? collectRunTreeIds(runs, activeRootRun.run_id) : [];
+    return this.serial.run(() => this.store.runInTransaction(() => this.readSessionRuntimeFacts(sessionId)));
+  }
+
+  private readSessionRuntimeFacts(sessionId: string): RuntimeSessionFacts {
+    const session = this.store.getSession(sessionId);
+    if (!session || session.tenant_id !== this.tenantId) {
       return {
-        session,
-        activeRootRun,
-        latestTerminalRootRun: this.store.getLatestTerminalRootRun(sessionId),
-        pendingInteractions,
-        activeRunEvents: activeRunIds.length > 0
-          ? loadActiveRunEvents((input) => this.store.listOutboxForReplay(input), sessionId, activeRunIds)
-          : [],
-        ownedByCurrentInstance: activeRootRun?.status === "running",
+        session: null,
+        activeRootRun: null,
+        latestTerminalRootRun: null,
+        pendingInteractions: [],
+        activeRunEvents: [],
+        ownedByCurrentInstance: false,
       };
+    }
+    const activeRoots = this.store.listActiveRootRuns(sessionId, 2);
+    if (activeRoots.length > 1) {
+      throw new Error(`session has multiple active root runs: ${sessionId}`);
+    }
+    const pendingInteractions = this.store.listPendingInteractions({
+      sessionId,
+      statuses: ["waiting", "suspended", "resolved", "resuming"],
     });
+    const interactionRootIds = new Set(pendingInteractions.map((item) => item.root_run_id));
+    const runs = this.store.listRuns(sessionId, Number.MAX_SAFE_INTEGER).items;
+    const activeRootRun = activeRoots[0]
+      ?? runs.find((run) =>
+        interactionRootIds.has(run.run_id) && (run.status === "running" || run.status === "suspended")
+      )
+      ?? null;
+    const activeRunIds = activeRootRun ? collectRunTreeIds(runs, activeRootRun.run_id) : [];
+    return {
+      session,
+      activeRootRun,
+      latestTerminalRootRun: this.store.getLatestTerminalRootRun(sessionId),
+      pendingInteractions,
+      activeRunEvents: activeRunIds.length > 0
+        ? loadActiveRunEvents((input) => this.store.listOutboxForReplay(input), sessionId, activeRunIds)
+        : [],
+      ownedByCurrentInstance: activeRootRun?.status === "running",
+      eventWatermark: this.store.getSessionOutboxWatermark(sessionId),
+    };
+  }
+
+  private getSessionRecoveryFacts(sessionId: string): Promise<RuntimeSessionRecoveryFacts> {
+    return this.serial.run(() => this.store.runInTransaction(() => {
+      const facts = this.readSessionRuntimeFacts(sessionId);
+      if (!facts.session) throw new Error(`session not found: ${sessionId}`);
+      const runs = this.store.listRuns(sessionId, Number.MAX_SAFE_INTEGER).items;
+      const runIds = facts.activeRootRun ? collectRunTreeIds(runs, facts.activeRootRun.run_id) : [];
+      const activeRunEvents: typeof facts.activeRunEvents = [];
+      let afterSeq = 0;
+      while (runIds.length > 0) {
+        const page = this.store.listOutboxForReplay({ sessionId, runIds, afterSeq, limit: 500 });
+        activeRunEvents.push(...page);
+        if (page.length < 500) break;
+        afterSeq = page.at(-1)!.session_seq;
+      }
+      const page = this.store.listVisibleMessages(sessionId, "root", 100, 0);
+      const candidateRunIds = [...new Set(page.items.map(message => message.metadata.consumed_by_run_id ?? message.metadata.run_id)
+        .filter((id): id is string => typeof id === "string"))];
+      if (facts.activeRootRun && !candidateRunIds.includes(facts.activeRootRun.run_id)) candidateRunIds.push(facts.activeRootRun.run_id);
+      const executionRows: MessageInfo[] = [];
+      for (let offset = 0; candidateRunIds.length > 0;) {
+        const raw = this.store.listMessages(sessionId, 1000, offset, "root", candidateRunIds);
+        executionRows.push(...raw.items);
+        if (!raw.has_more || !raw.items.length) break;
+        offset += raw.items.length;
+      }
+      executionRows.sort((a, b) => a.seq - b.seq);
+      return {
+        ...facts, activeRunEvents, runs,
+        eventWatermark: this.store.getSessionOutboxWatermark(sessionId),
+        messages: page.items, hasMoreMessages: page.has_more, executionRows,
+        children: this.store.listChildAgents({ sessionId, limit: 10_000 }).items,
+        pendingRequests: this.store.readMessageRequestStatuses(sessionId),
+      };
+    }));
   }
 
   private claimSessionMaintenance(

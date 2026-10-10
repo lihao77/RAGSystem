@@ -346,19 +346,16 @@ export function useChatSessionController(deps) {
       }
       if (!await hydrateSessionContext(sessionId, matched, isCurrent)) return;
       deps.clearComposerAttachments();
-      await deps.loadSessionParticipants?.(sessionId);
-      if (!isCurrent()) return;
-      const outboxWatermark = await deps.loadSessionMessages(sessionId);
-      if (!isCurrent()) return;
-      await deps.loadSessionFiles(sessionId);
-      if (!isCurrent()) return;
-      deps.initializeSessionEventCursor(sessionId, outboxWatermark ?? 0);
       try {
-        await deps.connectSessionWS(sessionId, { historySnapshot: true });
+        await deps.connectSessionWS(sessionId);
         await deps.waitForSessionRuntime(sessionId);
       } catch (error) {
         if (isCurrent()) deps.showToast(error?.message || '实时连接失败，请稍后重试', 'warning');
       }
+      if (!isCurrent()) return;
+      await deps.loadContextSnapshot?.(sessionId);
+      if (!isCurrent()) return;
+      await deps.loadSessionFiles(sessionId);
       return;
     }
 

@@ -165,6 +165,10 @@ export class PostgresConversationRepository implements AsyncConversationReposito
           AND m.metadata->>'request_id'=r.request_id)
         OR EXISTS (SELECT 1 FROM agent_mailbox_messages b WHERE b.session_id=r.session_id AND b.target_thread_key='root'
           AND b.input_type='user_message' AND b.status='acked' AND b.metadata->>'request_id'=r.request_id))`, [sessionId]);
+    return this.readMessageRequestStatuses(sessionId, requestIds);
+  }
+
+  async readMessageRequestStatuses(sessionId: string, requestIds: readonly string[] = []) {
     const result = await this.executor.query(`SELECT r.request_id, r.content,
       CASE WHEN m.id IS NOT NULL OR r.status='consumed' OR b.status='acked' THEN 'consumed' WHEN r.status='cancelled' THEN 'cancelled' WHEN r.status='failed' OR b.status='expired' THEN 'failed'
         WHEN b.status IN ('queued', 'claimed') THEN 'queued' ELSE r.status END AS status,
@@ -479,10 +483,11 @@ export class PostgresConversationRepository implements AsyncConversationReposito
        SELECT
          COALESCE((SELECT jsonb_agg(to_jsonb(page) ORDER BY page.seq ASC) FROM page), '[]'::jsonb) AS items,
          (SELECT COUNT(*) FROM visible_messages) AS total,
-         COALESCE((
+         GREATEST(COALESCE((SELECT next_seq-1 FROM session_event_seq
+           JOIN conversation_sessions USING(session_id) WHERE tenant_id=$1 AND session_id=$2), 0), COALESCE((
            SELECT MAX(session_seq) FROM event_outbox
-           WHERE tenant_id=$1 AND session_id=$2 AND event_type LIKE 'client.%'
-         ), 0) AS outbox_watermark`,
+           WHERE tenant_id=$1 AND session_id=$2
+         ), 0)) AS outbox_watermark`,
       [tenantId, sessionId, threadKey, limit, offset],
     );
     const snapshot = result.rows[0];

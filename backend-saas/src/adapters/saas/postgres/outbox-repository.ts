@@ -39,7 +39,10 @@ export class PostgresOutboxRepository implements AsyncOutboxStore {
       const session = await tx.query<{ tenant_id: string }>("SELECT tenant_id FROM conversation_sessions WHERE session_id=$1", [normalized.sessionId]);
       const tenantId = session.rows[0]?.tenant_id;
       if (!tenantId) throw new Error(`session missing tenant: ${normalized.sessionId}`);
-      const seq = normalized.sessionSeq ?? Number((await tx.query("INSERT INTO session_event_seq(session_id,next_seq) VALUES($1,2) ON CONFLICT(session_id) DO UPDATE SET next_seq=session_event_seq.next_seq+1 RETURNING next_seq-1 AS seq", [normalized.sessionId])).rows[0]?.seq ?? 1);
+      const seq = normalized.sessionSeq ?? Number((await tx.query(`INSERT INTO session_event_seq(session_id,next_seq)
+        VALUES($1,COALESCE((SELECT MAX(session_seq) FROM event_outbox WHERE session_id=$1),0)+2)
+        ON CONFLICT(session_id) DO UPDATE SET next_seq=GREATEST(session_event_seq.next_seq,EXCLUDED.next_seq-1)+1
+        RETURNING next_seq-1 AS seq`, [normalized.sessionId])).rows[0]?.seq ?? 1);
       if (normalized.sessionSeq != null) {
         await tx.query("INSERT INTO session_event_seq(session_id,next_seq) VALUES($1,$2) ON CONFLICT(session_id) DO UPDATE SET next_seq=GREATEST(session_event_seq.next_seq,EXCLUDED.next_seq)", [normalized.sessionId, seq + 1]);
       }
@@ -124,9 +127,11 @@ export class PostgresOutboxRepository implements AsyncOutboxStore {
 
   async getSessionOutboxWatermark(tenantId: string, sessionId: string): Promise<number> {
     const result = await this.executor.query<{ watermark: unknown }>(
-      `SELECT COALESCE(MAX(session_seq), 0) AS watermark
-       FROM event_outbox
-       WHERE tenant_id=$1 AND session_id=$2 AND event_type LIKE 'client.%'`,
+      `SELECT GREATEST(
+         COALESCE((SELECT seq.next_seq-1 FROM session_event_seq seq
+           JOIN conversation_sessions s USING(session_id) WHERE s.tenant_id=$1 AND seq.session_id=$2), 0),
+         COALESCE((SELECT MAX(session_seq) FROM event_outbox WHERE tenant_id=$1 AND session_id=$2), 0)
+       ) AS watermark`,
       [tenantId, sessionId],
     );
     const watermark = Number(result.rows[0]?.watermark ?? 0);
@@ -216,13 +221,18 @@ export class PostgresOutboxRepository implements AsyncOutboxStore {
 
   async deleteDeliveredOutbox(tenantId: string, input: DeleteDeliveredOutboxInput): Promise<number> {
     // delivered 行同时是重连/attach 的回放源：非终态 run（running/suspended）的行必须
-    // 活到 run 终结之后，否则长 run 中途 attach 会静默丢失早期执行树。
+    // 连同已结束子 run 活到整棵运行树终结，否则长 run 中途恢复会丢失早期执行树。
     const result = await this.executor.query(
-      `WITH picked AS (
+      `WITH RECURSIVE protected_runs(run_id) AS (
+         SELECT run_id FROM saas_runs WHERE tenant_id=$1 AND status IN ('running','suspended')
+         UNION
+         SELECT child.run_id FROM saas_runs child JOIN protected_runs parent ON child.parent_run_id=parent.run_id
+         WHERE child.tenant_id=$1
+       ), picked AS (
          SELECT id FROM event_outbox
          WHERE tenant_id=$1 AND status='delivered' AND COALESCE(delivered_at,created_at)<$2::timestamptz
            AND (run_id IS NULL OR run_id NOT IN (
-             SELECT run_id FROM saas_runs WHERE tenant_id=$1 AND status IN ('running','suspended')
+             SELECT run_id FROM protected_runs
            ))
          ORDER BY id LIMIT $3
        ) DELETE FROM event_outbox e USING picked WHERE e.id=picked.id`,

@@ -121,12 +121,13 @@ test('已连接同一会话的普通连接请求不会触发游标重连', async
   assert.equal(calls.disconnect, 0);
 });
 
-test('SDK heartbeat watermark only advances the durable cursor', () => {
+test('SDK heartbeat watermark does not skip durable events', () => {
   const { sdk } = createSdkMock();
   const connection = useSessionAgentClient(createConnectionDeps(sdk));
 
   sdk.emit('event', { type: 'heartbeat', session_id: 'session-1', payload: { last_seq: 5 } });
   sdk.emit('event', { type: 'heartbeat', session_id: 'session-1', payload: { last_seq: 3 } });
 
-  assert.equal(connection.getLastEventSeq('session-1'), 5);
+  assert.equal(connection.getLastEventSeq('session-1'), 0);
+  connection.dispose();
 });

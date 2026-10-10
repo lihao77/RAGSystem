@@ -14,7 +14,125 @@ class ConnectedSocket {
   close(): void { this.onclose?.({ code: 1000, reason: "" }); }
 }
 
+function recoverySnapshot(state: "idle" | "running" = "idle") {
+  return { type: "session.snapshot", session_id: "session-1", payload: {
+    event_watermark: 12,
+    runtime: { state, event_watermark: 12,
+      load_strategy: state === "running" ? "attach_run" : "history",
+      allowed_actions: state === "running" ? ["send_followup", "stop_run"] : ["send_message", "start_maintenance"],
+      active_run: state === "running" ? { run_id: "internal-run", status: "running", execution_owner: "attached",
+        task: "host tool", request_id: null, execution_kind: "agui_stream", started_at: "2026-10-10T00:00:00Z",
+        updated_at: "2026-10-10T00:00:00Z", activity: { models: [], tools: [], updated_at: "2026-10-10T00:00:00Z" } } : null,
+      last_run: null, pending_interactions: [], resume_interaction_id: null, maintenance: null,
+      observed_at: "2026-10-10T00:00:00Z" },
+    messages: { items: [], has_more: false, before_seq: null }, participants: [], pending_requests: [],
+    execution: [], tree: { root: null },
+  } };
+}
+
 describe("SessionAgentClient AG-UI fallback", () => {
+  it.each(["before result", "during submission"])("keeps delegated results across snapshot takeover %s", async (takeover) => {
+    const inputs: Array<Record<string, unknown>> = [];
+    const callbacks: Array<(event: Record<string, unknown>) => void> = [];
+    const aborts: Array<ReturnType<typeof vi.fn>> = [];
+    let finishTool!: (result: { ok: boolean; observation: string }) => void;
+    let socket: ConnectedSocket | undefined;
+    const client = new SessionAgentClient({
+      baseUrl: "https://rag.example.test", sessionId: "session-1", issueWsTicket: async () => "ticket-1",
+      createWebSocket: () => {
+        socket = new ConnectedSocket();
+        queueMicrotask(() => socket?.onopen?.());
+        return socket as unknown as WebSocket;
+      },
+      hostTools: [{ name: "host_tool", description: "host tool", inputSchema: {},
+        execute: () => new Promise(resolve => { finishTool = resolve; }) }],
+      aguiFallback: (input, callback) => {
+        inputs.push(input as unknown as Record<string, unknown>);
+        callbacks.push(callback as unknown as (event: Record<string, unknown>) => void);
+        const abort = vi.fn(); aborts.push(abort);
+        return { started: Promise.resolve({ type: "RUN_STARTED", runId: input.runId }),
+          completed: new Promise(() => {}), abort };
+      },
+    });
+    const events: string[] = [];
+    client.events.subscribe(event => events.push(event.type));
+    await client.send({ task: "host tool" });
+    callbacks[0]?.({ type: "RUN_STARTED", runId: "external-run" });
+    callbacks[0]?.({ type: "RUN_FINISHED", runId: "external-run", outcome: { type: "interrupt",
+      interrupts: [{ id: "host-call", reason: "tool_call", metadata: { toolName: "host_tool", arguments: { value: 1 } } }] } });
+    await client.connect();
+    if (takeover === "during submission") {
+      finishTool({ ok: true, observation: "result" });
+      for (let turn = 0; turn < 10; turn++) await Promise.resolve();
+    }
+    socket?.onmessage?.({ data: JSON.stringify(recoverySnapshot()) });
+    expect(events).toContain("session.snapshot");
+    if (takeover === "before result") finishTool({ ok: true, observation: "result" });
+    for (let turn = 0; turn < 10; turn++) await Promise.resolve();
+    expect(inputs).toHaveLength(2);
+    expect(inputs[1]).toMatchObject({ resume: [{ interruptId: "host-call", status: "resolved",
+      payload: { ok: true, observation: "result" } }] });
+    expect(aborts[1]).not.toHaveBeenCalled();
+    const projectedCount = events.length;
+    for (const callback of callbacks) {
+      callback({ type: "RUN_STARTED", runId: "stale-sse-run" });
+      callback({ type: "RUN_ERROR", runId: "stale-sse-run", message: "late failure" });
+    }
+    expect(events).toHaveLength(projectedCount);
+    expect(client.runtime.get()).toMatchObject({ state: "idle", active_run: null });
+    socket?.onmessage?.({ data: JSON.stringify(recoverySnapshot("running")) });
+    expect(client.runtime.get()).toMatchObject({ state: "running", active_run: { run_id: "internal-run" } });
+    client.stop();
+    expect(aborts[1]).toHaveBeenCalledWith("run stopped");
+    expect(socket?.sent.map(value => JSON.parse(value).type)).toContain("abort");
+    client.disconnect();
+  });
+
+  it.each(["stop", "disconnect"] as const)("clears deferred delegated requests on %s after snapshot takeover", async (action) => {
+    let callback: ((event: Record<string, unknown>) => void) | undefined;
+    let finishTool!: (result: { ok: boolean }) => void;
+    let signal: AbortSignal | undefined;
+    let socket: ConnectedSocket | undefined;
+    const inputs: Array<Record<string, unknown>> = [];
+    const cancelAguiRun = vi.fn(async () => {});
+    const client = new SessionAgentClient({
+      baseUrl: "https://rag.example.test", sessionId: "session-1", issueWsTicket: async () => "ticket-1",
+      cancelAguiRun,
+      createWebSocket: () => {
+        socket = new ConnectedSocket(); queueMicrotask(() => socket?.onopen?.());
+        return socket as unknown as WebSocket;
+      },
+      hostTools: [{ name: "host_tool", description: "host tool", inputSchema: {}, execute: (_input, context) => {
+        signal = context.signal; return new Promise(resolve => { finishTool = resolve; });
+      } }],
+      aguiFallback: (input, onEvent) => {
+        inputs.push(input as unknown as Record<string, unknown>); callback = onEvent as unknown as typeof callback;
+        return { started: Promise.resolve({ type: "RUN_STARTED", runId: input.runId }),
+          completed: new Promise(() => {}), abort: vi.fn() };
+      },
+    });
+    await client.send({ task: "host tool" });
+    callback?.({ type: "RUN_FINISHED", runId: "external-run", outcome: { type: "interrupt",
+      interrupts: [{ id: "host-call", reason: "tool_call", metadata: { toolName: "host_tool" } }] } });
+    await client.connect();
+    socket?.onmessage?.({ data: JSON.stringify(recoverySnapshot("running")) });
+    const followup = client.send({ task: "followup", requestId: "followup-1" });
+    for (let turn = 0; turn < 10; turn++) await Promise.resolve();
+    expect(socket?.sent.map(value => JSON.parse(value))).toContainEqual(expect.objectContaining({
+      type: "user_driven_change", payload: expect.objectContaining({ task: "followup", request_id: "followup-1" }),
+    }));
+    socket?.onmessage?.({ data: JSON.stringify({ type: "ack", session_id: "session-1",
+      payload: { category: "send", ok: true, request_id: "followup-1" } }) });
+    await expect(followup).resolves.toMatchObject({ started: true, requestId: "followup-1" });
+    client[action]();
+    expect(signal?.aborted).toBe(true);
+    finishTool({ ok: true });
+    for (let turn = 0; turn < 10; turn++) await Promise.resolve();
+    expect(inputs).toHaveLength(1);
+    expect(cancelAguiRun).not.toHaveBeenCalled();
+    client.disconnect();
+  });
+
   it("keeps every unsequenced text chunk and does not duplicate TOOL_CALL_END", async () => {
     const callbacks: Array<(event: Record<string, unknown>) => void> = [];
     const client = new SessionAgentClient({
@@ -207,13 +325,19 @@ describe("SessionAgentClient AG-UI fallback", () => {
     client.disconnect();
   });
 
-  it("converts a post-start SSE failure into a terminal failed run", async () => {
+  it("recovers a post-start SSE failure from an authoritative socket snapshot", async () => {
     const callbacks: Array<(event: Record<string, unknown>) => void> = [];
     let rejectCompleted: ((error: Error) => void) | undefined;
+    let recoveredSocket: ConnectedSocket | undefined;
     const client = new SessionAgentClient({
       baseUrl: "https://rag.example.test",
       sessionId: "session-1",
       issueWsTicket: async () => "ticket-1",
+      createWebSocket: () => {
+        recoveredSocket = new ConnectedSocket();
+        queueMicrotask(() => recoveredSocket?.onopen?.());
+        return recoveredSocket as unknown as WebSocket;
+      },
       aguiFallback: (input, onEvent) => {
         callbacks.push(onEvent as unknown as (event: Record<string, unknown>) => void);
         return {
@@ -232,8 +356,62 @@ describe("SessionAgentClient AG-UI fallback", () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(client.runStatus.get()).toMatchObject({ state: "failed" });
-    expect(events).toEqual(expect.arrayContaining(["error", "run_ended"]));
+    expect(client.runStatus.get()).toMatchObject({ state: "running" });
+    expect(events).toContain("error");
+    expect(events).not.toContain("run_ended");
+    for (let turn = 0; turn < 20; turn++) await Promise.resolve();
+    expect(recoveredSocket?.onmessage).toBeTypeOf("function");
+    recoveredSocket?.onmessage?.({ data: JSON.stringify({
+      type: "session.snapshot", session_id: "session-1", payload: {
+        event_watermark: 12,
+        runtime: { state: "idle", load_strategy: "history", allowed_actions: ["send_message", "start_maintenance"],
+          active_run: null, last_run: { run_id: "run-1", status: "completed", reason: null,
+            task: "stream", started_at: "2026-10-10T00:00:00Z", finished_at: "2026-10-10T00:00:01Z" },
+          pending_interactions: [], resume_interaction_id: null, maintenance: null, observed_at: "2026-10-10T00:00:00Z" },
+        messages: { items: [], has_more: false, before_seq: null }, participants: [], pending_requests: [],
+        execution: [], tree: { root: null },
+      },
+    }) });
+    expect(client.runtime.get()).toMatchObject({ state: "idle", last_run: { status: "completed" } });
+    expect(events).toContain("session.snapshot");
+    client.disconnect();
+  });
+
+  it("discards SSE-only pending interactions when a socket snapshot takes ownership", async () => {
+    let onEvent: ((event: Record<string, unknown>) => void) | undefined;
+    let socket: ConnectedSocket | undefined;
+    const client = new SessionAgentClient({
+      baseUrl: "https://rag.example.test", sessionId: "session-1", issueWsTicket: async () => "ticket-1",
+      createWebSocket: () => {
+        socket = new ConnectedSocket();
+        queueMicrotask(() => socket?.onopen?.());
+        return socket as unknown as WebSocket;
+      },
+      aguiFallback: (input, callback) => {
+        onEvent = callback as unknown as typeof onEvent;
+        return { started: Promise.resolve({ type: "RUN_STARTED", runId: input.runId }),
+          completed: new Promise(() => {}), abort: vi.fn() };
+      },
+    });
+    await client.send({ task: "approval" });
+    onEvent?.({ type: "RUN_FINISHED", runId: "run-1", outcome: {
+      type: "interrupt", interrupts: [{ id: "old-interrupt", reason: "input_required", message: "请输入" }],
+    } });
+    expect(client.pendingInteractions.get()).toHaveLength(1);
+    await client.connect();
+    socket?.onmessage?.({ data: JSON.stringify({ type: "session.snapshot", session_id: "session-1", payload: {
+      event_watermark: 12,
+      runtime: { state: "idle", load_strategy: "history", allowed_actions: ["send_message", "start_maintenance"],
+        active_run: null, last_run: null, pending_interactions: [], resume_interaction_id: null,
+        maintenance: null, observed_at: "2026-10-10T00:00:00Z" },
+      messages: { items: [], has_more: false, before_seq: null }, participants: [], pending_requests: [],
+      execution: [], tree: { root: null },
+    } }) });
+    expect(client.pendingInteractions.get()).toEqual([]);
+    onEvent?.({ type: "RUN_FINISHED", runId: "run-1", outcome: {
+      type: "interrupt", interrupts: [{ id: "old-interrupt", reason: "input_required", message: "请输入" }],
+    } });
+    expect(client.pendingInteractions.get()).toEqual([]);
     client.disconnect();
   });
 

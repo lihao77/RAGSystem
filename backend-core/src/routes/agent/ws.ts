@@ -24,6 +24,7 @@ interface SessionWsQuery {
   after_seq?: string;
   /** HTTP 历史快照后的首次连接；需要额外展示回放 active run 水位内的执行过程。 */
   history_snapshot?: string;
+  recovery_snapshot?: string;
   /** 普通前端会话使用的短时、单次 WebSocket ticket。 */
   ticket?: string;
 }
@@ -143,6 +144,7 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<SessionWebSocketR
         }
         const afterSeq = parseSeqCursor(request.query.after_seq);
         const historySnapshot = request.query.history_snapshot === "1";
+        const recoverySnapshot = request.query.recovery_snapshot === "1";
         let lastSeq = afterSeq ?? 0;
         let boundRunId: string | null = null;
         let replaying = true;
@@ -238,6 +240,9 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<SessionWebSocketR
             });
             if (rows.length === 0) break;
             for (const row of rows) {
+              if (recoverySnapshot && row.session_seq !== lastSeq + 1) {
+                throw new Error("session replay contains a gap; recover from a new snapshot");
+              }
               deliverLiveEvent(envelopeProjector.toEnvelope(row));
             }
             const nextCursor = rows.at(-1)?.session_seq ?? cursor;
@@ -270,23 +275,36 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<SessionWebSocketR
         });
         // 首次连接以订阅后的 durable 水位作为“历史/新事件”边界：边界前由 history 或
         // active replay 负责，边界后即使 relay 通知乱序，也会通过 durable catch-up 顺序补齐。
-        const connectionBaseline = afterSeq ?? await executionRead.getSessionOutboxWatermark(sessionId);
+        let connectionBaseline = afterSeq ?? await executionRead.getSessionOutboxWatermark(sessionId);
         const heartbeat = setInterval(() => {
-          send({
-            type: "heartbeat",
-            session_id: sessionId,
-            payload: { last_seq: lastSeq },
+          if (replaying || cleanedUp) return;
+          liveDeliveryChain = liveDeliveryChain.then(async () => {
+            const watermark = await executionRead.getSessionOutboxWatermark(sessionId);
+            await catchUpLiveThrough(watermark);
+            if (lastSeq < watermark) throw new Error("session replay window unavailable; recover from a new snapshot");
+            send({ type: "heartbeat", session_id: sessionId, payload: { last_seq: lastSeq } });
+          }).catch((error) => {
+            request.log.error({ error }, "session heartbeat reconciliation failed");
+            try { ws.close(1013, "snapshot recovery required"); } finally { cleanup(); }
           });
         }, 20_000);
         clearHeartbeat = () => clearInterval(heartbeat);
 
         // Current state is not an outbox event and never participates in cursor filtering.
         // Subscription happens first so lifecycle changes during the snapshot query are buffered.
-        await sendRuntimeSnapshot();
+        if (recoverySnapshot) {
+          const snapshot = await container.sessionRuntime.getRecoverySnapshot(sessionId);
+          runtimeSnapshot = snapshot.runtime;
+          lastSeq = snapshot.event_watermark;
+          connectionBaseline = lastSeq;
+          send({ type: "session.snapshot", session_id: sessionId, payload: snapshot });
+        } else {
+          await sendRuntimeSnapshot();
+        }
 
         const replayPlan = resolveSessionReplayPlan(afterSeq, runtimeSnapshot, historySnapshot);
 
-        const activeReplay = replayPlan.replayActive && runtimeSnapshot
+        const activeReplay = !recoverySnapshot && replayPlan.replayActive && runtimeSnapshot
           ? await buildActiveRunReplay(executionRead, sessionId, runtimeSnapshot)
           : null;
         if (activeReplay) {
@@ -301,7 +319,7 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<SessionWebSocketR
           sendReconnect("end", events.length, activeReplay.runId, "active_run_snapshot");
         }
 
-        const durableReplay = replayPlan.replayDurable && afterSeq !== null
+        const durableReplay = !recoverySnapshot && replayPlan.replayDurable && afterSeq !== null
           ? await buildDurableOutboxReplay(executionRead, sessionId, afterSeq)
           : null;
         if (durableReplay) {
@@ -338,16 +356,25 @@ export const registerSessionWebSocketRoute: FastifyPluginAsync<SessionWebSocketR
         const replayWatermark = await executionRead.getSessionOutboxWatermark(sessionId);
         lastSeq = Math.max(lastSeq, connectionBaseline);
         await catchUpLiveThrough(replayWatermark);
-        bufferedLiveEvents
-          .sort(compareEnvelopeSeq)
-          .forEach(deliverLiveEvent);
+        if (recoverySnapshot && lastSeq < replayWatermark) {
+          ws.close(1013, "snapshot recovery required");
+          cleanup();
+          return;
+        }
+        while (bufferedLiveEvents.length > 0) {
+          // More events can arrive while an ordered catch-up awaits the database.
+          // Drain through the same delivery path as live traffic before opening it.
+          const batch = bufferedLiveEvents.splice(0).sort(compareEnvelopeSeq);
+          for (const event of batch) await deliverLiveEventOrdered(event);
+        }
         lastSeq = Math.max(lastSeq, replayWatermark);
         replaying = false;
 
         // replay 事件可能先于其 buffered duplicate 推进 cursor，duplicate 因去重不会触发刷新。
         // 前端不允许从 run/interaction 事件推断生命周期，因此合流后必须发送最终权威快照。
         await runtimeSnapshotChain;
-        await sendRuntimeSnapshot();
+        scheduleRuntimeSnapshot();
+        await runtimeSnapshotChain;
 
         messageProcessor = async (data) => {
           const raw = data.toString();

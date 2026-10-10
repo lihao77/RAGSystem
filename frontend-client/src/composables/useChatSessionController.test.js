@@ -74,6 +74,7 @@ test('late session detail cannot continue an obsolete route switch', async () =>
       return 37;
     },
     loadSessionFiles: async sessionId => calls.push(`files:${sessionId}`),
+    loadContextSnapshot: async sessionId => calls.push(`context:${sessionId}`),
     initializeSessionEventCursor: (sessionId, watermark) => calls.push(`cursor:${sessionId}:${watermark}`),
     connectSessionWS: (sessionId, options) => calls.push(`connect:${sessionId}:${options?.historySnapshot === true}`),
     waitForSessionRuntime: async sessionId => calls.push(`runtime:${sessionId}`),
@@ -111,11 +112,10 @@ test('late session detail cannot continue an obsolete route switch', async () =>
     assert.equal(controller.currentSessionTeam.value, 'team-b');
     assert.equal(controller.pendingEntryAgent.value, 'agent-b');
     assert.deepEqual(calls.filter(call => call.includes(':session-')), [
-      'messages:session-b',
-      'files:session-b',
-      'cursor:session-b:37',
-      'connect:session-b:true',
+      'connect:session-b:false',
       'runtime:session-b',
+      'context:session-b',
+      'files:session-b',
     ]);
 });
 

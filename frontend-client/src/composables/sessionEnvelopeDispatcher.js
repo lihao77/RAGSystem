@@ -381,7 +381,7 @@ export function createSessionEnvelopeDispatcher({
 
   /** @param {AnyRecord} snapshot @param {string} sessionId */
   const applyRuntimeSnapshot = (snapshot, sessionId) => {
-    applySessionRuntime(snapshot);
+    if (applySessionRuntime(snapshot) === false) return;
     // 崩溃/租约过期自愈：快照不再持有 compact 租约且无活动 run 时，清帧驱动的瞬态横线与
     // 呼吸点——后端在压缩中途崩溃不会有任何终态帧，静默重载的 preserve 反而会保留横线，
     // 这里是唯一可靠的清除线（WS 有序，租约释放/过期后的首个快照必然晚于全部压缩帧）。

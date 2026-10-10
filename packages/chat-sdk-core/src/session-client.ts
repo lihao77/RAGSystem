@@ -2,6 +2,8 @@ import {
   applyEnvelope,
   createExecutionTreeState,
   getExecutionTree,
+  restoreExecutionTreeState,
+  isSupersededStreamEnvelope,
 } from "@ragsystem/agent-protocol";
 import type {
   AgentClient,
@@ -16,6 +18,7 @@ import type {
   PendingInteraction,
   RunStatus,
   SessionRuntimePayload,
+  SessionSnapshotPayload,
   SendOptions,
   SendResult,
   ToolCallHandler,
@@ -154,6 +157,10 @@ export class SessionAgentClient implements AgentClient {
   private readonly sequenceOwners = new Map<number, "ws" | "agui">();
   private readonly seenAguiEvents = new Set<string>();
   private readonly activeToolCalls = new Map<string, AbortController>();
+  /** In-flight host requests survive snapshot takeover, without retaining user prompts. */
+  private readonly recoveredAguiToolInterrupts = new Set<string>();
+  /** Result submissions must reach the gateway even after WS takes delivery ownership. */
+  private readonly aguiToolResultRuns = new Set<AguiRunHandle>();
   /** Invalidates callbacks retained by an aborted or terminal SSE segment. */
   private aguiGeneration = 0;
 
@@ -259,7 +266,7 @@ export class SessionAgentClient implements AgentClient {
     this.connectPromise = null;
     this.pendingConnectOptionsKey = null;
     const cancelRunId = this.runStatusValue.get().runId;
-    const hadAguiRun = Boolean(this.aguiRun) || this.aguiInterrupts.size > 0;
+    const hadAguiRun = this.hasAguiOwnership();
     this.aguiGeneration += 1;
     this.aguiRun?.abort("session disconnect");
     this.aguiRun = null;
@@ -274,6 +281,7 @@ export class SessionAgentClient implements AgentClient {
     this.aguiPendingInteractions.clear();
     this.aguiToolArgs.clear();
     this.aguiToolNames.clear();
+    this.clearRecoveredAguiTools("session disconnect");
     this.abortActiveToolCalls("session disconnect");
     this.activeToolCalls.clear();
     if (this.transport) {
@@ -342,7 +350,7 @@ export class SessionAgentClient implements AgentClient {
    */
   async send(options: SendOptions): Promise<SendResult> {
     const requestId = options.requestId ?? generateRequestId();
-    if (this.aguiRun || this.aguiInterrupts.size > 0) {
+    if (this.hasAguiOwnership()) {
       return { started: false, requestId, error: "已有 AG-UI run 正在执行或等待交互" };
     }
     if (this.aguiCancelPromise) await this.aguiCancelPromise;
@@ -351,7 +359,7 @@ export class SessionAgentClient implements AgentClient {
       if (this.aguiFallback) {
         try {
           if (this.aguiCancelPromise) await this.aguiCancelPromise;
-          if (this.aguiRun || this.aguiInterrupts.size > 0) {
+          if (this.hasAguiOwnership()) {
             return { started: false, requestId, error: "已有 AG-UI run 正在执行或等待交互" };
           }
           const input: AguiRunInput = {
@@ -418,11 +426,12 @@ export class SessionAgentClient implements AgentClient {
   }
 
   stop(): void {
+    this.clearRecoveredAguiTools("run stopped");
     // An AG-UI segment owns its interrupt/resume lifecycle even if the WS
     // socket recovers in parallel. Sending stop over WS in that state leaves
     // the gateway's in-memory interrupt record unresolved and the SSE run
     // can never resume.
-    if (this.aguiRun || this.aguiInterrupts.size > 0) {
+    if (this.hasAguiOwnership()) {
       const run = this.aguiRun;
       const cancelRunId = this.runStatusValue.get().runId;
       this.abortActiveToolCalls("run stopped");
@@ -592,6 +601,7 @@ export class SessionAgentClient implements AgentClient {
       sessionId: this.sessionId,
       ticket,
       cursor,
+      recoverySnapshot: true,
       ...(historySnapshot ? { historySnapshot: true } : {}),
     });
   }
@@ -617,11 +627,39 @@ export class SessionAgentClient implements AgentClient {
   }
 
   private handleEnvelope(env: Envelope, source: "ws" | "agui" = "ws"): void {
-    if (source === "ws" && this.aguiRun) {
+    if (source === "ws" && this.aguiRun && env.type !== "session.snapshot") {
       // AG-UI owns delivery while its SSE segment is active. The WS socket
       // may recover in parallel, but must not project the same session run.
       return;
     }
+    if (env.type === "session.snapshot") {
+      const snapshot = env.payload as SessionSnapshotPayload;
+      // A recovered socket takes ownership with a complete state, including runs
+      // that ended while SSE was unavailable. Never transfer just the cursor.
+      this.aguiGeneration += 1;
+      if (this.aguiRun && !this.aguiToolResultRuns.has(this.aguiRun)) {
+        this.aguiRun.abort("websocket snapshot recovered");
+      }
+      this.aguiRun = null;
+      for (const id of this.aguiInterrupts.keys()) {
+        if (this.activeToolCalls.has(id) && !this.aguiPendingInteractions.has(id)) {
+          this.recoveredAguiToolInterrupts.add(id);
+        } else {
+          this.aguiInterrupts.delete(id);
+        }
+      }
+      this.aguiPendingInteractions.clear();
+      this.sequenceOwners.clear();
+      this.seenAguiEvents.clear();
+      this.cursor = snapshot.event_watermark;
+      this.execState = restoreExecutionTreeState(snapshot.tree);
+      this.treeValue.set(getExecutionTree(this.execState));
+      this.applyRuntime(snapshot.runtime);
+      this.historySnapshotPending = false;
+      this.eventsValue.emit(env);
+      return;
+    }
+    if (isSupersededStreamEnvelope(this.execState, env)) return;
     const eventSeq = typeof env.seq === "number" ? env.seq : null;
     if (eventSeq !== null) {
       const owner = this.sequenceOwners.get(eventSeq);
@@ -648,6 +686,10 @@ export class SessionAgentClient implements AgentClient {
       return;
     }
     if (env.type === "session.runtime") {
+      const incoming = env.payload as SessionRuntimePayload;
+      const previous = this.runtimeValue.get();
+      if (typeof incoming.event_watermark === "number" && typeof previous?.event_watermark === "number"
+        && incoming.event_watermark < previous.event_watermark) return;
       this.applyRuntime(env.payload as SessionRuntimePayload);
       if (!(env.payload as SessionRuntimePayload).active_run) {
         this.historySnapshotPending = false;
@@ -738,7 +780,31 @@ export class SessionAgentClient implements AgentClient {
     if (this.aguiRun === run) this.aguiRun = null;
   }
 
-  private startAguiSegment(input: AguiRunInput): AguiRunHandle {
+  private hasAguiOwnership(): boolean {
+    if (this.aguiRun) return true;
+    for (const id of this.aguiInterrupts.keys()) {
+      if (!this.recoveredAguiToolInterrupts.has(id)) return true;
+    }
+    return false;
+  }
+
+  private trackAguiToolResultRun(run: AguiRunHandle): void {
+    this.aguiToolResultRuns.add(run);
+    const settled = () => { this.aguiToolResultRuns.delete(run); };
+    void run.completed.then(settled, settled);
+  }
+
+  private clearRecoveredAguiTools(reason: string): void {
+    for (const id of this.recoveredAguiToolInterrupts) this.aguiInterrupts.delete(id);
+    this.recoveredAguiToolInterrupts.clear();
+    for (const run of this.aguiToolResultRuns) {
+      // The owned segment is aborted after its generation is invalidated by stop().
+      if (run !== this.aguiRun) run.abort(reason);
+    }
+    this.aguiToolResultRuns.clear();
+  }
+
+  private startAguiSegment(input: AguiRunInput, toolResult = false): AguiRunHandle {
     if (!this.aguiFallback) throw new Error("AG-UI fallback 未配置");
     let started = false;
     const generation = ++this.aguiGeneration;
@@ -752,6 +818,7 @@ export class SessionAgentClient implements AgentClient {
         this.aguiGeneration += 1;
       }
     });
+    if (toolResult) this.trackAguiToolResultRun(run);
     if (generation === this.aguiGeneration) {
       this.aguiRun = run;
     } else {
@@ -774,26 +841,18 @@ export class SessionAgentClient implements AgentClient {
         this.aguiGeneration += 1;
         this.clearAguiRun(run);
         if (!started) return;
-        this.runStatusValue.set({ runId: input.runId ?? null, state: "failed" });
+        this.hasRuntimeSnapshot = false;
         const errorEnvelope = {
           type: "error",
           session_id: this.sessionId,
           ...(input.runId ? { run_id: input.runId } : {}),
-          payload: { code: "agui_stream_failed", message: error instanceof Error ? error.message : String(error) },
+          payload: { code: "agui_stream_disconnected", message: error instanceof Error ? error.message : String(error) },
         } as Envelope;
         this.handleEnvelope(errorEnvelope, "agui");
-        const errorMessage = (errorEnvelope.payload as { message?: string }).message;
-        this.handleEnvelope({
-          type: "run_ended",
-          session_id: this.sessionId,
-          ...(input.runId ? { run_id: input.runId } : {}),
-          payload: { status: "failed", ...(errorMessage ? { error: errorMessage } : {}) },
-        } as Envelope, "agui");
-        this.publishAguiRuntime("idle", null, [], context, {
-          status: "failed",
-          runId: input.runId ?? null,
-          reason: errorMessage || null,
-        });
+        // A transport failure says nothing about the durable run outcome.
+        // Re-enter the same snapshot handshake used for every WS reconnect.
+        if (this.transport) this.transport.reconnect();
+        else void this.connect().catch(() => undefined);
       },
     );
     return run;
@@ -1002,16 +1061,23 @@ export class SessionAgentClient implements AgentClient {
     const interrupt = this.aguiInterrupts.get(interactionId);
     if (!interrupt || !this.aguiFallback) throw new Error("AG-UI 交互已失效");
     const pending = this.aguiPendingInteractions.get(interactionId);
+    const recoveredTool = this.recoveredAguiToolInterrupts.delete(interactionId);
     this.aguiInterrupts.delete(interactionId);
     this.aguiPendingInteractions.delete(interactionId);
     this.pendingValue.set([...this.pendingValue.get().filter((item) => item.interactionId !== interactionId)]);
     try {
-      const run = this.startAguiSegment({
+      const input: AguiRunInput = {
         threadId: this.sessionId,
         runId: generateRequestId(),
         resume: [{ interruptId: interactionId, status: "resolved", payload }],
         ...(this.hostTools.size > 0 ? { tools: this.aguiToolDeclarations() } : {}),
-      });
+      };
+      // Keep the original gateway resume contract for an already-executing tool,
+      // while leaving event projection and runtime ownership with the recovered WS.
+      const run = recoveredTool
+        ? this.aguiFallback(input, () => {})
+        : this.startAguiSegment(input, !pending && this.activeToolCalls.has(interactionId));
+      if (recoveredTool) this.trackAguiToolResultRun(run);
       await run.started;
     } catch (error) {
       if (pending) {

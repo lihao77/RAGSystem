@@ -267,9 +267,15 @@ export const useSessionRunStore = defineStore('session-run', () => {
     contextUsage.value = { used: 0, max: 0, source: 'none' };
   };
 
+  const messageProjectionRevision = ref(0);
+  const markMessageProjectionChanged = () => { messageProjectionRevision.value++; };
+
   const resetActiveRun = () => resetActiveRunState(activeRun);
 
-  const applySessionRuntime = (snapshot) => {
+  const applySessionRuntime = (snapshot, authoritative = false) => {
+    if (!authoritative && Number.isSafeInteger(snapshot?.event_watermark)
+      && Number.isSafeInteger(sessionRuntime.value?.event_watermark)
+      && snapshot.event_watermark < sessionRuntime.value.event_watermark) return false;
     const previousRunId = activeRun.runId;
     sessionRuntime.value = snapshot;
     const hasActiveRun = Boolean(snapshot?.active_run);
@@ -436,6 +442,7 @@ export const useSessionRunStore = defineStore('session-run', () => {
   const closeWorkbench = () => { workbenchOpen.value = false; };
 
   const setParticipantMessages = (participantId, value) => {
+    markMessageProjectionChanged();
     const id = typeof participantId === 'string' && participantId.trim() ? participantId.trim() : 'root';
     const next = Array.isArray(value) ? value : [];
     participantMessages.value = {
@@ -536,6 +543,8 @@ export const useSessionRunStore = defineStore('session-run', () => {
     messages,
     rootMessages,
     participantMessages,
+    messageProjectionRevision,
+    markMessageProjectionChanged,
     selectedParticipantId,
     participants,
     participantsLoading,

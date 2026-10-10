@@ -93,6 +93,7 @@ export function createConversationStore(options: ConversationStoreOptions) {
     renewMessageRequest: messageRequests.renewMessageRequest.bind(messageRequests),
     settleMessageRequest: messageRequests.settleMessageRequest.bind(messageRequests),
     listMessageRequestStatuses: messageRequests.listMessageRequestStatuses.bind(messageRequests),
+    readMessageRequestStatuses: messageRequests.readMessageRequestStatuses.bind(messageRequests),
     cancelQueuedMessageRequest: messageRequests.cancelQueuedMessageRequest.bind(messageRequests),
     agentMailbox,
 

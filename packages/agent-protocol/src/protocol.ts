@@ -12,6 +12,7 @@
  * 本文件不 import backend-ts/contracts —— agent-protocol 保持零后端依赖。
  */
 import { z } from "zod";
+import type { ExecutionTree } from "./agent-client.js";
 
 /* ============================================================
  * 一、Envelope 顶层
@@ -23,6 +24,7 @@ export type ProtocolVersion = typeof PROTOCOL_VERSION;
 export const EnvelopeTypeSchema = z.enum([
   "session.hello",
   "session.runtime",
+  "session.snapshot",
   "heartbeat",
   "session.reconnect",
   "error",
@@ -684,6 +686,8 @@ export const SessionRuntimeMaintenanceSchema = z.object({
 });
 
 export const SessionRuntimePayloadSchema = z.object({
+  /** Durable boundary captured with the lifecycle facts, not a wall clock version. */
+  event_watermark: z.number().int().nonnegative().optional(),
   state: SessionRuntimeStateSchema,
   load_strategy: SessionLoadStrategySchema,
   allowed_actions: z.array(SessionRuntimeActionSchema),
@@ -838,6 +842,49 @@ export const EnvelopeSchema = ProtocolEnvelopeSchema.superRefine((env, ctx) => {
   }
 });
 
+const ExecutionAgentSnapshotSchema: z.ZodTypeAny = z.lazy(() => z.object({
+  agentId: z.string(), callId: z.string().min(1),
+  status: z.enum(["running", "succeeded", "failed", "interrupted"]),
+  rounds: z.array(z.object({
+    round: z.number().int().nonnegative(), reasoning: z.string(), reasoningComplete: z.boolean(),
+    intent: z.string(), intentComplete: z.boolean(), text: z.string(), textComplete: z.boolean(),
+    toolCalls: z.array(z.object({
+      callId: z.string().min(1), toolName: z.string(),
+      status: z.enum(["running", "succeeded", "failed", "interrupted"]),
+    }).passthrough()),
+  }).passthrough()),
+  children: z.array(ExecutionAgentSnapshotSchema),
+}).passthrough());
+
+export const ExecutionTreeSnapshotSchema = z.custom<ExecutionTree>(value =>
+  z.object({ root: ExecutionAgentSnapshotSchema.nullable() }).safeParse(value).success);
+
+export const SessionSnapshotPayloadSchema = z.object({
+  event_watermark: z.number().int().nonnegative(),
+  runtime: SessionRuntimePayloadSchema,
+  messages: z.object({
+    items: z.array(z.object({
+      id: z.string().min(1), seq: z.number().int().nonnegative(), session_id: z.string(),
+      role: z.enum(["user", "assistant", "system"]), content_parts: z.array(MessageContentPartSchema),
+      metadata: z.record(z.unknown()), created_at: z.string(), thread_key: z.string(),
+      child_agent_id: z.string().nullable(), has_execution: z.boolean().optional(),
+    })),
+    has_more: z.boolean(), before_seq: z.number().int().nonnegative().nullable(),
+  }),
+  participants: z.array(z.record(z.unknown())),
+  pending_requests: z.array(z.object({
+    request_id: z.string(), status: z.enum(["processing", "queued", "consumed", "failed", "cancelled", "unknown"]),
+    content: z.string(), message_id: z.string().nullable(), error: z.string().nullable(),
+    updated_at: z.string(), can_manage: z.boolean(),
+  })),
+  execution: z.array(z.object({
+    run_id: z.string().min(1), boundary_message_id: z.string().nullable(),
+    tree: ExecutionTreeSnapshotSchema,
+  })),
+  tree: ExecutionTreeSnapshotSchema,
+});
+export type SessionSnapshotPayload = z.infer<typeof SessionSnapshotPayloadSchema>;
+
 export const HelloEnvelopeSchema = ProtocolEnvelopeSchema.extend({
   type: z.literal("session.hello"),
   protocol_version: z.literal("1.0"),
@@ -883,6 +930,7 @@ const typed = <T extends z.ZodRawShape>(shape: T) => ProtocolEnvelopeSchema.exte
 export const ServerToClientEnvelopeSchema = z.discriminatedUnion("type", [
   HelloEnvelopeSchema,
   typed({ type: z.literal("session.runtime"), session_id: z.string().min(1), payload: SessionRuntimePayloadSchema }),
+  typed({ type: z.literal("session.snapshot"), session_id: z.string().min(1), payload: SessionSnapshotPayloadSchema }),
   typed({ type: z.literal("heartbeat"), session_id: z.string().min(1), payload: HeartbeatPayloadSchema.optional() }),
   typed({ type: z.literal("session.reconnect"), session_id: z.string().min(1), payload: ReconnectPayloadSchema }),
   typed({ type: z.literal("error"), session_id: z.string().min(1), payload: ErrorPayloadSchema }),

@@ -8,6 +8,7 @@ import { createSessionCommandController } from './sessionCommandController.js';
 import { createSessionEnvelopeDispatcher } from './sessionEnvelopeDispatcher.js';
 import { createSessionFollowupRecovery } from './sessionFollowupRecovery.js';
 import { createSessionFollowupActions } from './sessionFollowupActions.js';
+import { restoreExecutionTreeState, getExecutionTree } from '@ragsystem/agent-protocol';
 
 export { createRequestId, serializeAttachmentForSend } from './sessionCommandController.js';
 
@@ -69,6 +70,11 @@ export function useSessionAgentClient(deps) {
   const sdk = deps.chatSdkClient;
   if (!sdk) throw new Error('Chat SDK 未初始化');
   const sdkEventCursors = new Map();
+  const setEventCursor = (sessionId, seq) => {
+    sdkEventCursors.delete(sessionId);
+    sdkEventCursors.set(sessionId, seq);
+    while (sdkEventCursors.size > 20) sdkEventCursors.delete(sdkEventCursors.keys().next().value);
+  };
   const followupRecovery = createSessionFollowupRecovery({
     sdk,
     store: sessionRunStore,
@@ -90,12 +96,55 @@ export function useSessionAgentClient(deps) {
   };
 
   const sdkUnsubscribers = [];
+  const messageControlEvents = new Set(['heartbeat', 'session.runtime', 'session.reconnect', 'ack', 'plugin_event', 'interaction']);
+  const messageSyncCategories = new Set(['message_saved', 'command_result', 'compression']);
   sdkUnsubscribers.push(sdk.on('event', (event) => {
     const sessionId = event.session_id || sdk.sessionId || currentSessionId.value;
-    const heartbeatSeq = event.type === 'heartbeat' ? event.payload?.last_seq : null;
-    const observedSeq = typeof event.seq === 'number' ? event.seq : heartbeatSeq;
+    if (sessionId === currentSessionId.value && !messageControlEvents.has(event.type)
+      && (event.type !== 'state_sync' || messageSyncCategories.has(event.payload?.category))) sessionRunStore.markMessageProjectionChanged();
+    if (event.type === 'session.snapshot' && sessionId === currentSessionId.value) {
+      const snapshot = event.payload;
+      setEventCursor(sessionId, snapshot.event_watermark);
+      deps.resetApprovalState();
+      envelopeDispatcher?.resetStreamSessionState();
+      clearCommandFallback();
+      deps.applySnapshotMessages?.(sessionId, snapshot);
+      applySessionRuntime(snapshot.runtime, true);
+      envelopeDispatcher?.handleEnvelope({ type: 'session.runtime', payload: snapshot.runtime }, sessionId);
+      for (const projection of snapshot.execution) {
+        const boundary = messages.value.find(message => message.id === projection.boundary_message_id);
+        const assistant = messages.value[activeRun.assistantMsgIndex];
+        const latestBoundary = messages.value.findLast(message => message.role === 'user'
+          && (message.run_id === projection.run_id || message.metadata?.consumed_by_run_id === projection.run_id));
+        const targets = [boundary];
+        if (activeRun.runId === projection.run_id && (latestBoundary === boundary || !projection.boundary_message_id)) targets.push(assistant);
+        for (const target of targets) {
+          if (!target) continue;
+          target._execState = restoreExecutionTreeState(projection.tree);
+          target.executionTree = getExecutionTree(target._execState);
+          target._executionRootCallId = target.executionTree.root?.callId || null;
+          target.has_execution = Boolean(target.executionTree.root);
+          target.executionStepsLoaded = true;
+        }
+      }
+      for (const message of snapshot.messages.items) {
+        if (message.metadata?.request_id) finishPendingCommand(message.metadata.request_id);
+      }
+      for (const request of snapshot.pending_requests) {
+        if (request.status === 'queued' || request.status === 'processing') {
+          sessionRunStore.markFollowupAccepted(sessionId, request.request_id);
+          sessionRunStore.queueFollowup(sessionId, request.request_id, request.content);
+          const queued = sessionRunStore.pendingFollowups.find(item => item.request_id === request.request_id && item.session_id === sessionId);
+          if (queued) { queued.status = request.status; queued.can_manage = request.can_manage; }
+        } else if (request.status !== 'unknown') sessionRunStore.removePendingFollowup(sessionId, request.request_id);
+      }
+      deps.cacheMessages(sessionId, messages.value);
+      void deps.scrollToBottom?.(true, 'auto');
+      return;
+    }
+    const observedSeq = typeof event.seq === 'number' ? event.seq : null;
     if (sessionId && typeof observedSeq === 'number') {
-      sdkEventCursors.set(sessionId, Math.max(sdkEventCursors.get(sessionId) || 0, observedSeq));
+      setEventCursor(sessionId, Math.max(sdkEventCursors.get(sessionId) || 0, observedSeq));
     }
     if (sessionId) envelopeDispatcher?.handleEnvelope(event, sessionId);
   }));
@@ -117,6 +166,7 @@ export function useSessionAgentClient(deps) {
   const dispose = () => {
     if (disposed) return;
     disposed = true;
+    sdkEventCursors.clear();
     stopFollowupWatch();
     followupRecovery.dispose();
     markDisconnectedFollowups();
@@ -162,7 +212,7 @@ export function useSessionAgentClient(deps) {
   const getLastEventSeq = (sessionId = currentSessionId.value) => sdkEventCursors.get(sessionId) || 0;
   const initializeSessionEventCursor = (sessionId, afterEventSeq) => {
     if (sessionId === currentSessionId.value) {
-      sdkEventCursors.set(sessionId, afterEventSeq);
+      setEventCursor(sessionId, afterEventSeq);
     }
   };
   const interactionController = createSessionInteractionController({
