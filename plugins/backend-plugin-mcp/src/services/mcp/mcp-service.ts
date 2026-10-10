@@ -550,7 +550,7 @@ export class McpService {
   ): Promise<ToolExecutionResult> {
     const parsed = parseMcpToolName(fullToolName);
     if (!parsed) {
-      return toolError(`无效的 MCP 工具名: ${fullToolName}`, fullToolName);
+      return toolError(fullToolName, `无效的 MCP 工具名: ${fullToolName}`);
     }
     const [serverName, toolName] = parsed;
     const start = Date.now();
@@ -600,7 +600,7 @@ export class McpService {
     const state = this.connections.get(serverName);
     const fullToolName = buildMcpToolName(serverName, toolName);
     if (!state || state.status !== "connected" || !state.client) {
-      return toolError(`MCP Server '${serverName}' 未连接`, fullToolName, { server_name: serverName });
+      return toolError(fullToolName, `MCP Server '${serverName}' 未连接`, { server_name: serverName });
     }
     try {
       // MCP tools may have side effects, so the shared policy deliberately performs only one attempt.
@@ -612,7 +612,7 @@ export class McpService {
       });
       return normalizeToolResult(fullToolName, serverName, toolName, result);
     } catch (error) {
-      return toolError(`MCP 工具调用失败: ${formatError(error)}`, fullToolName, { server_name: serverName });
+      return toolError(fullToolName, `MCP 工具调用失败: ${formatError(error)}`, { server_name: serverName });
     }
   }
 

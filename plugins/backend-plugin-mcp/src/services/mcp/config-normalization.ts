@@ -304,7 +304,7 @@ export function normalizeToolResult(
   }
   const text = texts.join("\n");
   if (result.isError === true) {
-    return toolError(text || "MCP 工具返回错误", fullToolName, { server_name: serverName });
+    return toolError(fullToolName, text || "MCP 工具返回错误", { server_name: serverName });
   }
   const content = otherContent.length ? { text, content: otherContent } : text;
   return toolSuccess(content, {
