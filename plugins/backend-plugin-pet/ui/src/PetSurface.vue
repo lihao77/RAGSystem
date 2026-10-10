@@ -78,11 +78,21 @@ const props = defineProps({
   initialAnim: { type: String, default: null },
   /** 显示器索引（多显示器时每窗一个），位置记忆按其分键。 */
   display: { type: [String, Number], default: '0' },
+  /** 独立桌宠小窗的显示器工作区 {x,y,w,h}（主进程经 URL 注入）；null = 宿主页内嵌。
+   *  独立模式下定位坐标系 = 整个显示器工作区，屏幕位置由"窗口跟随"承载。 */
+  displayRect: { type: Object, default: null },
+  /** 快速对话输入框打开（PetPanel 渲染在宠物左上）：小窗需向左上扩展预留空间。 */
+  quickAskOpen: { type: Boolean, default: false },
   /** 头顶反馈气泡 { kind: 'done'|'error'|'info', icon: 'done'|'error'|'approval'|'question', text }；null = 隐藏。 */
   notice: { type: Object, default: null },
 });
 
 const catalog = computed(() => buildCatalog(props.available));
+
+/** 独立小窗的画布外边距（窗口贴住本体）；quick-ask 打开时的左上扩展量。 */
+const WIN_PAD = 8;
+const QUICK_W = 340;
+const QUICK_H = 96;
 
 // ---- 响应式状态 ----
 // 初始动画取场景配置 default_animation；不在素材清单（含假定齐全）内时回退待机
@@ -98,6 +108,8 @@ const facing = ref('left');
 const isDragging = ref(false);
 /** 自定义位置（拖拽/漫游后停留的视口比例）；null = 走 data-corner 默认角落。 */
 const customPos = ref(null);
+/** 宠物左上角在定位坐标系（独立小窗 = 显示器工作区；内嵌 = 宿主视口）的坐标。 */
+const virtualPos = ref(null);
 /** 播放序号：同名动画连续选中时强制重播。 */
 const seq = ref(0);
 const viewport = ref({ w: 0, h: 0 });
@@ -243,8 +255,8 @@ const pickNextStep = () => {
     scale: props.size / BASE_PET_SIZE,
     centerX: currentCenterX(),
     centerY: currentCenterY(),
-    viewportWidth: viewport.value.w,
-    viewportHeight: viewport.value.h,
+    viewportWidth: screenRect.value.w,
+    viewportHeight: screenRect.value.h,
     // 漫游贴边边界按"人物本体"算而非画布：人物宽约为画布宽 37.5%（居中，
     // x∈[200,440]/640），画布半宽换成身体半宽后才能走到贴近屏幕边缘
     halfW: halfW.value * 0.375,
@@ -282,29 +294,41 @@ const handleEnded = () => {
 const positionKey = computed(() => `ragsystem-pet-position-${props.display}`);
 
 const restorePosition = () => {
+  let saved = null;
   try {
-    const saved = JSON.parse(localStorage.getItem(positionKey.value) ?? 'null');
-    if (
-      saved &&
-      typeof saved.rx === 'number' && Number.isFinite(saved.rx) &&
-      typeof saved.ry === 'number' && Number.isFinite(saved.ry) &&
-      saved.rx >= 0 && saved.rx <= 1 && saved.ry >= 0 && saved.ry <= 1
-    ) {
-      customPos.value = { rx: saved.rx, ry: saved.ry };
-    }
+    saved = JSON.parse(localStorage.getItem(positionKey.value) ?? 'null');
   } catch {
     // 坏数据忽略，回默认角落
   }
+  const valid = saved
+    && typeof saved.rx === 'number' && Number.isFinite(saved.rx)
+    && typeof saved.ry === 'number' && Number.isFinite(saved.ry)
+    && saved.rx >= 0 && saved.rx <= 1 && saved.ry >= 0 && saved.ry <= 1;
+  const width = screenRect.value.w || 1920;
+  const height = screenRect.value.h || 1080;
+  if (valid) {
+    customPos.value = { rx: saved.rx, ry: saved.ry };
+    applyVirtual(saved.rx * width - halfW.value, saved.ry * height - halfH.value);
+    return;
+  }
+  // 默认角落与 data-corner=bottom-right 的 CSS 等价：right = 24 - size×31.25%
+  applyVirtual(width - halfW.value * 2 - 24 + props.size * 0.3125, height - stageHeight.value);
 };
 
+// 位置记忆统一从 virtualPos 落盘（比例制，与历史存储兼容；独立小窗/内嵌同源）
 watch(
-  () => customPos.value,
+  () => virtualPos.value,
   (position) => {
     if (!position) return;
     clearTimeout(persistTimer);
     persistTimer = setTimeout(() => {
+      const width = screenRect.value.w || 1;
+      const height = screenRect.value.h || 1;
       try {
-        localStorage.setItem(positionKey.value, JSON.stringify(position));
+        localStorage.setItem(positionKey.value, JSON.stringify({
+          rx: (position.x + halfW.value) / width,
+          ry: (position.y + halfH.value) / height,
+        }));
       } catch {
         // 存储不可用（隐私模式等）忽略
       }
@@ -360,19 +384,85 @@ const onHitLeave = () => {
   clearTimeout(hoverTimer);
 };
 
-// ---- 位置（视口比例制） ----
-const currentCenterX = () => {
-  if (customPos.value) return customPos.value.rx * viewport.value.w;
-  const el = rootRef.value;
-  if (el) return el.getBoundingClientRect().left + halfW.value;
-  return viewport.value.w - 24 - halfW.value;
+// ---- 定位（显示器工作区坐标制） ----
+/** 定位坐标系：独立小窗 = 显示器工作区（URL 注入）；内嵌 = 宿主视口（resize 跟踪）。 */
+const screenRect = computed(() => (
+  props.displayRect && props.displayRect.w > 0 ? props.displayRect : viewport.value
+));
+
+const clampVirtualX = (x) => {
+  const width = screenRect.value.w;
+  const size = halfW.value * 2;
+  // 漫游贴边边界按"人物本体"算而非画布：人物宽约为画布宽 37.5%（居中，
+  // x∈[200,440]/640），画布半宽换成身体半宽后才能走到贴近屏幕边缘
+  const bodyLeft = -size * (200 / 640);
+  const bodyRight = width - size * (440 / 640);
+  return Math.min(Math.max(x, bodyLeft), bodyRight);
 };
-const currentCenterY = () => {
-  if (customPos.value) return customPos.value.ry * viewport.value.h;
-  const el = rootRef.value;
-  if (el) return el.getBoundingClientRect().top + halfH.value;
-  return viewport.value.h - 20 - halfH.value;
+
+const clampVirtualY = (y) => {
+  const height = screenRect.value.h;
+  // 头顶画布 y=50、脚底 y=330（另有 30/360 舞台下沉），画布透明留白可出屏、本体留屏内
+  const headTop = -stageHeight.value * (80 / 360);
+  const feetBottom = height - stageHeight.value;
+  return Math.min(Math.max(y, headTop), feetBottom);
 };
+
+let boundsSending = false;
+let pendingBounds = null;
+/** 独立小窗：窗口矩形 = 宠物画布外扩边距（quick-ask 打开时向左上扩展）。串行发送、
+ *  同时最多一个 in-flight IPC，漫游 rAF 频率下不会堆积。 */
+const syncWindowBounds = () => {
+  if (!props.displayRect || !virtualPos.value) return;
+  const expandLeft = props.quickAskOpen ? QUICK_W : 0;
+  const expandTop = props.quickAskOpen ? QUICK_H : 0;
+  pendingBounds = {
+    x: Math.round(props.displayRect.x + virtualPos.value.x - WIN_PAD - expandLeft),
+    y: Math.round(props.displayRect.y + virtualPos.value.y - WIN_PAD - expandTop),
+    width: Math.round(halfW.value * 2 + WIN_PAD * 2 + expandLeft),
+    height: Math.round(stageHeight.value + WIN_PAD * 2 + expandTop),
+  };
+  if (boundsSending) return;
+  boundsSending = true;
+  const drain = async () => {
+    while (pendingBounds) {
+      const bounds = pendingBounds;
+      pendingBounds = null;
+      try {
+        await window.ragsystemDesktop?.setPetBounds?.(bounds);
+      } catch {
+        // 主进程为旧版（无 handler）：窗口不跟随，宠物仍在本窗内渲染
+      }
+    }
+    boundsSending = false;
+  };
+  void drain();
+};
+
+/** 统一落位：独立小窗更新虚拟坐标并驱动窗口跟随；内嵌模式直接写元素样式（与旧
+ *  漫游驱动的命令式定位一致，customPos 仅在拖拽/漫游收尾时更新触发声明式重算）。 */
+const applyVirtual = (x, y) => {
+  const pos = { x: clampVirtualX(x), y: clampVirtualY(y) };
+  virtualPos.value = pos;
+  if (props.displayRect) {
+    syncWindowBounds();
+    return;
+  }
+  const el = rootRef.value;
+  if (el) {
+    el.style.left = `${pos.x}px`;
+    el.style.top = `${pos.y}px`;
+    el.style.right = 'auto';
+    el.style.bottom = 'auto';
+  }
+};
+
+const currentCenterX = () => (
+  virtualPos.value ? virtualPos.value.x + halfW.value : screenRect.value.w - 24 - halfW.value
+);
+const currentCenterY = () => (
+  virtualPos.value ? virtualPos.value.y + halfH.value : screenRect.value.h - 20 - halfH.value
+);
 
 // ---- 移动驱动（跟随视频播放时钟） ----
 const startMoveDrive = (el) => {
@@ -383,14 +473,8 @@ const startMoveDrive = (el) => {
   const token = ++moveToken;
   const step = () => {
     if (moveToken !== token) return;
-    const rootEl = rootRef.value;
-    if (rootEl) {
-      const ratioX = moveProgressRatio({ plan, currentTime: el.currentTime || 0, duration });
-      rootEl.style.left = `${ratioX * viewport.value.w - halfW.value}px`;
-      rootEl.style.top = `${plan.startYRatio * viewport.value.h - halfH.value}px`;
-      rootEl.style.right = 'auto';
-      rootEl.style.bottom = 'auto';
-    }
+    const ratioX = moveProgressRatio({ plan, currentTime: el.currentTime || 0, duration });
+    applyVirtual(ratioX * screenRect.value.w - halfW.value, plan.startYRatio * screenRect.value.h - halfH.value);
     if ((el.currentTime || 0) < duration - MOVE_TAIL_SEC) {
       moveRaf = requestAnimationFrame(step);
     } else {
@@ -411,7 +495,26 @@ const stopMove = () => {
 };
 
 // ---- 点击与拖拽 ----
-const onPointerDown = (event) => {
+/** 独立小窗模式下取屏幕绝对坐标（窗口跟随指针移动，clientX 随窗口原点漂移不可用）。 */
+const readScreenCursor = async () => {
+  try {
+    return (await window.ragsystemDesktop?.getCursorScreenPos?.()) ?? null;
+  } catch {
+    return null; // 旧 preload 无此 API：拖拽退化为不可移动（点击等其他交互不受影响）
+  }
+};
+
+const beginDragVisual = (d) => {
+  d.dragging = true;
+  isDragging.value = true;
+  if (catalog.value.drag) {
+    anim.value = catalog.value.drag;
+    once.value = true;
+    seq.value += 1;
+  }
+};
+
+const onPointerDown = async (event) => {
   stopMove();
   event.currentTarget.setPointerCapture(event.pointerId);
   const rect = rootRef.value?.getBoundingClientRect();
@@ -424,33 +527,41 @@ const onPointerDown = (event) => {
     offX: rect ? event.clientX - (rect.left + rect.width / 2) : 0,
     offY: rect ? event.clientY - (rect.top + rect.height / 2) : 0,
   };
+  if (!props.displayRect) return;
+  // 独立小窗：抓取点改用屏幕坐标（grabX/Y = 光标到宠物左上角的偏移）
+  const cursor = await readScreenCursor();
+  if (!cursor || !dragState.active) return; // IPC 往返期间已松手
+  const vx = cursor.x - props.displayRect.x;
+  const vy = cursor.y - props.displayRect.y;
+  dragState.grabX = vx - (virtualPos.value?.x ?? 0);
+  dragState.grabY = vy - (virtualPos.value?.y ?? 0);
+  dragState.startVX = vx;
+  dragState.startVY = vy;
 };
 
-const onPointerMove = (event) => {
+const onPointerMove = async (event) => {
   const d = dragState;
   if (!d.active) return;
+  if (props.displayRect) {
+    const cursor = await readScreenCursor();
+    if (!cursor || !d.active) return;
+    const vx = cursor.x - props.displayRect.x;
+    const vy = cursor.y - props.displayRect.y;
+    if (!d.dragging && Math.hypot(vx - d.startVX, vy - d.startVY) < DRAG_THRESHOLD) return;
+    if (!d.dragging) beginDragVisual(d);
+    applyVirtual(vx - d.grabX, vy - d.grabY);
+    return;
+  }
   const dx = event.clientX - d.sx;
   const dy = event.clientY - d.sy;
   if (!d.dragging) {
     if (Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
-    d.dragging = true;
-    isDragging.value = true;
-    if (catalog.value.drag) {
-      anim.value = catalog.value.drag;
-      once.value = true;
-      seq.value += 1;
-    }
+    beginDragVisual(d);
   }
-  const el = rootRef.value;
-  if (el) {
-    el.style.left = `${event.clientX - d.offX - halfW.value}px`;
-    el.style.top = `${event.clientY - d.offY - halfH.value}px`;
-    el.style.right = 'auto';
-    el.style.bottom = 'auto';
-  }
+  applyVirtual(event.clientX - d.offX - halfW.value, event.clientY - d.offY - halfH.value);
 };
 
-const onPointerUp = (event) => {
+const onPointerUp = () => {
   const d = dragState;
   const wasDragging = d.dragging;
   d.active = false;
@@ -461,10 +572,12 @@ const onPointerUp = (event) => {
     justDragged = false;
   }, 100);
   isDragging.value = false;
-  customPos.value = {
-    rx: (event.clientX - d.offX) / viewport.value.w,
-    ry: (event.clientY - d.offY) / viewport.value.h,
-  };
+  const width = screenRect.value.w || 1;
+  const height = screenRect.value.h || 1;
+  const pos = virtualPos.value;
+  customPos.value = pos
+    ? { rx: (pos.x + halfW.value) / width, ry: (pos.y + halfH.value) / height }
+    : null;
   anim.value = IDLE;
   once.value = false;
   seq.value += 1;
@@ -482,6 +595,17 @@ const bottomPad = computed(() => feetBottomPad(stageHeight.value));
 const stageStyle = computed(() => (isDragging.value ? { transform: 'none' } : { transform: `translateY(${bottomPad.value}px)` }));
 
 const rootStyle = computed(() => {
+  if (props.displayRect) {
+    // 独立小窗：本体钉在窗口内固定位置（quick-ask 打开时随窗口扩展左移下移同样偏移，
+    // 屏幕位置不变），屏幕漫游由窗口跟随承载（applyVirtual → pet:set-bounds）
+    return {
+      '--pet-size': `${props.size}px`,
+      left: `${WIN_PAD + (props.quickAskOpen ? QUICK_W : 0)}px`,
+      top: `${WIN_PAD + (props.quickAskOpen ? QUICK_H : 0)}px`,
+      right: 'auto',
+      bottom: 'auto',
+    };
+  }
   const style = { '--pet-size': `${props.size}px` };
   const pos = customPos.value;
   if (pos) {
@@ -489,12 +613,8 @@ const rootStyle = computed(() => {
     // 头顶画布 y=50、脚底 y=330，另有 30/360 的舞台下沉把脚贴到 root 底缘——
     // 人物可视区相对 root 顶为 y∈[80,360]/360）——画布透明留白可以出屏，人物本体留在屏内，
     // 这样能拖到贴边（与角落定位的负偏移补偿同一套几何）
-    const bodyLeft = -props.size * (200 / 640);
-    const bodyRight = viewport.value.w - props.size * (440 / 640);
-    const headTop = -stageHeight.value * (80 / 360);
-    const feetBottom = viewport.value.h - stageHeight.value;
-    const left = Math.min(Math.max(pos.rx * viewport.value.w - halfW.value, bodyLeft), bodyRight);
-    const top = Math.min(Math.max(pos.ry * viewport.value.h - halfH.value, headTop), feetBottom);
+    const left = clampVirtualX(pos.rx * screenRect.value.w - halfW.value);
+    const top = clampVirtualY(pos.ry * screenRect.value.h - halfH.value);
     style.left = `${left}px`;
     style.top = `${top}px`;
     style.right = 'auto';
@@ -514,6 +634,12 @@ const hitStyle = computed(() => ({
 const onResize = () => {
   viewport.value = { w: window.innerWidth, h: window.innerHeight };
 };
+
+// 独立小窗：quick-ask 开合扩展/收缩窗口、场景缩放改变窗口尺寸（内嵌模式自动短路）
+watch(
+  () => [props.quickAskOpen, props.size],
+  () => syncWindowBounds(),
+);
 
 onMounted(() => {
   onResize();

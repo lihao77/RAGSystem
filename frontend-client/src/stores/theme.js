@@ -11,20 +11,9 @@ const STORAGE_KEY = 'theme';
 export const useThemeStore = defineStore('theme', () => {
   const isDark = ref(true);
 
-  /** Electron 桌面端：窗口控件条背景全透明，仅需同步按钮符号色（跟随主题文字色）。 */
-  const syncTitleBar = () => {
-    const setTitleBarTheme = window.ragsystemDesktop?.setTitleBarTheme;
-    if (!setTitleBarTheme) return;
-    const styles = getComputedStyle(document.documentElement);
-    setTitleBarTheme({
-      symbolColor: styles.getPropertyValue('--color-text-primary').trim(),
-    });
-  };
-
   const apply = () => {
     document.documentElement.setAttribute('data-theme', isDark.value ? 'dark' : 'light');
     localStorage.setItem(STORAGE_KEY, isDark.value ? 'dark' : 'light');
-    syncTitleBar();
   };
 
   /** 应用启动时调用一次：从 localStorage 恢复并应用到 <html>。 */

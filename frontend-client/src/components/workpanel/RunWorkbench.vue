@@ -390,7 +390,9 @@ onUnmounted(() => {
   flex: 0 0 auto;
   align-items: center;
   gap: 4px;
-  padding: 0 6px 0 10px;
+  /* 右侧并入桌面端自绘窗口控件组宽度（--window-controls-width），
+     收起按钮落在最小化/最大化/关闭左侧不被覆盖；浏览器回退为 6px */
+  padding: 0 calc(6px + var(--window-controls-width, 0px)) 0 10px;
   border-bottom: 1px solid var(--color-border);
 }
 

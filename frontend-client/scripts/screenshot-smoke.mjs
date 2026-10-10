@@ -482,6 +482,17 @@ const shots = [
       { type: 'click', selector: '[aria-label="展开运行工作台"]', waitMs: 300 },
       { type: 'expectVisible', selector: '.run-workbench__card' },
       { type: 'expectVisible', selector: '.runtime-overview' },
+      // 工作台切换的收起/展开按钮落在同一竖槽（都以卡右缘+6px 为锚），切换不横跳：
+      // 先记下展开态收起按钮的右缘，收起后再量展开入口的右缘，两者应重合。
+      { type: 'expectVisible', selector: '[aria-label="收起运行工作台"]' },
+      { type: 'expectExpression',
+        script: "const btn = document.querySelector('[aria-label=\"收起运行工作台\"]'); if (!btn) return false; window.__toggleSlot = btn.getBoundingClientRect().right; return true;",
+        detail: "const btn = document.querySelector('[aria-label=\"收起运行工作台\"]'); return btn ? { collapseRight: btn.getBoundingClientRect().right } : '(收起按钮不存在)';" },
+      { type: 'click', selector: '[aria-label="收起运行工作台"]', waitMs: 400 },
+      { type: 'expectVisible', selector: '[aria-label="展开运行工作台"]' },
+      { type: 'expectExpression',
+        script: "const btn = document.querySelector('[aria-label=\"展开运行工作台\"]'); if (!btn || !window.__toggleSlot) return false; return Math.abs(btn.getBoundingClientRect().right - window.__toggleSlot) <= 1;",
+        detail: "const btn = document.querySelector('[aria-label=\"展开运行工作台\"]'); return { expandRight: btn?.getBoundingClientRect().right ?? null, collapseRight: window.__toggleSlot ?? null };" },
     ],
   },
   {

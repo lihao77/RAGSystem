@@ -146,8 +146,8 @@ const showSidebarCollapsed = computed(() => Boolean(sidebarCollapsed?.value) && 
 
 <style scoped>
 /* Electron 桌面端兼任标题栏：整栏可拖拽（被动文字随行），交互子元素排除；
-   浏览器中 app-region 无效，不影响 Web 端。实底 --surface-shell 与右上角
-   原生窗口控件条同色，按钮条融入背景；高度与其他顶栏行统一 44px
+   浏览器中 app-region 无效，不影响 Web 端。右上角窗口控件为前端自绘（WindowControls），
+   实底 --surface-shell 让其融入背景；高度与其他顶栏行统一 44px
    （36px 图标按钮 + 上下 4px padding 的自然高度）。 */
 .session-context-bar {
   position: relative;
@@ -210,9 +210,11 @@ const showSidebarCollapsed = computed(() => Boolean(sidebarCollapsed?.value) && 
   flex: 0 0 auto;
   align-items: center;
   gap: 2px;
-  /* Electron 右上角原生最小化/最大化/关闭按钮区让位（titlebar-area-width 之外即控件区宽度）；
-     浏览器回退为 0 */
-  padding-right: calc(100vw - env(titlebar-area-width, 100vw));
+  /* 与运行工作台表头的收起按钮（padding: 6px + 控件组宽）落在同一竖槽，
+     面板展开/收起切换时按钮不横跳：负边距抵消本栏自身的 padding-x
+     （窄屏时该变量收窄，负边距随之自适应）；浏览器中组件不挂载，回退为 6px */
+  margin-right: calc(-1 * var(--top-bar-padding-x, 16px));
+  padding-right: calc(6px + var(--window-controls-width, 0px));
 }
 
 .sidebar-menu-trigger {

@@ -5,6 +5,8 @@
       :available="available"
       :notice="notice"
       :display="displayId"
+      :display-rect="displayRect"
+      :quick-ask-open="Boolean(quickAsk)"
       :size="stageSize"
       :initial-anim="settings.defaultAnimation"
       @quick-ask="openQuickAsk"
@@ -58,11 +60,23 @@ const quickAskPos = ref({ x: 0, y: 0 });
 const quickText = ref('');
 const quickInputRef = ref(null);
 
-// 独立宠物窗不经宿主路由：display 从地址栏读（多显示器每窗一个）
-const displayId = new URLSearchParams(window.location.search).get('display') ?? '0';
+// 独立宠物窗不经宿主路由：display 从地址栏读（多显示器每窗一个）。
+// standalone=1 + dx/dy/dw/dh（主进程注入的显示器工作区）标示独立小窗模式：
+// PetSurface 据此切换为"虚拟显示器坐标 + 窗口跟随"定位；宿主页内嵌时全部缺省。
+const searchParams = new URLSearchParams(window.location.search);
+const displayId = searchParams.get('display') ?? '0';
+const displayRect = (() => {
+  if (searchParams.get('standalone') !== '1') return null;
+  const rect = {
+    x: Number(searchParams.get('dx')),
+    y: Number(searchParams.get('dy')),
+    w: Number(searchParams.get('dw')),
+    h: Number(searchParams.get('dh')),
+  };
+  return [rect.x, rect.y, rect.w, rect.h].every(Number.isFinite) ? rect : null;
+})();
 const stageSize = computed(() => Math.round(BASE_STAGE_SIZE * clampScale(settings.value.scale)));
 
-let cleanupClickThrough = null;
 let eventSource = null;
 let stateTimer = null;
 let noticeTimer = null;
@@ -208,9 +222,11 @@ const closeQuickAsk = () => {
   window.ragsystemDesktop?.setPetFocus?.(false);
 };
 
+// 输入框定位在窗口坐标系内：quick-ask 打开时窗口已向左上扩展（PetSurface 的
+// quickAskOpen 预留），340px 宽的输入框始终有落位
 const quickStyle = computed(() => ({
-  left: `${Math.min(Math.max(quickAskPos.value.x - 160, 12), window.innerWidth - 340)}px`,
-  top: `${Math.max(quickAskPos.value.y - 64, 12)}px`,
+  left: `${Math.min(Math.max(quickAskPos.value.x - 160, 12), Math.max(window.innerWidth - 352, 12))}px`,
+  top: `${Math.max(quickAskPos.value.y - 64, 8)}px`,
 }));
 
 const submitQuickAsk = async () => {
@@ -225,29 +241,6 @@ const submitQuickAsk = async () => {
   const sent = await desktop.quickAsk(text);
   closeQuickAsk();
   showNotice(sent ? 'done' : 'error', sent ? 'done' : 'error', sent ? '已发送' : '发送失败');
-};
-
-const setupClickThrough = () => {
-  const desktop = window.ragsystemDesktop;
-  if (!desktop?.setPetClickThrough) return; // 浏览器环境无此能力
-  let interactive = false;
-  const apply = (value) => {
-    if (value === interactive) return;
-    interactive = value;
-    desktop.setPetClickThrough(value);
-  };
-  const onMouseMove = (event) => {
-    const element = document.elementFromPoint(event.clientX, event.clientY);
-    apply(Boolean(element?.closest?.('.pet-hit, .pet-quick')));
-  };
-  const onMouseLeave = () => apply(false);
-  document.addEventListener('mousemove', onMouseMove);
-  document.documentElement.addEventListener('mouseleave', onMouseLeave);
-  apply(false); // 初始整体穿透，命中宠物/输入框后再恢复交互
-  cleanupClickThrough = () => {
-    document.removeEventListener('mousemove', onMouseMove);
-    document.removeEventListener('mouseleave', onMouseLeave);
-  };
 };
 
 const loadCatalog = async () => {
@@ -269,14 +262,12 @@ onMounted(() => {
     element.style.background = 'transparent';
   }
   document.body.classList.add('pet-page');
-  setupClickThrough();
   void loadCatalog();
   void loadSettings();
   startEvents();
 });
 
 onBeforeUnmount(() => {
-  cleanupClickThrough?.();
   eventSource?.close();
   clearTimeout(noticeTimer);
   if (stateTimer !== null) clearInterval(stateTimer);

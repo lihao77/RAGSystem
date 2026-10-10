@@ -41,12 +41,10 @@ function ensureWindowsToastIdentity() {
 }
 ensureWindowsToastIdentity()
 
-// 主窗口标题栏（窗口控件区）：背景全透明，页面内容直接透到最小化/关闭按钮下方，
-// 无需与任何主题/页面颜色同步；仅符号色跟随主题（--color-text-primary）。
-// 高度与前端顶栏行（.sidebar-top-bar / .session-context-bar）统一为 44px。
-const TITLE_BAR_HEIGHT = 44
-const TITLE_BAR_TRANSPARENT = '#00000000'
-const TITLE_BAR_DARK = { symbolColor: '#fafafa' }
+// 主窗口标题栏：Windows 隐藏原生标题栏（titleBarStyle:'hidden'），最小化/最大化/关闭
+// 由前端自绘（frontend-client/src/components/WindowControls.vue），尺寸与 hover 和
+// 应用内图标按钮同语言；拖拽区由各顶栏的 app-region:drag 提供。
+// 已知取舍：自绘按钮没有 Win11 贴靠布局悬浮面板（Win+方向键/贴边拖拽吸附不受影响）。
 
 let mainWindow = null
 let backendProcess = null
@@ -66,11 +64,32 @@ ipcMain.handle('dialog:select-project-folder', async () => {
 })
 
 // 桌宠窗口点击穿透切换：interactive=true 时宠物可交互，false 时鼠标事件直达下层窗口
-ipcMain.handle('pet:set-click-through', (event, interactive) => {
+// 【已移除】全屏覆盖 + setIgnoreMouseEvents 翻转方案在 Windows 上会让光标在系统箭头与
+// 页面光标间高频跳变（electron#48035 家族）。桌宠窗口改为"跟随宠物本体的小包围盒"：
+// 窗口即宠物矩形，永远可交互、不再穿透/转发，闪烁机制从根上消除；位置由渲染进程
+// 经 pet:set-bounds 驱动（漫游/拖拽/缩放都走这条 IPC）。
+ipcMain.handle('pet:set-bounds', (event, bounds) => {
   const win = BrowserWindow.fromWebContents(event.sender)
-  if (!win || win.isDestroyed()) return false
-  win.setIgnoreMouseEvents(!interactive, { forward: true })
+  if (!win || win.isDestroyed() || !bounds) return false
+  // 防御性钳制：渲染进程的坏数据（旧缓存比例等）不至于把窗口丢出屏幕
+  const area = screen.getDisplayMatching({
+    x: Number(bounds.x) || 0,
+    y: Number(bounds.y) || 0,
+    width: Number(bounds.width) || 1,
+    height: Number(bounds.height) || 1,
+  }).workArea
+  const width = Math.min(Math.max(Number(bounds.width) || 480, 120), 1400)
+  const height = Math.min(Math.max(Number(bounds.height) || 300, 100), 1200)
+  const x = Math.min(Math.max(Number(bounds.x) || area.x, area.x - 40), area.x + area.width - width + 40)
+  const y = Math.min(Math.max(Number(bounds.y) || area.y, area.y - 40), area.y + area.height - height + 40)
+  win.setBounds({ x, y, width, height })
   return true
+})
+
+// 拖拽需要屏幕绝对坐标：小窗口跟随鼠标移动时 clientX 会随窗口原点漂移，不可用
+ipcMain.handle('pet:cursor-pos', () => {
+  const point = screen.getCursorScreenPoint()
+  return { x: point.x, y: point.y }
 })
 
 // 宠物窗口默认不抢焦点（focusable:false）；快速输入框打开时临时可聚焦收键盘
@@ -114,21 +133,22 @@ ipcMain.handle('desktop:notify', (event, payload) => {
   return true
 })
 
-// 主题切换时渲染进程推送按钮符号色（--color-text-primary 计算值）；
-// 控件条背景恒为全透明，页面直接透过，无需同步背景色
-ipcMain.handle('window:set-title-bar-theme', (event, theme) => {
+// 自绘窗口控件的窗口操作；最大化状态变化经事件推回渲染进程切换图标
+ipcMain.handle('window:minimize', (event) => {
+  BrowserWindow.fromWebContents(event.sender)?.minimize()
+})
+ipcMain.handle('window:toggle-maximize', (event) => {
   const win = BrowserWindow.fromWebContents(event.sender)
-  if (!win || win.isDestroyed()) return false
-  try {
-    win.setTitleBarOverlay({
-      color: TITLE_BAR_TRANSPARENT,
-      symbolColor: String(theme?.symbolColor || TITLE_BAR_DARK.symbolColor),
-      height: TITLE_BAR_HEIGHT,
-    })
-    return true
-  } catch {
-    return false // 无 titleBarOverlay 的窗口（如透明桌宠窗）调用会抛错，静默忽略
-  }
+  if (!win || win.isDestroyed()) return
+  if (win.isMaximized()) win.unmaximize()
+  else win.maximize()
+})
+ipcMain.handle('window:close', (event) => {
+  BrowserWindow.fromWebContents(event.sender)?.close()
+})
+ipcMain.handle('window:is-maximized', (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender)
+  return Boolean(win && !win.isDestroyed() && win.isMaximized())
 })
 
 function isPortInUse(port) {
@@ -284,12 +304,8 @@ function createMainWindow() {
     title: APP_NAME,
     icon: APP_ICON,
     backgroundColor: '#161616', // 启动首帧底色（默认暗色主题）
-    // Windows：隐藏原生标题栏，Window Controls Overlay 保留原生最小化/最大化/关闭，
-    // 控件条背景全透明——按钮悬浮在页面内容上，天然匹配任何主题/页面
-    ...(process.platform === 'win32' ? {
-      titleBarStyle: 'hidden',
-      titleBarOverlay: { color: TITLE_BAR_TRANSPARENT, ...TITLE_BAR_DARK, height: TITLE_BAR_HEIGHT },
-    } : {}),
+    // Windows：隐藏原生标题栏，窗口控件由前端自绘（WindowControls.vue）
+    ...(process.platform === 'win32' ? { titleBarStyle: 'hidden' } : {}),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -300,6 +316,15 @@ function createMainWindow() {
   mainWindow.once('ready-to-show', () => {
     if (!isSmoke) mainWindow.show()
   })
+
+  // 自绘最大化/还原按钮的图标状态同步（双击拖拽区、贴边吸附等系统途径同样覆盖）
+  const sendMaximizedChanged = (isMaximized) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('window:maximized-changed', isMaximized)
+    }
+  }
+  mainWindow.on('maximize', () => sendMaximizedChanged(true))
+  mainWindow.on('unmaximize', () => sendMaximizedChanged(false))
 
   if (isSmoke) {
     mainWindow.webContents.on('console-message', (details) => {
@@ -333,23 +358,25 @@ function createMainWindow() {
   mainWindow.loadURL(devFrontendUrl || `http://127.0.0.1:${actualPort}`)
 }
 
-// 桌宠窗口：透明无边框置顶，每个显示器一个（宠物在各自屏幕内渲染与漫游），
-// 透明区域点击穿透（由 /pet 页面按命中检测经 IPC 切换）。display 索引随 URL 传给页面，
-// 用于位置记忆分键。
+// 桌宠窗口：透明无边框置顶，每个显示器一个（宠物在各自屏幕内渲染与漫游）。
+// 窗口是"跟随宠物本体的小包围盒"而非整屏覆盖：永远可交互（无穿透/转发切换），
+// 几何由渲染进程按虚拟显示器坐标经 pet:set-bounds 驱动；初始大小/位置只是占位，
+// 页面加载后会按位置记忆与场景缩放立即校正。display 工作区随 URL 传给页面，
+// 供其把视口比例位置换算成屏幕坐标（多显示器分键记忆同理）。
 function createPetWindow(display, displayIndex) {
-  const { x, y, width, height } = display.bounds
+  const workArea = display.workArea
   const petWindow = new BrowserWindow({
-    x,
-    y,
-    width,
-    height,
+    x: workArea.x + workArea.width - 520,
+    y: workArea.y + workArea.height - 420,
+    width: 500,
+    height: 320,
     transparent: true,
     frame: false,
     alwaysOnTop: true,
     skipTaskbar: true,
     hasShadow: false,
     resizable: false,
-    movable: false,
+    movable: true,
     focusable: false,
     show: false,
     title: APP_NAME,
@@ -361,13 +388,14 @@ function createPetWindow(display, displayIndex) {
     },
   })
   petWindow.setAlwaysOnTop(true, 'screen-saver')
-  petWindow.setIgnoreMouseEvents(true, { forward: true })
   petWindow.once('ready-to-show', () => petWindow.show())
   petWindow.on('closed', () => {
     const index = petWindows.indexOf(petWindow)
     if (index >= 0) petWindows.splice(index, 1)
   })
-  petWindow.loadURL(`${devFrontendUrl || `http://127.0.0.1:${actualPort}`}/pet?display=${displayIndex}`)
+  const query = `display=${displayIndex}&standalone=1`
+    + `&dx=${workArea.x}&dy=${workArea.y}&dw=${workArea.width}&dh=${workArea.height}`
+  petWindow.loadURL(`${devFrontendUrl || `http://127.0.0.1:${actualPort}`}/pet?${query}`)
   petWindows.push(petWindow)
   return petWindow
 }

@@ -12,18 +12,31 @@
         />
       </Transition>
     </RouterView>
+    <!-- 必须是 #app 最后一个子节点：Chromium 按布局树（DOM）顺序收集 app-region 矩形，
+         Electron 折叠时"后出现的赢"（drag_util.cc），z-index 不参与命中。若排在 RouterView
+         之前，右栏收起/管理页/登录页的 drag 顶栏（DOM 靠后）会把三颗按钮的 no-drag 重新
+         盖成拖拽区，按钮点不动。 -->
+    <WindowControls v-if="showWindowControls" />
   </div>
 </template>
 
 <script setup>
-import { nextTick, onMounted, ref } from 'vue';
+import { computed, nextTick, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import GlobalToast from './components/GlobalToast.vue';
 import GlobalConfirmDialog from './components/GlobalConfirmDialog.vue';
+import WindowControls from './components/WindowControls.vue';
 import { useThemeStore } from './stores/theme.js';
 
 const router = useRouter();
 const themeStore = useThemeStore();
+
+// Windows 桌面端（titleBarStyle:'hidden'）自绘窗口控件；/pet 桌宠窗口无边框，不渲染
+const isDesktopWin = window.ragsystemDesktop?.platform === 'win32'
+  && Boolean(window.ragsystemDesktop?.windowControls);
+const showWindowControls = computed(
+  () => isDesktopWin && router.currentRoute.value.path !== '/pet',
+);
 
 const transitionName = ref('slide-forward');
 

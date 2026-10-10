@@ -751,7 +751,7 @@ onUnmounted(() => {
 
 /* Electron 桌面端隐藏原生标题栏后，logo 行兼任标题栏：整行可拖拽/双击最大化，
    交互子元素（logo、折叠按钮）排除；浏览器中 app-region 无效，不影响 Web 端。
-   高度与顶栏行统一 44px（会话顶栏/原生窗口控件同高）。 */
+   高度与顶栏行统一 44px；右上角窗口控件为前端自绘（WindowControls.vue），与本行内容同线。 */
 .sidebar-top-bar {
   display: flex;
   justify-content: space-between;

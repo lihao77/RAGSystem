@@ -252,6 +252,15 @@ const openMobileSidebar = () => {
   app-region: no-drag;
 }
 
+/* Electron 桌面端：页头 max-width 1400 居中，窗口约 1700px 以下时页头右缘会伸进
+   右上角自绘窗口控件组（--window-controls-width），动作按钮需让位；
+   浏览器中组件不挂载，变量回退为 0，padding 与未让位时一致 */
+@media (max-width: 1700px) {
+  .page-header {
+    padding-right: calc(var(--spacing-xl) + var(--window-controls-width, 0px));
+  }
+}
+
 .page-header__group {
   display: flex;
   align-items: center;
