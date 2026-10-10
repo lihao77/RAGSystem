@@ -21,6 +21,7 @@ export function useSessionGoal(sessionId) {
   const pendingAction = ref(null);
   const error = ref('');
   let requestGeneration = 0;
+  let actionGeneration = 0;
 
   const currentSessionId = () => String(unref(sessionId) || '').trim();
 
@@ -52,7 +53,7 @@ export function useSessionGoal(sessionId) {
       error.value = cause?.message || 'Goal 状态加载失败';
       return null;
     } finally {
-      if (generation === requestGeneration && !silent) loading.value = false;
+      if (generation === requestGeneration) loading.value = false;
     }
   }
 
@@ -61,6 +62,7 @@ export function useSessionGoal(sessionId) {
     if (!selectedSessionId || pendingAction.value) return null;
 
     const generation = ++requestGeneration;
+    const actionToken = ++actionGeneration;
     pendingAction.value = action;
     error.value = '';
     try {
@@ -73,16 +75,23 @@ export function useSessionGoal(sessionId) {
       error.value = cause?.message || `Goal ${action === 'start' ? '开启' : '暂停'}失败`;
       return null;
     } finally {
-      if (generation === requestGeneration) pendingAction.value = null;
+      if (actionToken === actionGeneration) pendingAction.value = null;
     }
   }
 
   const startGoal = () => runAction('start', startCurrentGoal);
   const pauseGoal = () => runAction('pause', pauseCurrentGoal);
 
+  function handleLifecycleEvent(detail) {
+    if (detail?.entity !== 'goal') return false;
+    void loadGoal({ silent: true });
+    return true;
+  }
+
   watch(
     () => currentSessionId(),
     () => {
+      actionGeneration += 1;
       goal.value = null;
       pendingAction.value = null;
       loadGoal();
@@ -98,6 +107,7 @@ export function useSessionGoal(sessionId) {
     canStart,
     canPause,
     loadGoal,
+    handleLifecycleEvent,
     startGoal,
     pauseGoal,
   };

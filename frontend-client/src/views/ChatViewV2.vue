@@ -561,6 +561,11 @@ const {
   scrollToBottom,
   showToast,
   handleBackgroundTaskLifecycle: backgroundTaskState.handleLifecycleEvent,
+  handleGoalLifecycle: goalState.handleLifecycleEvent,
+  refreshWorkbenchState: () => {
+    void goalState.loadGoal({ silent: true });
+    void backgroundTaskState.loadTasks({ silent: true });
+  },
 });
 
 // “编辑”先撤回排队请求，再把原文放回当前会话输入框，用户修改后手动发送。

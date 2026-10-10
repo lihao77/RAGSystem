@@ -501,7 +501,18 @@ export function createSessionEnvelopeDispatcher({
       return;
     }
     if (activeRun.active || isLoading.value) runtime.observeDeliverySeq(event);
-
+    // Session-scoped facts must bypass run replay/terminal filters. Background
+    // tasks and Goals can change after the run that created them has finished.
+    if (eventType === 'state_sync' && payload.category === 'session_updated') {
+      if (payload.detail?.entity === 'background_task') {
+        deps.handleBackgroundTaskLifecycle?.(payload.detail);
+        return;
+      }
+      if (payload.detail?.entity === 'goal') {
+        deps.handleGoalLifecycle?.(payload.detail);
+        return;
+      }
+    }
     if (eventType === 'session.reconnect') {
       const phase = payload.phase;
       activeRun.isReplaying = true;
@@ -740,10 +751,6 @@ export function createSessionEnvelopeDispatcher({
         return;
       }
       if (category === 'session_updated') {
-        if (payload.detail?.entity === 'background_task') {
-          deps.handleBackgroundTaskLifecycle?.(payload.detail);
-          return;
-        }
         if (runtime.isRecentlyFinalizedUpdate(event, sessionId)) {
           if (typeof deps.mergeMessageIdsFromServer === 'function') deps.mergeMessageIdsFromServer(sessionId);
           return;

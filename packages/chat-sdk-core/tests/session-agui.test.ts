@@ -31,6 +31,37 @@ function recoverySnapshot(state: "idle" | "running" = "idle") {
 }
 
 describe("SessionAgentClient AG-UI fallback", () => {
+  it("delivers session overview changes during SSE ownership and deduplicates WS/SSE copies", async () => {
+    let socket: ConnectedSocket | undefined;
+    let callback: ((event: Record<string, unknown>) => void) | undefined;
+    const client = new SessionAgentClient({
+      baseUrl: "https://rag.example.test", sessionId: "session-1", issueWsTicket: async () => "ticket",
+      createWebSocket: () => {
+        socket = new ConnectedSocket(); queueMicrotask(() => socket?.onopen?.());
+        return socket as unknown as WebSocket;
+      },
+      aguiFallback: (input, onEvent) => {
+        callback = onEvent as unknown as typeof callback;
+        return { started: Promise.resolve({ type: "RUN_STARTED", runId: input.runId }),
+          completed: new Promise(() => {}), abort: vi.fn() };
+      },
+    });
+    const events: Array<{ type: string; payload: unknown }> = [];
+    client.events.subscribe(event => events.push(event));
+    await client.send({ task: "stream" });
+    await client.connect();
+    socket?.onmessage?.({ data: JSON.stringify({ type: "run_started", session_id: "session-1", run_id: "duplicate", payload: {} }) });
+    for (const [index, entity] of ['goal', 'background_task'].entries()) {
+      socket?.onmessage?.({ data: JSON.stringify({ type: "state_sync", session_id: "session-1", seq: index + 1,
+        payload: { category: "session_updated", detail: { entity } } }) });
+      callback?.({ type: "CUSTOM", name: "session_updated", eventSeq: index + 1,
+        value: { detail: { entity } } });
+    }
+    callback?.({ type: "CUSTOM", name: "session_updated", eventSeq: 3, value: { detail: { entity: "goal" } } });
+    expect(events.map(event => event.type)).toEqual(['state_sync', 'state_sync', 'state_sync']);
+    expect(events[2]?.payload).toMatchObject({ category: "session_updated", detail: { entity: "goal" } });
+    client.disconnect();
+  });
   it.each(["before result", "during submission"])("keeps delegated results across snapshot takeover %s", async (takeover) => {
     const inputs: Array<Record<string, unknown>> = [];
     const callbacks: Array<(event: Record<string, unknown>) => void> = [];

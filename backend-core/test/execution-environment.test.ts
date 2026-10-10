@@ -41,12 +41,14 @@ describe("Local execution environment", () => {
     );
     const closeInfrastructure = vi.fn();
     const backgroundTasks = { setOnTaskCompleted: vi.fn(), setOnTaskRecovered: vi.fn(), setAgentMailbox: vi.fn() };
+    const taskTools = { setClientEvents: vi.fn() };
     const dependencies = {
       deploymentKind: "local",
       tenantId: createTenantId("tnt_test"),
       dataRoot: path.resolve("test-data-root"),
       pluginCapabilities,
       backgroundTasks,
+      taskTools,
       clientEvents: {},
       eventDispatcher: {},
       closeInfrastructure,
@@ -56,6 +58,7 @@ describe("Local execution environment", () => {
     const environment = runtime.pluginCapabilities.get(EXECUTION_ENVIRONMENT_CAPABILITY);
 
     expect(environment).toBeDefined();
+    expect(taskTools.setClientEvents).toHaveBeenCalledWith(dependencies.clientEvents);
     expect(environment?.deploymentKind).toBe("local");
     expect(environment?.paths({ sessionId: "session-1" }).workspace).toBe(
       path.resolve("test-data-root", "sessions", "session-1", "workspace"),

@@ -23,6 +23,14 @@ const str = (value: unknown): string | undefined => (typeof value === "string" ?
 const now = (): number => Date.now();
 const baseFields = (threadId: string, runId: string) => ({ threadId, runId, timestamp: now() });
 
+function isOverviewChange(env: Envelope): boolean {
+  if (env.type !== "state_sync") return false;
+  const payload = env.payload as Rec;
+  const detail = payload.detail as Rec | undefined;
+  return payload.category === "session_updated"
+    && (detail?.entity === "goal" || detail?.entity === "background_task");
+}
+
 function pendingInterruptRecord(meta: ApprovalMeta, threadId: string, internalRunId: string): InterruptRecord {
   // The runtime interaction id is durable and can be used directly by a
   // later AG-UI resume request after the original SSE stream is gone.
@@ -202,7 +210,7 @@ export class AguiGateway {
       sse.end();
     };
     const processEnvelope = (env: Envelope): void => {
-      if (done || env.run_id !== internalRunId) return;
+      if (done || (env.run_id !== internalRunId && !isOverviewChange(env))) return;
       if (typeof env.seq === "number") {
         if (env.seq <= lastSeq) return;
         lastSeq = env.seq;
@@ -216,7 +224,7 @@ export class AguiGateway {
       if (result.done) finish();
     };
     const unsubscribe = this.container.realtimeEvents.subscribe(threadId, (env) => {
-      if (done || env.run_id !== internalRunId) return;
+      if (done || (env.run_id !== internalRunId && !isOverviewChange(env))) return;
       if (replaying) {
         buffered.push(env);
         return;
@@ -323,7 +331,8 @@ export class AguiGateway {
     const buffered: Envelope[] = [];
 
     const processEnvelope = (env: Envelope): void => {
-      if (done || internalRunId === null || translator === null || env.run_id !== internalRunId) return;
+      if (done || internalRunId === null || translator === null
+        || (env.run_id !== internalRunId && !isOverviewChange(env))) return;
       const result = translator.translate(env);
       // Register before writing RUN_FINISHED{interrupt}. A fast client may
       // submit resume as soon as the frame is received.
@@ -471,7 +480,7 @@ export class AguiGateway {
     const buffered: Envelope[] = [];
 
     const processEnvelope = (env: Envelope): void => {
-      if (done || env.run_id !== internalRunId) return;
+      if (done || (env.run_id !== internalRunId && !isOverviewChange(env))) return;
       const result = translator.translate(env);
       if (result.interruptRecord) this.interruptMachine.record(result.interruptRecord);
       for (const aguiEvent of result.events) send(aguiEvent);
@@ -483,7 +492,7 @@ export class AguiGateway {
     };
 
     const unsubscribe = this.container.realtimeEvents.subscribe(threadId, (env) => {
-      if (done || env.run_id !== internalRunId) return;
+      if (done || (env.run_id !== internalRunId && !isOverviewChange(env))) return;
       if (!resumeAccepted) {
         buffered.push(env);
         return;

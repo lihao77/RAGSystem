@@ -22,6 +22,55 @@ function withMock(setup, run) {
     .finally(() => mock.restore());
 }
 
+test('Goal events reveal a new Goal during a run and supersede a slow initial query', async () => {
+  const initial = deferred();
+  let requests = 0;
+  let current = { id: 'goal-new', status: 'active', progress: { done: 0 } };
+  await withMock((mock) => {
+    mock.onGet('/api/agent/sessions/session-1/goals/current').reply(() => {
+      requests += 1;
+      return requests === 1 ? initial.promise : [200, { goal: current }];
+    });
+  }, async () => {
+    const state = useSessionGoal(ref('session-1'));
+    assert.equal(state.loading.value, true);
+    assert.equal(state.handleLifecycleEvent({ entity: 'background_task' }), false);
+    assert.equal(state.handleLifecycleEvent({ entity: 'goal' }), true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(state.goal.value.id, 'goal-new');
+    assert.equal(state.loading.value, false);
+    initial.resolve([200, { goal: null }]);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(state.goal.value.id, 'goal-new');
+    current = { ...current, status: 'completed', progress: { done: 1 } };
+    state.handleLifecycleEvent({ entity: 'goal' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(state.goal.value.status, 'completed');
+    assert.equal(state.goal.value.progress.done, 1);
+  });
+});
+
+test('a lifecycle refresh during pause clears pending action and rejects its older response', async () => {
+  const pause = deferred();
+  let current = { id: 'goal-1', status: 'active' };
+  await withMock((mock) => {
+    mock.onGet('/api/agent/sessions/session-1/goals/current').reply(() => [200, { goal: current }]);
+    mock.onPost('/api/agent/sessions/session-1/goals/current/pause').reply(() => pause.promise);
+  }, async () => {
+    const state = useSessionGoal(ref('session-1'));
+    await state.loadGoal();
+    const pending = state.pauseGoal();
+    assert.equal(state.pendingAction.value, 'pause');
+    current = { id: 'goal-1', status: 'completed' };
+    state.handleLifecycleEvent({ entity: 'goal' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    pause.resolve([200, { goal: { id: 'goal-1', status: 'paused' } }]);
+    await pending;
+    assert.equal(state.goal.value.status, 'completed');
+    assert.equal(state.pendingAction.value, null);
+  });
+});
+
 test('useSessionGoal exposes pause for active goals and start for paused goals', async () => {
   await withMock((mock) => {
     mock.onGet('/api/agent/sessions/session-1/goals/current').reply(200, {

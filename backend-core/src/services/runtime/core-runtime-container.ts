@@ -55,6 +55,7 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
   if (!executionEnvironment) {
     throw new Error(`${deploymentKind} deployment must provide an execution environment capability`);
   }
+  taskTools.setClientEvents(clientEvents);
   const createPluginTools = (context: import("../../plugins/backend-plugin.js").BackendToolFactoryContext) =>
     dependencies.plugins?.createTools({ ...context, capabilities: pluginCapabilities }) ?? Promise.resolve([]);
   const listPluginTools = () => dependencies.plugins?.listTools() ?? [];

@@ -30,6 +30,31 @@ function context(signal: AbortSignal, extra: Partial<ToolExecContext> = {}): Too
 }
 
 describe("Goal interruption", () => {
+  it("publishes session invalidation after successful Goal creation and updates", async () => {
+    const { service, store, goal } = harness();
+    store.create = vi.fn(async () => goal());
+    const observed: string[] = [];
+    const publish = vi.fn(async () => { observed.push(String(goal().progress.done ?? "created")); });
+    service.setClientEvents({ publish } as never);
+    const controller = new AbortController();
+    expect((await service.goalCreate({ objective: "完成报告", successCriteria: ["完成"] }, context(controller.signal))).success).toBe(true);
+    expect((await service.goalUpdate({ progress: { done: 1 } }, context(controller.signal))).success).toBe(true);
+    expect(observed).toEqual(["created", "1"]);
+    expect(publish).toHaveBeenCalledWith("session-1", {
+      type: "state_sync", session_id: "session-1",
+      payload: { category: "session_updated", detail: { entity: "goal" } },
+    }, { aggregateType: "session", aggregateId: "session-1" });
+    controller.abort();
+    expect((await service.goalUpdate({ progress: { done: 2 } }, context(controller.signal))).success).toBe(false);
+    expect(publish).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps a committed Goal mutation successful when notification delivery fails", async () => {
+    const { service, goal } = harness();
+    service.setClientEvents({ publish: vi.fn(async () => { throw new Error("offline"); }) } as never);
+    expect((await service.goalUpdate({ progress: { done: 1 } }, context(new AbortController().signal))).success).toBe(true);
+    expect(goal().progress).toEqual({ done: 1 });
+  });
   it("persists pause before abort and carries the pause into the existing terminal message", async () => {
     const { store, goal } = harness();
     const statusTracker = new AgentExecutionStatusTracker();

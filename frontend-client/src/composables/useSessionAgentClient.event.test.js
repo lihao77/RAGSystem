@@ -262,6 +262,50 @@ test('state_sync(session_updated) 在 active run 期间不重拉消息', () => {
   assert.deepEqual(calls.loadSessionMessages, []);
 });
 
+test('workbench lifecycle events update during runs and bypass completed run replay filters', () => {
+  const updates = [];
+  const { deps, calls, sessionRunStore } = createDeps({
+    handleGoalLifecycle: detail => updates.push(detail.entity),
+    handleBackgroundTaskLifecycle: detail => updates.push(detail.entity),
+  });
+  const stream = useSessionAgentClient(deps);
+  sessionRunStore.applySessionRuntime(runtimeSnapshot('running'));
+  for (const entity of ['goal', 'background_task']) {
+    stream.handleEnvelope({ type: 'state_sync', payload: { category: 'session_updated', detail: { entity } } }, 'session-1');
+  }
+  sessionRunStore.applySessionRuntime(runtimeSnapshot('idle'));
+  deps.messages.value = [createAssistantMessage({ run_id: 'run-1', finished: true, content: 'done' })];
+  stream.handleEnvelope({ type: 'session.reconnect', run_id: 'run-1', payload: {
+    phase: 'start', replay_source: 'durable_outbox',
+  } }, 'session-1');
+  for (const entity of ['goal', 'background_task']) {
+    stream.handleEnvelope({ type: 'state_sync', run_id: 'run-1', payload: {
+      category: 'session_updated', detail: { entity },
+    } }, 'session-1');
+  }
+  stream.handleEnvelope({ type: 'state_sync', payload: {
+    category: 'session_updated', detail: { entity: 'goal' },
+  } }, 'session-old');
+  assert.deepEqual(updates, ['goal', 'background_task', 'goal', 'background_task']);
+  assert.deepEqual(calls.loadSessionMessages, []);
+  assert.equal(deps.messages.value[0].content, 'done');
+  assert.equal(deps.activeRun.active, false);
+  stream.dispose();
+});
+
+test('recovery snapshots revalidate the workbench after missed lifecycle events', () => {
+  let refreshes = 0;
+  const { deps, emitSdkEvent } = createDeps({ refreshWorkbenchState: () => { refreshes += 1; } });
+  const stream = useSessionAgentClient(deps);
+  const snapshot = { event_watermark: 8, runtime: runtimeSnapshot('idle'),
+    messages: { items: [] }, participants: [], execution: [], pending_requests: [] };
+  emitSdkEvent({ type: 'session.snapshot', session_id: 'session-1', payload: snapshot });
+  emitSdkEvent({ type: 'session.snapshot', session_id: 'session-1', payload: { ...snapshot, event_watermark: 9 } });
+  emitSdkEvent({ type: 'session.snapshot', session_id: 'session-old', payload: snapshot });
+  assert.equal(refreshes, 2);
+  stream.dispose();
+});
+
 test('缺失的执行边界只暂存事件，不在运行期间请求消息列表', async () => {
   const { deps, calls, sessionRunStore } = createDeps();
   sessionRunStore.applySessionRuntime(runtimeSnapshot('running'));
@@ -330,8 +374,10 @@ test('已送达但由顶层处理的事件会推进 seq，避免后续输出误�
   deps.applyEnvelopeToMessage = execution.applyEnvelopeToMessage;
   const stream = useSessionAgentClient(deps);
   stream.handleEnvelope({ type: 'ack', payload: { category: 'send', ok: true }, run_id: 'run-1', seq: 2 }, 'session-1');
-  stream.handleEnvelope({ type: 'stream_output', payload: { phase: 'delta', content: 'hello' }, seq: 3 }, 'session-1');
-  stream.handleEnvelope({ type: 'run_ended', payload: { status: 'completed' }, seq: 4 }, 'session-1');
+  stream.handleEnvelope({ type: 'state_sync', payload: { category: 'session_updated', detail: { entity: 'goal' } }, seq: 3 }, 'session-1');
+  stream.handleEnvelope({ type: 'state_sync', payload: { category: 'session_updated', detail: { entity: 'background_task' } }, seq: 4 }, 'session-1');
+  stream.handleEnvelope({ type: 'stream_output', payload: { phase: 'delta', content: 'hello' }, seq: 5 }, 'session-1');
+  stream.handleEnvelope({ type: 'run_ended', payload: { status: 'completed' }, seq: 6 }, 'session-1');
 
   assert.equal(deps.messages.value[0].executionTree.root?.rounds?.[0]?.text ?? '', 'hello');
   assert.equal(deps.messages.value[1].content, '');

@@ -139,6 +139,9 @@ export function useSessionAgentClient(deps) {
         } else if (request.status !== 'unknown') sessionRunStore.removePendingFollowup(sessionId, request.request_id);
       }
       deps.cacheMessages(sessionId, messages.value);
+      // Overview resources have their own query APIs. Revalidate them on every
+      // recovery baseline, including reconnects that missed lifecycle events.
+      deps.refreshWorkbenchState?.();
       void deps.scrollToBottom?.(true, 'auto');
       return;
     }

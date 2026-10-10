@@ -627,7 +627,12 @@ export class SessionAgentClient implements AgentClient {
   }
 
   private handleEnvelope(env: Envelope, source: "ws" | "agui" = "ws"): void {
-    if (source === "ws" && this.aguiRun && env.type !== "session.snapshot") {
+    const overviewPayload = env.payload as { category?: unknown; detail?: { entity?: unknown } } | undefined;
+    const overviewChange = env.type === "state_sync"
+      && overviewPayload?.category === "session_updated"
+      && (overviewPayload.detail?.entity === "goal" || overviewPayload.detail?.entity === "background_task");
+    // Session facts may arrive on either transport while SSE owns run output.
+    if (source === "ws" && this.aguiRun && env.type !== "session.snapshot" && !overviewChange) {
       // AG-UI owns delivery while its SSE segment is active. The WS socket
       // may recover in parallel, but must not project the same session run.
       return;
@@ -1435,6 +1440,14 @@ function aguiEventToEnvelope(
       }
       return null;
     case "CUSTOM":
+      if (event.name === "session_updated"
+        && event.value && typeof event.value === "object" && !Array.isArray(event.value)) {
+        const value = event.value as { detail?: { entity?: unknown } };
+        if (value.detail?.entity === "goal" || value.detail?.entity === "background_task") {
+          return { type: "state_sync", ...base,
+            payload: { ...value, category: "session_updated" } } as Envelope;
+        }
+      }
       if (event.name === "session.runtime" && isRuntimeSnapshot(event.value)) {
         return { type: "session.runtime", ...base, payload: event.value } as Envelope;
       }

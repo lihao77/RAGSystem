@@ -23,6 +23,45 @@ function deferred() {
   return { promise, resolve };
 }
 
+test('a new background task appears immediately and survives a late empty initial query', async () => {
+  const initial = deferred();
+  await withMock((mock) => {
+    mock.onGet('/api/agent/sessions/session-1/background-tasks').reply(() => initial.promise);
+  }, async () => {
+    const state = useSessionBackgroundTasks(ref('session-1'));
+    state.handleLifecycleEvent({ entity: 'background_task', action: 'started',
+      task: { task_id: 'new-task', status: 'running', cancel_available: true } });
+    assert.equal(state.runningCount.value, 1);
+    initial.resolve([200, { data: { tasks: [] } }]);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(state.runningCount.value, 1);
+    state.handleLifecycleEvent({ entity: 'background_task', action: 'completed',
+      task: { task_id: 'new-task', status: 'completed', cancel_available: false } });
+    assert.equal(state.runningCount.value, 0);
+  });
+});
+
+test('a recovery refresh supersedes the initial request and clears its loading indicator', async () => {
+  const initial = deferred();
+  let requests = 0;
+  await withMock((mock) => {
+    mock.onGet('/api/agent/sessions/session-1/background-tasks').reply(() => {
+      requests += 1;
+      return requests === 1 ? initial.promise : [200, { data: { tasks: [
+        { task_id: 'task-1', status: 'completed', cancel_available: false },
+      ] } }];
+    });
+  }, async () => {
+    const state = useSessionBackgroundTasks(ref('session-1'));
+    assert.equal(state.loading.value, true);
+    await state.loadTasks({ silent: true });
+    assert.equal(state.loading.value, false);
+    initial.resolve([200, { data: { tasks: [{ task_id: 'task-1', status: 'running' }] } }]);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(state.tasks.value[0].status, 'completed');
+  });
+});
+
 test('background task state filters running tasks and only selects cancel_available tasks', async () => {
   await withMock((mock) => {
     mock.onGet('/api/agent/sessions/session-1/background-tasks').reply(200, { data: { tasks: [

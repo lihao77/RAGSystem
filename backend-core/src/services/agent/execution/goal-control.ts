@@ -26,4 +26,8 @@ export async function recordGoalStatusMessage(
       message_id: message.id, seq: message.seq, role: message.role, content_parts: message.content_parts,
     } },
   }, { eventId: `${messageId}:saved`, aggregateType: "session", aggregateId: goal.session_id });
+  await events.publish(goal.session_id, {
+    type: "state_sync", session_id: goal.session_id,
+    payload: { category: "session_updated", detail: { entity: "goal" } },
+  }, { aggregateType: "session", aggregateId: goal.session_id });
 }

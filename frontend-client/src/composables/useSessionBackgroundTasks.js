@@ -85,7 +85,7 @@ export function useSessionBackgroundTasks(sessionId) {
       }
       return tasks.value;
     } finally {
-      if (generation === requestGeneration && !silent) loading.value = false;
+      if (generation === requestGeneration) loading.value = false;
     }
   }
 

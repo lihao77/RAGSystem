@@ -1,4 +1,5 @@
 import type { BackgroundTaskService } from "../../services/runtime/background-task-service.js";
+import type { ClientEventPublisherPort } from "../../contracts/runtime/core-runtime-ports.js";
 import type { ToolWaitResult as RuntimeToolWaitResult, ToolExecutionResult, ToolExecContext } from "@ragsystem/agent-sdk";
 import {
   isGoalId,
@@ -52,11 +53,30 @@ export interface TaskStopInput {
 
 export class TaskToolService {
   private readonly runGoals = new WeakMap<AbortSignal, { id: string; generation: number } | null>();
+  private clientEvents: Pick<ClientEventPublisherPort, "publish"> | null = null;
 
   constructor(
     private readonly backgroundTasks: BackgroundTaskService,
     private readonly goals: GoalStore,
   ) {}
+
+  setClientEvents(events: Pick<ClientEventPublisherPort, "publish">): void {
+    this.clientEvents = events;
+  }
+
+  private async notifyGoalChanged(sessionId: string): Promise<void> {
+    // Publish only after the mutation commits. Consumers re-read the current Goal,
+    // so concurrent mutations cannot deliver an obsolete Goal as authoritative state.
+    try {
+      await this.clientEvents?.publish(sessionId, {
+        type: "state_sync", session_id: sessionId,
+        payload: { category: "session_updated", detail: { entity: "goal" } },
+      }, { aggregateType: "session", aggregateId: sessionId });
+    } catch {
+      // A notification failure must not turn a committed mutation into a tool failure.
+      // The next recovery snapshot triggers an authoritative overview refresh.
+    }
+  }
 
   /** Backend-only snapshot: reading Goal tools must not refresh an old run's write fence. */
   async captureGoalRun(sessionId: string, signal: AbortSignal): Promise<void> {
@@ -101,6 +121,7 @@ export class TaskToolService {
         progress: input.progress ?? {},
       });
       this.rememberGoal(goal, context);
+      await this.notifyGoalChanged(sessionId);
       return toolSuccess(
         { goal },
         {
@@ -171,6 +192,7 @@ export class TaskToolService {
         if (!restarted) return toolError(toolName, `Goal ${current.id} 重新开启失败`);
         current = restarted;
         this.rememberGoal(current, context);
+        await this.notifyGoalChanged(sessionId);
         guard = this.mutationGuard(current, context);
       }
       if ((current.status === "completed" || current.status === "blocked")
@@ -188,6 +210,7 @@ export class TaskToolService {
       const result = await this.goals.update(sessionId, current.id, updates, guard);
       if (!result) return toolError(toolName, `Goal ${current.id} 不存在`);
       this.rememberGoal(result, context);
+      await this.notifyGoalChanged(sessionId);
       const statusChange = current.status !== result.status ? { from: current.status, to: result.status } : null;
       // 精简回显：只投影更新后需要继续编排的摘要字段，完整 Goal 由 goal_get 获取。
       return toolSuccess(
