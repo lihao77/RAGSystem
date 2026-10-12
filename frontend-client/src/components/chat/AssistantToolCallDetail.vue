@@ -1,6 +1,9 @@
 <template>
   <div class="tool-call-detail">
-    <div v-if="errorText" class="tool-call-detail-error">{{ errorText }}</div>
+    <!-- 错误摘要只配终端/diff 视图：这两种视图不解析 payload.error，横幅是唯一能说明
+        失败原因的地方。通用分支的结果块已带 is-error 红底并承载完整错误文本（与非工具
+        步骤的任务/结果块形态一致），再叠一条首行摘要就是同话两说。 -->
+    <div v-if="errorText && (terminalView || diffView)" class="tool-call-detail-error">{{ errorText }}</div>
 
     <!-- execute_shell（兼容退役名 execute_bash）：终端风格（红黄绿灯 + $ 提示符 + stdout/stderr 分流着色） -->
     <div v-if="terminalView" class="tool-terminal markdown-body">
