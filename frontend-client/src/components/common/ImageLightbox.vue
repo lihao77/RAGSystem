@@ -349,7 +349,7 @@ onBeforeUnmount(() => {
 .image-lightbox__iconbtn {
   width: 38px;
   height: 38px;
-  border-radius: 10px;
+  border-radius: 50%;
   backdrop-filter: blur(12px);
 }
 
