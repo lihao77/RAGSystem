@@ -22,8 +22,8 @@
       </div>
 
       <Transition name="sidebar-mode" mode="out-in">
-        <div v-if="isChatRoute" key="chat" class="sidebar-mode" :class="{ 'is-stowed': isBodyStowed }">
-      <div v-show="!isFilesView && !sidebarCollapsed" class="sidebar-header">
+        <div v-if="isChatRoute" key="chat" class="sidebar-mode">
+      <div v-show="!isFilesView" class="sidebar-header">
         <button class="sidebar-btn" :class="{ active: isPageActive('chat') && !activeSessionId }" @click="startNewChat">
           <IconNewConversation class="icon" />
           <span class="btn-text">新聊天</span>
@@ -31,7 +31,7 @@
       </div>
 
       <!-- 会话列表 ↔ 文件导航：互斥切换带过渡（v-if 分支，数据都在 pinia，重挂载无成本）。
-           折叠时整个主体随 is-stowed 左滑退出，不再保留图标轨内容。 -->
+           折叠由侧栏整栏定宽左滑承载，主体内容不做任何形变。 -->
       <Transition name="sidebar-mode" mode="out-in">
         <div v-if="isFilesView" key="workspace-files" class="sidebar-mode-body">
           <WorkspaceFileNav
@@ -64,7 +64,7 @@
       />
       </div>
 
-      <div v-else key="admin" class="sidebar-mode" :class="{ 'is-stowed': isBodyStowed }">
+      <div v-else key="admin" class="sidebar-mode">
         <div class="admin-nav-list">
           <button
             v-if="canViewAdminOverview"
@@ -108,8 +108,29 @@
       </div>
     </aside>
 
+    <div :class="['layout-main-host', { 'layout-main-host--page': !isChatRoute }]">
+      <component :is="pageShell" :key="isChatRoute ? 'shell-chat' : 'shell-admin'" class="layout-shell">
+        <div :class="['route-card', isChatRoute ? 'route-card--chat' : 'route-card--page']">
+          <RouterView v-slot="{ Component, route: childRoute }">
+            <Transition :name="pageTransitionName" mode="out-in">
+              <component
+                v-if="Component"
+                :is="Component"
+                :key="getPageRouteKey(childRoute)"
+                v-bind="getChildProps(childRoute)"
+              />
+            </Transition>
+          </RouterView>
+        </div>
+      </component>
+    </div>
+
     <!-- 左上角固定浮钮：折叠/展开开关全程钉在同一像素位置（侧栏收起时也原地不动），
-         hover 时 logo 与方向箭头原位淡切；文件视图/折叠态时旁边出现新聊天。 -->
+         hover 时 logo 与方向箭头原位淡切；文件视图/折叠态时旁边出现新聊天。
+         必须排在 .layout-main-host 之后：Chromium 按 DOM 顺序收集 app-region 矩形，
+         同像素后出现的赢、z-index 不参与（见 App.vue 的 WindowControls 注释）。折叠态/
+         管理页的 drag 顶栏（会话顶栏、PageLayout）横贯全宽且 DOM 靠后，浮钮若在前，
+         按钮的 no-drag 会被盖回拖拽区，hover 淡切与点击在 Electron 里全部失效。 -->
     <div class="sidebar-toggle-float" :class="{ 'is-collapsed': sidebarCollapsed }">
       <button
         type="button"
@@ -135,23 +156,6 @@
           <IconNewConversation :size="16" />
         </button>
       </Transition>
-    </div>
-
-    <div :class="['layout-main-host', { 'layout-main-host--page': !isChatRoute }]">
-      <component :is="pageShell" :key="isChatRoute ? 'shell-chat' : 'shell-admin'" class="layout-shell">
-        <div :class="['route-card', isChatRoute ? 'route-card--chat' : 'route-card--page']">
-          <RouterView v-slot="{ Component, route: childRoute }">
-            <Transition :name="pageTransitionName" mode="out-in">
-              <component
-                v-if="Component"
-                :is="Component"
-                :key="getPageRouteKey(childRoute)"
-                v-bind="getChildProps(childRoute)"
-              />
-            </Transition>
-          </RouterView>
-        </div>
-      </component>
     </div>
     <CommandPalette />
     <HotkeysHelp />
@@ -392,8 +396,6 @@ const handleBrowserViewChange = async (view) => {
 // ── 项目文件导航 ──
 // 入口在 SessionList 项目分组头的「浏览文件」按钮：带着目标项目切进文件视图。
 const isFilesView = computed(() => browserView.value === SESSION_BROWSER_VIEWS.FILES);
-// 折叠收纳：桌面端折叠时主体（列表/导航/管理导航）整体左滑退出；移动端抽屉不受折叠态影响
-const isBodyStowed = computed(() => sidebarCollapsed.value && !isMobile.value);
 const filesWorkspaceId = ref('');
 const enterWorkspaceFiles = (workspace) => {
   if (workspace?.workspace_id) filesWorkspaceId.value = workspace.workspace_id;
@@ -686,11 +688,11 @@ onUnmounted(() => {
    设置页/登录页复用同一内边距与卡片口径。 */
 .chat-layout {
   --sidebar-btn-text-transition-in: opacity var(--duration-base) ease 0.05s;
-  --sidebar-btn-text-transition-out: opacity var(--duration-fast) ease;
   --shell-gap: var(--spacing-xs);
-  /* 左上角固定浮轨宽度：15 左距 + 28 开关 + 2 缝 + 28 新聊天（折叠态两个按钮都在）。
+  /* 左上角固定浮轨宽度：15 左距 + 28 开关 + 6 缝 + 28 新聊天（折叠态两个按钮都在）。
+     缝宽与会话顶栏的控件间距（6px）同档，避免两颗按钮热区贴死显得与顶栏节奏脱节；
      折叠态会话顶栏按它让位，改浮轨尺寸只需改这里。 */
-  --sidebar-rail-width: 73px;
+  --sidebar-rail-width: 77px;
   /* 浮轨相对对话卡左缘的占位：扣掉对话卡自身的内缩（外壳 gap + 卡片边框 1px），
      顶栏让位 = 本变量 + 顶栏常规内距。 */
   --sidebar-rail-reserve: calc(var(--sidebar-rail-width) - var(--shell-gap, 4px) - 1px);
@@ -726,7 +728,7 @@ onUnmounted(() => {
   box-shadow: none;
   background: var(--surface-sidebar);
   width: var(--sidebar-width);
-  /* 主体左滑退出时内容需在侧栏内裁剪（下拉菜单均经 portal 渲染，不受影响） */
+  /* 页签互斥过渡（sidebar-mode out-in）不得溢出侧栏（下拉菜单均经 portal 渲染，不受影响） */
   overflow: hidden;
   /* 与对话卡之间留一条同宽的缝（侧栏不铺卡片底色，缝里是外壳底色）。
      窄屏抽屉形态下侧栏是 fixed，外边距不参与定位，无需另写覆盖。 */
@@ -736,17 +738,22 @@ onUnmounted(() => {
   flex-direction: column;
   flex-shrink: 0;
   z-index: var(--z-sidebar);
-  transition: width var(--transition-normal), transform var(--transition-normal);
+  transition: margin-left var(--transition-normal), transform var(--transition-normal);
   --icon-center-line: 25px;
   --sidebar-icon-size: 18px;
   /* border-right: 1px solid var(--color-border); */
 }
 
-/* 折叠 = 完全退出布局：宽度归零、缝隙一并收回，对话区占满全宽；
-   左缘的 logo/新聊天/底部入口由 .sidebar-floating-rail 悬浮轨承载。 */
+/* 折叠 = 整栏定宽向左滑出布局（外壳 overflow 裁剪），缝隙一并收回，对话区占满全宽：
+   宽度恒定意味着内容零形变——与右侧运行工作台的"整卡滑出"同一运动学（方向镜像），
+   过渡沿用基类 .sidebar 的 transition（不在折叠态重写，避免 var 展开后简写解析歧义）。
+   左缘的 logo/新聊天开关由 .sidebar-toggle-float 悬浮轨承载。 */
 .sidebar.collapsed {
-  width: 0;
   margin-right: 0;
+}
+
+.chat-layout:not(.chat-layout--sidebar-overlay) .sidebar.collapsed {
+  margin-left: calc(-1 * var(--sidebar-width));
 }
 
 /* Electron 桌面端隐藏原生标题栏后，logo 行兼任标题栏：整行可拖拽/双击最大化，
@@ -831,7 +838,8 @@ onUnmounted(() => {
   width: var(--sidebar-rail-width);
   height: 44px;
   align-items: center;
-  gap: 2px;
+  /* 与会话顶栏控件间距（6px）同档：热区不贴死，悬停底色不连成一片 */
+  gap: 6px;
   /* 图标中心线对齐列表图标（外壳 4px 边距 + 侧栏 8px 容器 + 8px 按钮内边距 + 18px 图标半宽 = 29px；
      28px 开关框居中 → 左距 29 - 14 = 15px） */
   padding-left: 15px;
@@ -841,6 +849,15 @@ onUnmounted(() => {
 
 .sidebar-toggle-float > * {
   pointer-events: auto;
+}
+
+/* Electron 标题栏让位：本轨浮在路由页 drag 顶栏上方，按钮自身必须是 no-drag 才能收到
+   hover/点击（并依赖浮钮在 DOM 上排在 .layout-main-host 之后，见模板注释）；
+   浏览器中 app-region 无效，不影响 Web 端。只豁免按钮矩形，轨内空隙仍可拖窗口。 */
+.sbf-toggle,
+.sbf-action {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
 }
 
 .sbf-toggle {
@@ -950,17 +967,6 @@ onUnmounted(() => {
   overflow: hidden;
 }
 
-.sidebar.collapsed .toggle-sidebar-btn {
-  opacity: 0;
-  max-width: 0;
-  min-width: 0;
-  width: 0;
-  padding: 0;
-  margin: 0;
-  pointer-events: none;
-}
-
-
 
 .toggle-sidebar-btn:hover {
   /* 手感对齐 ghost：仅换背景与文字色，去掉 scale 弹跳（hover 背景已由上面统一规则提供） */
@@ -972,7 +978,6 @@ onUnmounted(() => {
   margin-bottom: 8px;
   padding: 0 var(--spacing-sm);
 }
-.sidebar.collapsed .sidebar-header { margin-bottom: 0; }
 
 .sidebar-btn {
   margin: 0;
@@ -1042,16 +1047,6 @@ onUnmounted(() => {
   will-change: opacity;
 }
 
-.sidebar.collapsed .btn-text {
-  opacity: 0;
-  max-width: 0;
-  overflow: hidden;
-}
-
-.sidebar.collapsed .btn-text {
-  transition: var(--sidebar-btn-text-transition-out), max-width 0s ease 0.15s;
-}
-
 .sidebar-mode {
   display: flex;
   flex-direction: column;
@@ -1060,15 +1055,6 @@ onUnmounted(() => {
   transition: transform var(--transition-normal), opacity var(--transition-normal), visibility 0s;
 }
 
-/* 折叠收纳：主体整体左滑退出（logo/新聊天留在顶栏、底部图标照旧）。
-   visibility 延迟到滑动结束后再隐藏，保证动画可见且收起后不占焦点。 */
-.sidebar-mode.is-stowed {
-  transform: translateX(-100%);
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-  transition: transform var(--transition-normal), opacity var(--transition-normal), visibility 0s linear var(--transition-normal);
-}
 .sidebar-mode-enter-active,
 .sidebar-mode-leave-active {
   transition: opacity var(--transition-fast), transform var(--transition-fast);
@@ -1103,13 +1089,6 @@ onUnmounted(() => {
   border-top: 1px solid var(--color-border);
   margin-top: var(--spacing-xs);
   padding-top: var(--spacing-sm);
-}
-.sidebar.collapsed .admin-nav-group-label {
-  opacity: 0;
-  max-height: 0;
-  margin: 0;
-  padding: 0;
-  overflow: hidden;
 }
 .admin-nav-group-label {
   padding: var(--spacing-xs) var(--spacing-sm);
@@ -1153,7 +1132,6 @@ onUnmounted(() => {
   transition: background var(--transition-fast), color var(--transition-fast);
 }
 .footer-toggle-btn:hover { background: var(--color-hover-overlay-md); color: var(--color-text-primary); }
-.sidebar.collapsed .footer-toggle-btn { display: none; }
 
 .sidebar-footer-btn {
   margin: 0;
@@ -1168,11 +1146,6 @@ onUnmounted(() => {
   background: var(--color-success);
   box-shadow: 0 0 0 3px rgba(var(--color-success-rgb), 0.12);
   transition: opacity var(--transition-fast), margin var(--transition-fast);
-}
-
-.sidebar.collapsed .sidebar-footer-btn .sidebar-status__dot {
-  opacity: 0;
-  margin-left: -7px;
 }
 
 /* 对话路由：这里只是承载两张卡的透明容器——对话卡与运行工作台卡自己铺底色、自己带圆角
@@ -1264,9 +1237,5 @@ onUnmounted(() => {
 
 .chat-layout--sidebar-overlay .sidebar.mobile-open {
   transform: translateX(0);
-}
-
-.chat-layout--sidebar-overlay .sidebar.collapsed {
-  width: var(--sidebar-width-mobile);
 }
 </style>

@@ -3,13 +3,12 @@
     <DropdownMenuTrigger as-child>
       <button
         class="scene-trigger"
-        :class="{ 'is-collapsed': collapsed }"
         :title="currentSceneName"
         :aria-label="`场景菜单：${currentSceneName}`"
       >
         <span class="scene-icon" aria-hidden="true"><Layers :size="16" /></span>
         <span class="scene-name">{{ currentSceneName }}</span>
-        <IconChevronDown v-if="!collapsed" class="scene-caret" :size="14" />
+        <IconChevronDown class="scene-caret" :size="14" />
       </button>
     </DropdownMenuTrigger>
     <DropdownMenuContent class="scene-menu" :style="{ width: 'var(--reka-popper-anchor-width, 16rem)' }" align="start" side="top" :side-offset="10">
@@ -91,7 +90,7 @@
 </template>
 
 <script setup>
-import { computed, inject, onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { Layers, Pencil, Trash2 } from 'lucide-vue-next';
 import { activateScene, createScene, deleteScene, listScenes, renameScene } from '../api/localScenes.ts';
 import { useAsyncAction } from '../composables/useAsyncAction.js';
@@ -107,7 +106,6 @@ import { Input } from './ui/input';
 
 const { confirm } = useConfirm();
 const bootstrapStore = useBootstrapStore();
-const collapsed = inject('sidebarCollapsed', ref(false));
 
 const scenes = ref([]);
 const activeTenantId = ref('');
@@ -241,9 +239,6 @@ onMounted(() => {
   transition: background var(--transition-fast);
 }
 .scene-trigger:hover { background: var(--color-hover-overlay-md); }
-.scene-trigger.is-collapsed { justify-content: center; padding: var(--spacing-xs); }
-.scene-trigger.is-collapsed .scene-name,
-.scene-trigger.is-collapsed .scene-caret { display: none; }
 
 .scene-icon {
   flex-shrink: 0;

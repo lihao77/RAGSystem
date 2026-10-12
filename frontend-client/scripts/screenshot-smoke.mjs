@@ -576,6 +576,52 @@ const shots = [
     ],
   },
   {
+    // 收起动画是"整卡向右划出屏幕"：卡片定宽锚在外层左缘，外层收窄把卡片连内容一起推向右缘裁掉。
+    // 收起后：外层归零、卡片布局宽不变（文字不换行挤压）、卡片左缘已推到外壳右内边距处（移出而非被盖住）。
+    name: 'chat-workbench-collapse-slide-desktop',
+    path: '/?__smoke=participants&__tab=child-1',
+    width: 1440,
+    height: 900,
+    actions: [
+      { type: 'expectVisible', selector: '.rw-thread' },
+      { type: 'expectExpression',
+        // 宽度取 computed 布局宽（getBoundingClientRect 会被路由进场的 scale(0.99) 过渡污染，偶发抖动）
+        script: "const card = document.querySelector('.run-workbench__card'); if (!card) return false; window.__workbenchCardWidth = parseFloat(getComputedStyle(card).width); window.__workbenchCardLeft = card.getBoundingClientRect().left; return window.__workbenchCardWidth >= 360;",
+        detail: "const card = document.querySelector('.run-workbench__card'); return { cardWidth: card ? getComputedStyle(card).width : null, cardLeft: card?.getBoundingClientRect().left ?? null };" },
+      { type: 'click', selector: '.rw-collapse', waitMs: 400 },
+      { type: 'expectHidden', selector: '.run-workbench' },
+      { type: 'expectExpression',
+        script: "const aside = document.querySelector('.run-workbench'); const card = document.querySelector('.run-workbench__card'); const shell = document.querySelector('.chat-layout'); if (!aside || !card || !shell) return false; const gap = parseFloat(getComputedStyle(shell).paddingLeft); const rect = card.getBoundingClientRect(); const slidOut = rect.left - window.__workbenchCardLeft; return aside.getBoundingClientRect().width === 0 && Math.abs(parseFloat(getComputedStyle(card).width) - window.__workbenchCardWidth) <= 1 && Math.abs(rect.left - (window.innerWidth - gap)) <= 1 && slidOut > 100;",
+        detail: "const aside = document.querySelector('.run-workbench'); const card = document.querySelector('.run-workbench__card'); const shell = document.querySelector('.chat-layout'); const gap = shell ? parseFloat(getComputedStyle(shell).paddingLeft) : null; const rect = card?.getBoundingClientRect(); return { asideWidth: aside?.getBoundingClientRect().width ?? null, cardWidth: card ? getComputedStyle(card).width : null, cardLeft: rect?.left ?? null, openCardLeft: window.__workbenchCardLeft ?? null, expectedLeft: gap != null ? window.innerWidth - gap : null };" },
+    ],
+  },
+  {
+    // 侧栏折叠 = 整栏定宽向左滑出（与运行工作台的整卡滑出互为镜像）：
+    // 折叠后宽度不变（内容零形变）、左缘出屏（负位移），主体区左缘顶到外壳内边距处；
+    // 展开后整栏滑回原位。宽度若退回 width:0 收缩（文字被压窄换行），这里的宽度差会立刻暴露。
+    name: 'sidebar-collapse-slide-desktop',
+    path: '/?__smoke=empty',
+    width: 1440,
+    height: 900,
+    actions: [
+      { type: 'mockSessionSidebarApi' },
+      { type: 'expectVisible', selector: '.sidebar' },
+      { type: 'expectText', selector: '.sidebar', text: '新聊天' },
+      { type: 'expectExpression',
+        // 宽度取 computed 布局宽（getBoundingClientRect 会被路由进场的 scale(0.99) 过渡污染，偶发抖动）
+        script: "const bar = document.querySelector('.sidebar'); if (!bar) return false; window.__sidebarWidth = parseFloat(getComputedStyle(bar).width); window.__sidebarLeft = bar.getBoundingClientRect().left; return window.__sidebarWidth >= 200 && window.__sidebarLeft >= 0;",
+        detail: "const bar = document.querySelector('.sidebar'); return { sidebarWidth: bar ? getComputedStyle(bar).width : null, sidebarLeft: bar?.getBoundingClientRect().left ?? null };" },
+      { type: 'click', selector: '[aria-label="折叠侧栏"]', waitMs: 400 },
+      { type: 'expectExpression',
+        script: "const bar = document.querySelector('.sidebar'); const host = document.querySelector('.layout-main-host'); const shell = document.querySelector('.chat-layout'); if (!bar || !host || !shell) return false; const gap = parseFloat(getComputedStyle(shell).paddingLeft); const rect = bar.getBoundingClientRect(); return Math.abs(parseFloat(getComputedStyle(bar).width) - window.__sidebarWidth) <= 1 && rect.left <= -200 && Math.abs(host.getBoundingClientRect().left - gap) <= 1;",
+        detail: "const bar = document.querySelector('.sidebar'); const host = document.querySelector('.layout-main-host'); const shell = document.querySelector('.chat-layout'); return { sidebarWidth: bar ? getComputedStyle(bar).width : null, sidebarLeft: bar?.getBoundingClientRect().left ?? null, openSidebarWidth: window.__sidebarWidth ?? null, mainHostLeft: host?.getBoundingClientRect().left ?? null, shellGap: shell ? parseFloat(getComputedStyle(shell).paddingLeft) : null };" },
+      { type: 'click', selector: '[aria-label="展开侧栏"]', waitMs: 400 },
+      { type: 'expectExpression',
+        script: "const bar = document.querySelector('.sidebar'); if (!bar) return false; const rect = bar.getBoundingClientRect(); return Math.abs(parseFloat(getComputedStyle(bar).width) - window.__sidebarWidth) <= 1 && Math.abs(rect.left - window.__sidebarLeft) <= 1;",
+        detail: "const bar = document.querySelector('.sidebar'); return { sidebarWidth: bar ? getComputedStyle(bar).width : null, sidebarLeft: bar?.getBoundingClientRect().left ?? null, expectedLeft: window.__sidebarLeft ?? null };" },
+    ],
+  },
+  {
     // 窄屏：工作台退化为右侧抽屉，不参与三列布局
     name: 'chat-workbench-mobile-drawer',
     path: '/?__smoke=participants&__tab=child-1',

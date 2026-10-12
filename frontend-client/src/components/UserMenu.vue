@@ -1,7 +1,7 @@
 <template>
   <DropdownMenu v-if="showUserArea">
     <DropdownMenuTrigger as-child>
-      <button class="user-trigger" :class="{ 'is-collapsed': collapsed }" :title="displayName" aria-label="账户菜单">
+      <button class="user-trigger" :title="displayName" aria-label="账户菜单">
         <span class="user-avatar" aria-hidden="true">{{ initial }}</span>
         <span class="user-name">{{ displayName }}</span>
       </button>
@@ -62,7 +62,7 @@
 </template>
 
 <script setup>
-import { computed, inject, onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { createTenant, listTenants } from '../api/admin.js';
 import { logout, switchTenant } from '../api/auth.ts';
@@ -82,7 +82,6 @@ const router = useRouter();
 const toast = useToast();
 const authStore = useAuthStore();
 const bootstrapStore = useBootstrapStore();
-const collapsed = inject('sidebarCollapsed', ref(false));
 
 const tenants = ref([]);
 const createOpen = ref(false);
@@ -177,7 +176,6 @@ onMounted(() => {
   transition: background var(--transition-fast);
 }
 .user-trigger:hover { background: var(--color-hover-overlay-md); }
-.user-trigger.is-collapsed { justify-content: center; padding: var(--spacing-xs); }
 
 .user-avatar {
   flex-shrink: 0;
@@ -198,7 +196,6 @@ onMounted(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.user-trigger.is-collapsed .user-name { display: none; }
 
 .user-head { padding: var(--spacing-xs) var(--spacing-sm); display: flex; flex-direction: column; gap: 2px; }
 .user-head__name { font-size: var(--font-size-sm); font-weight: 600; color: var(--color-text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

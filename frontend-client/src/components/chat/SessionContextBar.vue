@@ -223,9 +223,10 @@ const showSidebarCollapsed = computed(() => Boolean(sidebarCollapsed?.value) && 
 
 /* 桌面端侧栏折叠：左上角固定浮轨（开关 + 新聊天）覆盖本栏左缘，标题起点右移避让。
    让位宽度 = --sidebar-rail-reserve（浮轨宽 − 本栏内缩，定义在 MainLayout 的 .chat-layout）
-   + 本栏常规内距，浮轨尺寸变化时自动跟上。 */
+   + 6px 控件间距——与浮轨内部、本栏标题到"…"的间距同档，收起态整条顶栏读作连续一行，
+   不再把标题推成独立分组；浮轨尺寸变化时让位自动跟上。 */
 .session-context-bar.is-sidebar-collapsed {
-  padding-left: calc(var(--sidebar-rail-reserve, 68px) + var(--top-bar-padding-x));
+  padding-left: calc(var(--sidebar-rail-reserve, 72px) + 6px);
 }
 
 @media (min-width: 1025px) {

@@ -353,7 +353,10 @@ onUnmounted(() => {
   background: var(--color-text-muted);
 }
 
-/* ===== 卡片：外层只管宽度动画，内层才是看得见的那张卡（收起时被外层裁掉） ===== */
+/* ===== 卡片：外层只管宽度动画（把占位还给对话列），内层才是看得见的那张卡。
+   卡片定宽锚在外层左缘：外层收窄时它作为刚性整体随左缘向右平移，超出部分被
+   overflow 裁掉——收起是整张卡向右划出屏幕，不是被压窄换行，也不是停在原地
+   被对话卡盖住。 ===== */
 .run-workbench {
   display: flex;
   width: var(--workbench-width, 440px);
@@ -375,9 +378,9 @@ onUnmounted(() => {
   position: relative;
   z-index: 1;
   display: flex;
-  min-width: 0;
-  flex: 1;
+  flex: 0 0 auto;
   flex-direction: column;
+  width: var(--workbench-width, 440px);
   overflow: hidden;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-2xl);
@@ -713,6 +716,8 @@ onUnmounted(() => {
   }
 
   .run-workbench__card {
+    /* 抽屉态卡片定宽跟随抽屉宽度而不是拖拽宽度，translateX(-100%) 才能整张划出 */
+    width: min(100vw - 32px, 420px);
     border-top: none;
     border-right: none;
     border-bottom: none;
