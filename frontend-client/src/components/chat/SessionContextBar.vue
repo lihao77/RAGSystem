@@ -77,16 +77,18 @@
       <!-- 运行工作台的展开入口只在面板收起时出现（OceanX 同款交接）：面板展开时收起按钮
            在面板自己的表头里，两处并存会变成两个按钮管同一件事。
            运行概览本身（智能体 / 目标 / 后台任务）住在工作台卡里，表头不再挂状态胶囊。 -->
-      <Button
-        v-if="currentSessionId && !workbenchOpen"
-        variant="ghost"
-        size="icon-toolbar"
-        title="展开运行工作台"
-        aria-label="展开运行工作台"
-        @click="emit('toggleWorkbench')"
-      >
-        <PanelRightOpen />
-      </Button>
+      <Transition name="workbench-expand">
+        <Button
+          v-if="currentSessionId && !workbenchOpen"
+          variant="ghost"
+          size="icon-toolbar"
+          title="展开运行工作台"
+          aria-label="展开运行工作台"
+          @click="emit('toggleWorkbench')"
+        >
+          <PanelRightOpen />
+        </Button>
+      </Transition>
     </div>
   </header>
 </template>
@@ -217,6 +219,21 @@ const showSidebarCollapsed = computed(() => Boolean(sidebarCollapsed?.value) && 
   padding-right: calc(6px + var(--window-controls-width, 0px));
 }
 
+/* 展开按钮出入场：轻微右移 + 淡入淡出，方向镜像工作台整卡向右划出的运动学——
+   面板收起划向右时按钮像从它的去路上浮现，展开时按钮随之退回右侧；
+   时长取 fast 档（面板滑出是 base 档），短于面板动画避免拖沓。
+   scoped 属性选择器优先级盖过 Button 基类的 transition-colors，动画期间只动 opacity/transform。 */
+.workbench-expand-enter-active,
+.workbench-expand-leave-active {
+  transition: opacity var(--transition-fast), transform var(--transition-fast);
+}
+
+.workbench-expand-enter-from,
+.workbench-expand-leave-to {
+  opacity: 0;
+  transform: translateX(4px);
+}
+
 .sidebar-menu-trigger {
   display: none;
 }
@@ -258,7 +275,9 @@ const showSidebarCollapsed = computed(() => Boolean(sidebarCollapsed?.value) && 
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .session-context-bar {
+  .session-context-bar,
+  .workbench-expand-enter-active,
+  .workbench-expand-leave-active {
     transition-duration: 1ms;
   }
 }
