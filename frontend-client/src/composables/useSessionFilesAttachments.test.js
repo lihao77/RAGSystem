@@ -52,6 +52,17 @@ test('handleSessionFileSelect 只加入前端待发送附件，不立即创建 s
   URL.revokeObjectURL = originalRevokeObjectURL;
 });
 
+test('handleSessionFileSelect 只就地加入待发送附件，不弹出附件抽屉', async () => {
+  const { deps } = createDeps();
+  const state = useSessionFilesAttachments(deps);
+
+  await state.handleSessionFileSelect([new File(['hello'], 'note.txt', { type: 'text/plain' })]);
+
+  assert.equal(state.pendingAttachments.value.length, 1);
+  // 粘贴/拖放发生在输入中途：附件卡已内联出现在输入框里，抽屉只能由加号按钮显式打开
+  assert.equal(deps.sessionFilesDrawerVisible.value, false);
+});
+
 test('materializeAttachmentsForSend 会批量上传本地附件并保持顺序', async () => {
   const originalCreateObjectURL = URL.createObjectURL;
   const originalRevokeObjectURL = URL.revokeObjectURL;

@@ -137,6 +137,9 @@ export function useSessionFilesAttachments(deps) {
     sessionFilesDrawerVisible.value = true;
   };
 
+  // 选中文件（粘贴/拖放/抽屉上传）只就地加入待发送列表 + toast 反馈，不弹附件抽屉：
+  // 粘贴发生在输入中途，弹管理抽屉会打断输入；附件卡已内联出现在输入框里，抽屉
+  // 需要时由加号按钮显式打开。抽屉内上传时抽屉本就开着，无需在此维持可见态。
   const handleSessionFileSelect = async (filesOrEvent) => {
     const files = filesOrEvent?.target?.files || filesOrEvent;
     const nextAttachments = Array.from(files || [])
@@ -155,7 +158,6 @@ export function useSessionFilesAttachments(deps) {
       replaceComposerAttachments(mergedFiles);
     }
     deps.showToast(`已添加 ${nextAttachments.length} 个待发送附件`, 'success');
-    sessionFilesDrawerVisible.value = true;
   };
 
   const materializeAttachmentsForSend = async (attachments, sessionId) => {

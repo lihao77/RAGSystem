@@ -23,12 +23,20 @@
           :key="attachment.local_id || attachment.file_id || attachment.id || attachment.stored_name"
           class="attachment-preview-card"
         >
-          <AuthenticatedImage
+          <button
             v-if="hasImagePreview(attachment)"
-            :src="attachmentPreviewUrl(attachment)"
-            :alt="attachment.original_name || attachment.stored_name"
-            class="attachment-preview-thumb"
-          />
+            type="button"
+            class="attachment-preview-thumb-btn"
+            title="预览图片"
+            aria-label="预览图片"
+            @click="openAttachmentPreview(attachment)"
+          >
+            <AuthenticatedImage
+              :src="attachmentPreviewUrl(attachment)"
+              :alt="attachment.original_name || attachment.stored_name"
+              class="attachment-preview-thumb"
+            />
+          </button>
           <div v-else class="attachment-preview-file-icon">
             <IconFile :size="16" />
           </div>
@@ -142,6 +150,16 @@
       </div>
     </div>
   </div>
+  <!-- 待发送附件的图片预览灯箱：与会话文件抽屉同一套（缩放/旋转/多图导航） -->
+  <ImageLightbox
+    :open="lightbox.open.value"
+    :images="lightbox.images.value"
+    :index="lightbox.index.value"
+    :current="lightbox.current.value"
+    @close="lightbox.close"
+    @previous="lightbox.previous"
+    @next="lightbox.next"
+  />
 </template>
 
 <script setup>
@@ -153,6 +171,8 @@ import IconPlay from './icons/IconPlay.vue';
 import IconFile from './icons/IconFile.vue';
 import IconPlus from './icons/IconPlus.vue';
 import AuthenticatedImage from './common/AuthenticatedImage.vue';
+import ImageLightbox from './common/ImageLightbox.vue';
+import { useImageLightbox } from '../composables/useImageLightbox.js';
 import { formatAttachmentSize, getSessionFileDownloadUrl, isImageAttachment, isLocalAttachment } from '../utils/sessionAttachments';
 import { Button } from './ui/button';
 
@@ -226,6 +246,20 @@ const attachmentPreviewUrl = (attachment) => {
 };
 
 const hasImagePreview = (attachment) => isImageAttachment(attachment) && Boolean(attachmentPreviewUrl(attachment));
+
+// 点击缩略图预览：待发送里的全部图片附件进入同一组灯箱（左右切换），
+// 与会话文件抽屉的 openImages 同一套取数口径（src/alt/source）。
+const lightbox = useImageLightbox();
+const openAttachmentPreview = (attachment) => {
+  const images = props.attachments
+    .filter(item => hasImagePreview(item))
+    .map(item => ({
+      src: attachmentPreviewUrl(item),
+      alt: item.original_name || item.stored_name || '图片',
+      source: item,
+    }));
+  lightbox.show(images, Math.max(0, images.findIndex(item => item.source === attachment)));
+};
 
 const extractClipboardFiles = (clipboardData) => {
   const items = Array.from(clipboardData?.items || []);
@@ -481,6 +515,21 @@ defineExpose({ focus, extractClipboardFiles, extractDroppedFiles, canAcceptDragg
   transform: translateY(-1px);
 }
 
+/* 预览触发按钮：与会话文件抽屉的 ctx-file-thumb-btn 同口径（zoom-in 光标 + 悬停轻抬） */
+.attachment-preview-thumb-btn {
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: zoom-in;
+  flex-shrink: 0;
+  border-radius: var(--radius-sm);
+}
+
+.attachment-preview-thumb-btn:hover .attachment-preview-thumb {
+  transform: scale(1.04);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.16);
+}
+
 .attachment-preview-thumb {
   width: 36px;
   height: 36px;
@@ -489,6 +538,7 @@ defineExpose({ focus, extractClipboardFiles, extractDroppedFiles, canAcceptDragg
   border: 1px solid var(--color-border);
   flex-shrink: 0;
   display: block;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 
 .attachment-preview-file-icon {
