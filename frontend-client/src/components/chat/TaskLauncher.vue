@@ -19,6 +19,7 @@
       </PopoverTrigger>
       <PopoverContent
         class="project-picker-popover p-0 rounded-xl shadow-[var(--shadow-lg)]"
+        style="display: flex; flex-direction: column; max-width: calc(100vw - 24px); max-height: min(420px, 60vh, var(--reka-popper-available-height, 60vh)); overflow: hidden; border-color: var(--color-border)"
         align="start"
         side="bottom"
         :side-offset="6"
@@ -221,17 +222,14 @@ watch(currentWorkspace, (workspace) => {
 /* shadcn PopoverContent 自带 z-50/w-72/rounded-md/border/bg-popover/p-4/shadow-md/popover 文字色。
    本项目 tailwind.config 已把 popover 主题映射到我们的 token（popover→--color-bg-elevated、
    popover-foreground→--color-text-primary，w-72 即 288px），这些默认值就是设计值，保持不动；
-   只有三处默认与设计不符，故在 class 上就地覆盖：p-4→p-0、rounded-md→rounded-xl(12px)、
-   shadow-md→--shadow-lg。注意它们都在工具类层，优先级高于本文件的 scoped 规则——所以
-   面板尺寸/底色/字色别再写进 scoped（会被默认值盖掉，成为死代码）。 */
-.project-picker-popover {
-  display: flex;
-  flex-direction: column;
-  max-width: calc(100vw - 24px);
-  max-height: min(420px, 60vh);
-  border-color: var(--color-border);
-  overflow: hidden;
-}
+   与设计不符的三处（p-4→p-0、rounded-md→rounded-xl、shadow-md→--shadow-lg）在 class 上就地覆盖。
+   弹层根元素经 PopoverPortal 挂到 body，scoped 的 data-v 不会随传送落到它头上——本文件
+   scoped 规则对根元素一概不生效（曾写在 .project-picker-popover 里的 max-height/overflow
+   从未生效，长列表直接溢出屏幕底部）。根元素的布局约束必须走 inline style（见模板）：
+   flex 列 + overflow hidden 让搜索栏与底部"不指定项目"常驻，只滚中间 .project-list；
+   高度三重封顶取最小——设计档 420px、视口 60vh、reka 实测的锚点侧可用空间
+   （--reka-popper-available-height，短窗口下不越界）。搜索栏/列表/底栏的子规则
+   写在 slot 内容上（data-v 正常落在这些节点），scoped 照常生效。 */
 
 .project-picker-search {
   display: flex;

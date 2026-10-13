@@ -13,6 +13,9 @@ const props = withDefaults(
   defineProps<DropdownMenuContentProps & { class?: HTMLAttributes["class"]; style?: HTMLAttributes["style"] }>(),
   {
     sideOffset: 4,
+    // 视口碰撞边距：参与 flip/shift 定位，也同步收缩 --reka-popper-available-height，
+    // 长内容封顶滚动时与屏幕边缘保留最小距离（调用方可覆盖）
+    collisionPadding: 16,
   },
 )
 const emits = defineEmits<DropdownMenuContentEmits>()
@@ -24,9 +27,11 @@ const forwarded = useForwardPropsEmits(delegatedProps, emits)
 
 <template>
   <DropdownMenuPortal>
+    <!-- 内容高于锚点两侧可用空间时 avoidCollisions 不再翻转、只会越界出屏：
+         用 reka 提供的 available-height 封顶转内部滚动（键盘导航的高亮项仍会被滚动到可视区）。 -->
     <DropdownMenuContent
       v-bind="forwarded"
-      :class="cn('z-50 min-w-32 overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2', props.class)"
+      :class="cn('z-50 min-w-32 max-h-[var(--reka-popper-available-height)] overflow-x-hidden overflow-y-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2', props.class)"
     >
       <slot />
     </DropdownMenuContent>
