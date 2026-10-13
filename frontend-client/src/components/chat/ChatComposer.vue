@@ -271,8 +271,12 @@ const compositionPct = (item) => contextCompositionTotal.value > 0
   gap: 2px;
 }
 
+/* 居中钉在输入框正上方：inline 级盒子的左右 auto 边距解析为 0（.bottom-dock 又不是
+   flex 容器），此前 margin:0 auto 静默失效、胶囊贴死左缘——块级 + fit-content 收缩
+   + auto 边距才真正居中；输入框在左右对称留白内自身居中，dock 中心即输入框中心。 */
 .image-recognition-hint {
-  display: inline-flex;
+  display: flex;
+  width: fit-content;
   align-items: center;
   gap: 8px;
   margin: 0 auto 8px;
