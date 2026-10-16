@@ -589,31 +589,43 @@ function normalizerRegistry(result) {
   return registry;
 }
 
-test("view_image normalizes media through the image request normalizer capability", async () => {
+test("view_image keeps original bytes in media when within the size limit", async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "image-tools-"));
   const png = Buffer.from("89504e470d0a1a0a0000000d49484452", "hex");
   fs.writeFileSync(path.join(tmp, "photo.png"), png);
-  const normalizedBytes = Buffer.from("524946460400000057454250", "hex");
-  const registry = normalizerRegistry({
-    kind: "normalized",
-    data: normalizedBytes,
-    mime: "image/webp",
-    width: 400,
-    height: 300,
-    originalWidth: 4000,
-    originalHeight: 3000,
-  });
+  let normalizeCalls = 0;
+  const registry = new CapabilityRegistry();
+  registry.provide(
+    IMAGE_REQUEST_NORMALIZER_CAPABILITY,
+    {
+      normalize: async () => {
+        normalizeCalls += 1;
+        return {
+          kind: "normalized",
+          data: Buffer.from("524946460400000057454250", "hex"),
+          mime: "image/webp",
+          width: 400,
+          height: 300,
+          originalWidth: 4000,
+          originalHeight: 3000,
+        };
+      },
+    },
+    "test",
+  );
   try {
     const [tool] = buildViewImageTool([VIEW_IMAGE_TOOL_NAME], { capabilities: registry });
     const result = await tool.call({ file_path: "photo.png" }, { workspaceRoot: tmp, tenantId: "tenant-1" });
     assert.equal(result.success, true);
-    assert.equal(result.media[0].mimeType, "image/webp");
-    assert.equal(result.media[0].source.data, normalizedBytes.toString("base64"));
-    assert.equal(result.content.mime, "image/webp");
-    assert.equal(result.content.size, normalizedBytes.byteLength);
-    // 坐标换算提示：x 与 y 比例一致时给单一乘数
-    assert.match(result.llmHint, /downscaled from 4000x3000 px/);
-    assert.match(result.llmHint, /multiply coordinates by 10\.00/);
+    // 未超限不请求归一化：media 携带原始字节与原始 mime——落盘附件保持原件，
+    // 发模型的换码由 ToolImageSink/投影层派生；工具内预换码会造出
+    // ".png 名 + jpeg 字节"的自相矛盾附件记录，前端不再认它为图片。
+    assert.equal(normalizeCalls, 0);
+    assert.equal(result.media[0].mimeType, "image/png");
+    assert.equal(result.media[0].source.data, png.toString("base64"));
+    assert.equal(result.content.mime, "image/png");
+    assert.equal(result.content.size, png.byteLength);
+    assert.ok(!result.llmHint.includes("downscaled"));
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }

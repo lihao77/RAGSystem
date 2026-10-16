@@ -398,6 +398,20 @@ test("tool image sink persists media as session attachments and returns request-
     // 无 name 时用工具名做展示名
     const named = files.get(adapted.fileId, "session", "session-9");
     assert.equal(named.original_name, "view_image-image.jpg");
+
+    // 换码字节 + 不匹配扩展名的展示名（如超限缩放后的 view_image 产物）：
+    // 展示名扩展名对齐字节实际编码，附件记录 name/mime/字节保持自洽——
+    // 前端按扩展名与 mime 一致才把附件当图片渲染。
+    const reencoded = await sink.save({
+      bytes: await sharp({ create: { width: 20, height: 10, channels: 3, background: "#336699" } }).jpeg().toBuffer(),
+      mimeType: "image/jpeg",
+      toolName: "view_image",
+      sessionId: "session-9",
+      name: "photo.png",
+    });
+    const reconciled = files.get(reencoded.fileId, "session", "session-9");
+    assert.equal(reconciled.original_name, "photo.jpg");
+    assert.equal(reconciled.mime, "image/jpeg");
   } finally {
     files.close();
     fs.rmSync(dataRoot, { recursive: true, force: true });

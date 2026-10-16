@@ -34,9 +34,10 @@
             <ChatEmptyState />
           </template>
           <template #tail>
-            <Transition name="pending-image-fade">
-              <PendingImageMessage v-if="pendingImageSendState.active" />
-            </Transition>
+            <!-- 幽灵气泡必须 v-if 直插直拔：不能包 <Transition>，离场走 nextFrame 双 rAF，
+                 真实消息同帧上屏后气泡还会残留 1-2 帧，出现"真假消息一上一下"的闪烁。
+                 进入淡入由组件根上的 CSS animation 承担。 -->
+            <PendingImageMessage v-if="pendingImageSendState.active" />
           </template>
         </ChatMessageList>
       <div
@@ -1050,19 +1051,8 @@ onUnmounted(() => {
   }
 }
 
-/* 带图发送的幽灵气泡（待落库 pending 消息）进入过渡：仅淡入，离开即被正式消息替换 */
-.pending-image-fade-enter-active {
-  transition: opacity 180ms ease, transform 220ms var(--ease-out-expo);
-}
-.pending-image-fade-enter-from {
-  opacity: 0;
-  transform: translateY(8px);
-}
-@media (prefers-reduced-motion: reduce) {
-  .pending-image-fade-enter-active {
-    transition-duration: 1ms;
-  }
-}
+/* 带图发送的幽灵气泡（待落库 pending 消息）：进入淡入与即时离场样式在
+   PendingImageMessage 组件内（animation 挂载自运行 + v-if 同帧直拔）。 */
 
 /* ===== Scroll to Bottom Button ===== */
 .scroll-to-bottom-btn {

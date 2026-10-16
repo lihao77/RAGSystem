@@ -73,3 +73,22 @@ test("saas tool image sink dedupes identical bytes in-process and re-persists af
   const revived = await sink.save({ bytes, mimeType: "image/png", toolName: "t", sessionId: "s1" });
   assert.notEqual(revived.fileId, first.fileId);
 });
+
+test("saas tool image sink aligns the display name extension with the actual encoding", async () => {
+  const storage = memoryStorage();
+  const sink = new SaaSToolImageSink(storage);
+
+  // 换码产物（如超限缩放后的 view_image JPEG）带 .png 名：展示名对齐到 .jpg，
+  // 附件记录 name/mime/字节保持自洽——前端按扩展名与 mime 一致才认图片。
+  // 各场景用不同字节：sink 按字节哈希去重，同字节会命中同一条记录。
+  const persisted = await sink.save({ bytes: new Uint8Array([1, 2, 3, 4]), mimeType: "image/jpeg", toolName: "view_image", sessionId: "s1", name: "photo.png" });
+  const record = await storage.get("s1", persisted.fileId);
+  assert.equal(record.original_name, "photo.jpg");
+  assert.equal(record.mime, "image/jpeg");
+
+  // 扩展名与 mime 一致时原样保留；未知/不匹配扩展名同样对齐到 mime
+  const kept = await sink.save({ bytes: new Uint8Array([5, 6, 7, 8]), mimeType: "image/png", toolName: "t", sessionId: "s1", name: "icon.png" });
+  assert.equal((await storage.get("s1", kept.fileId)).original_name, "icon.png");
+  const unknown = await sink.save({ bytes: new Uint8Array([9, 10, 11, 12]), mimeType: "image/webp", toolName: "mcp", sessionId: "s1", name: "chart.bin" });
+  assert.equal((await storage.get("s1", unknown.fileId)).original_name, "chart.webp");
+});

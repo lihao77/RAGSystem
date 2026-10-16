@@ -33,10 +33,26 @@ function extensionFor(mime: ToolResultMedia["mimeType"]): string {
   }
 }
 
-/** 展示名：带扩展名原样用；无扩展名按 mime 补（避免 icon.png.png）。 */
+const EXT_MIME: Readonly<Record<string, ToolResultMedia["mimeType"]>> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".webp": "image/webp",
+  ".gif": "image/gif",
+};
+
+/**
+ * 展示名：无扩展名按 mime 补（避免 icon.png.png）；扩展名与字节实际编码冲突时
+ * 对齐到 mime（如 ".png 名 + jpeg 字节"→ .jpg）——附件记录的 name/mime/字节必须
+ * 自洽，前端按扩展名与 mime 一致才把附件当图片渲染。与 LocalToolImageSink 同构。
+ */
 function displayName(input: { name?: string; toolName: string; mimeType: ToolResultMedia["mimeType"] }): string {
   const base = input.name?.trim() || `${input.toolName}-image`;
-  return path.extname(base) ? base : base + extensionFor(input.mimeType);
+  const ext = path.extname(base).toLowerCase();
+  if (!ext) return base + extensionFor(input.mimeType);
+  return EXT_MIME[ext] === input.mimeType
+    ? base
+    : base.slice(0, base.length - ext.length) + extensionFor(input.mimeType);
 }
 
 export class SaaSToolImageSink implements ToolImageSink {

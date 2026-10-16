@@ -34,7 +34,11 @@ export function requireSkillPath(value: string): string {
 
 export function decodeSkillFiles(files: readonly SkillBundleFile[]): SkillPackageBundleFile[] {
   return files.map((file) => {
-    if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(file.body_base64)) {
+    // Avoid a repeated capture-group expression: V8 can exhaust its regexp stack on large valid files.
+    const encoded = file.body_base64;
+    const paddingIndex = encoded.indexOf("=");
+    if (encoded.length % 4 || /[^A-Za-z0-9+/=]/.test(encoded)
+      || (paddingIndex !== -1 && !/^={1,2}$/.test(encoded.slice(paddingIndex)))) {
       throw new HttpError(422, "validation_failed", `Invalid base64: ${file.relative_path}`);
     }
     return { relativePath: file.relative_path, body: Buffer.from(file.body_base64, "base64"), ...(file.media_type ? { mediaType: file.media_type } : {}) };

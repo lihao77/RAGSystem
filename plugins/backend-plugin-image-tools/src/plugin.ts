@@ -241,11 +241,14 @@ async function readWorkspaceImage(
   } catch {
     return imageError(`Image could not be read: ${filePath}`);
   }
-  // 客户端请求归一化：EXIF 校正/剥元数据/预算缩放（大图从"拒收"变"缩放放行"）；
-  // 归一化不可用或判定 passthrough 时回退原字节，维持旧的硬上限行为。
+  // 超限放行：仅原字节超 10MB 硬上限时归一化缩放（大图从"拒收"变"缩放放行"）；
+  // 归一化不可用或判定 passthrough 时回退原字节，维持旧的硬上限行为。常规路径
+  // media 必须携带原始字节与原始 mime——发模型的请求变体由 ToolImageSink/投影层按
+  // 同一预算派生；工具内预换码会让落盘附件变成 ".png 名 + jpeg 字节"的自相矛盾
+  // 记录，前端按扩展名与 mime 一致才认图片，附件将不再显示。
   let effectiveMime: ToolResultMedia["mimeType"] = mime;
   let scaledNote = "";
-  if (imageRequestNormalizer) {
+  if (imageRequestNormalizer && bytes.length > MAX_IMAGE_BYTES) {
     let normalized: Awaited<ReturnType<ImageRequestNormalizer["normalize"]>> | null = null;
     try {
       normalized = await imageRequestNormalizer.normalize({ data: bytes, mime, policy: DEFAULT_IMAGE_REQUEST_POLICY });

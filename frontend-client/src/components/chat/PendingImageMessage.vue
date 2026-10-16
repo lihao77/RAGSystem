@@ -98,6 +98,32 @@ const doneText = computed(() => (failedCount.value > 0 ? `识别完成，${faile
 </script>
 
 <style scoped>
+/* 进入淡入：CSS animation 挂载自运行（替代 <Transition> enter）——外层用 v-if 直插
+   直拔，落库时真实消息同帧上屏、气泡同帧移除，不留"真假消息同屏"的残留帧。 */
+.pending-image-message {
+  animation:
+    pending-image-enter-opacity 180ms ease both,
+    pending-image-enter-rise 220ms var(--ease-out-expo, cubic-bezier(0.16, 1, 0.3, 1)) both;
+}
+
+/* to 帧必须显式写出：只有 0% 帧的 keyframes 在 fill both 下，Chromium 会把
+   forwards 末帧钉在 0%（opacity:0），幽灵气泡从头到尾不可见。 */
+@keyframes pending-image-enter-opacity {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes pending-image-enter-rise {
+  from { transform: translateY(8px); }
+  to { transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pending-image-message {
+    animation-duration: 1ms;
+  }
+}
+
 /* pending 态整体半透明，done 恢复（落库后即被正式消息替换） */
 .pending-image-message .user-bubble-wrapper {
   opacity: 0.72;
