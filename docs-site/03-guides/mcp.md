@@ -105,6 +105,12 @@ Registry 的“配置安装”允许补充配方未声明的参数。本地进�
 4. **测试**：`POST /api/mcp/servers/{name}/test` 验证连通性与工具数
 5. Agent 运行时通过 `McpTools`（`tools/McpTools`）自动发现并调用已连接服务器的工具
 
+## 工具调用超时
+
+服务器配置中的 `timeout` 以秒为单位。工具调用的外层执行策略和 MCP SDK 请求使用同一个时限；例如设置为 `120` 时，耗时超过 SDK 默认 60 秒的工具仍可继续等待，最长等待 120 秒。
+
+连接建立后修改 `timeout`，新值会应用于后续工具调用，无需重新连接；已经发出的调用仍使用原来的时限。工具超时后不会自动重试，以免重复执行有副作用的操作。
+
 ## 错误处理
 
 MCP 相关错误以 `McpServiceError` 抛出（带 `statusCode`），路由层 `toHttpError` 转换为 `HttpError`。注意若干端点在服务器不存在（404）时返回空结果而非报错（如 tools/resources/prompts 列表返回空数组），便于前端容错。

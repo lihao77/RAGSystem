@@ -82,6 +82,7 @@ export interface McpClient {
     args: Record<string, unknown>,
     meta?: Record<string, unknown>,
     signal?: AbortSignal,
+    timeoutMs?: number,
   ): Promise<Record<string, unknown>>;
   getServerCapabilities(): McpCapabilityFaces | undefined;
   listResources(): Promise<McpResource[]>;

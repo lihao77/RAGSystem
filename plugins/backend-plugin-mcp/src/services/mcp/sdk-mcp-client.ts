@@ -97,11 +97,12 @@ export class SdkMcpClient implements McpClient {
     args: Record<string, unknown>,
     meta?: Record<string, unknown>,
     signal?: AbortSignal,
+    timeoutMs = this.timeoutMs,
   ): Promise<Record<string, unknown>> {
     const result = await this.client.callTool(
       { name: toolName, arguments: args, ...(meta ? { _meta: meta } : {}) },
       undefined,
-      signal ? { signal } : undefined,
+      { timeout: timeoutMs, ...(signal ? { signal } : {}) },
     );
     return isRecord(result) ? result : {};
   }

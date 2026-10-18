@@ -604,11 +604,13 @@ export class McpService {
     }
     try {
       // MCP tools may have side effects, so the shared policy deliberately performs only one attempt.
+      // Pass the current timeout to both layers, including changes made after connecting.
+      const timeoutMs = Math.max(1, state.config.timeout) * 1000;
       const result = await externalCallPolicy.execute({
         key: `mcp:${serverName}`,
-        timeoutMs: Math.max(1, state.config.timeout) * 1000,
+        timeoutMs,
         maxAttempts: 1,
-        operation: ({ signal }) => state.client!.callTool(toolName, args, meta, signal),
+        operation: ({ signal }) => state.client!.callTool(toolName, args, meta, signal, timeoutMs),
       });
       return normalizeToolResult(fullToolName, serverName, toolName, result);
     } catch (error) {
