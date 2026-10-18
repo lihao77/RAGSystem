@@ -3,6 +3,7 @@
     <Popover v-model:open="projectPickerOpen">
       <PopoverTrigger as-child>
         <button
+          ref="projectTriggerRef"
           type="button"
           class="project-trigger"
           :class="{ 'is-open': projectPickerOpen }"
@@ -25,6 +26,7 @@
         :side-offset="6"
         aria-label="选择项目"
         @open-auto-focus="focusSearch"
+        @close-auto-focus="createProjectOpen && $event.preventDefault()"
       >
         <label class="project-picker-search">
           <Search class="project-picker-search-icon" aria-hidden="true" />
@@ -59,9 +61,18 @@
           </li>
         </ul>
         <p v-if="!filteredWorkspaces.length" class="project-list-empty">
-          {{ workspaces.length ? '没有匹配的项目' : '暂无项目，可从侧栏添加本地文件夹' }}
+          {{ workspaces.length ? '没有匹配的项目' : '暂无项目，可添加本地文件夹' }}
         </p>
         <div class="project-picker-actions">
+          <Button
+            type="button"
+            variant="ghost"
+            class="project-add-button w-full justify-start px-2"
+            @click="openCreateProject"
+          >
+            <FolderPlus data-icon="inline-start" aria-hidden="true" />
+            添加项目
+          </Button>
           <button
             type="button"
             role="option"
@@ -78,14 +89,17 @@
         </div>
       </PopoverContent>
     </Popover>
+    <WorkspaceCreateDialog v-model="createProjectOpen" @close-auto-focus="focusProjectTrigger" />
   </div>
 </template>
 
 <script setup>
 import { computed, nextTick, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
-import { Check, ChevronDown, FolderKanban, FolderOpen, FolderX, Search } from 'lucide-vue-next';
+import { Check, ChevronDown, FolderKanban, FolderOpen, FolderPlus, FolderX, Search } from 'lucide-vue-next';
+import { Button } from '../ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
+import WorkspaceCreateDialog from '../workspace/WorkspaceCreateDialog.vue';
 import { UNASSIGNED_WORKSPACE_ID, useWorkspaceStore } from '../../stores/workspace.js';
 
 const props = defineProps({
@@ -101,8 +115,10 @@ const {
   loading: workspaceLoading,
 } = storeToRefs(workspaceStore);
 const projectPickerOpen = ref(false);
+const createProjectOpen = ref(false);
 const filterQuery = ref('');
 const searchInputRef = ref(null);
+const projectTriggerRef = ref(null);
 
 const isUnassigned = computed(() => currentWorkspaceId.value === UNASSIGNED_WORKSPACE_ID);
 
@@ -125,6 +141,17 @@ function selectWorkspace(id) {
   const workspace = workspaceStore.select(id);
   emit('update:workspaceRoot', workspace?.root_path || '');
   projectPickerOpen.value = false;
+}
+
+async function openCreateProject() {
+  projectPickerOpen.value = false;
+  await nextTick();
+  createProjectOpen.value = true;
+}
+
+function focusProjectTrigger(event) {
+  event.preventDefault();
+  projectTriggerRef.value?.focus();
 }
 
 // 打开即把光标交给搜索框：不 preventDefault，先让 reka 把焦点落到弹层内容上，

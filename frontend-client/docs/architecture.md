@@ -20,6 +20,8 @@ A participant thread's live projection hangs off the run's input boundary: the u
 
 ## Session Browser Workspaces
 
+The composer's project dropdown includes an “添加项目” action below the searchable list. It closes the dropdown and opens the same `WorkspaceCreateDialog` used by the sidebar. Both entries register an existing local folder through the workspace store; successful creation selects that workspace and updates the composer's project path. Desktop users can browse for a folder, while browser users enter its absolute path.
+
 Session list and workspace preview responses include `runtime_state`, derived from lightweight batched database reads using the same lifecycle rules as the full runtime snapshot. The sidebar shows a spinner for running/resuming sessions. The active session uses WebSocket snapshots; visible groups and pinned sessions refresh through `POST /sessions/states` every ten seconds while the page is visible (up to 200 IDs per batch). State queries use the same tenant and visibility restrictions as the session list and never load execution events.
 
 Both SQLite and PostgreSQL apply the existing session metadata hydration before projecting batch states, matching full runtime reads for empty or non-object metadata. SQLite list pages support the API's 200-session limit so a complete status batch is returned after access filtering.
