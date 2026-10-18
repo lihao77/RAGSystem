@@ -7,16 +7,23 @@
  * "默认模型 + 档位"记录，与执行路径（runtime-core-service.resolveLlm）同源。
  */
 
+import { readonly, ref } from 'vue';
 import { http } from './http.js';
 
-// "team\u0000agent" → Promise 记忆（页面生命周期内）：选择器挂载/模型切换/团队与
-// 入口 Agent 切换多处触发，解析结果在一次会话内几乎不变；agent/团队配置编辑后
-// 刷新页面即更新，不做主动失效。
+// 合并并发请求；配置保存主动失效，短 TTL 同时覆盖其他窗口/外部配置编辑。
 const defaultLlmCache = new Map();
+const cacheRevision = ref(0);
+const CACHE_TTL_MS = 30_000;
+export const defaultLlmRevision = readonly(cacheRevision);
+
+export function invalidateDefaultLlm() {
+  defaultLlmCache.clear();
+  cacheRevision.value += 1;
+}
 
 /**
  * 解析默认生效的 LLM（入口 Agent 维度；agentName 为空时后端按团队默认入口解析）。
- * @returns {Promise<{ provider: string, provider_type: string, model: string } | null>}
+ * @returns {Promise<{ provider: string, provider_type: string, model: string, source: string, fallback_reason: string | null } | null>}
  *          未配置（source=missing）/ 请求失败返回 null（不缓存，下次调用重试），调用方按"无默认模型"降级。
  */
 export async function fetchDefaultLlm(teamName, agentName = '') {
@@ -24,7 +31,8 @@ export async function fetchDefaultLlm(teamName, agentName = '') {
   const agent = (agentName || '').trim();
   const key = `${team}\u0000${agent}`;
   const cached = defaultLlmCache.get(key);
-  if (cached) return cached;
+  if (cached && cached.expiresAt > Date.now()) return cached.promise;
+  const revision = cacheRevision.value;
   const params = new URLSearchParams();
   if (team) params.set('team_name', team);
   if (agent) params.set('agent_name', agent);
@@ -32,13 +40,24 @@ export async function fetchDefaultLlm(teamName, agentName = '') {
   const promise = http.get(`/api/agent/runtime-core/status${query ? `?${query}` : ''}`)
     .then((body) => {
       const llm = body?.data?.llm || null;
-      return llm?.provider && llm?.model_name
-        ? { provider: llm.provider, provider_type: llm.provider_type || '', model: llm.model_name }
+      return llm?.source !== 'missing' && llm?.provider && llm?.model_name
+        ? { provider: llm.provider, provider_type: llm.provider_type || '', model: llm.model_name,
+          source: llm.source || '', fallback_reason: llm.fallback_reason || null }
         : null;
     })
     .catch(() => null);
-  defaultLlmCache.set(key, promise);
-  const result = await promise;
-  if (!result) defaultLlmCache.delete(key);
-  return result;
+  const entry = { promise: null, expiresAt: Infinity };
+  entry.promise = promise.then((result) => {
+    // 失效前发出的请求不能作为新配置的解析结果，也不能清掉新请求的缓存。
+    if (revision !== cacheRevision.value) return fetchDefaultLlm(team, agent);
+    if (defaultLlmCache.get(key) === entry) {
+      if (!result) defaultLlmCache.delete(key);
+      else entry.expiresAt = Date.now() + CACHE_TTL_MS;
+    }
+    return result;
+  });
+  defaultLlmCache.set(key, entry);
+  // 限制长期打开页面时访问过的 team/agent 组合数量。
+  if (defaultLlmCache.size > 100) defaultLlmCache.delete(defaultLlmCache.keys().next().value);
+  return entry.promise;
 }

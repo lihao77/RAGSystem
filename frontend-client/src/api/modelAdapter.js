@@ -3,6 +3,7 @@
  */
 
 import { http } from './http.js'
+import { invalidateDefaultLlm } from './runtimeCore.js'
 import { thinkingCapabilityFor } from '../utils/thinkingLevels.js'
 import { normalizeProviderTestResult } from '../utils/providerTestResult.js'
 
@@ -174,19 +175,27 @@ export function resolveRestorableOverrides(metadata, providers, defaultLlm = nul
 }
 
 export async function createProvider(data) {
-  return http.post(`${API_BASE}/providers`, data)
+  const result = await http.post(`${API_BASE}/providers`, data)
+  invalidateDefaultLlm()
+  return result
 }
 
 export async function updateProvider(providerKey, data) {
-  return http.put(`${API_BASE}/providers/${encodeURIComponent(providerKey)}`, data)
+  const result = await http.put(`${API_BASE}/providers/${encodeURIComponent(providerKey)}`, data)
+  invalidateDefaultLlm()
+  return result
 }
 
 export async function reorderProviders(providerKeys) {
-  return http.put(`${API_BASE}/providers/order`, { provider_keys: providerKeys })
+  const result = await http.put(`${API_BASE}/providers/order`, { provider_keys: providerKeys })
+  invalidateDefaultLlm()
+  return result
 }
 
 export async function deleteProvider(providerKey) {
-  return http.del(`${API_BASE}/providers/${encodeURIComponent(providerKey)}`)
+  const result = await http.del(`${API_BASE}/providers/${encodeURIComponent(providerKey)}`)
+  invalidateDefaultLlm()
+  return result
 }
 
 export async function getProviderUsages(providerKey) {

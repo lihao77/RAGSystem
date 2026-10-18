@@ -7,6 +7,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { SMOKE_FILE_REF_FILES } from '../src/utils/smokeFixtures.js';
+import { createProviderSmokeApi } from './provider-smoke-fixtures.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const rootDir = resolve(__dirname, '..');
@@ -16,7 +17,67 @@ const outputDir = resolve(rootDir, 'screenshots', 'smoke');
 const minScreenshotBytes = 8 * 1024;
 const maxHorizontalOverflowPx = 2;
 
+function providerCreateActions(mobile = false) {
+  return [
+    { type: 'mockProviderApi' },
+    ...(mobile ? [
+      { type: 'click', selector: '.page-mobile-nav__more' },
+      { type: 'clickText', selector: '.page-mobile-menu__list button', text: '添加供应商' },
+    ] : [{ type: 'click', selector: '.provider-side-item--add' }]),
+    { type: 'expectVisible', selector: '#create-name' },
+    { type: 'setValue', selector: '#create-name', value: 'Smoke Provider' },
+    { type: 'setValue', selector: '#create-vendor', value: 'demo' },
+    { type: 'setValue', selector: '#create-api-key', value: 'demo-placeholder' },
+    { type: 'pointerClick', selector: '#create-format' },
+    { type: 'clickText', selector: '[role="option"]', text: 'OpenAI' },
+    { type: 'click', selector: '.provider-model-add' },
+    { type: 'expectVisible', selector: '#provider-model-name' },
+    { type: 'setValue', selector: '#provider-model-name', value: 'smoke-chat' },
+    { type: 'click', selector: '.model-dialog-advanced summary' },
+    { type: 'pointerClick', selector: '.model-dialog-advanced [role="combobox"]', scrollIntoView: true },
+    { type: 'clickText', selector: '[role="option"]', text: 'none · 不支持思考' },
+    { type: 'click', selector: '[role="dialog"] .provider-dialog-submit' },
+    { type: 'expectHidden', selector: '[role="dialog"]' },
+    { type: 'click', selector: '.provider-create-footer__actions button:last-child' },
+    { type: 'expectText', selector: '.provider-detail__name', text: 'Smoke Provider' },
+    { type: 'expectText', selector: '.provider-detail-models', text: 'smoke-chat' },
+    { type: 'expectVisible', selector: '[data-provider-key="smoke_provider_demo"]' },
+  ];
+}
+
 const shots = [
+  {
+    name: 'default-model-inherited', path: '/?__smoke=empty', width: 1440, height: 900,
+    actions: [
+      { type: 'mockProviderApi' },
+      { type: 'expectText', selector: '.llm-select-trigger', text: 'demo-chat' },
+      { type: 'expectHidden', selector: '.llm-fallback-indicator' },
+      { type: 'click', selector: '.llm-select-trigger' },
+      { type: 'expectText', selector: '[role="menu"] .option-sub', text: '系统配置' },
+      { type: 'expectHidden', selector: '[role="menu"] [role="status"]' },
+    ],
+  },
+  ...[1440, 390].map(width => ({
+    name: `default-model-fallback-${width === 390 ? 'mobile' : 'desktop'}`,
+    path: '/?__smoke=empty', width, height: 900,
+    actions: [
+      { type: 'mockProviderApi', fallback: true },
+      { type: 'expectText', selector: '.llm-select-trigger', text: 'demo-chat' },
+      { type: 'click', selector: '.llm-fallback-indicator' },
+      { type: 'expectText', selector: '[role="menu"] [role="status"]', text: 'Agent 默认档引用失效' },
+      { type: 'expectVisible', selector: '[role="menu"] a[href="/agent-studio"]' },
+    ],
+  })),
+  {
+    name: 'default-model-explicit-override', path: '/?__smoke=empty', width: 1440, height: 900,
+    actions: [
+      { type: 'mockProviderApi', fallback: true },
+      { type: 'click', selector: '.llm-fallback-indicator' },
+      { type: 'click', selector: '.llm-provider' },
+      { type: 'expectText', selector: '.llm-select-trigger', text: 'demo-chat' },
+      { type: 'expectHidden', selector: '.llm-fallback-indicator' },
+    ],
+  },
   {
     name: 'session-project-running',
     path: '/?__smoke=empty', width: 1440, height: 900,
@@ -916,55 +977,53 @@ const shots = [
   },
   { name: 'model-providers-narrow', path: '/model-providers', width: 768, height: 900 },
   {
-    name: 'model-providers-test-menu',
-    skip: 'Provider 页已工作台化：行操作测试菜单改为行内「测试模型」，断言待重写',
+    name: 'model-providers-model-test',
     path: '/model-providers',
     width: 1440,
     height: 900,
     actions: [
-      { type: 'click', selector: '.provider-row:nth-child(3) .provider-row-actions button:first-child' },
-      { type: 'expectText', selector: '[role="menu"]', text: '选择真实调用任务' },
-      { type: 'expectText', selector: '[role="menu"]', text: 'Chat' },
-      { type: 'expectText', selector: '[role="menu"]', text: 'Embedding' },
-      { type: 'expectVisible', selector: '[role="menu"]' },
+      { type: 'mockProviderApi' },
+      { type: 'click', selector: '[aria-label="测试模型"]' },
+      { type: 'expectText', selector: '.provider-model-line-result.result--ok', text: 'pong' },
     ],
   },
   {
-    name: 'model-providers-create-dialog',
-    skip: 'Provider 创建已改为工作台内联表单（ProviderFormDialog 不再引用），断言待重写',
+    name: 'model-providers-create',
+    path: '/model-providers',
+    width: 1440,
+    height: 900,
+    actions: providerCreateActions(),
+  },
+  {
+    name: 'model-providers-edit',
     path: '/model-providers',
     width: 1440,
     height: 900,
     actions: [
-      { type: 'click', selector: '[aria-label="添加 Provider"]' },
-      { type: 'expectText', selector: '[role="dialog"]', text: '基础配置' },
-      { type: 'expectText', selector: '[role="dialog"]', text: '模型映射' },
-      { type: 'expectVisible', selector: '[role="dialog"] .provider-dialog-submit' },
+      { type: 'mockProviderApi' },
+      { type: 'expectVisible', selector: '#detail-endpoint' },
+      { type: 'setValue', selector: '#detail-endpoint', value: 'https://updated.demo.example.com/v1' },
+      { type: 'click', selector: '[aria-label="编辑模型"]' },
+      { type: 'setValue', selector: '#provider-model-name', value: 'demo-chat-updated' },
+      { type: 'click', selector: '[role="dialog"] .provider-dialog-submit' },
+      { type: 'expectHidden', selector: '[role="dialog"]' },
+      { type: 'click', selector: '[aria-label="刷新"]' },
+      { type: 'expectValue', selector: '#detail-endpoint', value: 'https://updated.demo.example.com/v1' },
+      { type: 'expectText', selector: '.provider-detail-models', text: 'demo-chat-updated' },
     ],
   },
   {
-    name: 'model-providers-edit-dialog-bottom',
-    skip: 'Provider 编辑已改为工作台内联表单，model-map-editor 形态不再存在，断言待重写',
+    name: 'model-providers-delete',
     path: '/model-providers',
     width: 1440,
     height: 900,
     actions: [
-      { type: 'click', selector: '.provider-row .provider-row-actions button:nth-child(2)' },
-      { type: 'expectText', selector: '[role="dialog"]', text: '编辑 Provider' },
-      { type: 'scrollToBottom', selector: '[role="dialog"]' },
-      { type: 'expectVisible', selector: '[role="dialog"] .model-map-editor' },
-      { type: 'expectVisible', selector: '[role="dialog"] .provider-dialog-submit' },
-    ],
-  },
-  {
-    name: 'model-providers-delete-dialog',
-    skip: 'Provider 删除入口已改为详情面板「删除供应商」，断言待重写',
-    path: '/model-providers',
-    width: 1440,
-    height: 900,
-    actions: [
-      { type: 'click', selector: '.provider-row .provider-row-actions button:nth-child(3)', waitMs: 750 },
+      { type: 'mockProviderApi' },
+      { type: 'click', selector: '[aria-label="删除供应商"]' },
       { type: 'expectText', selector: '[role="dialog"]', text: '确认删除' },
+      { type: 'clickText', selector: '[role="dialog"] button', text: '确认删除' },
+      { type: 'expectHidden', selector: '[data-provider-key="demo-openai"]' },
+      { type: 'expectText', selector: '.provider-workbench', text: '暂无供应商' },
     ],
   },
   { name: 'knowledge-base-mobile', path: '/knowledge-base', width: 390, height: 844 },
@@ -1126,17 +1185,11 @@ const shots = [
     ],
   },
   {
-    name: 'model-providers-mobile-dialog',
-    skip: 'Provider 创建已改为工作台内联表单（无「基础配置」对话框），断言待重写',
+    name: 'model-providers-mobile-create',
     path: '/model-providers',
     width: 390,
     height: 844,
-    actions: [
-      { type: 'click', selector: '.page-mobile-nav__more' },
-      { type: 'click', selector: '.page-mobile-menu__list .pl-menu-item:first-child' },
-      { type: 'expectText', selector: '[role="dialog"]', text: '基础配置' },
-      { type: 'expectVisible', selector: '[role="dialog"] .provider-dialog-submit' },
-    ],
+    actions: providerCreateActions(true),
   },
   {
     name: 'knowledge-base-mobile-menu',
@@ -1635,7 +1688,9 @@ function demoMcpBody(path) {
   return undefined;
 }
 
-async function setupShotMocks(client, shot) {
+async function setupShotMocks(client, shot, baseUrl) {
+  const providerMockAction = (shot.actions || []).find(action => action.type === 'mockProviderApi');
+  const providerApi = providerMockAction ? createProviderSmokeApi(providerMockAction) : null;
   const mockArtifactApi = (shot.actions || []).some(action => action.type === 'mockArtifactApi');
   const mockKnowledgeSearchApi = (shot.actions || []).some(action => action.type === 'mockKnowledgeSearchApi');
   const mockSessionSidebarApi = (shot.actions || []).some(action => action.type === 'mockSessionSidebarApi');
@@ -1645,11 +1700,12 @@ async function setupShotMocks(client, shot) {
   const mockMcpApi = (shot.actions || []).some(action => action.type === 'mockMcpApi');
   if (
     !mockArtifactApi && !mockKnowledgeSearchApi && !mockSessionSidebarApi && !mockFileRefApi
-    && !mockAgentStudioApi && !mockKnowledgeBaseApi && !mockMcpApi
+    && !mockAgentStudioApi && !mockKnowledgeBaseApi && !mockMcpApi && !providerApi
   ) return;
 
   await client.send('Fetch.enable', {
     patterns: [
+      ...(providerApi ? [{ urlPattern: new URL('/api/*', baseUrl).href, requestStage: 'Request' }] : []),
       ...(mockArtifactApi ? [
         {
           urlPattern: '*://*/api/agent/sessions/smoke-artifact-session/message-requests*',
@@ -1714,6 +1770,16 @@ async function setupShotMocks(client, shot) {
 
   let pendingReceipt = { request_id: 'smoke-followup-1', content: '请先检查异常站点，再补充最近一周的数据。', status: 'queued', can_manage: true, error: null, message_id: null, updated_at: '' };
   client.on('Fetch.requestPaused', async (event) => {
+    if (providerApi) {
+      let body;
+      let responseCode = 200;
+      try { body = providerApi(event.request); }
+      catch (error) { body = { message: error.message }; responseCode = 500; }
+      await client.send('Fetch.fulfillRequest', { requestId: event.requestId, responseCode,
+        responseHeaders: [{ name: 'Content-Type', value: 'application/json; charset=utf-8' }],
+        body: Buffer.from(JSON.stringify(body), 'utf8').toString('base64') });
+      return;
+    }
     if (mockArtifactApi && event.request?.url?.includes('/smoke-artifact-session/message-requests')) {
       const method = event.request.method;
       if (method === 'DELETE') pendingReceipt = { ...pendingReceipt, status: 'cancelled', can_manage: false };
@@ -2277,7 +2343,9 @@ async function runShotActions(client, shot) {
     if (['pointerClick', 'wheel', 'drag'].includes(action.type)) {
       await waitForEvaluation(client, `!!document.querySelector(${jsString(action.selector)})`, 5000);
       const point = await evaluate(client, `(() => {
-        const rect = document.querySelector(${jsString(action.selector)})?.getBoundingClientRect();
+        const element = document.querySelector(${jsString(action.selector)});
+        if (${action.scrollIntoView === true}) element?.scrollIntoView({ block: 'center' });
+        const rect = element?.getBoundingClientRect();
         return rect ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2, width: rect.width, height: rect.height } : null;
       })()`);
       if (!point) throw new Error(`${shot.name} could not find input selector: ${action.selector}`);
@@ -2305,7 +2373,7 @@ async function runShotActions(client, shot) {
     }
 
     if (action.type === 'mockArtifactApi' || action.type === 'mockKnowledgeSearchApi' || action.type === 'mockSessionSidebarApi' || action.type === 'mockFileRefApi'
-      || action.type === 'mockAgentStudioApi' || action.type === 'mockKnowledgeBaseApi' || action.type === 'mockMcpApi') {
+      || action.type === 'mockAgentStudioApi' || action.type === 'mockKnowledgeBaseApi' || action.type === 'mockMcpApi' || action.type === 'mockProviderApi') {
       continue;
     }
 
@@ -2391,6 +2459,28 @@ async function runShotActions(client, shot) {
         throw new Error(`${shot.name} could not find value selector: ${action.selector}`);
       }
       await wait(action.waitMs ?? 100);
+      continue;
+    }
+
+    if (action.type === 'clickText') {
+      const findElement = `(() => {
+        const element = [...document.querySelectorAll(${jsString(action.selector)})]
+          .find(item => item.textContent.trim() === ${jsString(action.text)} && !item.disabled && item.getClientRects().length);
+        if (!element) return null;
+        element.scrollIntoView({ block: 'nearest' });
+        const rect = element.getBoundingClientRect();
+        return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+      })()`;
+      const clicked = await waitForEvaluation(client, `!!${findElement}`, 5000);
+      if (!clicked) {
+        const state = await evaluate(client, `({ options: [...document.querySelectorAll('[role="option"]')].map(item => item.textContent.trim()), triggers: [...document.querySelectorAll('[role="combobox"]')].map(item => ({ id: item.id, expanded: item.getAttribute('aria-expanded') })) })`);
+        throw new Error(`${shot.name} could not find clickable text: ${action.text}; state=${JSON.stringify(state)}`);
+      }
+      const point = await evaluate(client, findElement);
+      await client.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...point });
+      await client.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: 'left', clickCount: 1 });
+      await client.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', clickCount: 1 });
+      await wait(action.waitMs ?? 250);
       continue;
     }
 
@@ -2578,7 +2668,7 @@ async function captureShot(browserPath, baseUrl, shot) {
         source: "localStorage.setItem('theme', 'light');",
       });
     }
-    await setupShotMocks(client, shot);
+    await setupShotMocks(client, shot, baseUrl);
     await client.send('Emulation.setDeviceMetricsOverride', {
       width: shot.width,
       height: shot.height,

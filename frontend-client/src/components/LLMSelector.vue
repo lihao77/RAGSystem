@@ -5,8 +5,8 @@
         <button
           type="button"
           class="llm-select-trigger"
-          :class="{ open, disabled: loading || models.length === 0 }"
-          :disabled="loading || models.length === 0"
+          :class="{ open, disabled: loading }"
+          :disabled="loading"
           :title="selectedModelTitle"
           role="combobox"
           :aria-expanded="open"
@@ -22,13 +22,24 @@
         :side="presentation === 'composer' ? 'top' : 'bottom'"
         :side-offset="8"
       >
-        <DropdownMenuItem class="llm-option" @select="selectModel('')">
-          <span class="option-copy">
-            <span class="option-label">默认</span>
-            <span class="option-sub">使用智能体配置</span>
-          </span>
-          <IconCheck v-if="!selectedModel" class="check-icon" :size="16" :stroke-width="2.5" />
-        </DropdownMenuItem>
+        <Alert v-if="hasDefaultFallback" class="mb-2 max-w-72" role="status">
+          <AlertTitle>已回落系统模型</AlertTitle>
+          <AlertDescription>
+            {{ fallbackDescription }}
+          </AlertDescription>
+        </Alert>
+        <DropdownMenuGroup>
+          <DropdownMenuItem class="llm-option" @select="selectModel('')">
+            <span class="option-copy">
+              <span class="option-label">默认</span>
+              <span class="option-sub" :title="defaultModelDescription">{{ defaultModelDescription }}</span>
+            </span>
+            <IconCheck v-if="!selectedModel" class="check-icon" :size="16" :stroke-width="2.5" />
+          </DropdownMenuItem>
+          <DropdownMenuItem v-if="hasDefaultFallback && hasTenantRole('admin')" as-child>
+            <RouterLink to="/agent-studio">检查 Agent 配置</RouterLink>
+          </DropdownMenuItem>
+        </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <!-- 点击 provider 行 = 选该 provider 的默认（首个）模型；hover 展开子菜单选具体模型 -->
         <DropdownMenuSub v-for="group in providerGroups" :key="group.key">
@@ -37,31 +48,38 @@
             <IconCheck v-if="group.selected" class="check-icon" :size="14" :stroke-width="2.5" />
           </DropdownMenuSubTrigger>
           <DropdownMenuSubContent class="llm-submenu">
-            <DropdownMenuItem
-              v-for="(m, i) in group.models"
-              :key="m.value"
-              class="llm-option"
-              @select="selectModel(m.value)"
-            >
-              <span class="option-label">{{ m.model }}</span>
-              <span v-if="i === 0" class="default-tag">默认</span>
-              <IconCheck v-if="m.value === selectedModel" class="check-icon" :size="16" :stroke-width="2.5" />
-            </DropdownMenuItem>
+            <DropdownMenuGroup>
+              <DropdownMenuItem
+                v-for="(m, i) in group.models"
+                :key="m.value"
+                class="llm-option"
+                @select="selectModel(m.value)"
+              >
+                <span class="option-label">{{ m.model }}</span>
+                <span v-if="i === 0" class="default-tag">默认</span>
+                <IconCheck v-if="m.value === selectedModel" class="check-icon" :size="16" :stroke-width="2.5" />
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
           </DropdownMenuSubContent>
         </DropdownMenuSub>
       </DropdownMenuContent>
     </DropdownMenu>
 
+    <button v-if="hasDefaultFallback" type="button" class="llm-fallback-indicator" :title="fallbackDescription" :aria-label="fallbackDescription" @click="open = !open">
+      <IconWarning :size="14" aria-hidden="true" />
+    </button>
     <div v-if="error" class="error-indicator" :title="error"><IconWarning :size="16" /></div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, onScopeDispose, watch } from 'vue';
+import { RouterLink } from 'vue-router';
 import { storeToRefs } from 'pinia';
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuSub,
@@ -71,6 +89,11 @@ import {
 } from './ui/dropdown-menu';
 import { findProviderModelByValue, getAvailableModels } from '../api/modelAdapter';
 import { useLlmStore } from '../stores/llm.js';
+import { useSessionRunStore } from '../stores/session-run.js';
+import { useDefaultLlm } from '../composables/useDefaultLlm.js';
+import { usePermission } from '../composables/usePermission.js';
+import { defaultLlmRevision } from '../api/runtimeCore.js';
+import { Alert, AlertTitle, AlertDescription } from './ui/alert';
 import IconChevronDown from './icons/IconChevronDown.vue';
 import IconCheck from './icons/IconCheck.vue';
 import IconWarning from './icons/IconWarning.vue';
@@ -85,11 +108,22 @@ defineProps({
 
 const llmStore = useLlmStore();
 const { selectedLLM: selectedModel } = storeToRefs(llmStore);
+const { currentSessionTeam, pendingEntryAgent } = storeToRefs(useSessionRunStore());
+const { llm: defaultLlm, loading: defaultLoading, refresh: refreshDefaultLlm } = useDefaultLlm(currentSessionTeam, pendingEntryAgent);
+const { hasTenantRole } = usePermission();
 
 const models = ref([]);
 const loading = ref(false);
 const error = ref('');
 const open = ref(false);
+const defaultModelDescription = computed(() => {
+  if (defaultLoading.value) return '正在解析默认模型…';
+  if (!defaultLlm.value) return '默认模型暂不可用，打开菜单可重试';
+  const { model, provider, source } = defaultLlm.value;
+  return `${model} · ${provider} · ${source === 'system_config.llm' ? '系统配置' : '智能体配置'}`;
+});
+const hasDefaultFallback = computed(() => !selectedModel.value && defaultLlm.value?.fallback_reason === 'agent_default_tier_unresolved');
+const fallbackDescription = computed(() => `Agent 默认档引用失效，已使用系统模型 ${defaultLlm.value?.model || ''}（${defaultLlm.value?.provider || ''}）。`);
 
 // 按 provider 分组（保持接口返回顺序）；组内首个模型即该 provider 的默认模型
 // （models 数组序即用户配置的优先级，首个为默认）。
@@ -117,14 +151,14 @@ const providerGroups = computed(() => {
 
 const displayText = computed(() => {
   if (loading.value) return '加载中';
+  if (!selectedModel.value) return defaultLlm.value ? `默认 · ${defaultLlm.value.model}` : '默认';
   if (models.value.length === 0) return '无可用模型';
-  if (!selectedModel.value) return '默认';
   const model = models.value.find(m => m.value === selectedModel.value);
   return model?.model || findProviderModelByValue(selectedModel.value).model || selectedModel.value;
 });
 
 const selectedModelTitle = computed(() => {
-  if (!selectedModel.value) return '默认模型（使用智能体配置）';
+  if (!selectedModel.value) return hasDefaultFallback.value ? fallbackDescription.value : `默认模型：${defaultModelDescription.value}`;
   const model = models.value.find(item => item.value === selectedModel.value);
   if (model) return `${model.model} · ${model.provider}`;
   const parsed = findProviderModelByValue(selectedModel.value);
@@ -141,11 +175,14 @@ const selectProviderDefault = (group) => {
   selectModel(group.models[0].value);
 };
 
+let modelsLoadSequence = 0;
 const loadModels = async () => {
+  const sequence = ++modelsLoadSequence;
   loading.value = true;
   error.value = '';
   try {
     const availableModels = await getAvailableModels();
+    if (sequence !== modelsLoadSequence) return;
     models.value = availableModels;
     // store 已持有保存的选择（构造时从 localStorage 恢复 / 会话恢复覆盖层）；
     // 失效时先清会话覆盖（恢复值对应的模型已下线），回落后的个人默认也失效才清全局。
@@ -163,16 +200,20 @@ const loadModels = async () => {
     invalidateIfStale();
     // 不自动选择第一个，保持默认状态由 agent 配置决定
   } catch (err) {
+    if (sequence !== modelsLoadSequence) return;
     console.error('Failed to load models:', err);
     error.value = 'Failed to load models';
   } finally {
-    loading.value = false;
+    if (sequence === modelsLoadSequence) loading.value = false;
   }
 };
 
 onMounted(() => {
   loadModels();
 });
+watch(defaultLlmRevision, loadModels);
+watch(open, (isOpen) => { if (isOpen) refreshDefaultLlm(); });
+onScopeDispose(() => { modelsLoadSequence += 1; });
 
 // 获取当前选择（store 单源）
 const getSelection = () => selectedModel.value;
@@ -186,6 +227,18 @@ defineExpose({ getSelection });
   display: inline-flex;
   align-items: center;
   gap: 8px;
+}
+
+.llm-fallback-indicator {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 4px;
+  color: var(--color-warning);
+  border-radius: var(--control-radius);
+}
+.llm-fallback-indicator:focus-visible {
+  outline: 2px solid var(--color-border-focus);
 }
 
 /* 触发按钮（pill） */

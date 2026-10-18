@@ -3,6 +3,7 @@
  */
 
 import { http } from './http.js';
+import { invalidateDefaultLlm } from './runtimeCore.js';
 
 const API_BASE = '/api/system-config';
 
@@ -18,9 +19,12 @@ export async function getSystemConfig() {
 
 export async function updateSystemConfig(data) {
   const result = await http.patch(`${API_BASE}`, data);
+  invalidateDefaultLlm();
   return result.data;
 }
 
 export async function reloadSystemConfig() {
-  return http.post(`${API_BASE}/reload`);
+  const result = await http.post(`${API_BASE}/reload`);
+  invalidateDefaultLlm();
+  return result;
 }

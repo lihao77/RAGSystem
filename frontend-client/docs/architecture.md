@@ -4,6 +4,20 @@
 
 The frontend is a Vue 3 + Vite application. Chat execution is driven by the session WebSocket and Pinia stores. ECharts renders chart presentations.
 
+## Default Model Resolution
+
+The model and thinking selectors resolve the effective default through `/api/agent/runtime-core/status`, scoped by team and entry Agent. The frontend preserves the model's `source` and `fallback_reason`: a broken Agent default tier shows a warning next to the model selector, explains the system-model fallback in its menu, and offers administrators an Agent configuration link. Normal inheritance from the system configuration has no warning; an explicit model selection hides the default-tier warning. Missing references are never presented as available models.
+
+Resolution requests share a bounded cache with a 30-second TTL. Successful Provider, Agent, team and system configuration mutations, or Agent draft publication, invalidate it and refresh mounted selectors. Failed mutations preserve the cache. A response started before invalidation resolves against the current cache rather than restoring the old configuration; component request sequences also prevent late responses from replacing a newer team/Agent selection. Opening the model menu retries unavailable resolution and refreshes expired results.
+
+## Markdown Rendering Safety
+
+Raw Markdown HTML remains disabled. Custom code-block headers escape language names in both their visible title and copy-button attributes, including file code previews. Code highlighting and the encoded original copy payload retain their existing behavior. Regression tests include malicious fence language tags and attribute-breaking language strings.
+
+## Provider Browser Regression
+
+`screenshot:smoke` covers inline Provider creation on desktop and mobile, endpoint/model editing followed by reload, deletion, and model test results. Each of these scenarios intercepts all `/api/` calls with an isolated in-memory API; mutations and model tests never reach a real Provider or backend. The same fixture verifies fallback warnings on desktop/mobile and their removal after an explicit model selection.
+
 ## Shell Layout
 
 The chat shell is three columns on a single background: the sidebar (collapsed state persisted under `sidebarCollapsed`, width `--sidebar-width`), the conversation card, and the run workbench card. Only the conversation and the workbench are cards — the sidebar deliberately paints no surface of its own, so it reads as part of the window background. The shell keeps a `--shell-gap` (the smallest spacing step) padding on all sides, and the seam between the conversation card and the workbench is the workbench's own resize handle, so the two cards are separated by exactly that gap. Below the 900px overlay breakpoint the sidebar becomes a drawer, the shell drops its padding, the conversation card goes full-bleed, and the workbench becomes a right-side drawer instead of a third column.

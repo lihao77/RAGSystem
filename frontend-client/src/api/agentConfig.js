@@ -3,6 +3,7 @@
  */
 
 import { http } from './http.js';
+import { invalidateDefaultLlm } from './runtimeCore.js';
 
 const API_BASE = '/api/agent-config';
 
@@ -25,6 +26,7 @@ export async function getTeams() {
 export async function createTeam(payload) {
   try {
     const result = await http.post(`${API_BASE}/teams`, payload);
+    invalidateDefaultLlm();
     return result.data || result;
   } catch (error) {
     console.error('Error creating team:', error);
@@ -35,6 +37,7 @@ export async function createTeam(payload) {
 export async function activateTeam(teamName) {
   try {
     const result = await http.post(`${API_BASE}/teams/${encodeURIComponent(teamName)}/activate`);
+    invalidateDefaultLlm();
     return result.data || result;
   } catch (error) {
     console.error('Error activating team:', error);
@@ -45,6 +48,7 @@ export async function activateTeam(teamName) {
 export async function deleteTeam(teamName) {
   try {
     const result = await http.del(`${API_BASE}/teams/${encodeURIComponent(teamName)}`);
+    invalidateDefaultLlm();
     return result.data || result;
   } catch (error) {
     console.error('Error deleting team:', error);
@@ -57,6 +61,7 @@ export async function renameTeam(teamName, newTeamName) {
     const result = await http.patch(`${API_BASE}/teams/${encodeURIComponent(teamName)}/rename`, {
       new_team_name: newTeamName
     });
+    invalidateDefaultLlm();
     return result.data || result;
   } catch (error) {
     console.error('Error renaming team:', error);
@@ -70,6 +75,7 @@ export async function copyAgentsToTeam(teamName, sourceTeam, agentNames) {
       source_team: sourceTeam,
       agent_names: agentNames
     });
+    invalidateDefaultLlm();
     return result.data || result;
   } catch (error) {
     console.error('Error copying agents to team:', error);
@@ -121,6 +127,7 @@ export async function getAgentConfig(agentName, teamName) {
 export async function updateAgentConfig(agentName, payload, teamName) {
   try {
     const result = await http.put(`${API_BASE}/configs/${encodeURIComponent(agentName)}${teamQuery(teamName)}`, payload);
+    invalidateDefaultLlm();
     return result.data || result;
   } catch (error) {
     console.error('Error updating agent config:', error);
@@ -136,6 +143,7 @@ export async function updateAgentConfig(agentName, payload, teamName) {
 export async function deleteAgent(agentName, teamName) {
   try {
     const result = await http.del(`/api/agent/agents/delete/${encodeURIComponent(agentName)}${teamQuery(teamName)}`);
+    invalidateDefaultLlm();
     return result;
   } catch (error) {
     console.error('Error deleting agent:', error);
@@ -181,6 +189,7 @@ export async function exportAgentConfig(agentName, { format = 'yaml' } = {}) {
 export async function createAgent(payload, teamName) {
   try {
     const result = await http.post(`/api/agent/agents/create${teamQuery(teamName)}`, payload);
+    invalidateDefaultLlm();
     return result.data || result;
   } catch (error) {
     console.error('Error creating agent:', error);

@@ -59,12 +59,13 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { Brain } from 'lucide-vue-next';
 import { Popover, PopoverTrigger, PopoverContent } from './ui/popover';
 import { describeThinkingForModel, findProviderModelByValue } from '../api/modelAdapter';
-import { fetchDefaultLlm } from '../api/runtimeCore';
+import { useDefaultLlm } from '../composables/useDefaultLlm.js';
+import { defaultLlmRevision } from '../api/runtimeCore.js';
 import { useLlmStore } from '../stores/llm.js';
 import { useThinkingStore } from '../stores/thinking.js';
 import { useSessionRunStore } from '../stores/session-run.js';
@@ -90,6 +91,7 @@ const thinkingStore = useThinkingStore();
 const { thinkingLevel } = storeToRefs(thinkingStore);
 const sessionRunStore = useSessionRunStore();
 const { currentSessionTeam, pendingEntryAgent } = storeToRefs(sessionRunStore);
+const { llm: defaultLlm } = useDefaultLlm(currentSessionTeam, pendingEntryAgent);
 
 const capability = ref({ kind: 'none', levels: [] });
 const open = ref(false);
@@ -117,15 +119,14 @@ const loadCapability = async () => {
   // "默认"状态按入口 Agent（会话实际入口或用户选择）默认 tier 解析出的实际模型取
   // 能力（与执行路径同源），解析不出（未配置/接口失败）时保持隐藏；显式选择按所选
   // 模型取能力。
-  const defaultLlm = selectedLLM.value
-    ? null
-    : await fetchDefaultLlm(currentSessionTeam.value, pendingEntryAgent.value);
-  const next = await describeThinkingForModel(selectedLLM.value, defaultLlm);
+  const resolvedDefault = defaultLlm.value;
+  const selection = selectedLLM.value;
+  const next = await describeThinkingForModel(selection, resolvedDefault);
   if (seq !== capabilityLoadSeq) return;
   capability.value = next;
   // 默认态且默认模型解析失败只是暂时拿不到能力（网络抖动/接口异常），不应据此清掉
   // 用户档位；显式模型路径维持失效清理（模型能力是确定事实）。
-  if (!selectedLLM.value && !defaultLlm) return;
+  if (!selection && !resolvedDefault) return;
   // 已保存档位不在当前模型能力集内（模型不支持思考，或开关型存的 on 换到分级模型）
   // 时丢弃覆盖，避免静默携带后端会拒收的档位。会话恢复值失效先清覆盖层，
   // 回落后的个人默认也失效才清全局；走 discardStaleDefault——自动清理不是
@@ -139,11 +140,7 @@ const loadCapability = async () => {
   }
 };
 
-onMounted(loadCapability);
-watch(selectedLLM, loadCapability);
-watch([currentSessionTeam, pendingEntryAgent], () => {
-  if (!selectedLLM.value) loadCapability();
-});
+watch([selectedLLM, defaultLlm, defaultLlmRevision], loadCapability, { immediate: true });
 </script>
 
 <style scoped>

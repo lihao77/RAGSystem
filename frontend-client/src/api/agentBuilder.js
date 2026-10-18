@@ -1,4 +1,5 @@
 import { http } from './http.js';
+import { invalidateDefaultLlm } from './runtimeCore.js';
 
 const API_BASE = '/api/agent-builder';
 
@@ -34,5 +35,6 @@ export async function publishAgentDraft(id, expectedRevision) {
   const result = await http.post(`${API_BASE}/drafts/${encodeURIComponent(id)}/publish`, {
     expected_revision: expectedRevision,
   });
+  invalidateDefaultLlm();
   return result.data || result;
 }
