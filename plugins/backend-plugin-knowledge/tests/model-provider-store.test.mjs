@@ -3,7 +3,6 @@ import test from "node:test";
 import { createRequire } from "node:module";
 
 import { SqliteKnowledgeModelProviderStore } from "../dist/storage/local/model-provider-store.js";
-import { POSTGRES_KNOWLEDGE_CONFIG_MIGRATIONS } from "../dist/storage/postgres/knowledge-config-schema.js";
 
 const require = createRequire(import.meta.url);
 const { DatabaseSync } = require("node:sqlite");
@@ -48,11 +47,4 @@ test("自管 Provider 存储：CRUD + keepExistingApiKey 语义", async () => {
 
   await store.deleteProvider("t1", "bce");
   assert.equal(await store.getProvider("t1", "bce"), null);
-});
-
-test("Postgres 迁移含 knowledge_model_providers（v4）", () => {
-  const v4 = POSTGRES_KNOWLEDGE_CONFIG_MIGRATIONS.find((migration) => migration.name === "knowledge_model_providers");
-  assert.ok(v4);
-  assert.ok(v4.sql.includes("CREATE TABLE IF NOT EXISTS knowledge_model_providers"));
-  assert.ok(v4.sql.includes("CHECK (kind IN ('embedding', 'rerank'))"));
 });

@@ -96,7 +96,6 @@
 
       <div class="sidebar-footer">
         <SceneSwitcher />
-        <UserMenu />
         <button
           class="footer-toggle-btn"
           :title="isChatRoute ? '管理中心' : '返回聊天'"
@@ -196,7 +195,6 @@ import { destroyFrontendChatSdk, getFrontendChatSdk } from '../composables/chatS
 import { PanelLeftClose, PanelLeftOpen } from 'lucide-vue-next';
 import { IconLogo, IconChevronLeft, IconNewConversation } from '../components/icons';
 import { Button } from '../components/ui/button';
-import UserMenu from '../components/UserMenu.vue';
 import SceneSwitcher from '../components/SceneSwitcher.vue';
 import SessionList from '../components/session-list/SessionList.vue';
 import WorkspaceFileNav from '../components/workspace/WorkspaceFileNav.vue';

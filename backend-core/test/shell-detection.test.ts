@@ -63,9 +63,9 @@ describe("host shell detection override", () => {
     expect(["bash", "cmd"]).toContain(detected.shellKind);
   });
 
-  it("describeShellEnvironment keeps SaaS on POSIX regardless of override", () => {
+  it("describeShellEnvironment keeps Sandbox on POSIX regardless of override", () => {
     setHostShellOverrideResolver(() => ({ type: "cmd" }));
-    const env = describeShellEnvironment("saas");
+    const env = describeShellEnvironment("sandbox");
     expect(env.platform).toBe("linux");
     expect(env.shellSyntax).toBe("posix");
   });

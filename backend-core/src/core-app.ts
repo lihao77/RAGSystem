@@ -8,8 +8,6 @@ import { ZodError } from "zod";
 import "./fastify-context.js";
 
 import { resolveProfileFromSettings, type AppEnv } from "./config/env.js";
-import type { ControlPlane } from "./contracts/control-plane/index.js";
-import type { DeploymentProfile } from "./identity/types.js";
 import type { DeploymentRuntime } from "./app/deployment-runtime.js";
 import type { BackendPlugin } from "./plugins/backend-plugin.js";
 import type { CapabilityProvider } from "./plugins/capability-registry.js";
@@ -22,7 +20,6 @@ import {
   type AuthRuntime,
 } from "./app/route-assembly.js";
 import { HttpError, formatError } from "./utils/errors.js";
-import { createSessionTokenService, type SessionTokenService } from "./services/runtime/session-token-service.js";
 import { AuthError, type IdentityProvider } from "./services/identity/index.js";
 export interface CoreBuildAppOptions {
   env: AppEnv;
@@ -44,29 +41,9 @@ export async function buildCoreApp(options: CoreBuildAppOptions): Promise<Fastif
   const applications = deployment.applications;
   const initialProfile = resolveProfileFromSettings(await controlPlane.settings.getAll(), options.env);
   deployment.validateProfile?.(initialProfile);
-  const initialSessionTokens = deployment.initialSessionTokens
-    ?? createSessionTokens(initialProfile.auth, options.env, controlPlane);
   const runtime: AuthRuntime = {
     profile: initialProfile,
-    sessionTokens: initialSessionTokens,
-    identityProvider: await deployment.createIdentityProvider(initialProfile.auth, initialSessionTokens),
-  };
-  const refreshProfile = async (): Promise<DeploymentProfile> => {
-    const profile = resolveProfileFromSettings(await controlPlane.settings.getAll(), options.env);
-    deployment.validateProfile?.(profile);
-    const sessionTokens = createSessionTokens(profile.auth, options.env, controlPlane);
-    const identityProvider = await deployment.createIdentityProvider(profile.auth, sessionTokens);
-    Object.assign(runtime, { profile, sessionTokens, identityProvider });
-    return profile;
-  };
-  const validateProfileSettings = (settings: Readonly<Record<string, string>>): void => {
-    const profile = resolveProfileFromSettings(settings, options.env);
-    try {
-      deployment.validateProfile?.(profile);
-      createSessionTokens(profile.auth, options.env, controlPlane);
-    } catch (error) {
-      throw new HttpError(400, "invalid_configuration", error instanceof Error ? error.message : "目标 profile 配置无效");
-    }
+    identityProvider: await deployment.createIdentityProvider(initialProfile.auth),
   };
   const routedIdentityProvider: IdentityProvider = {
     resolve: (request, scope) => runtime.identityProvider.resolve(request, scope),
@@ -200,8 +177,6 @@ export async function buildCoreApp(options: CoreBuildAppOptions): Promise<Fastif
     env: options.env,
     controlPlane,
     runtime,
-    refreshProfile,
-    validateProfileSettings,
     emitPluginEvent: (event, payload) => pluginManager.emit(event, payload),
     pluginRoutes: pluginManager.routes("public"),
     pluginRouteHost,
@@ -246,16 +221,6 @@ export async function buildCoreApp(options: CoreBuildAppOptions): Promise<Fastif
   await pluginManager.start();
 
   return app;
-}
-
-function createSessionTokens(authMode: string, env: AppEnv, controlPlane: ControlPlane): SessionTokenService | undefined {
-  if (authMode !== "password") return undefined;
-  const secret = env.sessionJwtSecret;
-  if (!secret) throw new Error("password 模式必须配置 SESSION_JWT_SECRET");
-  return createSessionTokenService(secret, {
-    isSessionRevoked: (tenantId, jti) => controlPlane.sessions.isRevoked(tenantId, jti),
-    revokeSession: (jti) => controlPlane.sessions.revoke(jti),
-  }, env.sessionTokenTtlHours ?? 168);
 }
 
 function registerFrontendFallback(app: FastifyInstance): void {

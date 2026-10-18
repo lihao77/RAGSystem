@@ -1,15 +1,7 @@
----
-status: current
-audience: operator
-source: backend-ts/src/identity, backend-ts/src/routes, backend-ts/src/config/env.ts
-verified_at: 2026-07-18
----
+# 本地访问边界
 
-# 安全基线
+本地用户使用隐式身份，具有宿主机文件和工具权限。面向本人使用的部署可将 BACKEND_TS_HOST 设为 127.0.0.1，并按需要配置 CORS_ORIGINS。
 
-- 生产显式设置 `CORS_ORIGINS`。
-- 强随机设置 `SESSION_JWT_SECRET`，并配置 `WIDGET_JWT_KEY_RING`。
-- SaaS 不使用宿主机 local execution。
-- Widget secret 只在服务端保存，publishable key 配合 Origin 白名单。
-- 工具默认人工审批，限制 Bash/代码执行路径、超时和输出。
-- 备份和恢复必须同时覆盖 SQLite 数据库与知识源 blob。
+多场景通过独立运行时和数据目录隔离内容。Widget 保留独立凭证、来源白名单和会话归属校验；secret 保存在服务端。工具审批、路径授权、超时和输出限制继续生效。
+
+插件与后端进程权限相同。数据备份同时覆盖 SQLite、配置和文件内容。

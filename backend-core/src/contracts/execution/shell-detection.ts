@@ -137,14 +137,14 @@ function bashLabel(executable: string): string {
 }
 
 /**
- * 提示词"运行环境"段的数据源：local 用宿主探测结果，saas 恒为沙箱 Linux。
- * 显式传入 detected 供测试注入；缺省在 local 分支内现取（saas 不触发探测）。
+ * 提示词"运行环境"段的数据源：local 用宿主探测结果，sandbox 恒为沙箱 Linux。
+ * 显式传入 detected 供测试注入；缺省在 local 分支内现取（sandbox 不触发探测）。
  */
 export function describeShellEnvironment(
-  deploymentKind: "local" | "saas",
+  deploymentKind: "local" | "sandbox",
   detected?: HostShellInfo,
 ): ShellEnvironment {
-  if (deploymentKind === "saas") {
+  if (deploymentKind === "sandbox") {
     return {
       platform: "linux",
       shellLabel: "沙箱 shell（POSIX）",

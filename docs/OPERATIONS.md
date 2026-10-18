@@ -2,11 +2,10 @@
 
 ## 当前主链路 / Mainline
 
-日常开发与 CI 使用三分后端（`backend-core` / `backend-local` / `backend-saas`）、`frontend-client` 和根 npm workspace。需要 Node.js 22.5+。
+日常开发与 CI 使用本地后端（`backend-core` / `backend-local`）、`frontend-client` 和根 npm workspace。需要 Node.js 22.5+。
 
 - `backend-core`：共享路由、服务与领域逻辑，不直接启动
 - `backend-local`：本地/桌面入口（SQLite），日常开发默认使用
-- `backend-saas`：SaaS 入口（PostgreSQL/S3 多租户）
 
 ```bash
 npm ci
@@ -25,7 +24,6 @@ Windows PowerShell 可使用 `Copy-Item` 代替 `cp`。
 npm run dev:backend-local
 ```
 
-SaaS 入口对应 `npm run dev:backend-saas`（需先准备 PostgreSQL 与对象存储，见 `backend-saas/README.md`）。
 
 - 默认地址：`http://localhost:5002`
 - 配置：`BACKEND_TS_HOST`、`BACKEND_TS_PORT`、`PORT`、`RAG_DATA_ROOT`（环境变量名沿用历史命名，实际由 backend-local 读取）
@@ -47,7 +45,7 @@ Windows 下也可在仓库根目录运行 `start_server.bat` 同时启动前后�
 
 ## 运行时配置 / Runtime Configuration
 
-正式配置位于 `<data-root>/config`，默认 `<data-root>` 为 `~/.ragsystem`：
+场景配置位于 `<data-root>/tenants/<scene-id>/config`，默认 `<data-root>` 为 `~/.ragsystem`：
 
 - `app/config.yaml`
 - `agents/team_index.yaml`

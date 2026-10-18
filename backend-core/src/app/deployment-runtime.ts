@@ -4,7 +4,6 @@ import type { ControlPlane } from "../contracts/control-plane/index.js";
 import type { RouteOptions } from "../routes/route-options.js";
 import type { IdentityProvider } from "../services/identity/index.js";
 import type { RuntimeContainerRegistry } from "../services/runtime/runtime-container-registry.js";
-import type { SessionTokenService } from "../services/runtime/session-token-service.js";
 import type { WsTicketService } from "../services/runtime/ws-ticket-service.js";
 import type { BackendPluginResourceContribution, BackendRuntimeContributions } from "../plugins/backend-plugin.js";
 import type { EntityLifecyclePublisher } from "../contracts/runtime/entity-lifecycle-events.js";
@@ -24,7 +23,7 @@ export interface DeploymentApplicationResolvers {
 
 /**
  * Complete deployment composition consumed by the shared HTTP application.
- * Implementations belong to backend-local or backend-saas; shared code must not
+ * Implementations belong to backend-local; core code must not
  * inspect storage modes or instantiate infrastructure adapters.
  */
 /** 宿主提供给部署组合的服务：领域服务经此发布实体生命周期事件到插件总线。 */
@@ -37,7 +36,6 @@ export interface DeploymentRuntime {
   readonly applications: DeploymentApplicationResolvers;
   readonly wsTickets: WsTicketService;
   readonly hostResources?: readonly BackendPluginResourceContribution[];
-  readonly initialSessionTokens?: SessionTokenService;
   validateProfile?(profile: DeploymentProfile): void;
   createRegistry(
     logger: FastifyBaseLogger,
@@ -46,7 +44,6 @@ export interface DeploymentRuntime {
   ): RuntimeContainerRegistry | Promise<RuntimeContainerRegistry>;
   createIdentityProvider(
     authMode: string,
-    sessionTokens: SessionTokenService | undefined,
   ): IdentityProvider | Promise<IdentityProvider>;
   close(): Promise<void>;
 }

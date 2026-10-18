@@ -31,7 +31,7 @@ function createApplication(renames: Array<{ workspaceId: string; displayName: st
   return application as unknown as SessionApplication;
 }
 
-async function createApp(deploymentKind: "local" | "saas") {
+async function createApp(deploymentKind: "local") {
   const renames: Array<{ workspaceId: string; displayName: string }> = [];
   const application = createApplication(renames);
   const app = Fastify();
@@ -70,17 +70,9 @@ describe("workspace rename route", () => {
     }
   });
 
-  it("masks root_path on non-local deployments and returns 404 for missing workspaces", async () => {
-    const { app } = await createApp("saas");
+  it("returns 404 for missing workspaces", async () => {
+    const { app } = await createApp("local");
     try {
-      const masked = await app.inject({
-        method: "PATCH",
-        url: "/api/agent/workspaces/workspace-alpha",
-        payload: { display_name: "renamed" },
-      });
-      expect(masked.statusCode).toBe(200);
-      expect(masked.json().data.root_path).toBeNull();
-
       const missing = await app.inject({
         method: "PATCH",
         url: "/api/agent/workspaces/workspace-missing",

@@ -1,119 +1,28 @@
-# 配置参考
+# 本地配置
 
-配置分为三层：进程环境变量、`RAG_DATA_ROOT` 下的 YAML/JSON 运行时配置，以及租户/Agent 的业务配置。解析入口是 `backend-ts/src/config/env.ts`，未知环境变量会被 schema 丢弃。
-
-## 1. 加载优先级
-
-```text
-process.env（最高）
-  > cwd/.env（只补充不存在的键）
-  > schema 默认值
-```
-
-`.env` 由后端手动读取，不支持 Vite 的完整 dotenv 语法；空行和 `#` 注释跳过，首尾引号去除。生产环境建议通过进程管理器或容器注入 secret。
-
-## 2. 环境变量完整清单
-
-| 变量 | 默认值 | 可选值/格式 | 作用 |
-|---|---|---|---|
-| `BACKEND_TS_HOST` | `0.0.0.0` | host | HTTP 监听地址 |
-| `BACKEND_TS_PORT` | `5002` | 1-65535 | 监听端口，优先于 `PORT` |
-| `PORT` | 无 | 1-65535 | 端口回退 |
-| `BACKEND_TS_LOG_LEVEL` | `info` | pino level | 日志级别 |
-| `CORS_ORIGINS` | 空=全开 | 逗号分隔 URL | CORS 白名单 |
-| `RAG_DATA_ROOT` | `~/.ragsystem` | 绝对/相对路径 | 数据、配置、上传和租户根目录 |
-| `WIDGET_JWT_KEY_RING` | 未启用 | JSON key ring | 启用 Widget app/JWT |
-| `SESSION_JWT_SECRET` | 未启用 | secret | `AUTH_MODE=password` 的 session token |
-| `SESSION_TOKEN_TTL_HOURS` | `168` | 正数 | session JWT TTL |
-| `DEPLOYMENT_MODE` | `local` | local/saas/enterprise | 部署 profile |
-| `AUTH_MODE` | `local` | local/password/oidc | 身份认证方式 |
-| `TENANCY_MODE` | `single` | single/multi | 单租户/多租户 |
-| `EXECUTION_MODE` | `local` | local/docker/remote | 工具/代码执行位置 |
-| `SANDBOX_REMOTE_URL` | 无 | HTTP(S) URL | `EXECUTION_MODE=remote` 的沙箱服务地址 |
-| `SANDBOX_REMOTE_TOKEN` | 无 | bearer token | 后端访问远程沙箱的凭据 |
-| `SANDBOX_REQUEST_TIMEOUT_MS` | `30000` | 正整数 | 沙箱 HTTP 请求基础超时 |
-| `SANDBOX_LEASE_TIMEOUT_SECONDS` | `900` | 正整数 | 单个 run 沙箱 lease 超时 |
-| `STORAGE_MODE` | `sqlite` | sqlite/sqlite-per-tenant/postgres | 存储 profile |
-| `CONTROL_STORAGE_MODE` | `sqlite`（Local）/`postgres`（SaaS compose） | sqlite/postgres | Control Plane 存储选择 |
-| `CONTROL_DATABASE_URL` | 无 | PostgreSQL connection URL | `CONTROL_STORAGE_MODE=postgres` 的独立连接串，不复用 Memory 配置 |
-| `CONTROL_SECRET_MASTER_KEY` | 无 | base64 encoded 32-byte key | PostgreSQL Control v2 envelope 的独立主密钥；不得由数据库密码或 JWT secret 派生 |
-| `WIDGET_JWT_KEY_RING` | 无 | JSON key ring | 可选的共享 Widget JWT active/previous key 配置；签发使用 active，验证允许未过期 previous |
-| `DATABASE_URL` | 无 | PostgreSQL connection URL | PostgreSQL Memory 连接串 |
-| `POSTGRES_POOL_MAX` | `10` | 正整数 | PostgreSQL Memory pool 上限 |
-| `UI_MODE` | `local` | local/saas | 前端运行模式 |
-| `ALLOW_UNSAFE_LOCAL_EXECUTION` | `false` | true/false | 允许 SaaS profile 使用宿主机执行 |
-
-### Profile 约束
-
-标准 Local 后端只接受 `DEPLOYMENT_MODE=local` + `EXECUTION_MODE=local`；标准 SaaS 后端只接受 `DEPLOYMENT_MODE=saas` + `EXECUTION_MODE=remote`。SaaS 还必须配置 PostgreSQL、S3 对象存储和远程沙箱，缺少任一依赖时启动直接失败。
-
-`CONTROL_STORAGE_MODE` 与 `STORAGE_MODE` 是两个独立选择轴。前者只控制 tenant/user/membership/settings/auth session/audit 等 Control Plane 数据，后者当前控制 Memory。Local 未设置 `CONTROL_STORAGE_MODE` 时始终使用 SQLite。
-
-PostgreSQL Control Plane 的 schema、Bot/Widget adapter、cron lease 和 AES-GCM envelope 已有独立边界。启用 `CONTROL_STORAGE_MODE=postgres` 时必须同时提供 `CONTROL_DATABASE_URL` 与独立的 `CONTROL_SECRET_MASTER_KEY`。系统开发阶段不提供 Local 数据导入兼容，使用 PostgreSQL 时直接初始化当前 schema。
-
-设置 `WIDGET_JWT_KEY_RING` 后，格式为 `{"active":{"kid":"v2","secret":"..."},"previous":[{"kid":"v1","secret":"...","expiresAt":4102444800}]}`。所有实例必须使用同一 ring。
-
-## 3. 常用配置组合
-
-### 本地开发
-
-```dotenv
-BACKEND_TS_PORT=5002
-RAG_DATA_ROOT=./.ragsystem
-DEPLOYMENT_MODE=local
-AUTH_MODE=local
-TENANCY_MODE=single
-EXECUTION_MODE=local
-STORAGE_MODE=sqlite
-CONTROL_STORAGE_MODE=sqlite
-```
-
-### SaaS 最小基线
-
-```dotenv
-DEPLOYMENT_MODE=saas
-AUTH_MODE=password
-TENANCY_MODE=multi
-EXECUTION_MODE=remote
-STORAGE_MODE=postgres
-CONTROL_STORAGE_MODE=postgres
-DATABASE_URL=postgres://ragsystem:ragsystem@localhost:5432/ragsystem
-CONTROL_DATABASE_URL=postgres://ragsystem:ragsystem@localhost:5432/ragsystem
-CONTROL_SECRET_MASTER_KEY=replace-with-base64-32-byte-key
-OBJECT_STORAGE_MODE=s3
-OBJECT_STORAGE_BUCKET=ragsystem
-OBJECT_STORAGE_ENDPOINT=https://s3.example.com
-OBJECT_STORAGE_ACCESS_KEY_ID=replace-with-access-key
-OBJECT_STORAGE_SECRET_ACCESS_KEY=replace-with-secret-key
-SANDBOX_REMOTE_URL=https://sandbox.example.com
-SANDBOX_REMOTE_TOKEN=replace-with-random-token
-SESSION_JWT_SECRET=replace-with-random-secret
-WIDGET_JWT_KEY_RING={"active":{"kid":"v1","secret":"replace-with-a-32-byte-secret"},"previous":[]}
-CORS_ORIGINS=https://console.example.com
-```
-
-## 4. 运行时配置文件
-
-路径均相对 `RAG_DATA_ROOT`，可由 `SystemConfigService` 查看/更新的配置以 `/api/system-config/schema` 为准：
-
-| 文件/目录 | 消费模块 | 内容 |
-|---|---|---|
-| `system/config.yaml` 或 app config | `SystemConfigService` | document extraction、system、memory、tools、context |
-| `config/model_adapter/providers.yaml` | `ModelAdapterService` | Provider endpoint、model、能力和密钥引用 |
-| `config/mcp/mcp_servers.yaml` | `McpService` | MCP server、transport、自动连接 |
-| `config/daemon/daemon.yaml` | `DaemonService` | 守护任务 |
-| `config/agents/` | `AgentConfigService` | Agent/Team YAML |
-| `skills/` | `SkillLibraryService` | builtin/workspace/user skill |
-
-不同版本的路径由 service 派生，升级时应以 `/api/system-config/schema` 和源码默认值为准，不要复制旧 `.env.example`。
-
-## 5. 前端变量
+配置由进程环境、启动目录的 .env 和场景运行时文件组成。入口为 `backend-core/src/config/env.ts`，进程环境优先于 .env。
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `VITE_DEV_PORT` | `5174` | Vite 开发端口 |
-| `VITE_API_PROXY_TARGET` | `http://localhost:5001` | 开发代理；连接 TS 后端必须改为 `http://localhost:5002` |
+| BACKEND_TS_HOST | 0.0.0.0 | HTTP 监听地址 |
+| BACKEND_TS_PORT / PORT | 5002 | 端口，前者优先 |
+| BACKEND_TS_LOG_LEVEL | info | 日志级别 |
+| CORS_ORIGINS | 空 | 逗号分隔来源 |
+| RAG_DATA_ROOT | ~/.ragsystem | 本地数据根目录 |
+| BACKEND_PLUGIN_CONFIG | 产品 YAML | 自定义插件清单路径 |
+| WIDGET_JWT_KEY_RING | 无 | 可选 Widget 接入密钥，与本地用户身份无关 |
+| FRONTEND_DIST | 按启动目录解析 | 前端静态资源路径 |
 
-## 6. Secret 与安全
+部署、身份、执行和 UI 固定为 local；控制存储固定为 SQLite，文件存储固定为 filesystem。原有模式变量可省略。若保留 DEPLOYMENT_MODE / AUTH_MODE / EXECUTION_MODE / UI_MODE，必须为 local；CONTROL_STORAGE_MODE 必须为 sqlite，OBJECT_STORAGE_MODE 必须为 filesystem。不再接受 password、OIDC、远程部署、PostgreSQL 或 S3 模式值。
 
-不要把 `SESSION_JWT_SECRET`、`WIDGET_JWT_KEY_RING`、Provider API key 写入仓库或 YAML 明文。CORS 默认全开只适合本机；生产必须设置白名单。Widget 的 publishable key 可暴露，但 secret、JWT 签发和 WS ticket 必须留在服务端。
+TENANCY_MODE 的 single/multi 与 STORAGE_MODE 的 sqlite/sqlite-per-tenant 仅保留本地配置表达；多场景能力由本地场景插件提供，不需要开启登录或切换部署模式。
+
+## 运行时目录
+
+全局场景目录和当前场景设置位于 `<RAG_DATA_ROOT>/system/control.db`。每个场景使用 `<RAG_DATA_ROOT>/tenants/<scene-id>/`，其中包含 db、config、memory、skills、sessions 和 file-history 等数据。现有场景 ID 与目录保持不变。
+
+模型、Agent、MCP 与插件配置通过管理页面维护。系统启动会将历史控制库中的部署设置按形状归一为本地状态，同时保留当前场景和业务数据。
+
+## 前端
+
+VITE_DEV_PORT 默认 5174；VITE_API_PROXY_TARGET 默认 `http://localhost:5002`。首次进入无需安装或登录，GET /api/auth/me 返回当前场景的隐式用户。

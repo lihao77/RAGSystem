@@ -36,7 +36,7 @@ interface SkillRouteOptions {
 
 /**
  * Skill 库管理 HTTP 端点。
- * user_global 经 ISkillPackageStore（Local 文件 / SaaS PG+对象存储）；builtin/workspace 只读。
+ * user_global 经 ISkillPackageStore（本地目录包）；builtin/workspace 只读。
  */
 export const registerSkillRoutes: FastifyPluginAsync<SkillRouteOptions> = async (app, options) => {
   app.addHook("preHandler", async (request) => { requireTenantMember(request); });

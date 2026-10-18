@@ -5,7 +5,6 @@ import path from "node:path";
 import test from "node:test";
 
 import { MemoryStore } from "../dist/storage/local/memory-store.js";
-import { POSTGRES_MEMORY_MIGRATIONS } from "../dist/storage/postgres/schema.js";
 import { buildMemoryScopeSpecs } from "../dist/services/agent/memory/memory-prefix.js";
 
 test("memory scopes use the explicit Session Team snapshot identity", () => {
@@ -87,12 +86,4 @@ test("local Memory store restores files when publish commit loses its race", asy
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
-});
-
-test("Memory migrations own entries, candidates, revisions, and Agent config", () => {
-  const sql = POSTGRES_MEMORY_MIGRATIONS.map((migration) => migration.sql).join("\n");
-  assert.match(sql, /CREATE TABLE IF NOT EXISTS memory_entries/);
-  assert.match(sql, /CREATE TABLE IF NOT EXISTS memory_candidates/);
-  assert.match(sql, /CREATE TABLE IF NOT EXISTS memory_scope_revisions/);
-  assert.match(sql, /CREATE TABLE IF NOT EXISTS memory_agent_configs/);
 });

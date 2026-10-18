@@ -4,7 +4,6 @@ import {
   Book,
   BrainCircuit,
   Database,
-  Landmark,
   Layers,
   LayoutGrid,
   Plug,
@@ -12,8 +11,6 @@ import {
   Radio,
   Settings,
   SquarePlus,
-  UserRound,
-  Users,
   Workflow,
 } from 'lucide-vue-next';
 
@@ -21,11 +18,6 @@ export const IconAdminCenter = LayoutGrid;
 export const IconPluginView = Puzzle;
 
 export const adminNavGroups = [
-  {
-    key: 'platform',
-    label: '平台管理',
-    description: '跨租户运营、用户治理与平台支持。',
-  },
   {
     key: 'agent-runtime',
     label: 'Agent 运行',
@@ -44,27 +36,6 @@ export const adminNavGroups = [
 ];
 
 export const managementNavItems = [
-  {
-    key: 'platform-tenants', mainView: 'platform-tenants', path: '/platform/tenants', label: '租户治理',
-    title: '平台租户治理', description: '跨租户查看状态，并暂停或恢复租户。', group: 'platform', requiresPlatformAdmin: true,
-    icon: Landmark,
-  },
-  {
-    key: 'platform-users', mainView: 'platform-users', path: '/platform/users', label: '用户治理',
-    title: '平台用户治理', description: '跨租户禁用用户，并授予或撤销平台管理员。', group: 'platform', requiresPlatformAdmin: true,
-    icon: UserRound,
-  },
-  {
-    key: 'members',
-    mainView: 'members',
-    path: '/members',
-    label: '成员管理',
-    title: '租户成员管理',
-    description: '查看租户成员，并按当前角色邀请、调整角色或移除成员。',
-    group: 'infrastructure',
-    requireTenantRole: 'admin',
-    icon: Users,
-  },
   {
     key: 'widget-credentials', mainView: 'widget-credentials', path: '/widget-credentials', label: 'Widget 凭证',
     title: 'Widget 凭证控制台', description: '管理 publishable key、secret、来源白名单与审计记录。', group: 'infrastructure',
@@ -196,8 +167,6 @@ export const managementNavItems = [
 ];
 
 const capabilityByNavigationKey = {
-  'tenant-switch': 'tenantSwitch',
-  billing: 'billing',
   'widget-credentials': 'widget',
 };
 
@@ -230,15 +199,4 @@ export const sidebarAdminNavItem = {
   requireTenantRole: 'admin',
   buttonClass: 'sidebar-btn-secondary',
   icon: IconAdminCenter,
-};
-
-export const sidebarPlatformNavItem = {
-  key: 'platform-center',
-  mainView: 'platform',
-  section: 'platform',
-  path: '/platform/tenants',
-  label: '平台控制台',
-  title: '跨租户治理与平台运营支持',
-  buttonClass: 'sidebar-btn-secondary',
-  icon: managementNavItems[0].icon,
 };

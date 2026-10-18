@@ -1,7 +1,7 @@
 # RAGSystem Backend Core
 
 `backend-core` is the Agent kernel and plugin host. It is not a deployable server and does not
-own Local filesystem, SQLite, SaaS PostgreSQL, sandbox, or object-storage adapters.
+own Local filesystem, SQLite, or sandbox adapters.
 
 ## Core Owns
 
@@ -20,8 +20,6 @@ own Local filesystem, SQLite, SaaS PostgreSQL, sandbox, or object-storage adapte
 
 - `backend-local`: filesystem, SQLite, local sessions, local runtime storage, host execution
   environment, and local resource injection.
-- `backend-saas`: PostgreSQL, object storage, run-scoped sandbox runtime, and SaaS session/runtime
-  adapters.
 
 Deployments inject host capabilities through typed resource tokens. Core and plugins must not
 discover deployment implementations through repository paths or concrete service imports.
@@ -36,7 +34,7 @@ discover deployment implementations through repository paths or concrete service
   Tools, Pet, Local Scenes, and Agent Builder: their respective tools, routes, persistence, and
   runtime capabilities.
 
-Each deployment's `backend.plugins.yaml` is the authoritative installed inventory; see
+`backend-local/backend.plugins.yaml` is the authoritative installed inventory; see
 [../plugins/README.md](../plugins/README.md) for the plugin contract.
 
 Sandboxing is deployment infrastructure rather than a feature plugin. Deployments expose the

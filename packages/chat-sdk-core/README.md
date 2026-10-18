@@ -3,17 +3,10 @@
 RAGSystem 的无界面 Chat SDK。它把认证后的 REST 资源管理和长期 WebSocket 会话统一到一个 client 门面中，不提供 Vue、消息列表或任何 UI。
 
 ```ts
-import { createRagChatClient, loginRagSystem } from "@ragsystem/chat-sdk-core";
-
-const auth = await loginRagSystem({
-  baseUrl: "https://rag.example.com",
-  username: "demo",
-  password: "secret",
-});
+import { createRagChatClient } from "@ragsystem/chat-sdk-core";
 
 const client = createRagChatClient({
-  baseUrl: "https://rag.example.com",
-  token: auth.token,
+  baseUrl: "http://localhost:5002",
 });
 
 const session = await client.createSession();
@@ -32,7 +25,6 @@ await client.send({ task: "总结当前会话" });
 
 ```ts
 const client = createRagChatClient({
-  token: auth.token,
   interactionHandlers: {
     approval: async () => ({ kind: "approval", approved: true }),
   },
@@ -41,7 +33,7 @@ const client = createRagChatClient({
 
 没有注册 handler 时，SDK 只发布 `interaction_request`，不会替宿主做决定。
 
-认证支持静态 `token`、动态 `getToken`、静态/动态 headers，以及自定义 `fetch` 和 WebSocket 工厂。`loginRagSystem()` 只负责调用 `/api/auth/login` 获取 session token，登录页面和 token 持久化由宿主应用负责。
+本地后端使用隐式身份，无需登录。`getIdentity()` 返回当前场景身份；SDK 保留静态 `token`、动态 `getToken` 和自定义 headers，供 Widget 等独立接入通道使用。
 
 文件下载使用 `downloadFile(sessionId, fileId)`，返回原始 `Response` 以便宿主按需读取 `blob()`、流和响应头。`fetchAsset()` 仅对与 `baseUrl` 同源的资源自动附加 Bearer token，跨域资源默认不携带 RAGSystem 凭据。
 

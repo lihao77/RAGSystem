@@ -11,9 +11,6 @@ import {
   reciprocalRankFusionScore,
   tokenize,
 } from "../dist/services/vector-store/scoring.js";
-import { POSTGRES_KNOWLEDGE_CONFIG_MIGRATIONS } from "../dist/storage/postgres/knowledge-config-schema.js";
-import { POSTGRES_KNOWLEDGE_FILE_MIGRATIONS } from "../dist/storage/postgres/knowledge-file-schema.js";
-import { POSTGRES_VECTOR_INDEX_MIGRATIONS } from "../dist/storage/postgres/vector-index-schema.js";
 
 const extractionConfig = {
   engine: "builtin",
@@ -74,17 +71,4 @@ test("builtin Knowledge extraction rejects unknown binary formats", async () => 
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
-});
-
-test("Knowledge migrations own files, indexes, model config, and Agent config", () => {
-  const sql = [
-    ...POSTGRES_KNOWLEDGE_CONFIG_MIGRATIONS,
-    ...POSTGRES_KNOWLEDGE_FILE_MIGRATIONS,
-    ...POSTGRES_VECTOR_INDEX_MIGRATIONS,
-  ].map((migration) => migration.sql).join("\n");
-  assert.match(sql, /CREATE TABLE IF NOT EXISTS knowledge_files/);
-  assert.match(sql, /CREATE TABLE IF NOT EXISTS knowledge_vector_index/);
-  assert.match(sql, /CREATE TABLE IF NOT EXISTS knowledge_vectorizers/);
-  assert.match(sql, /CREATE TABLE IF NOT EXISTS knowledge_rerankers/);
-  assert.match(sql, /CREATE TABLE IF NOT EXISTS knowledge_agent_configs/);
 });

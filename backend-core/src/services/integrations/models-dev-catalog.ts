@@ -53,7 +53,7 @@ interface DiskCachePayload {
 }
 
 export interface ModelsDevCatalogOptions {
-  /** dataRoot 已知时在 <dataRoot>/cache/ 落盘快照；缺省（SaaS）纯内存。 */
+  /** dataRoot 已知时在 <dataRoot>/cache/ 落盘快照；缺省纯内存。 */
   dataRoot?: string | undefined;
   /** 目录源地址；缺省读 RAG_MODELS_DEV_URL 环境变量（自建镜像），再退回 models.dev 官方。 */
   baseUrl?: string | undefined;

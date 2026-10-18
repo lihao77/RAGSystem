@@ -11,5 +11,3 @@ export * from "./services/widget-auth-service.js";
 export * from "./storage/local/sqlite-widget-credential-adapter.js";
 export * from "./storage/local/migrations.js";
 export * from "./storage/local/widget-credential-store/index.js";
-export * from "./storage/postgres/widget-credential-repository.js";
-export * from "./storage/postgres/migrations.js";

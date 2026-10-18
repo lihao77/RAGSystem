@@ -30,7 +30,7 @@ import { LocalSearchToolService } from "../dist/tools/LocalSearchTools/SearchExe
 import { DEFAULT_WEB_FETCH_LIMITS, WebFetchClient } from "../dist/tools/WebFetchTool/web-fetch-client.js";
 import { isPublicIpAddress, resolvePublicAddresses } from "../dist/tools/WebFetchTool/web-fetch-network.js";
 import { HTML_OMISSION_MARKER, htmlToMarkdown } from "../dist/tools/WebFetchTool/web-fetch-markdown.js";
-import { SaaSCodeExecutionService, SaaSSearchToolService } from "../dist/storage/saas/sandbox-execution-tools.js";
+import { SandboxCodeExecutionService, SandboxSearchToolService } from "../dist/storage/sandbox/sandbox-execution-tools.js";
 import { truncateTail } from "../dist/tools/CodeExecutionTool/CodeExecution.js";
 
 const descriptors = [
@@ -92,15 +92,15 @@ test("standard plugin module selects the deployment runtime without product wiri
   local.dispose();
 
   const supplied = fakeSandboxRuntime();
-  const saas = await contributions.createRuntime({
-    deploymentKind: "saas",
+  const sandbox = await contributions.createRuntime({
+    deploymentKind: "local",
     resources: [provideBackendResource(BACKEND_HOST_RESOURCES.sandboxRuntime, supplied, "test-host")],
   });
-  const saasRuntime = saas.capabilities.require(EXECUTION_TOOLS_RUNTIME_CAPABILITY);
-  assert.ok(saasRuntime.bash);
-  assert.ok(saasRuntime.code);
-  assert.ok(saasRuntime.search);
-  saas.dispose();
+  const sandboxRuntime = sandbox.capabilities.require(EXECUTION_TOOLS_RUNTIME_CAPABILITY);
+  assert.ok(sandboxRuntime.bash);
+  assert.ok(sandboxRuntime.code);
+  assert.ok(sandboxRuntime.search);
+  sandbox.dispose();
 });
 
 test("standard plugin module rejects unsupported configuration", () => {
@@ -404,7 +404,7 @@ test("search policy defaults align with ripgrep semantics and cap line previews"
   assert.equal(previewLine("short"), "short");
 });
 
-test("SaaS search adapter previews long lines and surfaces honest totals", async () => {
+test("Sandbox search adapter previews long lines and surfaces honest totals", async () => {
   const longLine = "x".repeat(3_000);
   const sandbox = {
     async glob() { return { files: ["a.txt", "b.txt"], truncated: true, totalFiles: 7 }; },
@@ -417,10 +417,10 @@ test("SaaS search adapter previews long lines and surfaces honest totals", async
       };
     },
   };
-  const saas = new SaaSSearchToolService(sandbox);
-  const context = { userId: "user-a", sessionId: "session-saas-search" };
+  const search = new SandboxSearchToolService(sandbox);
+  const context = { userId: "user-a", sessionId: "session-sandbox-search" };
 
-  const grepResult = await saas.grep({ pattern: "x" }, context);
+  const grepResult = await search.grep({ pattern: "x" }, context);
   assert.equal(grepResult.success, true, grepResult.summary);
   assert.equal(grepResult.content.total_matches, 9);
   assert.equal(grepResult.content.count, 1);
@@ -429,7 +429,7 @@ test("SaaS search adapter previews long lines and surfaces honest totals", async
   assert.ok(match.line.endsWith(" (line truncated)"));
   assert.ok(Buffer.byteLength(match.line, "utf8") < 2_100);
 
-  const globResult = await saas.glob({ pattern: "*.txt" }, context);
+  const globResult = await search.glob({ pattern: "*.txt" }, context);
   assert.equal(globResult.success, true, globResult.summary);
   assert.deepEqual(globResult.content.files, ["a.txt", "b.txt"]);
   assert.equal(globResult.content.total_files, 7);
@@ -1013,11 +1013,11 @@ test("bash syntax downgrades route to approval instead of hard block", async () 
   }
 });
 
-test("local and SaaS search adapters share todo validation and result shape", () => {
+test("local and Sandbox search adapters share todo validation and result shape", () => {
   const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-search-policy-"));
   try {
     const local = new LocalSearchToolService({ dataRoot });
-    const saas = new SaaSSearchToolService(fakeSandboxRuntime());
+    const sandbox = new SandboxSearchToolService(fakeSandboxRuntime());
     const context = { userId: "user-a", sessionId: "session-search" };
     const input = {
       todos: [
@@ -1027,22 +1027,22 @@ test("local and SaaS search adapters share todo validation and result shape", ()
     };
 
     const localResult = local.todoWrite(input, context);
-    const saasResult = saas.todoWrite(input, context);
-    assert.deepEqual(saasResult.content, localResult.content);
-    assert.equal(saasResult.summary, localResult.summary);
-    assert.deepEqual(saasResult.metadata, localResult.metadata);
+    const sandboxResult = sandbox.todoWrite(input, context);
+    assert.deepEqual(sandboxResult.content, localResult.content);
+    assert.equal(sandboxResult.summary, localResult.summary);
+    assert.deepEqual(sandboxResult.metadata, localResult.metadata);
 
     const invalid = { todos: [{ content: "invalid", status: "unknown" }] };
     assert.equal(local.todoWrite(invalid, context).success, false);
-    assert.equal(saas.todoWrite(invalid, context).success, false);
+    assert.equal(sandbox.todoWrite(invalid, context).success, false);
   } finally {
     fs.rmSync(dataRoot, { recursive: true, force: true });
   }
 });
 
-test("SaaS code adapter applies the shared timeout and risk policy", async () => {
+test("Sandbox code adapter applies the shared timeout and risk policy", async () => {
   let request = null;
-  const service = new SaaSCodeExecutionService({
+  const service = new SandboxCodeExecutionService({
     async executeCode(_context, input) {
       request = input;
       return { result: 1, stdout: "", stderr: "", returnCode: 0, interrupted: false };
@@ -1058,8 +1058,8 @@ test("SaaS code adapter applies the shared timeout and risk policy", async () =>
   assert.equal((await service.executeCode({ code: "  " }, {})).success, false);
 });
 
-test("SaaS code adapter reports sandbox crashes with stderr instead of fake success", async () => {
-  const service = new SaaSCodeExecutionService({
+test("Sandbox code adapter reports sandbox crashes with stderr instead of fake success", async () => {
+  const service = new SandboxCodeExecutionService({
     async executeCode() {
       return {
         result: null,
@@ -1082,8 +1082,8 @@ test("SaaS code adapter reports sandbox crashes with stderr instead of fake succ
   assert.match(result.summary, /进程退出码 1/);
 });
 
-test("SaaS code adapter reports timeouts with the configured seconds", async () => {
-  const service = new SaaSCodeExecutionService({
+test("Sandbox code adapter reports timeouts with the configured seconds", async () => {
+  const service = new SandboxCodeExecutionService({
     async executeCode() {
       return { result: null, stdout: "", stderr: "", returnCode: null, interrupted: true };
     },
@@ -1097,8 +1097,8 @@ test("SaaS code adapter reports timeouts with the configured seconds", async () 
   assert.equal(result.metadata.truncated, false);
 });
 
-test("SaaS code adapter truncates oversized failure output before inlining", async () => {
-  const service = new SaaSCodeExecutionService({
+test("Sandbox code adapter truncates oversized failure output before inlining", async () => {
+  const service = new SandboxCodeExecutionService({
     async executeCode() {
       return {
         result: null,

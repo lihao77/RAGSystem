@@ -37,6 +37,8 @@ export default defineConfig(({ mode, command }) => {
         output: {
           manualChunks(id) {
             const normalizedId = id.replace(/\\/g, '/')
+            // Keep the shared framework separate as account pages are removed.
+            if (/\/node_modules\/(?:@vue\/|vue\/|vue-router\/|pinia\/)/.test(normalizedId)) return 'vendor-vue'
             if (normalizedId.includes('/node_modules/zrender/')) return 'vendor-zrender'
             if (normalizedId.includes('/node_modules/@ragsystem/chat-sdk-core/')
               || normalizedId.includes('/packages/chat-sdk-core/')) return 'vendor-chat-sdk'

@@ -31,7 +31,7 @@ export type CreateSkillBundleInput = CreateSkillPackageBundleInput;
 
 /**
  * Skill 库管理服务。
- * 租户包经 ISkillPackageStore（Local 文件 / SaaS PG+对象存储）整体校验保存。
+ * 租户包经 ISkillPackageStore（本地目录包）整体校验保存。
  * builtin/workspace 只读，仍由 SkillToolService 解析。
  */
 export class SkillLibraryService {

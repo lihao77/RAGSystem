@@ -1,4 +1,4 @@
-import { computed, ref } from 'vue';
+import { ref } from 'vue';
 import { defineStore } from 'pinia';
 import { getBootstrap } from '../api/bootstrap.js';
 
@@ -8,8 +8,6 @@ export const useBootstrapStore = defineStore('bootstrap', () => {
   const installed = ref(false);
   const loaded = ref(false);
 
-  const requiresAuth = computed(() => installed.value && profile.value.auth !== 'local');
-  const needsInstall = computed(() => !installed.value);
 
   async function load(force = false) {
     if (loaded.value && !force) return profile.value;
@@ -28,8 +26,6 @@ export const useBootstrapStore = defineStore('bootstrap', () => {
     capabilities,
     installed,
     loaded,
-    requiresAuth,
-    needsInstall,
     load,
   };
 });

@@ -8,8 +8,6 @@ import { FilesystemSkillPackageStore, SkillAuthoringService, SkillToolService, c
 import { BackendPluginManager } from "@ragsystem/backend-core/plugins/plugin-manager.js";
 import { listAgentCapabilityProviders } from "@ragsystem/backend-core/plugins/agent-capability-provider.js";
 import { SkillLibraryService } from "../dist/services/skill-library-service.js";
-import { SaaSSkillPackageStore } from "../dist/storage/postgres/package-store.js";
-import { runPostgresSkillPackageMigrations } from "../dist/storage/postgres/migrations.js";
 import { createSkillAuthoringAuthorization } from "../dist/authoring-authorization.js";
 import { registerSkillRoutes } from "../dist/routes.js";
 import { BACKEND_HOST_RESOURCES } from "@ragsystem/backend-core/plugins/host-resources.js";
@@ -83,22 +81,6 @@ test("metadata discovery preserves workspace/global/builtin precedence and legac
   assert.equal(tools.loadAllSkills()[0].skillDir, path.join(root, "skills/example"));
 });
 
-test("SaaS metadata discovery does not download objects or materialize packages", async (t) => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "skill-metadata-saas-"));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  const store = new SaaSSkillPackageStore("tnt_a", {
-    async list(tenantId) {
-      assert.equal(tenantId, "tnt_a");
-      return [{ skill_name: "example", description: "Metadata only", content: "Body", metadata: { ragsystem_requires_tools: "execute_code" } }];
-    },
-    async withSnapshot() { assert.fail("discovery must not load bundle snapshots"); },
-  }, { async get() { assert.fail("discovery must not download objects"); } }, path.join(root, "cache"));
-  const tools = new SkillToolService({ dataRoot: root, builtinSkillsRoot: path.join(root, "builtin"), packageStore: store });
-  assert.deepEqual((await store.listMetadata())[0].requires, { tools: ["execute_code"] });
-  assert.equal((await tools.listAvailableSkillsAsync())[0].description, "Metadata only");
-  assert.equal(fs.existsSync(path.join(root, "cache")), false);
-  assert.equal(tools.loadAllSkills()[0].description, "Metadata only");
-});
 
 test("activation returns only the selected live package without execution snapshots", async (t) => {
   const { root, store, tools } = fixture(t);
@@ -255,107 +237,4 @@ test("HTTP bundle writes/delete require admin; builtin editing stays forbidden",
   assert.equal((await app.inject({ method: 'PUT', url: '/api/skills/example/bundle', headers: { 'x-role': 'admin' }, payload: input() })).statusCode, 403);
   assert.equal((await app.inject({ method: 'PUT', url: '/api/skills/custom/bundle', headers: { 'x-role': 'owner' }, payload: input(bundle('custom', 'custom')) })).statusCode, 200);
   assert.equal((await app.inject({ method: 'POST', url: '/api/skills/drafts', headers: { 'x-role': 'admin' }, payload: { name: 'retired' } })).statusCode, 404);
-});
-
-test("SaaS stages immutable objects before commit and preserves ambiguous commits", async (t) => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'skills-saas-')); t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  const objects = new Map(), garbage = new Set(); let state = null, fail = false, loseAcknowledgement = false, supersede = false;
-  const repo = {
-    async saveBundle(data) {
-      if ((state?.row.content_hash ?? null) !== data.expectedRevision) throw Object.assign(new Error('conflict'), { statusCode: 409 });
-      for (const file of data.files) assert.ok(objects.has(file.objectKey), 'all bytes must exist before metadata becomes visible');
-      const supersededObjectKeys = state ? state.files.map((file) => file.object_key) : [];
-      state = { row: { skill_name: data.bundle.name, description: data.bundle.description, content: data.bundle.content, metadata: data.bundle.metadata, content_hash: data.contentHash, package_prefix: data.packagePrefix },
-        files: data.files.map((file) => ({ relative_path: file.relativePath, object_key: file.objectKey, content_type: file.contentType })) };
-      for (const key of supersededObjectKeys) garbage.add(key);
-      if (loseAcknowledgement) {
-        if (supersede) state.row.package_prefix = 'a-later-commit';
-        throw new Error("lost commit acknowledgement");
-      }
-      return state.row;
-    },
-    async snapshot() { return structuredClone(state); },
-    async withSnapshot(_tenantId, _name, consume) { return state ? consume(structuredClone(state)) : null; },
-    async enqueueGarbage(_tenantId, keys) { for (const key of keys) garbage.add(key); },
-    async reclaimGarbage(_tenantId, remove) { for (const key of garbage) { await remove(key); garbage.delete(key); } },
-    async deletePackage(_tenantId, _name, expectedRevision) {
-      if (!state) return false;
-      if (state.row.content_hash !== expectedRevision) throw Object.assign(new Error('conflict'), { statusCode: 409 });
-      const objectKeys = state.files.map((file) => file.object_key);
-      state = null;
-      for (const key of objectKeys) garbage.add(key);
-      return true;
-    },
-  };
-  const store = new SaaSSkillPackageStore('tnt_a', repo, {
-    async put(key, body) { if (fail && key.endsWith('data.bin')) throw new Error('upload failed'); objects.set(key, Buffer.from(body)); },
-    async get(key) { return objects.has(key) ? { body: objects.get(key), metadata: {} } : null; },
-    async delete(key) { objects.delete(key); },
-  }, root);
-  await store.createBundle(bundle());
-  const old = structuredClone(state), oldKeys = [...objects.keys()];
-  const first = await store.readBundle('example');
-  fail = true;
-  await assert.rejects(store.saveBundle(bundle('new'), first.revision), /upload failed/);
-  assert.deepEqual(state, old); assert.deepEqual([...objects.keys()], oldKeys);
-  fail = false; await store.saveBundle(bundle('new'), first.revision);
-  assert.notEqual(state.row.content_hash, first.revision);
-  assert.ok(oldKeys.every((key) => !objects.has(key)), 'retired objects are reclaimed once readers have finished');
-  const after = [...objects.keys()];
-  await assert.rejects(store.saveBundle(bundle('stale'), first.revision), { statusCode: 409 });
-  assert.deepEqual([...objects.keys()], after);
-  loseAcknowledgement = true;
-  await store.saveBundle(bundle('acknowledgement lost'), state.row.content_hash);
-  assert.ok(state.files.every((file) => objects.has(file.object_key)));
-  assert.match((await store.readBundle('example')).bundle.content, /acknowledgement lost/);
-  supersede = true;
-  await assert.rejects(store.saveBundle(bundle('superseded before acknowledgement'), state.row.content_hash), /lost commit acknowledgement/);
-  assert.ok(state.files.every((file) => objects.has(file.object_key)), 'an ambiguous superseded commit must retain in-flight bytes');
-  loseAcknowledgement = false; supersede = false;
-  const previousKeys = state.files.map((file) => file.object_key);
-  await store.saveBundle(bundle('reclaim cycle'), state.row.content_hash);
-  assert.ok(oldKeys.every((key) => !objects.has(key)), 'superseded bytes are reclaimed');
-  assert.ok(state.files.every((file) => objects.has(file.object_key)), 'the live revision stays readable');
-  const liveKeys = state.files.map((file) => file.object_key);
-  assert.ok(previousKeys.every((key) => !objects.has(key)), 'obsolete objects need no extra save cycle');
-  await store.delete('example', state.row.content_hash);
-  assert.equal(state, null);
-  assert.ok(liveKeys.every((key) => !objects.has(key)) && previousKeys.every((key) => !objects.has(key)), 'delete reclaims the live and pending objects');
-});
-
-test("postgres migration history converges from the retired draft era; fresh and current databases are untouched", async () => {
-  function fakeExecutor(historyRows) {
-    const statements = [];
-    const tx = {
-      async query(sql) {
-        if (sql.startsWith("SELECT version,name")) return { rows: structuredClone(historyRows) };
-        statements.push(sql);
-        return { rows: [], rowCount: 0 };
-      },
-    };
-    return { executor: { transaction: async (operation) => operation(tx) }, statements };
-  }
-  const draftEra = [
-    { version: 1, name: "tenant_skill_packages" },
-    { version: 2, name: "agent_configs" },
-    { version: 3, name: "skill_drafts" },
-    { version: 4, name: "skill_draft_names" },
-  ];
-  const upgraded = fakeExecutor(draftEra);
-  assert.deepEqual((await runPostgresSkillPackageMigrations(upgraded.executor)).applied_versions, [5]);
-  assert.ok(upgraded.statements.some((sql) => sql.includes("DROP TABLE IF EXISTS saas_skill_drafts")));
-  assert.ok(upgraded.statements.some((sql) => sql.includes("DELETE FROM ragsystem_skill_package_schema_migrations")));
-  const halfStruck = fakeExecutor([...draftEra.slice(0, 2), draftEra[3]]);
-  assert.deepEqual((await runPostgresSkillPackageMigrations(halfStruck.executor)).applied_versions, [5]);
-  const fresh = fakeExecutor([]);
-  assert.deepEqual((await runPostgresSkillPackageMigrations(fresh.executor)).applied_versions, [1, 2, 5]);
-  assert.ok(!fresh.statements.some((sql) => sql.includes("saas_skill_drafts") && !sql.includes("DROP TABLE IF EXISTS saas_skill_drafts")));
-  const current = fakeExecutor([...draftEra.slice(0, 2), { version: 5, name: "skill_object_garbage" }]);
-  assert.deepEqual((await runPostgresSkillPackageMigrations(current.executor)).applied_versions, []);
-  assert.ok(current.statements.some((sql) => sql.includes('CREATE TABLE IF NOT EXISTS saas_skill_object_garbage')), 'repair missing table even when migration is recorded');
-  assert.equal((await runPostgresSkillPackageMigrations(current.executor)).current_version, 5);
-  await assert.rejects(
-    runPostgresSkillPackageMigrations(fakeExecutor([{ version: 1, name: "tenant_skill_packages" }, { version: 2, name: "rogue" }]).executor),
-    /invalid PostgreSQL skill package migration history/,
-  );
 });

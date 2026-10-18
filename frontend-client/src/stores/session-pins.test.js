@@ -1,11 +1,34 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createPinia, setActivePinia } from 'pinia';
+import { nextTick } from 'vue';
+import { useAuthStore } from './auth.js';
 import { useSessionListStore } from './session-list.js';
 import { MAX_PINNED_SESSIONS, normalizePinnedSessionIds } from './session-list-hydration.js';
 
 const key = 'ragsystem:pinned-sessions:local:local';
 const item = id => ({ session_id: id, title: id, first_message: '', last_message: '', activity_at: '2026-09-15T00:00:00Z', unread_count: 0, origin: { type: 'direct', channel: 'web', id: null, display_name: '直接对话' }, workspace: null });
+
+test('local identity preserves default-scene pins and isolates other scenes', async (t) => {
+  localStorage.clear();
+  localStorage.setItem(key, JSON.stringify(['legacy']));
+  setActivePinia(createPinia());
+  const auth = useAuthStore();
+  const store = useSessionListStore();
+  t.after(() => { store.dispose(); store.$dispose(); localStorage.clear(); });
+  store.upsert(item('legacy'));
+  assert.deepEqual(store.pinnedItems.map(entry => entry.session_id), ['legacy']);
+  auth.tenantId = 'tnt_work';
+  await nextTick();
+  assert.deepEqual(store.pinnedItems, []);
+  store.togglePin(item('work'));
+  assert.deepEqual(JSON.parse(localStorage.getItem(key)), ['legacy']);
+  assert.deepEqual(JSON.parse(localStorage.getItem('ragsystem:pinned-sessions:tnt_work:usr_local')), ['work']);
+  auth.tenantId = 'tnt_local';
+  await nextTick();
+  store.upsert(item('legacy'));
+  assert.deepEqual(store.pinnedItems.map(entry => entry.session_id), ['legacy']);
+});
 
 test('pin preferences normalize missing, malformed and partially edited shapes idempotently', () => {
   for (const [input, expected] of [

@@ -8,12 +8,12 @@ import {
 import type { FileEditHistoryPort } from "../contracts/file-history-store/index.js";
 import type { RunSandboxRuntime } from "../contracts/sandbox/sandbox-provider.js";
 
-export type BackendDeploymentResource = { kind: "local" | "saas" };
+export type BackendDeploymentResource = { kind: "local" };
 export interface BackendToolPolicyResource {
   readonly executionToolsEnabled: boolean;
 }
 
-/** Typed host capabilities exposed by Local/SaaS without depending on individual plugins. */
+/** Typed host capabilities exposed by the local host without depending on individual plugins. */
 export const BACKEND_HOST_RESOURCES = Object.freeze({
   deployment: createBackendResourceToken<BackendDeploymentResource>("ragsystem.host.deployment", "ragsystem.backend-core"),
   controlPlane: createBackendResourceToken<unknown>("ragsystem.host.control-plane", "ragsystem.backend-core"),

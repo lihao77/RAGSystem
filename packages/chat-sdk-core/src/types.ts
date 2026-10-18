@@ -10,8 +10,6 @@ import type { WebSocketFactory } from "./websocket-transport.js";
 
 export type RagChatEndpointName =
   | "identity"
-  | "logout"
-  | "switchTenant"
   | "createSession"
   | "listSessions"
   | "getSession"
@@ -84,15 +82,6 @@ export interface RagChatClientOptions {
 export type RagChatInteractionHandler = (
   request: PendingInteraction,
 ) => InteractionResponse | Promise<InteractionResponse>;
-
-export interface RagChatLoginOptions {
-  baseUrl?: string;
-  username: string;
-  password: string;
-  endpoint?: string;
-  fetch?: typeof fetch;
-  headers?: Record<string, string>;
-}
 
 export interface ListSessionsOptions {
   sessionIds?: readonly string[];

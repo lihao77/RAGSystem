@@ -39,7 +39,7 @@ const SessionTeamSnapshotObjectSchema = z.object({
  *    revision 是按落库原形状（可能含重复工具名）算的，去重会让锚点失配、快照永久不可读。
  * 2. 重锚定：若库内 team_revision 恰等于退役名形状的哈希（存量快照的落库锚点），改写为
  *    现名形状的哈希。revision 从此始终等于 parse 结果内容的内容哈希，superRefine 保持
- *    单哈希严格校验，下游（run-engine 身份比对、SaaS createSession 冲突检测）比较原文即可一致。
+ *    单哈希严格校验，下游（run-engine 身份比对、createSession 冲突检测）比较原文即可一致。
  *    revision 与退役名哈希不符的（真正被篡改的）原样透传，交 superRefine 拒绝。
  */
 export const SessionTeamSnapshotSchema = z.preprocess(normalizeSnapshotAgentsShape, SessionTeamSnapshotObjectSchema.superRefine((snapshot, context) => {

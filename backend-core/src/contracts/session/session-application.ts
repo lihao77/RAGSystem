@@ -32,7 +32,7 @@ export class SessionItemNotFoundError extends Error {
 /**
  * Execution-only session port.  Unlike SessionApplication this intentionally
  * contains only the operations used while launching a run.  Implementations
- * may be fully asynchronous (for example the SaaS PostgreSQL adapter).
+ * may be fully asynchronous (including plugin-backed storage).
  */
 export interface ExecutionSessionPort {
   getSession(sessionId: string): Promise<SessionInfo | null>;
@@ -73,7 +73,7 @@ export interface SessionParticipantRunSummary {
   updated_at: string;
 }
 
-/** Request-scoped session use cases shared by Local and SaaS deployments. */
+/** Request-scoped session use cases for local scenes. */
 export interface SessionApplication extends MessageRequestStatusPort, MessageRequestCancellationPort {
   ensureSession(input: SessionIdentity): Promise<void>;
   createSession(input: SessionCreateInput): Promise<SessionInfo>;

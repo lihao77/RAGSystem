@@ -36,7 +36,7 @@ const EXTENSION_MEDIA_TYPES: Record<string, string> = {
 
 /**
  * 扩展名点必然是路径最后一个点，`path.extname` 在 win32（`\` 与 `/`）与 posix 上结果一致；
- * 输入可能是 Local 的绝对路径（含反斜杠）或 SaaS 的 `/`-only 相对路径，均可正确取到扩展名。
+ * 输入可能是 本地绝对路径（含反斜杠）或 `/`-only 相对路径，均可正确取到扩展名。
  */
 export function inferMimeType(filePath: string): string {
   return EXTENSION_MEDIA_TYPES[path.extname(filePath).toLowerCase()] ?? "application/octet-stream";

@@ -6,7 +6,7 @@
 
 1. 准备 Node.js 22.5+ 和 npm。
 2. 在仓库根目录执行 `npm ci`，并按 [README.md](README.md) 配置 `backend-local/.env` 与 `frontend-client/.env`。
-3. 启动后端：`npm run dev:backend-local`（SaaS 入口为 `npm run dev:backend-saas`）
+3. 启动后端：`npm run dev:backend-local`
 4. 启动前端：`cd frontend-client && npm run dev`
 
 ## 提交前检查 / Before opening a PR

@@ -10,7 +10,11 @@ export function useSessionPins(items, getClient) {
   const revisions = new Map();
   const markUpdated = id => revisions.set(id, (revisions.get(id) || 0) + 1);
   let controller = null;
-  const storageKey = computed(() => `ragsystem:pinned-sessions:${encodeURIComponent(auth.tenantId || 'local')}:${encodeURIComponent(auth.user?.id || 'local')}`);
+  const storageKey = computed(() => {
+    // 默认场景沿用历史键；其他场景按真实身份隔离，避免切换后清掉另一场景的置顶。
+    if (auth.tenantId === 'tnt_local' && auth.user?.id === 'usr_local') return 'ragsystem:pinned-sessions:local:local';
+    return `ragsystem:pinned-sessions:${encodeURIComponent(auth.tenantId || 'local')}:${encodeURIComponent(auth.user?.id || 'local')}`;
+  });
 
   const persist = () => {
     ids.value = normalizePinnedSessionIds(ids.value);

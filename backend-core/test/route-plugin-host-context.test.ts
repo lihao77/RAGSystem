@@ -73,15 +73,12 @@ describe("plugin route install context host", () => {
       controlPlane: stubControlPlane(),
       runtime: {
         profile,
-        sessionTokens: undefined,
         identityProvider: {
           resolve: async () => {
             throw new Error("public-scope plugin routes must not resolve identity");
           },
         },
       },
-      refreshProfile: async () => profile,
-      validateProfileSettings: () => undefined,
       pluginRoutes: [hostConsumerRoute(captured)],
       pluginRouteHost: host,
     });
@@ -108,13 +105,10 @@ describe("plugin route install context host", () => {
       controlPlane: stubControlPlane(),
       runtime: {
         profile,
-        sessionTokens: undefined,
         identityProvider: { resolve: async () => {
           throw new Error("not expected");
         } },
       },
-      refreshProfile: async () => profile,
-      validateProfileSettings: () => undefined,
       pluginRoutes: [hostConsumerRoute(captured)],
     });
     await app.ready();

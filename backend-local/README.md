@@ -3,6 +3,11 @@
 Local deployment composition for RAGSystem. It owns SQLite, sqlite-vec, filesystem storage,
 local identity, host execution, and the desktop/server entrypoint.
 
+The application starts with a local identity and requires no installation wizard or login.
+The Local Scenes plugin creates and switches independent scenes, each with its own
+configuration and data under `<data-root>/tenants/<scene-id>`. The default scene is
+`tnt_local`; the selected scene survives restarts.
+
 Local supplies the host execution environment directly; it does not install a sandbox feature
 plugin. Isolated execution must be provided by a deployment-level sandbox runtime.
 

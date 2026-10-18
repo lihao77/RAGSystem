@@ -30,7 +30,7 @@ export type { SystemConfigExtension } from "../../contracts/runtime/system-confi
 
 /**
  * In-process system config projection.
- * Persistence is owned by ISystemConfigStore (Local YAML / SaaS Postgres).
+ * Persistence is owned by ISystemConfigStore (Local YAML).
  * Hot-path getters stay sync; mutations and bootstrap load are async.
  */
 export class SystemConfigService {

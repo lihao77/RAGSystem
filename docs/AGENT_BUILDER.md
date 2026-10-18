@@ -25,7 +25,7 @@ Agent Builder 将自然语言中的 Agent 需求转换为可审查、可校验�
 
 ### 1. 安装并激活 Builder Team
 
-在 `backend-local/backend.plugins.yaml` 或 `backend-saas/backend.plugins.yaml` 中启用插件。租户运行时第一次初始化时，插件只在缺失时补种 `agent-builder` Team，不会覆盖用户已经修改的同名 Team，也不会改变当前生效 Team。
+在 `backend-local/backend.plugins.yaml` 中启用插件。租户运行时第一次初始化时，插件只在缺失时补种 `agent-builder` Team，不会覆盖用户已经修改的同名 Team，也不会改变当前生效 Team。
 
 用户从 Team 列表激活 `agent-builder`，然后返回聊天页与 Builder Team 对话。它包含一个编排入口 Agent，以及需求调研、能力调研、Agent 架构、评估和优化五个专职 Agent。入口 Agent 会按工作流委派这些子 Agent，汇总结果后创建或更新一个 Draft。管理员仍可直接进入 Agent 配置页修改当前 Team，不需要经过 Builder Draft 流程。
 
@@ -111,7 +111,7 @@ Builder 的受管 Skill 编写指令同步为激活加通用工具，加载历�
 
 Skill 不再维护持久化草稿、发布状态或自动发布配置。系统尚无用户存量，因此不提供旧草稿的迁移、备份和恢复入口。Skill 导出/导入使用完整文件包，导入后先在编辑器中检查，再保存生效。Agent/Team 草稿流程不受影响。
 
-包保存采用内容版本并发检查。Local 用 SQLite 锁协调同步文件替换，读取时恢复中断替换，并按内容版本保留执行快照；SaaS 先上传不可变对象，再事务切换元数据与文件索引。SaaS 共享读锁覆盖对象下载，保存/删除等读取结束后将旧对象加入持久化回收队列；删除失败、重启后均继续重试，提交结果未知时保留暂存对象。执行已物化到本地的快照继续可用。
+包保存采用内容版本并发检查。本地使用 SQLite 锁协调同步文件替换，读取时幂等恢复中断替换。读取与激活返回保存目录，源文件更新按现有激活协议生效。
 
 管理员直接修改 Team 配置时，插件会把线上配置同步回同一个 `published` Draft（蓝图中 `instructions` 是提示词唯一来源，`custom_params.behavior.system_prompt` 不再双写）。删除 Team 后，如果关联 Draft 仍存在，它会清空 `source_team_name` 并恢复为可编辑的 `draft`；草稿也可以单独删除，不影响线上 Team。线上 Team 后续再次被修改时，系统会重新创建一份 `published` Draft。
 
@@ -141,7 +141,7 @@ Draft 当前保存在租户 `dataRoot` 下：
 <data-root>/agent-builder/drafts/*.json
 ```
 
-Local 与 SaaS 都使用该文件系统 Store。SaaS 的 `dataRoot` 按租户隔离，但当前的文件写入和进程内串行队列不支持多实例并发写入，也没有数据库事务或跨节点锁。因此当前实现适合单实例部署；多实例 SaaS 需要将 Store 替换为 PostgreSQL 实现，并为 Draft 更新和发布增加数据库事务。
+本地运行时使用该文件系统 Store，按场景数据目录隔离。写入由进程内队列串行处理，适用于本地单实例运行。
 
 ## 当前范围
 
@@ -150,4 +150,4 @@ Local 与 SaaS 都使用该文件系统 Store。SaaS 的 `dataRoot` 按租户隔
 - 不允许模型生成、安装或热加载后端插件代码。
 - 新 Tool 仍需由受信任的开发和部署流程实现；外部能力优先通过 MCP 接入，领域流程优先通过 Skill 复用。
 
-插件由 `backend-local/backend.plugins.yaml` 和 `backend-saas/backend.plugins.yaml` 中的 `@ragsystem/backend-plugin-agent-builder/module.js` 启用，依赖 Artifacts、MCP 与 Skills 插件先完成装载。发布生成的业务 Team 与 `agent-builder` 相互独立；管理员可在 Team 列表中激活目标 Team，Builder Team 仍保留用于下一轮构建。
+插件由 `backend-local/backend.plugins.yaml` 中的 `@ragsystem/backend-plugin-agent-builder/module.js` 启用，依赖 Artifacts、MCP 与 Skills 插件先完成装载。发布生成的业务 Team 与 `agent-builder` 相互独立；管理员可在 Team 列表中激活目标 Team，Builder Team 仍保留用于下一轮构建。

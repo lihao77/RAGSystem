@@ -27,7 +27,7 @@ export interface ExecutionReadDurablePort {
   getPersistedOverview?(activeOnly: boolean): Promise<ExecutionOverview>;
 }
 
-/** One status/read projection used by both Local and SaaS adapters. */
+/** One status/read projection used by local application adapters. */
 export class ExecutionReadProjector {
   constructor(
     private readonly live: ExecutionReadLivePort,

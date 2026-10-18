@@ -6,7 +6,6 @@ import { BackendPluginManager } from "@ragsystem/backend-core/plugins/plugin-man
 import {
   createWidgetCredentialStore,
   createWidgetPlugin,
-  runPostgresWidgetMigrations,
   SqliteWidgetCredentialAdapter,
 } from "../dist/index.js";
 
@@ -51,13 +50,6 @@ test("Widget SQLite storage owns its schema and credentials", async () => {
   assert.equal((await repository.apps.verifySecret("tnt_local", created.app_key, created.secret))?.display_name, "Demo");
   await repository.close();
   db.close();
-});
-
-test("Widget PostgreSQL migrations are owned by the plugin", async () => {
-  const statements = [];
-  await runPostgresWidgetMigrations({ query: async (sql) => { statements.push(sql); return { rows: [] }; } });
-  assert.match(statements.join("\n"), /CREATE TABLE IF NOT EXISTS control_widget_apps/);
-  assert.match(statements.join("\n"), /CREATE TABLE IF NOT EXISTS control_widget_tokens/);
 });
 
 test("Widget plugin resolves session origin labels through the generic event hook", async () => {

@@ -9,7 +9,6 @@ import { BackendPluginManager } from "@ragsystem/backend-core/plugins/plugin-man
 import { listAgentCapabilityProviders } from "@ragsystem/backend-core/plugins/agent-capability-provider.js";
 import {
   McpAgentConfigService,
-  POSTGRES_MCP_MIGRATIONS,
   SqliteMcpAgentConfigStore,
   createMcpPlugin,
   createMcpTools,
@@ -156,11 +155,4 @@ test("SQLite MCP config store persists tenant-scoped overrides", async () => {
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
-});
-
-test("PostgreSQL MCP migrations own server and agent config tables", () => {
-  const sql = POSTGRES_MCP_MIGRATIONS.map((migration) => migration.sql).join("\n");
-  assert.match(sql, /CREATE TABLE IF NOT EXISTS saas_mcp_servers/);
-  assert.match(sql, /CREATE TABLE IF NOT EXISTS mcp_agent_configs/);
-  assert.doesNotMatch(sql, /saas_provider_configs/);
 });

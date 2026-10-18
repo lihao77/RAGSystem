@@ -25,4 +25,4 @@
 
 空闲队列消费者与运行中刷新入口都会验证 Goal ID、active 状态和代次，失效行直接 settle。根运行启动事务再次校验作为输入的 Goal 续跑行，防止用户在消费检查之后暂停；暂停后重新开启不会重新消费旧代次。
 
-相关回归：`backend-core/test/goal-interruption.test.ts`、`backend-core/test/idle-notification-mailbox.test.ts`、`backend-local/test/goal-interruption.test.mjs`、`backend-saas/test/goal-interruption.test.mjs`。
+相关回归：`backend-core/test/goal-interruption.test.ts`、`backend-core/test/idle-notification-mailbox.test.ts`、`backend-local/test/goal-interruption.test.mjs`。

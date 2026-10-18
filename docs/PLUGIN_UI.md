@@ -23,7 +23,7 @@ context.runtimes.register((runtimeContext) => {
 
 扩展声明 `{ defaults, groups }`：defaults 是默认值树（组 key 支持点号嵌套语义），groups 是表单分组 schema（字段类型 boolean/number/password/select/string_list/text/textarea，见 `backend-core/src/contracts/runtime/system-config.ts`）。
 
-- **作用域**：租户级（本地版 = 每个场景独立；SaaS = 每租户独立），存储由产品适配（local YAML `config/app/config.yaml` / SaaS Postgres `saas_system_configs`）。
+- **作用域**：场景级，每个场景独立使用 YAML `config/app/config.yaml`。
 - **暴露**：`GET /api/system-config/schema` 返回的组带 `sourceExtension`（= 插件 id），前端插件设置页按它分组；`GET /api/plugins`（tenant）的 `configGroups` 字段同源。
 - **读取**：请求/操作时 `systemConfig.getSection("<组 key>")` 热读（改完即生效）；不要在工厂创建时快照（除非接受重启生效）。
 - **注册时回灌**：把 `getSection` 的当前值作为 defaults 传入，避免 rebuildProjection 丢已存值。

@@ -1,6 +1,5 @@
 import { createRagChatClient } from '@ragsystem/chat-sdk-core';
 
-import { useAuthStore } from '../stores/auth.js';
 import { getHostTool, getHostToolDeclarations } from '../utils/hostTools.js';
 
 let sharedClient = null;
@@ -10,7 +9,6 @@ let sharedClient = null;
  * caller still owns Pinia state, message projection and UI interaction.
  */
 export function createFrontendChatSdk(options = {}) {
-  const authStore = useAuthStore();
   const hostTools = getHostToolDeclarations().map((declaration) => ({
     name: declaration.name,
     description: declaration.description,
@@ -25,21 +23,10 @@ export function createFrontendChatSdk(options = {}) {
 
   const client = createRagChatClient({
     baseUrl: options.baseUrl ?? '',
-    getToken: () => authStore.token || undefined,
     ...(options.fetch ? { fetch: options.fetch } : {}),
     ...(options.createWebSocket ? { createWebSocket: options.createWebSocket } : {}),
     hostTools,
     aguiFallback: true,
-  });
-  client.on('unauthorized', async () => {
-    authStore.clear();
-    const { default: router } = await import('../router/index.js');
-    if (router.currentRoute.value.path !== '/login') {
-      await router.replace({
-        path: '/login',
-        query: { redirect: router.currentRoute.value.fullPath },
-      });
-    }
   });
   return client;
 }

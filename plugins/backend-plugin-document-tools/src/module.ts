@@ -2,7 +2,7 @@ import type { BackendPluginModule } from "@ragsystem/backend-core/plugins/backen
 
 import { createDocumentToolsPlugin, DOCUMENT_TOOLS_PLUGIN_ID } from "./plugin.js";
 import { createLocalDocumentToolsRuntimeFactory } from "./storage/local/runtime.js";
-import { createSandboxedDocumentToolsRuntimeFactory } from "./storage/saas/runtime.js";
+import { createSandboxedDocumentToolsRuntimeFactory } from "./storage/sandbox/runtime.js";
 import { findDocumentToolsSandbox } from "./resources.js";
 
 const localRuntimeFactory = createLocalDocumentToolsRuntimeFactory();
@@ -14,9 +14,7 @@ export const backendPluginModule: BackendPluginModule = {
   create({ config }) {
     assertEmptyConfig(config);
     return createDocumentToolsPlugin({
-      runtimeFactory: (context) => context.deploymentKind === "local"
-        ? (findDocumentToolsSandbox(context.resources) ? sandboxedRuntimeFactory(context) : localRuntimeFactory(context))
-        : sandboxedRuntimeFactory(context),
+      runtimeFactory: (context) => findDocumentToolsSandbox(context.resources) ? sandboxedRuntimeFactory(context) : localRuntimeFactory(context),
     });
   },
 };

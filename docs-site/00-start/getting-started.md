@@ -1,7 +1,7 @@
 ---
 status: current
 audience: user
-source: backend-core/src/core-app.ts, backend-local/src/main.ts, backend-saas/src/main.ts
+source: backend-core/src/core-app.ts, backend-local/src/main.ts
 verified_at: 2026-07-28
 ---
 
@@ -50,35 +50,7 @@ npm -w frontend-client run dev
 docker compose up -d --build
 ```
 
-## Docker 启动 SaaS
-
-`docker-compose.saas.yml` 会启动 PostgreSQL、SaaS backend 和 frontend。必须先设置至少 32 字符的 session secret：
-
-```powershell
-$env:SESSION_JWT_SECRET="replace-with-a-long-random-secret"
-docker compose -f docker-compose.saas.yml up -d --build
-```
-
-启动后：
-
-| 服务 | 地址 |
-|---|---|
-| 前端 | `http://localhost:8080` |
-| Backend | `http://localhost:5002` |
-| PostgreSQL | `localhost:5432` |
-| MinIO API | `http://localhost:9000` |
-| MinIO Console | `http://localhost:9001` |
-
-第一次打开前端时，通过安装向导创建管理员和默认租户。查看容器：
-
-```powershell
-docker compose -f docker-compose.saas.yml ps
-docker logs --tail 200 ragsystem-saas-backend
-```
-
-::: warning 多实例边界
-SaaS compose 的主要业务数据已经使用 PostgreSQL、pgvector 和 MinIO，包括 Control、Memory、Conversation、Run、Outbox、Knowledge、Artifact、Session Files 和 File History。Agent 进程内 runtime、实时事件和部分后台任务仍有单节点语义，因此不能仅凭存储切换宣称已经支持任意水平扩容。
-:::
+打开 `http://localhost:8080` 即可使用；不需要账号、安装向导或外部数据库。场景插件提供创建、切换、重命名和删除功能。
 
 ## 构建
 
@@ -86,7 +58,6 @@ SaaS compose 的主要业务数据已经使用 PostgreSQL、pgvector 和 MinIO�
 npm run build:frontend
 npm -w @ragsystem/backend-core run build
 npm -w @ragsystem/backend-local run build
-npm -w @ragsystem/backend-saas run build
 npm --prefix docs-site run build
 ```
 

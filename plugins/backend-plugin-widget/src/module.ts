@@ -1,5 +1,4 @@
 import type { DatabaseSync } from "node:sqlite";
-import type { Pool } from "pg";
 
 import type { DeploymentApplicationResolvers } from "@ragsystem/backend-core/app/deployment-runtime.js";
 import type { BackendPlugin, BackendPluginModule, BackendPluginResourceContribution } from "@ragsystem/backend-core/plugins/backend-plugin.js";
@@ -14,7 +13,6 @@ import { parseWidgetJwtKeyRing, parseWidgetJwtKeyRingValue } from "./config.js";
 import { createWidgetPlugin, WIDGET_PLUGIN_ID } from "./plugin.js";
 import { SqliteWidgetCredentialAdapter } from "./storage/local/sqlite-widget-credential-adapter.js";
 import { createWidgetCredentialStore } from "./storage/local/widget-credential-store/index.js";
-import { createPostgresWidgetCredentialRepository } from "./storage/postgres/widget-credential-repository.js";
 
 export const backendPluginModule: BackendPluginModule = {
   apiVersion: 1,
@@ -31,17 +29,9 @@ function createInstalledWidgetPlugin(keyRing: ReturnType<typeof parseWidgetJwtKe
     return requireBackendPluginResource<Value>(hostResources, token);
   };
   const base = createWidgetPlugin({
-    credentials: () => {
-      const deployment = requireHost<{ kind: "local" | "saas" }>(BACKEND_HOST_RESOURCES.deployment);
-      if (deployment.kind === "local") {
-        return new SqliteWidgetCredentialAdapter(
-          createWidgetCredentialStore(requireHost<DatabaseSync>(BACKEND_HOST_RESOURCES.controlDatabase)),
-        );
-      }
-      return createPostgresWidgetCredentialRepository({
-        pool: requireHost<Pool>(BACKEND_HOST_RESOURCES.controlDatabase),
-      });
-    },
+    credentials: () => new SqliteWidgetCredentialAdapter(
+      createWidgetCredentialStore(requireHost<DatabaseSync>(BACKEND_HOST_RESOURCES.controlDatabase)),
+    ),
     ...(keyRing ? { keyRing } : {}),
     wsTickets: () => requireHost<WsTicketService>(BACKEND_HOST_RESOURCES.wsTickets),
     applications: () => requireHost<DeploymentApplicationResolvers>(BACKEND_HOST_RESOURCES.applications),

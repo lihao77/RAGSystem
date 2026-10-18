@@ -10,8 +10,6 @@ import type {
   LocalCoreRuntimeDependencies,
   LocalRuntimeContainer,
   RuntimeContainer,
-  SaaSCoreRuntimeDependencies,
-  SaaSRuntimeContainer,
 } from "../../contracts/runtime/runtime-container.js";
 import { RuntimeInteractionCoordinator } from "./pending-interaction-service.js";
 import { PermissionPolicyService } from "./permission-policy-service.js";
@@ -25,7 +23,6 @@ import { DEFAULT_IMAGE_REQUEST_POLICY } from "../../contracts/images/image-reque
 
 /** Assemble deployment-provided services into the shared agent runtime. */
 export function createCoreRuntimeContainer(dependencies: LocalCoreRuntimeDependencies): LocalRuntimeContainer;
-export function createCoreRuntimeContainer(dependencies: SaaSCoreRuntimeDependencies): SaaSRuntimeContainer;
 export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies): RuntimeContainer {
   const {
     deploymentKind,
@@ -227,7 +224,5 @@ export function createCoreRuntimeContainer(dependencies: CoreRuntimeDependencies
     dataRoot,
     close,
   };
-  return dependencies.deploymentKind === "local"
-    ? { ...common, deploymentKind: "local", local: dependencies.capabilities, saas: null }
-    : { ...common, deploymentKind: "saas", local: null, saas: dependencies.capabilities };
+  return { ...common, deploymentKind: "local", local: dependencies.capabilities };
 }

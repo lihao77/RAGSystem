@@ -350,7 +350,7 @@ const isSoftRefreshing = computed(() => loadingInitial.value && items.value.leng
 /** 仅冷启动或筛空后的加载才用骨架 */
 const showSkeleton = computed(() => loadingInitial.value && items.value.length === 0);
 
-// 项目文件浏览依赖项目根目录（本地部署独有），SaaS 下不显示浏览按钮
+// 项目文件浏览依赖当前会话的项目根目录
 // （bootstrap.profile 是宽松形状，这里按需窄化取部署形态字段）
 const bootstrapStore = useBootstrapStore();
 const bootstrapProfile = bootstrapStore.profile as { ui?: string; deployment?: string };

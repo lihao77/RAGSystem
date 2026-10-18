@@ -4,7 +4,7 @@ import type { HostShellOverride } from "@ragsystem/backend-core/contracts/execut
 /**
  * 终端执行环境设置组（插件设置，sourceExtension 归本插件）。
  *
- * 仅影响本地 Windows 宿主的 execute_shell 与提示词"运行环境"段（同源）；SaaS/沙箱
+ * 仅影响本地 Windows 宿主的 execute_shell 与提示词"运行环境"段（同源）；Sandbox/沙箱
  * 运行时固定 POSIX，不消费本组。值经 shell-detection 的惰性覆盖 resolver 生效，
  * 设置变更后无需重启。
  */
@@ -19,7 +19,7 @@ export function createExecutionToolsSystemConfigExtension(): SystemConfigExtensi
       {
         key: EXECUTION_SHELL_CONFIG_GROUP_KEY,
         label: "终端执行环境",
-        description: "execute_shell 在本地 Windows 宿主使用的终端类型；SaaS/沙箱运行时固定 POSIX，不适用",
+        description: "execute_shell 在本地 Windows 宿主使用的终端类型；Sandbox/沙箱运行时固定 POSIX，不适用",
         fields: [
           {
             key: "shell_type",

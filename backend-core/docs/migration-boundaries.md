@@ -23,7 +23,7 @@ Concrete Core service classes are internal composition details, not plugin integ
 
 ## Host Boundary
 
-Local and SaaS adapters own deployment state and inject it through typed `BackendResourceToken`
+Local adapters own deployment state and inject it through typed `BackendResourceToken`
 values. A resource has one declared owner and one provider. Plugins must resolve resources by the
 token contract and must not inspect deployment paths or import host adapter classes.
 
@@ -53,5 +53,5 @@ Before adding a cross-domain dependency:
 1. Identify the owning domain.
 2. Define the smallest semantic contract under `backend-core/src/contracts`.
 3. Inject the contract through a runtime port or typed resource token.
-4. Keep Local/SaaS construction in deployment adapters.
+4. Keep Local construction in deployment adapters.
 5. Add a focused contract or lifecycle test and run the backend typecheck/test commands.

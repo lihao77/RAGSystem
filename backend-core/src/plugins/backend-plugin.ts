@@ -232,7 +232,7 @@ export interface PluginUserMessageTransformerRegistrar {
 }
 
 export interface BackendPluginRuntimeContext {
-  readonly deploymentKind: "local" | "saas";
+  readonly deploymentKind: "local";
   readonly tenantId: TenantId;
   readonly dataRoot: string;
   /**

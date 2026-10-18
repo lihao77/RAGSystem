@@ -2,7 +2,7 @@
 
 中文 | [English](README.en.md)
 
-RAGSystem 是一个面向多智能体协作场景的 Agent-first 全栈项目，主链路由 Fastify/TypeScript 后端与 Vue 3 前端组成。仓库当前聚焦于 ReAct 编排、多 Agent 执行、Skill 化能力收敛、WebSocket 实时交互、Memory 与 Hook 系统、MCP 集成，以及面向运行时目录的配置驱动 Agent 系统。
+RAGSystem 是一个专注本地运行、支持多场景和多智能体协作的 Agent-first 全栈项目，主链路由 Fastify/TypeScript 后端与 Vue 3 前端组成。仓库当前聚焦于 ReAct 编排、多 Agent 执行、Skill 化能力收敛、WebSocket 实时交互、Memory 与 Hook 系统、MCP 集成，以及面向运行时目录的配置驱动 Agent 系统。
 
 ## 核心能力
 
@@ -14,7 +14,7 @@ RAGSystem 是一个面向多智能体协作场景的 Agent-first 全栈项目，
 - 配置化运行：支持 Agent Team、模型提供方、MCP 服务与向量化器的运行时配置
 - 可视化前端：聊天、执行过程、运行工作台、Agent 编排、MCP 管理、知识库、模型管理、Skill 库与系统配置页面
 
-安装 Agent Builder 插件后，每个租户会得到可激活的 `agent-builder` Team。用户可在 Agent 编排页（`/agent-studio`）激活它并返回聊天，由专职 Agent 协作完成需求调研、能力分析、架构、评估与调优；管理员再审查 Draft，并发布或持续更新同名业务 Team。完整流程见 [Agent Builder](docs/AGENT_BUILDER.md)。
+安装 Agent Builder 插件后，每个场景会得到可激活的 `agent-builder` Team。用户可在 Agent 编排页（`/agent-studio`）激活它并返回聊天，由专职 Agent 协作完成需求调研、能力分析、架构、评估与调优；管理员再审查 Draft，并发布或持续更新同名业务 Team。完整流程见 [Agent Builder](docs/AGENT_BUILDER.md)。
 
 ## 界面预览
 
@@ -40,7 +40,6 @@ RAGSystem 是一个面向多智能体协作场景的 Agent-first 全栈项目，
 .
 ├── backend-core/             # 共享路由、服务、领域逻辑与契约
 ├── backend-local/            # SQLite、filesystem、本地身份与桌面入口
-├── backend-saas/             # PostgreSQL、S3、多租户与 SaaS 入口
 ├── frontend-client/          # Vue 3 前端与执行可视化
 ├── docs/                     # 仓库正式文档中心
 └── .github/                  # GitHub 模板与工作流
@@ -71,11 +70,11 @@ cp frontend-client/.env.example frontend-client/.env
 
 TypeScript 后端从运行时目录读取配置；模型 Provider、MCP Server、向量化器与 Agent Team 配置可通过前端管理页面写入。
 
-后端插件完全由 `backend-local/backend.plugins.yaml` 或 `backend-saas/backend.plugins.yaml` 声明模块、启停、顺序和初始化参数；第三方插件通常只需安装 npm 包并修改对应 YAML。完整格式和插件模块契约见 [后端插件配置](docs/BACKEND_PLUGIN_CONFIG.md)。
+后端插件完全由 `backend-local/backend.plugins.yaml` 声明模块、启停、顺序和初始化参数；第三方插件通常只需安装 npm 包并修改对应 YAML。完整格式和插件模块契约见 [后端插件配置](docs/BACKEND_PLUGIN_CONFIG.md)。
 
 - 默认运行时数据根目录：`~/.ragsystem`
 - 若设置 `RAG_DATA_ROOT`，则运行时数据根目录变为 `<RAG_DATA_ROOT>`
-- 主要运行时配置文件位于 `<data-root>/config`：
+- 每个场景的运行时配置文件位于 `<data-root>/tenants/<scene-id>/config`，默认场景 ID 为 `tnt_local`：
   - `app/config.yaml`
   - `agents/team_index.yaml`
   - `agents/teams/*.yaml`
@@ -113,33 +112,7 @@ Local 模式使用默认 compose：
 docker compose up --build
 ```
 
-Hybrid SaaS 测试模式使用独立 compose。启动前在仓库根目录的 `.env` 中配置三个独立随机密钥：
-
-```dotenv
-SESSION_JWT_SECRET=replace-with-a-long-random-secret
-CONTROL_SECRET_MASTER_KEY=replace-with-a-base64-encoded-32-byte-key
-SANDBOX_REMOTE_TOKEN=replace-with-an-independent-long-random-token
-```
-
-然后构建并启动：
-
-```bash
-docker compose -f docker-compose.saas.yml up --build
-```
-
-前端地址为 `http://localhost:8080`，首次访问通过安装向导创建管理员和默认租户。SaaS compose 使用独立的 `ragsystem-saas-data`、`ragsystem-saas-postgres` 和对象存储 volumes，不会读取默认 Local compose 的数据。
-
-该 compose 会同时启动沙箱控制面与执行镜像。Backend 不挂载 Docker Socket；只有沙箱控制面可以创建一次性执行容器。每个 lease 使用独立 named volumes，执行容器默认禁网、只读根文件系统、非 root 用户、移除 capabilities，并限制内存、CPU 与 PID。上传文件会通过租户存储复制到该 lease 的只读输入卷，不会直接挂载宿主机 workspace、upload 等目录。
-
-默认 Docker `runc` 配置适合单机开发与可信/半可信任务的租户文件隔离，但不能视为针对恶意代码的生产级内核隔离。生产环境应将沙箱部署到独立 Linux 节点，安装 gVisor 或 Kata Containers，并通过 `SANDBOX_DOCKER_RUNTIME=runsc`（或相应 Kata runtime）启用；不要将沙箱控制端口暴露到公网。远程部署还必须使用 HTTPS，并移除 `SANDBOX_ALLOW_INSECURE_HTTP`。
-
-停止但保留数据：
-
-```bash
-docker compose -f docker-compose.saas.yml down
-```
-
-该配置仍是单机 SaaS 开发拓扑，不是完整的多节点高可用部署。尤其是 Docker Socket 控制面、沙箱容量调度、磁盘配额和 gVisor/Kata 节点需要在生产环境单独规划。
+打开 `http://localhost:8080` 即可使用，无需安装向导或登录。通过场景插件创建和切换独立的工作场景。
 
 ### 6. 构建 Windows 安装包
 

@@ -400,7 +400,7 @@ export class AsyncKernelEventPersister {
   }
 
   async persist(event: KernelEvent): Promise<void> {
-    // 租约续期由 20s 心跳与终局 ensureRunLease 承担；逐事件续期会让 SaaS 每个流式
+    // 租约续期由 20s 心跳与终局 ensureRunLease 承担；逐事件续期会让每个流式
     // 事件多一次 DB 写。这里只做失败闩的零成本检查——心跳一旦判定丢租约，下一事件即失败。
     this.throwIfLeaseLost();
     if (event.type === "tool_result") {

@@ -1,7 +1,7 @@
 import { http } from '../api/http.js';
 
 /**
- * 原生 <img> 无法附带 SaaS Bearer token。对同源 /api 资源先走统一 HTTP client
+ * 对同源 /api 资源先走统一 HTTP client
  * 拉取 Blob，再交给浏览器对象 URL 渲染；blob/data/普通静态资源保持直连。
  */
 export function isAuthenticatedApiUrl(value) {

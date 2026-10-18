@@ -33,7 +33,6 @@ http://localhost:8080/memory
 | 模式 | 正式 Memory 来源 | 候选与审核来源 |
 |---|---|---|
 | Local | `dataRoot/memory` 下的 Markdown 文件 | Local SQLite |
-| SaaS | PostgreSQL `memory_entries` | PostgreSQL `memory_candidates` |
 
 前端使用同一组 `/api/memory` 接口。后端通过部署适配器列出和归档正式 Memory，不会让页面直接读取文件系统或数据库。
 
@@ -101,62 +100,10 @@ write_memory(team/agent)
 
 Local 模式返回短的 opaque entry ID。该 ID 只用于管理 API 定位当前用户可见的 Markdown 条目，不是文件名或文件路径。服务端会再次校验 user/session 可见性；其他用户的个人 Memory 不会因为知道 ID 而变得可访问。
 
-## PostgreSQL 中的数据
+## 本地数据与备份
 
-Hybrid SaaS 模式下，Memory 位于 PostgreSQL：
+正式条目位于当前场景 `memory/` 下的 Markdown 文件中；共享候选与审核状态位于 `db/memory.db` 的 `memory_candidates` 表。备份应同时覆盖两者。
 
-| 表 | 作用 |
-|---|---|
-| `memory_entries` | 活跃和已归档的正式 Memory |
-| `memory_candidates` | 写入/归档候选及审核审计 |
-| `memory_scope_revisions` | scope 版本，用于上下文缓存失效 |
-| `ragsystem_memory_schema_migrations` | Memory schema 迁移版本 |
+Memory 管理页支持列出个人和共享条目、查看历史、归档个人条目，以及为 team/agent 创建归档审核候选。
 
-进入数据库：
-
-```powershell
-docker exec -it ragsystem-saas-postgres psql -U ragsystem -d ragsystem
-```
-
-常用查询：
-
-```sql
-SELECT tenant_id, scope, name, status, updated_at
-FROM memory_entries
-ORDER BY updated_at DESC;
-
-SELECT tenant_id, scope, name, operation, status, owner_user_id
-FROM memory_candidates
-ORDER BY updated_at DESC;
-
-SELECT version, name
-FROM ragsystem_memory_schema_migrations
-ORDER BY version;
-```
-
-::: tip saved: true 的含义
-个人 scope 表示已经发布；共享 scope 表示私人候选已经持久化。判断是否进入共享索引，应同时检查 `published` 或 `pending_review`。
-:::
-
-## 旧候选迁移
-
-PostgreSQL Memory schema version 4 会幂等迁移旧策略留下的 session、user、workspace publish candidates：
-
-- 创建对应 active entry；
-- 将 candidate 标记为 `approved`；
-- 保留 candidate 作为审计记录；
-- 更新 scope revision；
-- 不自动发布 team/agent candidates。
-
-## 当前限制
-
-当前 SaaS 是 Hybrid：
-
-- Memory 使用 PostgreSQL；
-- Control、身份、会话、消息、配置、知识库和文件仍主要使用租户 SQLite/本地目录；
-- Memory 管理页的 Active Entry 查询面向 PostgreSQL Memory；
-- 还不能把当前形态视为无状态、可横向扩容的完整 SaaS。
-
-Local 模式的 Memory 管理页已经可以列出个人和共享的正式条目、查看历史、直接归档个人条目，以及为 team/agent 创建归档审核候选。Local 与 SaaS 使用各自的 runtime 和存储，不提供跨模式数据导入兼容。
-
-API 请求和响应见 [Memory API](/04-api/memory)，部署边界见 [部署模式与多租户](/06-operations/deployment)。
+API 请求和响应见 [Memory API](/04-api/memory)，场景边界见 [本地部署与场景](/06-operations/deployment)。

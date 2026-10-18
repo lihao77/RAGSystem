@@ -13,7 +13,6 @@ interface BootstrapOptions {
 export const registerBootstrapRoutes: FastifyPluginAsync<BootstrapOptions> = async (app, options) => {
   app.get("/bootstrap", async () => {
     const profile = options.runtime.profile;
-    const isLocal = profile.deployment === "local";
     return {
       deployment: profile.deployment,
       auth: profile.auth,
@@ -22,12 +21,12 @@ export const registerBootstrapRoutes: FastifyPluginAsync<BootstrapOptions> = asy
       storage: profile.storage,
       ui: profile.ui,
       installed: await options.controlPlane.settings.get("installed") === "true",
-      ...(isLocal ? { platformRole: "admin" as const } : {}),
+      platformRole: "admin" as const,
       capabilities: {
-        login: !isLocal && profile.auth !== "local",
-        tenantSwitch: !isLocal && profile.tenancy === "multi",
-        members: !isLocal && profile.tenancy === "multi",
-        billing: !isLocal && profile.deployment === "saas",
+        login: false,
+        tenantSwitch: false,
+        members: false,
+        billing: false,
         localExecution: profile.execution === "local",
       },
     };

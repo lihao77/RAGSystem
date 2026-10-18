@@ -14,7 +14,7 @@ export interface IAgentConfigTeamStore {
   /**
    * Persist active team index and every team config document.
    * 可选的应用记录（迁移链中实际改动了数据的步骤）：仅随迁移回写传入，由持久层
-   * 决定落盘方式（local 写 sidecar；SaaS 当前 no-op，见 backend-core/MIGRATIONS.md）。
+   * 决定落盘方式（本地写 sidecar，见 backend-core/MIGRATIONS.md）。
    */
   saveAll(
     activeTeam: string,

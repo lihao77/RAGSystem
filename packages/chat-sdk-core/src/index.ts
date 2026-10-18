@@ -1,5 +1,4 @@
 export { RagChatClient, createRagChatClient } from "./client.js";
-export { loginRagSystem } from "./auth.js";
 export { RagChatError, RagChatHttpError } from "./errors.js";
 export { SessionAgentClient } from "./session-client.js";
 export { ChatWebSocketTransport } from "./websocket-transport.js";
@@ -9,7 +8,6 @@ export { AguiSseClient } from "./agui.js";
 
 export type {
   RagChatClientOptions,
-  RagChatLoginOptions,
   RagChatEndpointName,
   RagChatEndpointResolver,
   RagChatInteractionHandler,
@@ -59,7 +57,6 @@ export type {
 
 export type {
   AuthIdentity,
-  AuthSession,
   CreateSessionRequest,
   CreateSessionResponse,
   SessionDetailResponse,

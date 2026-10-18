@@ -9,7 +9,7 @@
 - **可退役迁移**：针对特定历史形状的一次性治理。步骤保留到宣布最低支持版本为止；
   删除旧步骤 = 放弃该历史版本直接升级的用户，必须在发布说明中显式声明。
   实际生效时由持久层随数据回写记录应用戳（local：`config/agents/.migrations.json`，
-  追加式，含 `applied_at`；SaaS 当前 no-op，见下）。应用戳仅用于排查审计，不参与
+  追加式，含 `applied_at`；本地 sidecar 记录）。应用戳仅用于排查审计，不参与
   "要不要执行"的决策——执行永远由数据形状驱动，因此跳版升级、备份恢复、手工编辑
   后的半迁移状态都能安全收敛。
 - **形态归一层**：永久的形态守卫，同时服务加载与新建/更新路径，永不退役、无应用戳。
@@ -29,7 +29,7 @@
 
 ### Skills 插件与 Builder（2026-09，直接保存 Skill）
 
-系统尚无用户存量，本次移除 Skill 草稿时不提供草稿数据迁移、归档或恢复；同时删除草稿建表步骤。存储侧收敛：SaaS postgres 启动迁移在迁移史前缀严格校验之前先退役草稿墓碑——`DROP TABLE IF EXISTS saas_skill_drafts`，并按 `(version, name)` 形状剔除迁移史中 v3 `skill_drafts` / v4 `skill_draft_names` 两行（不剔除则跑过旧版本的库在校验处启动即崩）；本地 SQLite 打开时 `DROP TABLE IF EXISTS skill_drafts` 清理孤儿表。两者均幂等、不看版本号，对未来复用 v3/v4 版本号不生效。以下步骤仅更新 Builder 的工具配置与提示词，不处理 Skill 草稿数据。
+系统尚无用户存量，本次移除 Skill 草稿时不提供草稿数据迁移、归档或恢复；同时删除草稿建表步骤。存储侧收敛：本地 SQLite 打开时 `DROP TABLE IF EXISTS skill_drafts` 清理孤儿表，幂等且不看版本号。以下步骤仅更新 Builder 的工具配置与提示词，不处理 Skill 草稿数据。
 
 | id | 针对的历史形状 | 说明 |
 | --- | --- | --- |
@@ -43,7 +43,7 @@ Skills 旧自动发布配置不再注册；系统配置已有 `project` 已知�
 
 链目标：agent 配置走 `normalizeConfig`（磁盘水合 loadTeamConfigFile 与 create/update/apply/import
 写路径全量过此函数）；会话 team 快照走 `SessionTeamSnapshotSchema` 的 preprocess
-（local mappers 与 SaaS conversation-repository 的读取汇点 `normalizeSessionTeamSnapshot`）。
+（local mappers 的读取汇点 `normalizeSessionTeamSnapshot`）。
 二者均为永久归一，无应用戳。
 
 退役工具名是**插件知识**：插件在 `BackendToolDescriptor.retired_names` 里声明历史名，
@@ -53,10 +53,10 @@ plugin-manager 注册描述符时聚合进 `tool-name-aliases` 注册表，core 
 
 | id | 归一内容 |
 | --- | --- |
-| `enabled_tools` 退役名归一（`canonicalizeEnabledToolNames` + 注册表） | 插件声明的退役名映射为现名（首个声明：执行工具插件 `execute_bash` → `execute_shell`，2026-09 更名为平台中性的 shell 执行）。配置路径保序去重；快照路径在 schema preprocess 中**逐项**改名（保留重复项、不动非字符串项——存量 revision 锚点按落库原形状计算，去重会失配致快照不可读），并当库内 `team_revision` 命中退役名形状哈希时**重锚定**为现名形状哈希——revision 恒等于 parse 结果内容的内容哈希，superRefine 单哈希严格校验不变，下游身份比较（run-engine、SaaS createSession 冲突检测）比较原文即一致 |
+| `enabled_tools` 退役名归一（`canonicalizeEnabledToolNames` + 注册表） | 插件声明的退役名映射为现名（首个声明：执行工具插件 `execute_bash` → `execute_shell`，2026-09 更名为平台中性的 shell 执行）。配置路径保序去重；快照路径在 schema preprocess 中**逐项**改名（保留重复项、不动非字符串项——存量 revision 锚点按落库原形状计算，去重会失配致快照不可读），并当库内 `team_revision` 命中退役名形状哈希时**重锚定**为现名形状哈希——revision 恒等于 parse 结果内容的内容哈希，superRefine 单哈希严格校验不变，下游身份比较（run-engine）比较原文即一致 |
 | `stripConfigManagedToolNames` | 剥离 runtime/config 接线托管的工具名与退役 workflow 工具名（task_* 等 core 自有工具），早于归一层长期存在 |
-| 存量未锚定快照 NULL 容忍与锚定回填（`hydrateSessionTeamSnapshot` + `SessionIdentityStoragePort.anchorSessionTeamSnapshot`） | 2026-08 快照特性之前落库的会话行 `team_snapshot=NULL`。读取汇点（local mappers / SaaS conversation-repository）经 `hydrateSessionTeamSnapshot` 透传 null（`SessionInfo.team_snapshot` 可空）；首次 `ensureSession` 带运行期解析的快照触达时锚定回填（UPDATE 仅命中 NULL 行，幂等），此后恢复不可变身份比对。写入端 `normalizeSessionTeamSnapshot` 仍严格拒绝 NULL。引入于 2026-09——该形状曾让飞书机器人对旧会话的所有新消息在 `rowToSession` 处 ZodError 崩溃且只余 console.error 痕迹 |
-| 存量 metadata 保留字剔除（`hydrateSessionMetadata`） | 保留字规则收紧前，自由 metadata 曾合法承载 `team`/`entry_agent` 等团队路由（今由 Session 一等字段与 team_snapshot 承载）。读取汇点与 SaaS `updateSessionMetadata` 的裸读合并处剔除保留字（其余键透传）；行在下次 metadata 回写时落盘干净形状自愈。写入端 `normalizeSessionMetadata` 仍严格拒绝保留字。引入于 2026-09——存量行的任意 metadata 合并更新曾整体崩溃（"metadata.team 是保留字段"） |
+| 存量未锚定快照 NULL 容忍与锚定回填（`hydrateSessionTeamSnapshot` + `SessionIdentityStoragePort.anchorSessionTeamSnapshot`） | 2026-08 快照特性之前落库的会话行 `team_snapshot=NULL`。读取汇点（local mappers）经 `hydrateSessionTeamSnapshot` 透传 null（`SessionInfo.team_snapshot` 可空）；首次 `ensureSession` 带运行期解析的快照触达时锚定回填（UPDATE 仅命中 NULL 行，幂等），此后恢复不可变身份比对。写入端 `normalizeSessionTeamSnapshot` 仍严格拒绝 NULL。引入于 2026-09——该形状曾让飞书机器人对旧会话的所有新消息在 `rowToSession` 处 ZodError 崩溃且只余 console.error 痕迹 |
+| 存量 metadata 保留字剔除（`hydrateSessionMetadata`） | 保留字规则收紧前，自由 metadata 曾合法承载 `team`/`entry_agent` 等团队路由（今由 Session 一等字段与 team_snapshot 承载）。读取汇点剔除保留字（其余键透传）；行在下次 metadata 回写时落盘干净形状自愈。写入端 `normalizeSessionMetadata` 仍严格拒绝保留字。引入于 2026-09——存量行的任意 metadata 合并更新曾整体崩溃（"metadata.team 是保留字段"） |
 
 ### Provider 配置（`src/services/integrations/model-adapter-hydration.ts`）
 
@@ -88,8 +88,7 @@ create/update 路径复用其中的 `canonicalizeProviderConfig` / `normalizePro
   附件管线读取，缺失或读取失败回退 stored_path 同步磁盘读，再失败降级为文字提示。
   无注册步骤、无应用戳（投影层读侧守卫，非持久层水合）。
 
-- **发送请求回执**：Local `conversation-store/message-request-ops.ts` 与 SaaS
-  `postgres/message-request-hydration.ts` 的永久形态守卫在加载存储时创建缺失的
+- **发送请求回执**：Local `conversation-store/message-request-ops.ts` 的永久形态守卫在加载存储时创建缺失的
   `session_message_requests` 表，并补齐半迁移记录表的 content/status/error/updated_at 列，
   不依赖 schema 版本。读取请求状态时，将存量 root 用户 mailbox 队列幂等补入回执表，
   独立补全缺失原文与时间，并保留已有合法状态（包括 consumed / failed 终态）；
@@ -114,31 +113,10 @@ create/update 路径复用其中的 `canonicalizeProviderConfig` / `normalizePro
   delivered_at 等显式 ISO-Z 列的混排（GC 字符串比较与 MIN 统计依赖同构格式）。
   v25 为 `session_list_projection` 增加 `title_override` 列（LLM 生成标题的持久层落点，
   投影派生仍为首条可见消息截 30 字符兜底、override 非空时优先；无数据回填，
-  存量会话维持派生标题）。SaaS 端对应变更见
-  `backend-saas/src/adapters/saas/postgres/conversation-schema.ts` v12（同语义，含触发器
-  重建保留 override 的函数改写）。
-- **SaaS 后台任务表**：`backend-saas/src/adapters/saas/postgres/background-task-schema.ts`
-  版本表 `ragsystem_background_task_schema_migrations`（编号迁移）。v2 为
-  `saas_background_tasks` 增加发起者分支两列（`initiator_thread_key` /
-  `initiator_child_agent_id`，nullable，`ADD COLUMN IF NOT EXISTS` 幂等）：完成通知
-  按发起者分支路由、goal 门控按发起者归属收窄（§10.4 第五/六轮）。历史行为 null，
-  读取侧视为 root 发起（与旧"无脑投 root/会话级忙检查"口径一致），无数据回填。
-- **SaaS run 表**：`backend-saas/src/adapters/saas/postgres/run-schema.ts` 编号迁移
-  （版本表 `ragsystem_run_schema_migrations`，advisory lock + 事务）。v12
-  `thread-current-run-index` 为 `saas_runs` 补
-  `(tenant_id, session_id, thread_key, created_at DESC, run_id DESC)` 复合索引——
-  线程闸门高频查询 `getLatestThreadRun`（§10.4 第七轮）此前只能走 session 前缀
-  索引过滤 thread_key，最坏扫会话全部 runs；与 local 端既有的
-  `idx_runs_session_thread_created` 对齐。纯索引新增，无数据变更。
-- **SaaS 文件历史表**：`backend-saas/src/adapters/saas/postgres/file-history-schema.ts`
-  版本迁移（版本表 `ragsystem_file_history_schema_migrations`，advisory lock + 事务）。
-  v2 为 `file_history_pending` 增加 `tracked_seq BIGINT`（nullable，
-  `ADD COLUMN IF NOT EXISTS` 幂等）：编辑追踪时盖会话最大消息 seq 戳，rewind 只冲刷
-  锚点之后的 pending 编辑（修复"无关回退冲掉被停止 run 工作"的事故，与 local 端
-  pending.json 的 tracked_seq 字段同语义）。历史行 NULL = 永不冲刷，等下个快照
-  边界归档，无数据回填。v3 将 `file_history_snapshots.message_seq` 放宽为
-  BIGINT（消息 seq 为跨会话全局 BIGSERIAL，INTEGER 在 2^31 后插入即溢出；
-  纯类型放宽，无数据变更）。
+  存量会话维持派生标题）。
+
+
+
 - **启动补齐（产品形态 ensure）**：default team 与 builder 保留 team 同模式——由**产品层**在启动时
   ensure（存在即跳过、不存在则 `applyTeamPayload` 创建落盘，用户改动永不覆盖）。仓库内两端组合层
   各持自己的产品模板（backend-local / backend-saas 的 `composition/default-team.ts`），桌面产品侧
@@ -146,16 +124,12 @@ create/update 路径复用其中的 `canonicalizeProviderConfig` / `normalizePro
   保留 team（`team-template.ts`，版本化迁移、形态驱动）。core 的配置服务是纯机制（存取/校验/归一/
   快照），不持有任何出厂 team 内容；不存在任何 team 时读路径按"不存在"报错，无内核兜底。
 
-## SaaS 应用戳现状
-
-`IAgentConfigTeamStore.saveAll` 的 `appliedMigrations` 可选参数对 SaaS（postgres
-jsonb 存储）当前为 no-op：不落库，审计能力仅存在于 local 装置。落 jsonb 是后续
-独立小改动，接口无需再变。
-
 ### Skill 包读取（Skills 插件存储层）
 
-永久形态守卫：Local 保持原有目录包形态，读取/写入时在同一 SQLite 锁下恢复 `.replacing-<name>` 中断替换；读取和激活返回保存目录，已移除执行快照；历史 `.runtime` 派生缓存不参与加载、不自动删除，源包目录与内容无需迁移。SaaS 读取包元数据与文件索引的事务快照；历史索引缺少 SKILL.md 时从已有 name/description/content/metadata 补齐读取内容，后续整包保存收敛。两类守卫不看 schema 版本，无应用戳。
+永久形态守卫：Local 保持原有目录包形态，读取/写入时在同一 SQLite 锁下恢复 `.replacing-<name>` 中断替换；读取和激活返回保存目录，已移除执行快照；历史 `.runtime` 派生缓存不参与加载、不自动删除，源包目录与内容无需迁移。上述守卫不看 schema 版本，无应用戳。
 
-SaaS 对象字节回收：`skill_object_garbage`（PostgreSQL schema v5）新增持久化待回收表，应用戳沿用存储层 schema migration 记录。保存/删除在持有包行排他锁的事务内，将旧对象键写入该表后替换/删除索引；读取通过 `withSnapshot` 持有共享锁直到全部字节读取完成，防止连续保存或删除破坏在途读取。对象删除成功（含已不存在）后才移除队列记录，失败记录保留并排到队尾；多实例通过 `FOR UPDATE SKIP LOCKED` 分批领取。保存/删除后、租户运行时启动时和每分钟重试，运行时销毁时停止定时器。
+### 本地控制设置（永久归一）
 
-永久 schema 归一 `normalizeSkillObjectGarbageSchema` 位于 Skills 存储层的 `object-garbage-hydration.ts`，每次启动按表/索引是否存在补齐，不以 v5 应用戳跳过，覆盖新建库、旧草稿时代库、已去草稿库及恢复后的缺表状态；无额外应用戳。旧的内存回收队列无法从数据库恢复；上传后、排队/提交前崩溃的对象和提交结果无法确认的暂存前缀仍保留（ObjectStorage 无前缀列举能力）。成功提交即使丢失确认，旧对象的回收记录也随事务持久化。
+`normalizeLocalControlSettings` 位于 `backend-local/src/adapters/local/sqlite/control-store/control-settings-hydration.ts`，启动加载时按当前数据形状将缺失、历史托管部署与半迁移设置收敛为 local/隐式身份/SQLite/已安装。仅 upsert 不同值，不检查版本、不写应用戳；保留 `local_active_tenant` 与其他设置、场景 ID、目录和会话引用。重复启动不重复写入。
+
+2026-10-18 退役 SaaS 产品及 PostgreSQL 存储侧迁移；历史实现与清单位于备份分支 `backup-local-and-saas-2026-10-18`。本地迁移链继续保留。前端本地身份不再恢复登录令牌；默认场景置顶沿用 `ragsystem:pinned-sessions:local:local`，其他场景使用场景和用户 ID 分隔的键。

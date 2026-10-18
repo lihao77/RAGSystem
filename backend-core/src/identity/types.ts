@@ -4,12 +4,12 @@ const USER_ID_PATTERN = /^usr_[a-z0-9]+(?:_[a-z0-9]+)*$/;
 export type TenantId = string & { readonly __brand: "TenantId" };
 export type UserId = string & { readonly __brand: "UserId" };
 
-export type DeploymentMode = "local" | "saas" | "enterprise";
-export type AuthMode = "local" | "password" | "oidc";
+export type DeploymentMode = "local";
+export type AuthMode = "local";
 export type TenancyMode = "single" | "multi";
-export type ExecutionMode = "local" | "docker" | "remote";
-export type StorageMode = "sqlite" | "sqlite-per-tenant" | "postgres";
-export type UiMode = "local" | "saas";
+export type ExecutionMode = "local";
+export type StorageMode = "sqlite" | "sqlite-per-tenant";
+export type UiMode = "local";
 
 export interface DeploymentProfile {
   deployment: DeploymentMode;

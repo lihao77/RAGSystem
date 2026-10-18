@@ -34,7 +34,7 @@ export interface WorkspaceFileListResult {
  * 会话级方法以 session 绑定的 workspace 根（或未绑定时的会话目录）为权威；
  * 项目级方法（listWorkspaceEntries / readWorkspaceEntry）直接按 workspaceId 解析
  * 项目根目录，服务于"工作空间文件浏览器"——本地部署项目根是真实目录，
- * SaaS 无目录概念，返回 unsupported 由路由层映射 501。
+ * 未提供目录能力的适配器返回 unsupported，由路由层映射 501。
  */
 export interface WorkspaceFileApplication {
   read(sessionId: string, filePath: string): Promise<WorkspaceFileReadResult>;

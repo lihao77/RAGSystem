@@ -184,7 +184,7 @@ export class ModelAdapterService {
 
   /**
    * Validate + normalize a create payload without mutating runtime state.
-   * Callers that own persistence (SaaS Application) write the store first, then hydrate.
+   * Callers that own persistence (application adapters) write the store first, then hydrate.
    */
   buildCreateProvider(data: ProviderPayload): { key: string; config: ModelProviderConfig } {
     const config = this.buildCreateConfig(data);

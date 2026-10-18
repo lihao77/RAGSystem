@@ -10,6 +10,4 @@ export type { SchedulerTaskStore, SchedulerTaskClaim } from "./contracts/task-st
 export type { SchedulerLeaderLease } from "./contracts/leader-lease.js";
 export { SqliteSchedulerTaskStore } from "./storage/local/sqlite-task-store.js";
 export { runSqliteSchedulerMigrations } from "./storage/local/sqlite-migrations.js";
-export { PostgresSchedulerTaskStore } from "./storage/postgres/task-store.js";
-export { runPostgresSchedulerMigrations } from "./storage/postgres/migrations.js";
 export { registerSchedulerRoutes } from "./routes/tasks.js";

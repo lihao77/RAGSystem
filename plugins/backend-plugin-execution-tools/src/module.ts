@@ -2,7 +2,7 @@ import type { BackendPluginModule } from "@ragsystem/backend-core/plugins/backen
 
 import { createExecutionToolsPlugin, EXECUTION_TOOLS_PLUGIN_ID } from "./plugin.js";
 import { createLocalExecutionToolsRuntimeFactory } from "./storage/local/runtime.js";
-import { createSandboxedExecutionToolsRuntimeFactory } from "./storage/saas/runtime.js";
+import { createSandboxedExecutionToolsRuntimeFactory } from "./storage/sandbox/runtime.js";
 import { findExecutionToolsSandbox } from "./resources.js";
 
 const localRuntimeFactory = createLocalExecutionToolsRuntimeFactory();
@@ -14,9 +14,7 @@ export const backendPluginModule: BackendPluginModule = {
   create({ config }) {
     assertEmptyConfig(config);
     return createExecutionToolsPlugin({
-      runtimeFactory: (context) => context.deploymentKind === "local"
-        ? (findExecutionToolsSandbox(context.resources) ? sandboxedRuntimeFactory(context) : localRuntimeFactory(context))
-        : sandboxedRuntimeFactory(context),
+      runtimeFactory: (context) => findExecutionToolsSandbox(context.resources) ? sandboxedRuntimeFactory(context) : localRuntimeFactory(context),
     });
   },
 };

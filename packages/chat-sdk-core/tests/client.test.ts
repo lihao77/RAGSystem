@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   createRagChatClient,
-  loginRagSystem,
 } from "../src/index.js";
 
 class FakeWebSocket {
@@ -52,47 +51,6 @@ function sentMessages(socket: FakeWebSocket | undefined): Array<Record<string, u
 
 afterEach(() => vi.restoreAllMocks());
 
-describe("loginRagSystem", () => {
-  it("uses the auth endpoint and returns the backend session", async () => {
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
-      token: "jwt-1",
-      expires_at: 123,
-      user: { id: "usr_1", displayName: "Demo" },
-      tenantId: "tnt_1",
-      role: "member",
-    }), { status: 200, headers: { "content-type": "application/json" } }));
-
-    const result = await loginRagSystem({
-      baseUrl: "https://rag.example.test/",
-      username: "demo",
-      password: "secret",
-      fetch: fetchMock,
-    });
-
-    expect(result.token).toBe("jwt-1");
-    expect(fetchMock).toHaveBeenCalledWith(
-      "https://rag.example.test/api/auth/login",
-      expect.objectContaining({ method: "POST", body: JSON.stringify({ username: "demo", password: "secret" }) }),
-    );
-  });
-
-  it("binds a native-like global fetch", async () => {
-    const originalFetch = globalThis.fetch;
-    const calls: unknown[] = [];
-    const nativeLikeFetch = function (this: typeof globalThis): Promise<Response> {
-      if (this !== globalThis) throw new TypeError("Illegal invocation");
-      calls.push(true);
-      return Promise.resolve(new Response(JSON.stringify({ token: "jwt-login" }), { status: 200 }));
-    };
-    globalThis.fetch = nativeLikeFetch as typeof fetch;
-    try {
-      await loginRagSystem({ baseUrl: "https://rag.example.test", username: "u", password: "p" });
-      expect(calls).toHaveLength(1);
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-});
 
 describe("RagChatClient", () => {
   it("registers a local attachment through the authenticated session link endpoint", async () => {

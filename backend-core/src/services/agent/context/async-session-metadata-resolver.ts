@@ -12,7 +12,7 @@ export interface ResolvedSessionMetadataPort extends SessionMetadataPort {
 
 /**
  * Resolves one execution's session metadata before context assembly. The context
- * sources keep their synchronous Local contract while SaaS writes are awaited at
+ * sources keep their synchronous Local contract while asynchronous writes are awaited at
  * explicit build boundaries through flush().
  */
 export async function resolveSessionMetadataPort(

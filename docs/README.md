@@ -10,7 +10,6 @@ This directory is the canonical repository-level documentation center for mainli
 - [../README.en.md](../README.en.md) — English repository entry and quick start / 英文仓库入口与快速开始
 - [../backend-core/README.md](../backend-core/README.md) — 共享后端核心（路由、服务、领域逻辑）/ shared backend core
 - [../backend-local/README.md](../backend-local/README.md) — Local 后端入口（SQLite，桌面/本地）/ local backend entry
-- [../backend-saas/README.md](../backend-saas/README.md) — SaaS 后端入口（PostgreSQL/S3 多租户）/ SaaS backend entry
 - [../frontend-client/docs/README.md](../frontend-client/docs/README.md) — 前端文档入口 / frontend documentation entry
 - [OPERATIONS.md](OPERATIONS.md) — 运行、配置与验证 / operations, configuration, and verification
 - [BACKEND_PLUGIN_CONFIG.md](BACKEND_PLUGIN_CONFIG.md) — 后端插件配置与接入契约 / backend plugin configuration and module contract

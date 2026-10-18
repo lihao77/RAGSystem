@@ -28,23 +28,26 @@ describe("environment loading", () => {
     expect(source.BACKEND_TS_PORT).toBe("5004");
   });
 
-  it("ignores an unpaired remote sandbox token for local execution", () => {
-    const env = loadEnv({ EXECUTION_MODE: "local", SANDBOX_REMOTE_TOKEN: "unused-token" });
-
-    expect(env.executionMode).toBe("local");
-    expect(env.sandboxRemoteToken).toBe("unused-token");
+  it("defaults to a fully local deployment", () => {
+    const env = loadEnv({});
+    expect(env.deploymentMode).toBe("local");
+    expect(env.authMode).toBe("local");
+    expect(env.storageMode).toBe("sqlite");
+    expect(env.objectStorageMode).toBe("filesystem");
   });
 
-  it("rejects unpaired remote sandbox credentials for remote execution", () => {
-    expect(() => loadEnv({
-      EXECUTION_MODE: "remote",
-      SANDBOX_REMOTE_TOKEN: "missing-url",
-    })).toThrow("EXECUTION_MODE=remote requires SANDBOX_REMOTE_URL and SANDBOX_REMOTE_TOKEN");
+  it.each([
+    ["DEPLOYMENT_MODE", "saas"], ["DEPLOYMENT_MODE", "enterprise"],
+    ["AUTH_MODE", "password"], ["AUTH_MODE", "oidc"], ["EXECUTION_MODE", "remote"],
+    ["STORAGE_MODE", "postgres"], ["CONTROL_STORAGE_MODE", "postgres"],
+    ["UI_MODE", "saas"], ["OBJECT_STORAGE_MODE", "s3"],
+  ])("rejects removed deployment option %s=%s", (key, value) => {
+    expect(() => loadEnv({ [key]: value })).toThrow();
   });
 
-  it("rejects remote execution without a sandbox endpoint", () => {
-    expect(() => loadEnv({
-      EXECUTION_MODE: "remote",
-    })).toThrow("EXECUTION_MODE=remote requires SANDBOX_REMOTE_URL and SANDBOX_REMOTE_TOKEN");
+  it("keeps local scene storage options", () => {
+    const env = loadEnv({ TENANCY_MODE: "multi", STORAGE_MODE: "sqlite-per-tenant" });
+    expect(env.tenancyMode).toBe("multi");
+    expect(env.storageMode).toBe("sqlite-per-tenant");
   });
 });

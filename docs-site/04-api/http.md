@@ -9,13 +9,12 @@
 | GET | `/livez` | 公开 | 进程存活，不创建租户 Runtime |
 | GET | `/readyz` | 公开 | 控制库、迁移和启动就绪 |
 | GET | `/api/bootstrap` | 公开 | 安装/初始化状态 |
-| POST | `/api/install` | 一次性 | 初始化本地实例 |
 
 `/readyz` 会通过 Control Plane health port 检查数据库连接和实际 schema version。成功响应的 `checks` 包含 `control_database`、`migrations` 和 `control_schema_version`；连接失败或 schema 版本落后时返回 `503`。Control Plane driver 由 app composition 决定，不能从 Memory 的 `STORAGE_MODE` 推断。
 
 ## 认证 `/api/auth`
 
-`POST /login`、`POST /install`、`POST /switch-tenant`、`GET /me`、`POST /logout`。具体可用动作由 `AUTH_MODE` 决定；password 模式需要 `SESSION_JWT_SECRET`。
+`GET /me` 返回当前场景的隐式用户。无需登录或 session JWT；安装、登录、退出和账号租户切换接口已移除。场景使用 `/api/local/scenes` 插件接口管理。
 
 ## 租户业务
 
@@ -50,8 +49,6 @@
 
 | 前缀 | 端点 | 权限 |
 |---|---|---|
-| `/api/admin` | tenants、tenant members 增删改 | platform/admin |
-| `/api/platform` | tenants、users、bots 查询 | platform operator |
 | `/api/bots` | bot 创建和管理 | tenant admin |
 | `/api/widget/apps` | app、secret rotate、revoke、tokens、audit | tenant admin/owner |
 

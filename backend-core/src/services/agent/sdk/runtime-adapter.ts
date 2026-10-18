@@ -314,7 +314,7 @@ export async function executeRunWithSdk(
   deps: SdkRuntimeAdapterDeps,
   input: SdkExecuteRunInput,
 ): Promise<SdkExecuteRunResult> {
-  // SaaS loads its durable session policy before synchronous SDK tool gates run.
+  // Load the durable session policy before synchronous SDK tool gates run.
   await deps.permissionPolicy.prepareSession(input.sessionId);
   const profile = projectAgentProfile({
     agent: input.agent,

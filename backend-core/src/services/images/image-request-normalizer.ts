@@ -1,6 +1,6 @@
 /**
  * 图片请求归一化的内核实现（契约见 contracts/images/image-request.ts）。
- * 纯字节变换、无持久化：local 与 SaaS 共用；变体缓存属部署存储形态，由各部署自备
+ * 纯字节变换、无持久化：各图片入口共用；变体缓存属部署存储形态，由各部署自备
  * （local 挂在会话 uploads 旁，见 backend-local 的 image-request-variants）。
  *
  * 管线参照 DeepSeek Harness 的两步预算：先按总像素等比缩小，再按长边上限收敛

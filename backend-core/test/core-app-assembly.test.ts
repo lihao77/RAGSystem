@@ -437,26 +437,28 @@ describe("core app assembly", () => {
     expect(calls.deploymentClose).toBe(1);
   });
 
-  it("resolves the deployment profile from control-plane settings", async () => {
+  it("normalizes historical deployment settings to the local profile", async () => {
     const { deployment, calls } = createTestDeployment({
       settings: { auth_mode: "password", tenancy_mode: "multi" },
       identity: SMOKE_IDENTITY,
     });
     const app = await buildCoreApp({
-      env: createEnv(tempRoot, { SESSION_JWT_SECRET: "smoke-secret-smoke-secret-smoke-32" }),
+      env: createEnv(tempRoot),
       runtime: deployment,
     });
 
-    expect(calls.profileValidations.at(-1)).toMatchObject({ auth: "password", tenancy: "multi" });
+    expect(calls.profileValidations.at(-1)).toMatchObject({ auth: "local", tenancy: "single" });
     await app.close();
   });
 
-  it("fails fast when password auth is selected without a session secret", async () => {
-    const { deployment } = createTestDeployment({ settings: { auth_mode: "password" } });
-    const failure = await catchError(() => buildCoreApp({ env: createEnv(tempRoot), runtime: deployment }));
-
-    expect(failure).toBeInstanceOf(Error);
-    expect((failure as Error).message).toMatch(/SESSION_JWT_SECRET/);
+  it("starts with legacy password settings without requiring a login secret", async () => {
+    const { deployment } = createTestDeployment({ settings: { auth_mode: "password" }, identity: SMOKE_IDENTITY });
+    const app = await buildCoreApp({ env: createEnv(tempRoot), runtime: deployment });
+    try {
+      const response = await app.inject("/api/auth/me");
+      expect(response.statusCode).toBe(200);
+      expect(response.json().userId).toBe(SMOKE_IDENTITY.userId);
+    } finally { await app.close(); }
   });
 
   it("rejects a deployment-supplied profile the deployment declares invalid", async () => {

@@ -19,7 +19,7 @@ export interface ExecutionPaths {
  * child-process environment setup; it does not define tool-specific behavior.
  */
 export interface ExecutionEnvironmentCapability {
-  readonly deploymentKind: "local" | "saas";
+  readonly deploymentKind: "local" | "sandbox";
   paths(context: ExecutionPathContext): ExecutionPaths;
   environment(context: ExecutionPathContext): Readonly<Record<string, string>>;
 }
@@ -40,14 +40,14 @@ export function createLocalExecutionEnvironment(dataRoot: string): ExecutionEnvi
   };
 }
 
-/** Remote sandbox directory layout owned by SaaS deployment composition. */
-export function createSaaSExecutionEnvironment(): ExecutionEnvironmentCapability {
+/** Remote sandbox directory layout owned by Sandbox deployment composition. */
+export function createSandboxExecutionEnvironment(): ExecutionEnvironmentCapability {
   const paths: ExecutionPaths = {
     workspace: "/work",
     uploads: "/input/uploads",
   };
   return {
-    deploymentKind: "saas",
+    deploymentKind: "sandbox",
     paths: () => paths,
     environment: () => executionPathEnvironment(paths),
   };

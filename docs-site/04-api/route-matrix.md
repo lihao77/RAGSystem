@@ -7,13 +7,11 @@
 | 身份域 | 前缀 | 注册模块 | 默认鉴权 |
 |---|---|---|---|
 | Probe | `/livez`、`/readyz` | `health.ts` | 公开 |
-| Bootstrap/install | `/api/bootstrap`、`/api/install` | `bootstrap.ts`、`install.ts` | 公开/一次性 |
-| Auth | `/api/auth` | `auth.ts` | auth mode |
+| Bootstrap | `/api/bootstrap` | `bootstrap.ts` | 公开，本地免安装 |
+| Identity | `/api/auth/me` | `auth.ts` | 当前场景的隐式用户 |
 | Tenant runtime | `/api` | health、artifacts、agent-config、memory、skills、model-adapter、system-config、mcp、knowledge-bases、embedding-models | tenant identity |
 | Agent runtime | `/api/agent` | agents、execution、stream、sessions、session-files、monitoring、analytics、runtime-core、WS | tenant + owner |
 | AG-UI | `/api/agui` | `agent/agui.ts` | tenant 或 widget identity |
-| Control plane | `/api/admin` | `admin.ts` | admin/owner |
-| Platform | `/api/platform` | `platform.ts` | platform operator |
 | Bots | `/api/bots` | `bots.ts` | tenant/admin |
 | Widget console | `/api/widget/apps` | `widget-apps.ts` | tenant admin/owner |
 | Widget public | `/api/widget` | `widget.ts` | JWT 或 publishable key |
@@ -46,3 +44,5 @@
 ## 维护规则
 
 修改 `app.ts` 注册、子路由 `app.METHOD` 或身份 scope 时，在仓库根目录运行 `npm --prefix docs-site run build` 并更新本页。
+
+场景插件提供 `/api/local/scenes` 的列表、创建、重命名、切换与删除接口。

@@ -21,10 +21,6 @@ export {
 } from "./resources.js";
 export { createLocalSkillsRuntimeFactory } from "./storage/local/runtime.js";
 export { FilesystemSkillPackageStore } from "./storage/local/package-store.js";
-export { createPostgresSkillsLifecycle } from "./storage/postgres/lifecycle.js";
-export { createPostgresSkillsRuntimeFactory } from "./storage/postgres/runtime.js";
-export type { SkillsPostgresExecutor, SkillsPostgresQueryExecutor } from "./storage/postgres/executor.js";
-export { POSTGRES_SKILLS_MIGRATIONS } from "./storage/postgres/schema.js";
 export { SkillToolService } from "./tools/SkillExecution.js";
 export { createSkillTools } from "./tools/SkillTools.js";
 export {

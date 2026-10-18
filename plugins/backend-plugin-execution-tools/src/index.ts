@@ -6,7 +6,7 @@ export * from "./plugin.js";
 export * from "./resources.js";
 export * from "./system-config.js";
 export * from "./storage/local/runtime.js";
-export * from "./storage/saas/runtime.js";
+export * from "./storage/sandbox/runtime.js";
 export * from "./tools/BashTool/BashExecution.js";
 export { buildApprovalDescription, categoryRisk, classifyCommand, validateCommand } from "@ragsystem/agent-sdk";
 export type { CommandCategory } from "@ragsystem/agent-sdk";

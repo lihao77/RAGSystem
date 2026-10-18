@@ -19,9 +19,9 @@ HTTP 路由以 Fastify 插件注册，输入校验使用 Zod/显式类型，业�
 
 | 域 | 典型前缀 | 规则 |
 |---|---|---|
-| 探针/安装 | `/livez`、`/readyz`、`/api/bootstrap`、`/api/install` | 公开或一次性安装流程 |
+| 探针/启动信息 | `/livez`、`/readyz`、`/api/bootstrap` | 公开，本地免安装 |
 | 租户业务 | `/api/agent`、`/api/mcp`、`/api/knowledge-bases` | session identity + tenant role |
-| 控制面 | `/api/admin`、`/api/platform` | 管理员/平台身份 |
+| 本地场景 | `/api/local/scenes` | 本地隐式身份，场景插件提供 |
 | Widget | `/api/widget`、`/api/agui` | Widget JWT 或 publishable key + Origin |
 | WebSocket | `/api/agent/sessions/:id/ws` | HTTP 后先申请 60 秒单次 ticket |
 

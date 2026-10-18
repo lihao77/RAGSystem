@@ -15,7 +15,7 @@ import {
   createLocalDocumentToolsRuntimeFactory,
   DOCUMENT_TOOLS_RUNTIME_CAPABILITY,
 } from "../dist/index.js";
-import { SaaSDocumentToolService } from "../dist/storage/saas/sandbox-document-tools.js";
+import { SandboxDocumentToolService } from "../dist/storage/sandbox/sandbox-document-tools.js";
 import {
   LINE_TRUNCATION_SUFFIX,
   READ_FILE_CHAR_BUDGET,
@@ -55,12 +55,12 @@ test("standard plugin module selects the deployment runtime without product wiri
   local.dispose();
 
   const supplied = fakeSandboxRuntime();
-  const saas = await contributions.createRuntime({
-    deploymentKind: "saas",
+  const sandbox = await contributions.createRuntime({
+    deploymentKind: "local",
     resources: [provideBackendResource(BACKEND_HOST_RESOURCES.sandboxRuntime, supplied, "test-host")],
   });
-  assert.ok(saas.capabilities.require(DOCUMENT_TOOLS_RUNTIME_CAPABILITY).document);
-  saas.dispose();
+  assert.ok(sandbox.capabilities.require(DOCUMENT_TOOLS_RUNTIME_CAPABILITY).document);
+  sandbox.dispose();
 });
 
 test("standard plugin module rejects unsupported configuration", () => {
@@ -159,7 +159,7 @@ test("document relative writes and reads use the same workspace", async () => {
   }
 });
 
-test("local and SaaS document adapters share encoding and line-range policy", async () => {
+test("local and Sandbox document adapters share encoding and line-range policy", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-document-policy-"));
   try {
     const local = createLocalDocumentToolsRuntimeFactory()({
@@ -173,7 +173,7 @@ test("local and SaaS document adapters share encoding and line-range policy", as
     await local.writeFile({ content: wideContent, filePath: "wide.txt" }, context, { custom_params: {} }, pathPolicy);
 
     const contentByPath = (filePath) => (filePath.endsWith("wide.txt") ? { content: wideContent, size: wideContent.length } : { content: "a\nb\nc\n", size: 6 });
-    const saas = new SaaSDocumentToolService({
+    const sandbox = new SandboxDocumentToolService({
       async readFile(_context, args) { return contentByPath(args.path); },
       async writeFile() { return { size: 0 }; },
       async editFile() { return { size: 0, replacements: 0 }; },
@@ -183,21 +183,21 @@ test("local and SaaS document adapters share encoding and line-range policy", as
     });
 
     const localRead = await local.readFile({ filePath: "lines.txt", offset: 2, limit: 1 }, context, { custom_params: {} }, pathPolicy);
-    const saasRead = await saas.readFile({ filePath: "lines.txt", offset: 2, limit: 1 }, context);
-    assert.equal(localRead.content, saasRead.content);
+    const sandboxRead = await sandbox.readFile({ filePath: "lines.txt", offset: 2, limit: 1 }, context);
+    assert.equal(localRead.content, sandboxRead.content);
     for (const key of ["total_lines", "start_line", "end_line", "has_more", "next_offset", "char_truncated", "truncated_lines"]) {
-      assert.equal(localRead.metadata[key], saasRead.metadata[key], key);
+      assert.equal(localRead.metadata[key], sandboxRead.metadata[key], key);
     }
 
     // 宽行文件走字符预算截断分支时双端仍一致
     const localWide = await local.readFile({ filePath: "wide.txt" }, context, { custom_params: {} }, pathPolicy);
-    const saasWide = await saas.readFile({ filePath: "wide.txt" }, context);
-    assert.equal(localWide.content, saasWide.content);
+    const sandboxWide = await sandbox.readFile({ filePath: "wide.txt" }, context);
+    assert.equal(localWide.content, sandboxWide.content);
     assert.equal(localWide.metadata.char_truncated, true);
     assert.equal(localWide.metadata.truncated_lines, 8);
     assert.equal(localWide.metadata.next_offset, 9);
     for (const key of ["total_lines", "start_line", "end_line", "has_more", "next_offset", "char_truncated", "truncated_lines"]) {
-      assert.equal(localWide.metadata[key], saasWide.metadata[key], key);
+      assert.equal(localWide.metadata[key], sandboxWide.metadata[key], key);
     }
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
@@ -421,7 +421,7 @@ test("scanStreamWindow 与 selectLineRange 在超长行含 \\r 时逐字一致�
   assert.ok(!crlfStreamed.content.includes("\r"));
 });
 
-test("read_file offset 超出总行数时返回与 SaaS 一致的提示文案", async () => {
+test("read_file offset 超出总行数时返回与 Sandbox 一致的提示文案", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-document-oob-"));
   try {
     const runtime = createLocalDocumentToolsRuntimeFactory()({ deploymentKind: "local", dataRoot: root });

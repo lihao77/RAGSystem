@@ -1,8 +1,8 @@
 # 后端插件配置 / Backend Plugin Configuration
 
-后端插件可以通过 YAML 完成安装后的启停、排序和初始化参数配置。插件本身仍是 TypeScript/JavaScript 模块，因此新增业务能力需要编写插件代码；接入已有插件不需要修改 `backend-local` 或 `backend-saas`。
+后端插件可以通过 YAML 完成安装后的启停、排序和初始化参数配置。插件本身仍是 TypeScript/JavaScript 模块，因此新增业务能力需要编写插件代码；接入已有插件不需要修改 `backend-local`。
 
-Backend plugins use YAML for activation, ordering, and initialization options. A plugin remains a TypeScript/JavaScript module; once its package is installed, neither backend composition root needs source changes.
+Backend plugins use YAML for activation, ordering, and initialization options. A plugin remains a TypeScript/JavaScript module; once its package is installed, the local backend composition root needs source changes.
 
 ## 快速接入 / Quick start
 
@@ -14,9 +14,9 @@ npm install @company/ragsystem-plugin-example
 npm run dev:backend-local
 ```
 
-Local 默认读取 `backend-local/backend.plugins.yaml`，SaaS 默认读取 `backend-saas/backend.plugins.yaml`。也可以使用 `BACKEND_PLUGIN_CONFIG` 指定其他文件。配置文件是必需且唯一的插件清单；不存在或无效时，后端在监听端口前退出。
+默认读取 `backend-local/backend.plugins.yaml`。也可以使用 `BACKEND_PLUGIN_CONFIG` 指定其他文件。配置文件是必需且唯一的插件清单；不存在或无效时，后端在监听端口前退出。
 
-Local reads `backend-local/backend.plugins.yaml` by default and SaaS reads `backend-saas/backend.plugins.yaml`. `BACKEND_PLUGIN_CONFIG` can select another file. The YAML manifest is required and is the only plugin inventory.
+The local backend reads `backend-local/backend.plugins.yaml` by default. `BACKEND_PLUGIN_CONFIG` can select another file. The YAML manifest is required and is the only plugin inventory.
 
 生产环境建议始终使用绝对路径：
 
@@ -78,7 +78,7 @@ export const backendPluginModule: BackendPluginModule = {
 };
 ```
 
-推荐在插件包中导出 `./module.js`，并把 `@ragsystem/backend-core` 和 `fastify` 声明为 peer dependencies。插件应在 `create` 阶段严格校验自身配置；存储、路由、工具、运行时和生命周期通过 `BackendPluginContext` 注册。需要同时支持 Local 与 SaaS 时，根据运行时的 `deploymentKind` 选择实现，并通过 host resources 获取数据库或对象存储。
+推荐在插件包中导出 `./module.js`，并把 `@ragsystem/backend-core` 和 `fastify` 声明为 peer dependencies。插件应在 `create` 阶段严格校验自身配置；存储、路由、工具、运行时和生命周期通过 `BackendPluginContext` 注册。运行时的 `deploymentKind` 固定为 `local`；通过 host resources 获取本地控制库等宿主能力。
 
 The loader validates `apiVersion`, manifest identity, and the returned plugin instance. Plugin-specific configuration remains the plugin package's responsibility.
 
@@ -101,7 +101,7 @@ Plugin modules execute with backend process privileges. Restrict package install
 
 ## 本地版简单安装（npm run plugin）
 
-本地版在产品清单之外支持**用户级插件清单**：`<RAG_DATA_ROOT>/plugins/plugins.yaml`（默认 `~/.ragsystem/plugins/plugins.yaml`，格式与 `backend.plugins.yaml` 完全相同）。后端启动时两份清单合并装载，跨清单的重复插件 id 会在启动时报错。SaaS 版不读取用户级清单。
+本地版在产品清单之外支持**用户级插件清单**：`<RAG_DATA_ROOT>/plugins/plugins.yaml`（默认 `~/.ragsystem/plugins/plugins.yaml`，格式与 `backend.plugins.yaml` 完全相同）。后端启动时两份清单合并装载，跨清单的重复插件 id 会在启动时报错。
 
 安装器 CLI（repo 根目录）：
 

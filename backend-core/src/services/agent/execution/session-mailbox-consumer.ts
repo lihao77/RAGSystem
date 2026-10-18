@@ -506,7 +506,7 @@ export class SessionMailboxConsumer {
         return;
       }
 
-      // Session/agent readiness may require SaaS I/O. Claim only after those checks pass so a
+      // Session/agent readiness may require storage I/O. Claim only after those checks pass so a
       // configuration failure or an intervening user run does not consume a continuation attempt.
       const busyAfterReady = await checkSessionBusy(
         { statusTracker, runtimeStorage: this.deps.runtimeStorage, backgroundTasks },

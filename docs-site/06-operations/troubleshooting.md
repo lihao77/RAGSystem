@@ -22,12 +22,12 @@ verified_at: 2026-07-18
 ## Docker 诊断
 
 ```powershell
-docker compose -f docker-compose.saas.yml ps
-docker logs --tail 200 ragsystem-saas-backend
-docker inspect --format "{{.State.Health.Status}}" ragsystem-saas-backend
+docker compose ps
+docker logs --tail 200 ragsystem-backend
+docker inspect --format "{{.State.Health.Status}}" ragsystem-backend
 ```
 
-健康检查成功只说明启动依赖可用。租户 Runtime 是惰性创建的，还应登录后验证：
+健康检查成功只说明启动依赖可用。租户 Runtime 是惰性创建的，还应验证当前场景：
 
 ```text
 GET /api/agent/sessions
@@ -37,14 +37,6 @@ GET /api/memory/entries
 
 ## Memory 数据诊断
 
-```sql
-SELECT scope, name, status FROM memory_entries ORDER BY updated_at DESC;
-SELECT scope, name, operation, status FROM memory_candidates ORDER BY updated_at DESC;
-SELECT version, name FROM ragsystem_memory_schema_migrations ORDER BY version;
-```
-
-- 个人写入应在 `memory_entries` 中立即出现，并留下 approved candidate 审计。
-- team/agent 写入在审核前只出现在 `memory_candidates`，状态为 candidate。
-- schema version 4 会自动发布旧策略遗留的个人 publish candidates。
+检查当前场景 memory/ 下的 Markdown 正式条目，以及 db/memory.db 的 memory_candidates。个人写入直接更新文件；team/agent 候选在批准后发布。
 
 完整流程见 [Memory 使用与治理](/03-guides/memory)。

@@ -1,6 +1,5 @@
 import type {
   AuthIdentity,
-  AuthSession,
   ClearMessageFeedbackResponse,
   CreateSessionRequest,
   CreateSessionResponse,
@@ -182,13 +181,6 @@ export class RagChatClient {
     return this.request<AuthIdentity>("identity");
   }
 
-  async logout(): Promise<unknown> {
-    return this.request("logout", { method: "POST" });
-  }
-
-  async switchTenant(tenantId: string): Promise<AuthSession> {
-    return this.request<AuthSession>("switchTenant", { method: "POST", body: { tenantId } });
-  }
 
   async createSession(body: CreateSessionRequest = {}): Promise<CreateSessionResponse> {
     return this.request<CreateSessionResponse>("createSession", { method: "POST", body });
@@ -775,8 +767,6 @@ function defaultEndpoint(name: RagChatEndpointName, context: Record<string, unkn
   const workspaceId = encodeURIComponent(String(context.workspaceId ?? ""));
   switch (name) {
     case "identity": return "/api/auth/me";
-    case "logout": return "/api/auth/logout";
-    case "switchTenant": return "/api/auth/switch-tenant";
     case "createSession": return "/api/agent/sessions";
     case "listSessions": return "/api/agent/sessions";
     case "getSession": return `/api/agent/sessions/${sessionId}`;

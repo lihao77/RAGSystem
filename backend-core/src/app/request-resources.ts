@@ -23,8 +23,8 @@ export async function createRequestResources(request: FastifyRequest, options: R
 }
 
 async function resolve<T>(name: string, resolver: ((request: FastifyRequest) => T | undefined | Promise<T | undefined>) | undefined, request: FastifyRequest): Promise<T> {
-  if (!resolver) throw new Error(`SaaS ${name} resolver returned no implementation`);
+  if (!resolver) throw new Error(`${name} resolver returned no implementation`);
   const value = await resolver(request);
-  if (!value) throw new Error(`SaaS ${name} resolver returned no implementation`);
+  if (!value) throw new Error(`${name} resolver returned no implementation`);
   return value;
 }

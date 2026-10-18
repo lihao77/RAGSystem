@@ -181,7 +181,7 @@ export const registerSessionRoutes: FastifyPluginAsync<AgentRouteOptions> = asyn
   });
 
   // 项目视图首屏：一次请求返回每个项目各自的最新一页（含未归属组），并附各自续页游标。
-  // 聚合在路由层完成，复用 listSessions 的 workspace 过滤与游标语义，local/saas 持久层同样生效。
+  // 聚合在路由层完成，复用 listSessions 的 workspace 过滤与游标语义，本地持久层同样生效。
   app.get("/sessions/workspace-preview", async (request) => {
     const query = request.query as { limit?: string; origin_type?: string; origin_id?: string };
     const limit = clampInt(query.limit, 5, 1, 50);

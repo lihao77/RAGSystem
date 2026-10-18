@@ -34,7 +34,7 @@ export async function checkBackendCoverage() {
     .filter((entry) => entry.isDirectory())
     .map((entry) => `plugins/${entry.name}`);
   const directories = [
-    'backend-core', 'backend-local', 'backend-saas',
+    'backend-core', 'backend-local',
     'packages/sandbox-runtime', 'sandbox-service', ...pluginDirectories,
   ];
   const packages = await Promise.all(directories.map(async (directory) => {

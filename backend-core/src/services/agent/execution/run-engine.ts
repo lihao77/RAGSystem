@@ -493,7 +493,7 @@ export class AgentRunEngine {
       try {
         await this.metricsCollector?.recordRun(metric);
       } catch (error) {
-        this.logger?.error({ tenant_id: this.tenantId, run_id: input.runId, error: error instanceof Error ? error.message : String(error) }, "failed to persist SaaS agent metric");
+        this.logger?.error({ tenant_id: this.tenantId, run_id: input.runId, error: error instanceof Error ? error.message : String(error) }, "failed to persist agent metric");
       }
     };
     try {

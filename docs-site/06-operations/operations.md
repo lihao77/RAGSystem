@@ -1,39 +1,17 @@
-# 生产运维
+# 本地运行与维护
 
 ## 启动与探针
 
-```bash
-npm install
-npm run build:contracts
-npm -w @ragsystem/agent-llm run build
-npm -w @ragsystem/agent-sdk run build
-npm -w @ragsystem/backend-core run build
-npm -w @ragsystem/backend-saas run build
-npm -w @ragsystem/backend-saas run start
-```
+`npm ci` 安装依赖，`npm run build:backend` 构建后端，`npm -w @ragsystem/backend-local run start` 启动。开发使用 `npm run dev:backend-local`。
 
-负载均衡器使用 `GET /readyz` 判断是否接流量；容器存活使用 `GET /livez`。`GET /api/health` 需要租户身份，不应作为匿名探针。
+GET /readyz 检查控制库和 schema；GET /livez 检查存活；GET /api/health 检查当前场景运行时。
 
-`/readyz` 的 `control_database` 和 `control_schema_version` 表示当前装配的 Control Plane 连接及 schema 状态。Memory PostgreSQL 与 Control Plane PostgreSQL 使用不同环境变量，排障时分别检查 `DATABASE_URL` 与 `CONTROL_DATABASE_URL`。系统开发阶段直接使用当前目标 schema，不提供 Local 数据导入或兼容切换流程。
+## 备份
 
-## 数据与备份
+停止写入后备份完整 RAG_DATA_ROOT（默认 ~/.ragsystem），包括 system/control.db、plugins 清单和全部 tenants 场景目录。仅备份 SQLite 文件不能保留配置、Skill、Memory Markdown、上传文件和文件历史。恢复时保持目录与数据库来自同一快照。
 
-至少备份以下路径：主库 `db/ragsystem.db`、知识库 `db/knowledge.db`、知识源 `db/knowledge-uploads/`、YAML 配置和用户记忆目录。备份前停止写入或使用 SQLite 一致性快照，恢复时保持数据库与 blob 同一版本。
+## 验证与升级
 
-## 日志与观测
+运行 npm run check:packages、npm run check:backend、npm run check:frontend 与 npm run check:widget。部署前验证 Node.js、node:sqlite、sqlite-vec 的 ABI 与启动探针。现有控制设置在加载时幂等归一为本地模式；场景 ID 和已有数据目录继续使用。
 
-`BACKEND_TS_LOG_LEVEL` 控制 pino 日志级别。Agent 运行时提供 metrics、context snapshot、event outbox 管理接口；outbox 的 pending/failed 数量是实时链路告警的首要信号。不要把 prompt、API key 或完整文件内容写入日志。
-
-## 升级检查
-
-1. 先运行 `npm run check:backend` 与 `npm run check:frontend`。
-2. 检查 `agent-protocol` 事件 schema 与 WebSocket 客户端兼容。
-3. 对 `sqlite-vec`、Node 版本和原生 ABI 做启动验证。
-4. 滚动发布时先确认 `/readyz`，再切换流量；数据库迁移由启动流程执行。
-
-## 安全基线
-
-- 生产环境显式设置 `CORS_ORIGINS`，不要依赖默认全开。
-- Widget 使用共享 `WIDGET_JWT_KEY_RING`，密钥只在服务端保存；publishable key 仅配合 Origin 白名单。
-- 限制 `RAG_DATA_ROOT` 权限，上传文件按 basename 处理并禁止路径穿越。
-- 外部 MCP/LLM 连接设置网络出口和超时策略，权限模式默认保持人工审批。
+BACKEND_TS_LOG_LEVEL 控制日志级别。Agent metrics、context snapshot、outbox 与 WebSocket 用于运行诊断。

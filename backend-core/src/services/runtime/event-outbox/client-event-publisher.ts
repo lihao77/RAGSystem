@@ -17,7 +17,7 @@ export type {
   ClientEventPublishOptions,
 } from "../../../contracts/runtime/core-runtime-ports.js";
 
-/** Durable publisher shared by Local and SaaS runtime storage adapters. */
+/** Durable publisher for local runtime storage adapters. */
 export class DurableClientEventPublisher implements ClientEventPublisherPort {
   private readonly sessionTails = new Map<string, Promise<void>>();
   private readonly sessionFailures = new Map<string, unknown>();

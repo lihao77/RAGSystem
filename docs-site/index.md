@@ -23,7 +23,7 @@ features:
   - title: 工具系统
     details: 内置工具（Bash / 文档 / 检索 / 记忆 / 技能 / 任务）+ MCP 一等公民集成 + per-tool 权限审批。
   - title: Memory 治理
-    details: 个人 Memory 直接生效，共享 Memory 经过候选审核；Hybrid SaaS 使用 PostgreSQL 持久化。
+    details: 个人 Memory 直接生效，共享 Memory 经过候选审核；Markdown 与 SQLite 本地持久化。
   - title: 知识库与向量
     details: SQLite + sqlite-vec 驱动，embedder/reranker/vectorizer 可配置，knowledge.db 自包含。
 ---
@@ -32,7 +32,7 @@ features:
 
 1. [开始使用](/00-start/)：安装、启动和健康检查。
 2. [系统上下文](/02-architecture/system-context) → [后端组件](/02-architecture/components)：理解边界、依赖和代码落点。
-3. [Memory 使用与治理](/03-guides/memory)：理解个人/共享 scope、审核、归档和 PostgreSQL 数据。
+3. [Memory 使用与治理](/03-guides/memory)：理解个人/共享 scope、审核、归档和本地数据。
 4. [接口约定](/04-api/conventions) → [HTTP 路由清单](/04-api/http) → [Memory API](/04-api/memory)：集成客户端或排查请求。
 5. [生产运维](/06-operations/)：备份、探针、观测和升级。
 

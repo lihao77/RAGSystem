@@ -3,6 +3,7 @@ import type {
   DeploymentRuntime,
 } from "@ragsystem/backend-core/app/deployment-runtime.js";
 import path from "node:path";
+import { normalizeLocalControlSettings } from "../sqlite/control-store/control-settings-hydration.js";
 import { provideBackendResource, type BackendPluginResourceContribution } from "@ragsystem/backend-core/plugins/resource-registry.js";
 import { BACKEND_HOST_RESOURCES } from "@ragsystem/backend-core/plugins/host-resources.js";
 import type { AppEnv } from "@ragsystem/backend-core/config/env.js";
@@ -28,12 +29,8 @@ export interface LocalDeploymentRuntime extends DeploymentRuntime {
 }
 
 export async function createLocalDeploymentRuntime(env: AppEnv): Promise<LocalDeploymentRuntime> {
-  if (env.deploymentMode === "saas" || env.storageMode === "postgres" || env.controlStorageMode === "postgres") {
-    throw new Error("Local backend only supports SQLite control/runtime storage");
-  }
-
   const controlStore = createControlStore(env.systemRoot);
-  const controlPlane = new SqliteControlPlaneAdapter(controlStore);
+  const controlPlane = new SqliteControlPlaneAdapter(controlStore, { closeStore: true });
   // 必须先于 buildCoreApp 读 settings 完成：固化本地档位，同时自愈被历史
   // 安装写入污染的 system_settings（例如共用数据目录时期留下的 SaaS 配置）。
   await ensureLocalInstallation(controlPlane);
@@ -96,15 +93,7 @@ export async function createLocalDeploymentRuntime(env: AppEnv): Promise<LocalDe
  * 前端不再出现安装向导。settings 为 upsert 语义，重复启动无副作用。
  */
 async function ensureLocalInstallation(controlPlane: SqliteControlPlaneAdapter): Promise<void> {
-  await controlPlane.settings.setMany({
-    deployment_mode: "local",
-    auth_mode: "local",
-    tenancy_mode: "single",
-    execution_mode: "local",
-    storage_mode: "sqlite",
-    ui_mode: "local",
-    installed: "true",
-  });
+  await normalizeLocalControlSettings(controlPlane.settings);
   await controlPlane.provisioning.ensureLocalIdentity({
     tenant: { id: LOCAL_TENANT_ID, displayName: "Local" },
     user: { id: LOCAL_USER_ID, displayName: "Local User", platformRole: "admin" },

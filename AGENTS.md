@@ -12,4 +12,4 @@
 
 ## 完成标准
 
-后端改动在对应包内运行 `npm run typecheck` 与 `npm test`（backend-core、backend-local、受影响插件）；跨包契约改动需覆盖 backend-saas 的 typecheck。提交前至少运行根目录的 `npm run check:backend`。
+后端改动在对应包内运行 `npm run typecheck` 与 `npm test`（backend-core、backend-local、受影响插件）；跨包契约改动需覆盖共享 SDK 与前端的检查。提交前至少运行根目录的 `npm run check:backend`。

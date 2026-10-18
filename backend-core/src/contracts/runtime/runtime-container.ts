@@ -13,11 +13,10 @@ import type { MonitoringApplication } from "../application/monitoring-applicatio
 import type { SessionFileApplication } from "../application/session-file-application.js";
 import type { ExecutionReadApplication } from "../execution/execution-read-application.js";
 import type { ExecutionStorage } from "../execution/execution-storage.js";
-import type { AsyncFileHistoryStore } from "../file-history-store/index.js";
 import type { PathAccessPolicy } from "./path-access-policy.js";
 import type { InteractionCoordinator, PendingInteractionPort } from "./pending-interactions.js";
 import type { RealtimeEventBus } from "./realtime-event-bus.js";
-import type { AsyncSessionFileStorage, SessionFileLookupPort } from "../session/session-file-storage.js";
+import type { SessionFileLookupPort } from "../session/session-file-storage.js";
 import type { ExecutionSessionPort, SessionApplication } from "../session/session-application.js";
 import type { RuntimeStorage } from "../storage/runtime-storage.js";
 import type { TenantId } from "../../identity/types.js";
@@ -54,16 +53,9 @@ export interface LocalRuntimeCapabilities {
   fileChanges: FileChangeApplication;
 }
 
-/** SaaS-only tenant-bound applications backed by PostgreSQL and object storage. */
-export interface SaaSRuntimeCapabilities {
-  sessions: SessionApplication & ExecutionSessionPort;
-  fileHistory: AsyncFileHistoryStore;
-  sessionFiles: AsyncSessionFileStorage;
-}
-
 /** Deployment-neutral runtime assembled by the shared execution core. */
 export interface RuntimeContainerBase {
-  readonly deploymentKind: "local" | "saas";
+  readonly deploymentKind: "local";
   readonly tenantId: TenantId;
   readonly pluginCapabilities: CapabilityRegistry;
   readonly createPluginTools: (context: BackendToolFactoryContext) => Promise<readonly Tool[]>;
@@ -99,16 +91,9 @@ export interface RuntimeContainerBase {
 export interface LocalRuntimeContainer extends RuntimeContainerBase {
   readonly deploymentKind: "local";
   readonly local: LocalRuntimeCapabilities;
-  readonly saas: null;
 }
 
-export interface SaaSRuntimeContainer extends RuntimeContainerBase {
-  readonly deploymentKind: "saas";
-  readonly local: null;
-  readonly saas: SaaSRuntimeCapabilities;
-}
-
-export type RuntimeContainer = LocalRuntimeContainer | SaaSRuntimeContainer;
+export type RuntimeContainer = LocalRuntimeContainer;
 
 interface CoreRuntimeDependenciesBase {
   tenantId: TenantId;
@@ -149,9 +134,4 @@ export interface LocalCoreRuntimeDependencies extends CoreRuntimeDependenciesBas
   capabilities: LocalRuntimeCapabilities;
 }
 
-export interface SaaSCoreRuntimeDependencies extends CoreRuntimeDependenciesBase {
-  deploymentKind: "saas";
-  capabilities: SaaSRuntimeCapabilities;
-}
-
-export type CoreRuntimeDependencies = LocalCoreRuntimeDependencies | SaaSCoreRuntimeDependencies;
+export type CoreRuntimeDependencies = LocalCoreRuntimeDependencies;

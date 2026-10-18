@@ -29,7 +29,7 @@ export interface MemoryContextSourceOptions {
   indexMaxChars?: number;
 }
 
-/** Shared Memory prefix orchestration for Local and SaaS deployments. */
+/** Shared Memory prefix orchestration for local scenes. */
 export class MemoryContextSource implements AgentContextSource {
   readonly name = "memory";
   private readonly indexMaxLines: number;

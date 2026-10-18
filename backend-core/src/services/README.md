@@ -14,11 +14,11 @@ surfaces belong in `src/contracts`; plugin runtime factories receive those contr
 - `integrations/`: Generic model-provider administration and model transport adapters.
 - `identity/`: Deployment-neutral identity and authentication primitives.
 - `images/`: Deployment-neutral image request normalization (EXIF orientation, budget
-  scaling, quality-ladder re-encode) shared by local and SaaS; variant caching is
+  scaling, quality-ladder re-encode) shared across local features; variant caching is
   deployment-owned storage.
 
 Persistence and deployment-specific implementations are outside Core in `backend-local`,
-`backend-saas`, or a domain plugin. Knowledge, Memory, Skills, Artifacts, MCP, Daemon/Feishu,
+or a domain plugin. Knowledge, Memory, Skills, Artifacts, MCP, Daemon/Feishu,
 Widget, Agent Builder, and tool-domain services are plugin-owned and must not be added here.
 
 When a plugin needs a Core capability, add or use a semantic port under `src/contracts` and inject

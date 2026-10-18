@@ -114,7 +114,7 @@ export class LocalDocumentToolService {
       }
       const selection = await scanStreamWindow(fs.createReadStream(resolvedPath, { encoding }), offset, limit);
       if (offset > selection.totalLines) {
-        // 空窗口内容是"offset 超界"提示文案（与 SaaS 适配器的 selectLineRange 渲染一致）
+        // 空窗口内容是"offset 超界"提示文案（与 Sandbox 适配器的 selectLineRange 渲染一致）
         return successResult(selection.content, {
           summary: `offset ${offset} 超出文件总行数 ${selection.totalLines}`,
           outputType: "text",

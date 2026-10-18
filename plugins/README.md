@@ -15,7 +15,7 @@ Infrastructure supplied by a product can be exposed through typed capability
 tokens. The host passes one immutable runtime-contributions object into each
 tenant runtime, so new contribution kinds do not expand the deployment API.
 
-Local and SaaS each own one required `backend.plugins.yaml`. The ordered entries
+The local product owns one required `backend-local/backend.plugins.yaml`. The ordered entries
 in that file are the complete plugin inventory:
 
 ```yaml

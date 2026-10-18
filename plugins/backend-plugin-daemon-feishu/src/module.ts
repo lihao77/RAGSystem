@@ -1,7 +1,5 @@
-import type { Pool } from "pg";
 
 import type { ControlPlane } from "@ragsystem/backend-core/contracts/control-plane/index.js";
-import type { SecretResolver } from "@ragsystem/backend-core/contracts/integrations/secret-resolver.js";
 import type { BackendPlugin, BackendPluginModule, BackendPluginResourceContribution } from "@ragsystem/backend-core/plugins/backend-plugin.js";
 import type { BackendResourceToken } from "@ragsystem/backend-core/plugins/resource-registry.js";
 import {
@@ -15,8 +13,6 @@ import type { DaemonBotRepository } from "./contracts/bot-repository.js";
 import { createDaemonFeishuPlugin, DAEMON_FEISHU_PLUGIN_ID } from "./plugin.js";
 import { SqliteBotRepository } from "./storage/local/sqlite-bot-repository.js";
 import { runSqliteDaemonMigrations } from "./storage/local/sqlite-migrations.js";
-import { PostgresBotRepository } from "./storage/postgres/bot-repository.js";
-import { runPostgresDaemonMigrations } from "./storage/postgres/migrations.js";
 
 export const backendPluginModule: BackendPluginModule = {
   apiVersion: 1,
@@ -50,19 +46,9 @@ function createInstalledDaemonFeishuPlugin(): BackendPlugin {
     async register(context) {
       context.applications.register(async ({ resources }) => {
         hostResources = resources ?? [];
-        const deployment = requireHost<{ kind: "local" | "saas" }>(BACKEND_HOST_RESOURCES.deployment);
-        if (deployment.kind === "local") {
-          const database = requireHost<import("node:sqlite").DatabaseSync>(BACKEND_HOST_RESOURCES.controlDatabase);
-          runSqliteDaemonMigrations(database);
-          botRepository = new SqliteBotRepository(database);
-        } else {
-          const database = requireHost<Pool>(BACKEND_HOST_RESOURCES.controlDatabase);
-          await runPostgresDaemonMigrations(database);
-          botRepository = new PostgresBotRepository(
-              database,
-              requireHost<SecretResolver>(BACKEND_HOST_RESOURCES.secrets),
-            );
-        }
+        const database = requireHost<import("node:sqlite").DatabaseSync>(BACKEND_HOST_RESOURCES.controlDatabase);
+        runSqliteDaemonMigrations(database);
+        botRepository = new SqliteBotRepository(database);
         return {
           dispose() {
             botRepository = null;

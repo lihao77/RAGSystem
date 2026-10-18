@@ -30,7 +30,7 @@ const TASK_COLUMNS = "tenant_id, task_id, cron, task, team, entry_agent, session
 
 /**
  * Local 控制库-backed 任务存储。claim 互斥为进程内存租约（Local 单进程假设，
- * 与 daemon-feishu 的 SqliteBotRepository 行为一致）；跨进程/多实例由 SaaS Postgres 存储承担。
+ * 与 daemon-feishu 的 SqliteBotRepository 行为一致）；当前调度器采用单进程执行。
  */
 export class SqliteSchedulerTaskStore implements SchedulerTaskStore {
   private readonly claims = new Map<string, SchedulerTaskClaim>();

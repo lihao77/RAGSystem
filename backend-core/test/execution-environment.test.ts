@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   EXECUTION_ENVIRONMENT_CAPABILITY,
   createLocalExecutionEnvironment,
-  createSaaSExecutionEnvironment,
+  createSandboxExecutionEnvironment,
 } from "../src/contracts/execution/execution-environment.js";
 import type { LocalCoreRuntimeDependencies } from "../src/contracts/runtime/runtime-container.js";
 import { CapabilityRegistry } from "../src/plugins/capability-registry.js";
@@ -82,12 +82,12 @@ describe("Local execution environment", () => {
   });
 });
 
-describe("SaaS execution environment", () => {
+describe("Sandbox execution environment", () => {
   it("uses the remote sandbox directory contract", () => {
-    const environment = createSaaSExecutionEnvironment();
+    const environment = createSandboxExecutionEnvironment();
     const paths = environment.paths({ sessionId: "ignored", runId: "ignored" });
 
-    expect(environment.deploymentKind).toBe("saas");
+    expect(environment.deploymentKind).toBe("sandbox");
     expect(paths).toEqual({
       workspace: "/work",
       uploads: "/input/uploads",

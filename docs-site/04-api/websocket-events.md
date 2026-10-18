@@ -32,7 +32,7 @@ WS /api/agent/sessions/:sessionId/ws?after_seq=<cursor>&ticket=<one-time-ticket>
 
 ### 鉴权
 
-普通浏览器会话先通过带 `Authorization` header 的 HTTP 请求签发 ticket。ticket 默认 60 秒有效，保存时只保留 SHA-256 哈希，绑定当前 identity 与 session，并在握手校验时先删除再验证，因此失败尝试和成功连接都不能重放。password profile 不再接受长期 session JWT query。
+普通浏览器会话通过本地隐式身份的 HTTP 请求签发 ticket。ticket 默认 60 秒有效，保存时只保留 SHA-256 哈希，绑定当前 identity 与 session，并在握手校验时先删除再验证，因此失败尝试和成功连接都不能重放。WebSocket 不接受长期凭证 query。
 
 Widget 的 15 分钟 JWT 或 publishable key + Origin 只用于调用 `POST /api/widget/sessions/:sessionId/ws-ticket`。签发端点校验 app、tenant、session 来源后生成同一种单次 ticket；JWT 和 publishable key 都不进入 WS URL。
 

@@ -34,4 +34,3 @@ export { createLocalKnowledgeRuntime } from "./storage/local/runtime.js";
 export { createLocalKnowledgeRuntimeFactory } from "./storage/local/runtime.js";
 export type { LocalKnowledgeRuntime, LocalKnowledgeRuntimeOptions } from "./storage/local/runtime.js";
 export { TenantKnowledgeMarkdownPipeline } from "./contracts/knowledge/async-knowledge-markdown-pipeline.js";
-export * from "./storage/postgres/index.js";

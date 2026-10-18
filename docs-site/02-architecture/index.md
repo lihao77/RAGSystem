@@ -18,7 +18,6 @@ System Context
 Container
   Vue frontend -> Fastify API -> Application contracts
                                   |-> Local: SQLite/Filesystem
-                                  |-> SaaS: PostgreSQL/Object Storage
                                   |-> agent-sdk/agent-llm
                                   |-> MCP/Embedding
         |
@@ -37,4 +36,3 @@ Component
 - [前端架构](./frontend)
 - [工具系统](./tool-system)
 - [存储模型](./storage)
-- [Local 与 SaaS 分离迁移路线](./local-saas-migration-roadmap)
