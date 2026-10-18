@@ -17,6 +17,16 @@ const outputDir = resolve(rootDir, 'screenshots', 'smoke');
 const minScreenshotBytes = 8 * 1024;
 const maxHorizontalOverflowPx = 2;
 
+const performanceShots = [1440, 390].map(width => ({
+  name: `chat-performance-${width === 390 ? 'mobile' : 'desktop'}`,
+  path: '/?__smoke=empty', width, height: 900,
+  actions: [
+    { type: 'mockProviderApi' },
+    { type: 'expectVisible', selector: '.bottom-dock textarea' },
+    { type: 'benchmarkChat' },
+  ],
+}));
+
 function providerCreateActions(mobile = false) {
   return [
     { type: 'mockProviderApi' },
@@ -46,6 +56,15 @@ function providerCreateActions(mobile = false) {
 }
 
 const shots = [
+  ...[1440, 390].map(width => ({
+    name: `chat-streaming-${width === 390 ? 'mobile' : 'desktop'}`,
+    path: '/?__smoke=empty', width, height: 900,
+    actions: [
+      { type: 'mockProviderApi' },
+      { type: 'expectVisible', selector: '.bottom-dock textarea' },
+      { type: 'benchmarkChat', messageCount: 40, updates: 18 },
+    ],
+  })),
   {
     name: 'default-model-inherited', path: '/?__smoke=empty', width: 1440, height: 900,
     actions: [
@@ -2285,6 +2304,19 @@ function jsString(value) {
 
 async function runShotActions(client, shot) {
   for (const action of shot.actions || []) {
+    if (action.type === 'benchmarkChat') {
+      const options = { messageCount: action.messageCount || 1000, updates: action.updates || 90 };
+      const metrics = await evaluate(client, `(async () => {
+        const { runChatPerformanceFixture } = await import('/src/utils/chatPerformanceFixture.js');
+        return runChatPerformanceFixture(${JSON.stringify(options)});
+      })()`);
+      const label = String(process.env.CHAT_PERF_LABEL || 'current').replace(/[^a-z0-9-]/gi, '-');
+      const directory = join(outputDir, '..', 'performance');
+      mkdirSync(directory, { recursive: true });
+      writeFileSync(join(directory, `${shot.name}-${label}.json`), JSON.stringify(metrics, null, 2) + '\n', 'utf8');
+      console.log(`${shot.name} ${label}: ${JSON.stringify(metrics)}`);
+      continue;
+    }
     if (action.type === 'holdImageDecode') {
       await evaluate(client, `(() => {
         const image = document.querySelector('.image-lightbox__image');
@@ -2745,9 +2777,10 @@ async function main() {
         .map((name) => name.trim())
         .filter(Boolean),
     );
+    const candidates = process.argv.includes('--benchmark-chat') ? performanceShots : shots;
     const selectedShots = requestedShots.size > 0
-      ? shots.filter((shot) => requestedShots.has(shot.name))
-      : shots;
+      ? candidates.filter((shot) => requestedShots.has(shot.name))
+      : candidates;
     if (requestedShots.size > 0 && selectedShots.length !== requestedShots.size) {
       const known = new Set(selectedShots.map((shot) => shot.name));
       const missing = [...requestedShots].filter((name) => !known.has(name));

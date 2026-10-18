@@ -57,11 +57,13 @@ export function useMessageRevision(deps) {
   });
 
   // 编辑目标必须在主对话列（根会话）里：子智能体线程是只读视图，没有回滚/重发语义。
+  // 只跟踪消息身份，不随流式正文更新重建；编辑按钮与重试索引都可直接查找。
+  const rootMessageIds = computed(() => new Set(messages.value.map(message => message?.id).filter(Boolean)));
   const canReviseMessage = msg => Boolean(
     msg?.role === 'user'
     && msg?.metadata?.agent_message !== true
     && msg?.id
-    && messages.value.some(message => message === msg || message?.id === msg.id)
+    && rootMessageIds.value.has(msg.id)
   );
 
   const resetEditingState = ({ closeDrawer = true } = {}) => {

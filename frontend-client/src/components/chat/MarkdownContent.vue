@@ -3,8 +3,9 @@
 </template>
 
 <script setup>
-import { computed, onUnmounted } from 'vue';
+import { onScopeDispose, onUnmounted, shallowRef, watch } from 'vue';
 import { renderMarkdown } from '../../utils/markdown.js';
+import { createStreamingMarkdownRenderer } from '../../utils/streamingMarkdown.js';
 import { createMarkdownCopyAction } from '../../utils/markdownBlockActions.js';
 
 const props = defineProps({
@@ -14,7 +15,15 @@ const props = defineProps({
 
 const emit = defineEmits(['notify', 'citation-click']);
 
-const renderedContent = computed(() => renderMarkdown(props.content, { streaming: props.streaming }));
+const renderedContent = shallowRef('');
+const renderer = createStreamingMarkdownRenderer({
+  render: renderMarkdown,
+  publish: html => { renderedContent.value = html; },
+});
+watch([() => props.content, () => props.streaming], ([content, streaming]) => {
+  renderer.update(content, streaming);
+}, { immediate: true });
+onScopeDispose(renderer.dispose);
 
 const notify = (message, type = 'error') => {
   emit('notify', { message, type });

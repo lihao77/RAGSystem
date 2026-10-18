@@ -410,3 +410,22 @@ test('child and agent messages cannot enter edit or rollback flows', async () =>
     '仅支持从根会话中的用户消息重试',
   ]);
 });
+
+test('编辑资格随根消息的删除、身份回填和替换更新，正文变化不改变资格', () => {
+  const { deps } = createDeps();
+  deps.messages.value = [{ role: 'user', id: 'one', content: '开始', metadata: {} }, { role: 'user', content: '待落库', metadata: {} }];
+  const revision = useMessageRevision(deps);
+  const first = deps.messages.value[0];
+  const pending = deps.messages.value[1];
+  assert.equal(revision.canReviseMessage(first), true);
+  assert.equal(revision.canReviseMessage(pending), false);
+  first.content += '追加';
+  pending.id = 'two';
+  assert.equal(revision.canReviseMessage(first), true);
+  assert.equal(revision.canReviseMessage(pending), true);
+  deps.messages.value = [{ ...pending }];
+  assert.equal(revision.canReviseMessage(first), false);
+  assert.equal(revision.canReviseMessage(pending), true);
+  deps.messages.value[0].id = 'other';
+  assert.equal(revision.canReviseMessage(pending), false);
+});

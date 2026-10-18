@@ -14,7 +14,8 @@
     "test": "node --require ./test-setup.cjs --test src/api/*.test.js src/utils/*.test.js src/composables/*.test.js src/composables/**/*.test.js src/components/*.test.js src/components/files/*.test.js src/stores/*.test.js",
     "test:coverage": "node --require ./test-setup.cjs --experimental-test-coverage --test-coverage-include=src/**/*.js --test-coverage-exclude=src/**/*.test.js --test-coverage-lines=65 --test-coverage-branches=60 --test-coverage-functions=50 --test src/api/*.test.js src/utils/*.test.js src/composables/*.test.js src/composables/**/*.test.js src/components/*.test.js src/components/files/*.test.js src/stores/*.test.js src/components/pet/*.test.js",
     "check": "npm run lint && npm run typecheck && npm run typecheck:core && npm run test:coverage && npm run build && npm run check:bundle-size",
-    "screenshot:smoke": "node scripts/screenshot-smoke.mjs"
+    "screenshot:smoke": "node scripts/screenshot-smoke.mjs",
+    "benchmark:chat": "node scripts/screenshot-smoke.mjs --benchmark-chat"
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.2.8",

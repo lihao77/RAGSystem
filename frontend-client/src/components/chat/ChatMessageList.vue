@@ -26,7 +26,7 @@
           :msg="msg"
           :index="index"
           :actions-visible="messageActionsVisible === index"
-          :retry-message="getRetryMessage(index)"
+          :retry-message="retryMessages[index]"
           @hover="messageActionsVisible = $event"
           @update:editing-draft="emit('update:editingDraft', $event)"
           @notify="emit('notify', $event)"
@@ -40,9 +40,9 @@
 </template>
 
 <script setup>
-import { inject, ref } from 'vue';
+import { computed, inject, ref } from 'vue';
 import { IconLogo } from '../icons';
-import { findRetryMessage } from '../../composables/useMessageListView.js';
+import { buildRetryMessages } from '../../composables/useMessageListView.js';
 import ChatMessageItem from './ChatMessageItem.vue';
 
 const props = defineProps({
@@ -57,11 +57,5 @@ const emit = defineEmits(['update:editingDraft', 'notify', 'citation-click']);
 const messageContext = inject('messageContext');
 const messageActionsVisible = ref(null);
 
-function getRetryMessage(index) {
-  return findRetryMessage(
-    props.visibleMessages,
-    index,
-    messageContext.canReviseMessage,
-  );
-}
+const retryMessages = computed(() => buildRetryMessages(props.visibleMessages, messageContext.canReviseMessage));
 </script>

@@ -5,6 +5,7 @@
 ## 当前文档
 
 - [architecture.md](architecture.md) — 前端架构总览，包含路由、WebSocket 实时通信、执行树投影、消息结构与可视化渲染说明
+- [chat-performance.md](chat-performance.md) — 长会话与流式 Markdown 的性能基准、优化边界和验证方式
 - [workbench-redesign-plan.md](workbench-redesign-plan.md) — Agent 工作台改造计划，包含阶段目标、任务清单、验收标准与回滚点
 - [visualization-interaction-upgrade-plan.md](visualization-interaction-upgrade-plan.md) — 前端可视化与交互升级计划，包含 artifact 协议、图表交互、运行可观测与性能优化路线
 

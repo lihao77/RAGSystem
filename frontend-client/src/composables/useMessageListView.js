@@ -1,12 +1,17 @@
 import { computed } from 'vue';
 import { copyToClipboard } from '../utils/clipboard.js';
 
-export const findRetryMessage = (items, index, canReviseMessage = () => true) => {
-  const nearestUserMessage = (Array.isArray(items) ? items : [])
-    .slice(0, index)
-    .findLast(message => message?.role === 'user') || null;
-  if (!nearestUserMessage || nearestUserMessage.metadata?.agent_message === true) return null;
-  return canReviseMessage(nearestUserMessage) ? nearestUserMessage : null;
+/** 每个位置指向它之前最近的可重试用户消息；Agent/不可编辑用户消息仍是阻断边界。 */
+export const buildRetryMessages = (items, canReviseMessage = () => true) => {
+  const result = [];
+  let previous = null;
+  for (const message of Array.isArray(items) ? items : []) {
+    result.push(previous);
+    if (message?.role === 'user') {
+      previous = message.metadata?.agent_message !== true && canReviseMessage(message) ? message : null;
+    }
+  }
+  return result;
 };
 
 // 刷新恢复用的派生横线：对象保持稳定引用，messageKey 只分配一次 _key，

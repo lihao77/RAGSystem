@@ -14,6 +14,14 @@ Resolution requests share a bounded cache with a 30-second TTL. Successful Provi
 
 Raw Markdown HTML remains disabled. Custom code-block headers escape language names in both their visible title and copy-button attributes, including file code previews. Code highlighting and the encoded original copy payload retain their existing behavior. Regression tests include malicious fence language tags and attribute-breaking language strings.
 
+## Long Conversation Updates
+
+`ChatMessageList` computes retry targets in one forward pass over visible messages. Agent-authored and non-revisable user messages remain barriers, so retry cannot silently target an older human turn. Root message membership uses a computed ID set shared by editing and retry eligibility. These indexes depend on message identities and permissions rather than streamed body text, and are reused during hover updates.
+
+`MarkdownContent` keeps canonical message content immediate but limits append-only streaming HTML updates to one parse per 80ms. The first nonempty chunk, replacement or shortened text, and stop/completion state render immediately; completion removes the streaming cursor and flushes the full final text. Pending callbacks are cancelled on replacement and unmount. Static messages and code-copy payloads keep their existing behavior.
+
+`npm run benchmark:chat` measures a synthetic 1,000-message conversation in desktop and narrow-screen Chromium, using the same in-memory API as browser regression. It reports mount time, streaming/scroll frame intervals, synthetic input-to-frame latency and Markdown DOM publications under `screenshots/performance/`. This is a development-build diagnostic rather than a production INP measurement. See [chat-performance.md](chat-performance.md) for the workload, limitations and initial comparison. Short variants in `screenshot:smoke` check final-text, cursor, code-copy and reading-position correctness without timing thresholds.
+
 ## Provider Browser Regression
 
 `screenshot:smoke` covers inline Provider creation on desktop and mobile, endpoint/model editing followed by reload, deletion, and model test results. Each of these scenarios intercepts all `/api/` calls with an isolated in-memory API; mutations and model tests never reach a real Provider or backend. The same fixture verifies fallback warnings on desktop/mobile and their removal after an explicit model selection.

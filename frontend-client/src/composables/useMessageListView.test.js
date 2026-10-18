@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 
-import { findRetryMessage, useMessageListView } from './useMessageListView.js';
+import { buildRetryMessages, useMessageListView } from './useMessageListView.js';
 
 test('同一 run 的 followup 作为独立消息边界出现在主消息列表', () => {
   const original = { role: 'user', content: '第一条', seq: 1, metadata: {} };
@@ -56,9 +56,37 @@ test('agent message is a retry barrier instead of falling back to an older human
     { role: 'assistant', id: 'assistant-2', content: '继续处理完成' },
   ];
 
-  assert.equal(findRetryMessage(items, 3, () => true), null);
-  assert.equal(findRetryMessage(items.slice(0, 2), 1, message => message === human), human);
-  assert.equal(findRetryMessage(items.slice(0, 2), 1, () => false), null);
+  assert.equal(buildRetryMessages(items, () => true)[3], null);
+  assert.equal(buildRetryMessages(items.slice(0, 2), message => message === human)[1], human);
+  assert.equal(buildRetryMessages(items.slice(0, 2), () => false)[1], null);
+});
+
+test('重试关联遵循最近用户边界，不能越过不可编辑输入', () => {
+  const first = { role: 'user', id: 'first' };
+  const denied = { role: 'user', id: 'denied' };
+  const last = { role: 'user', id: 'last' };
+  const assistant = { role: 'assistant' };
+  assert.deepEqual(buildRetryMessages([assistant, first, assistant, { role: 'system' }, denied, assistant, last, assistant],
+    message => message !== denied), [null, null, first, first, first, null, null, last]);
+  assert.deepEqual(buildRetryMessages(null), []);
+});
+
+test('正文流式更新复用关联索引，追加、删除、权限和 Agent 消息变化重新计算', () => {
+  const messages = ref([{ role: 'user', id: 'one', metadata: {} }, { role: 'assistant', content: '开始' }]);
+  const allowed = ref(true);
+  const index = computed(() => buildRetryMessages(messages.value, () => allowed.value));
+  const initial = index.value;
+  messages.value[1].content += '追加';
+  assert.equal(index.value, initial);
+  messages.value.push({ role: 'assistant' });
+  assert.equal(index.value[2], messages.value[0]);
+  allowed.value = false;
+  assert.deepEqual(index.value, [null, null, null]);
+  allowed.value = true;
+  messages.value[0].metadata.agent_message = true;
+  assert.deepEqual(index.value, [null, null, null]);
+  messages.value.splice(0, 1);
+  assert.deepEqual(index.value, [null, null]);
 });
 
 function followup(content, seq) {
