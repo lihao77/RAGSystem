@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
-import fsp from "node:fs/promises";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { SkillNameSchema, requireSkillPath, skillBundleRevision, skillRevisionConflict, validateSkillBundle } from "../../contracts/skills/skill-bundle.js";
@@ -15,93 +14,6 @@ import type {
 import { parseSkillMarkdown } from "../../contracts/skills/skill-markdown.js";
 
 const SKIP_ENTRIES = new Set([".venv", ".cache", "__pycache__", ".installed", "node_modules", ".DS_Store"]);
-
-// .runtime 运行时清理策略：活跃快照每次物化/命中都会续期 mtime；保留最近
-// RUNTIME_GC_KEEP_NEWEST 份与 RUNTIME_GC_MIN_AGE_MS 内的快照，其余删除。
-// 共享 venv（.runtime/.venvs/<key>）在 30 天未被使用后回收；崩溃遗留的
-// .creating-* 暂存目录超过 1 天后回收。可用 RAGSYSTEM_SKILL_SNAPSHOT_KEEP 覆盖保留份数。
-const RUNTIME_GC_KEEP_NEWEST = Math.max(1, Number.parseInt(process.env.RAGSYSTEM_SKILL_SNAPSHOT_KEEP ?? "", 10) || 8);
-const RUNTIME_GC_MIN_AGE_MS = 7 * 24 * 60 * 60 * 1000;
-const RUNTIME_GC_VENV_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
-const RUNTIME_GC_STAGING_MAX_AGE_MS = 24 * 60 * 60 * 1000;
-const RUNTIME_GC_DELAY_MS = 2_000;
-
-// 每个仓库根（每租户一个 store 实例）独立去抖：共享单 timer 会让后调度的
-// root 被静默丢弃，该租户的 .runtime 长期得不到清理。
-const runtimeGcStates = new Map<string, { timer: NodeJS.Timeout; keep: Set<string> }>();
-
-/** 去抖调度 .runtime 清理；同一 root 的多次调用合并活跃快照集合，只在锁外异步执行。 */
-function scheduleRuntimeGc(root: string, keepRevisions: string[]): void {
-  const existing = runtimeGcStates.get(root);
-  if (existing) {
-    for (const revision of keepRevisions) existing.keep.add(revision);
-    return;
-  }
-  const keep = new Set(keepRevisions);
-  const timer = setTimeout(() => {
-    runtimeGcStates.delete(root);
-    void gcRuntimeSnapshots(root, keep).catch(() => undefined);
-  }, RUNTIME_GC_DELAY_MS);
-  timer.unref();
-  runtimeGcStates.set(root, { timer, keep });
-}
-
-async function directoryMtimeMs(dir: string): Promise<number | null> {
-  try {
-    return (await fsp.stat(dir)).mtimeMs;
-  } catch {
-    return null; // 并发进程已删除/更名 → 本轮跳过该项
-  }
-}
-
-async function gcRuntimeSnapshots(root: string, keep: Set<string>): Promise<void> {
-  const runtimeDir = path.join(root, ".runtime");
-  let removed = 0;
-  try {
-    const now = Date.now();
-    if (fs.existsSync(runtimeDir)) {
-      const snapshots: { name: string; mtimeMs: number }[] = [];
-      for (const entry of await fsp.readdir(runtimeDir, { withFileTypes: true })) {
-        if (!entry.isDirectory() || entry.name.startsWith(".")) continue; // .venvs 等共享设施单独处理
-        const mtimeMs = await directoryMtimeMs(path.join(runtimeDir, entry.name));
-        if (mtimeMs !== null) snapshots.push({ name: entry.name, mtimeMs });
-      }
-      snapshots.sort((a, b) => b.mtimeMs - a.mtimeMs);
-      for (const [index, snapshot] of snapshots.entries()) {
-        if (keep.has(snapshot.name) || index < RUNTIME_GC_KEEP_NEWEST) continue;
-        if (now - snapshot.mtimeMs < RUNTIME_GC_MIN_AGE_MS) continue;
-        try {
-          await fsp.rm(path.join(runtimeDir, snapshot.name), { recursive: true, force: true, maxRetries: 2, retryDelay: 200 });
-          removed++;
-        } catch { /* Windows 下被占用 → 留待下轮 */ }
-      }
-      const venvsDir = path.join(runtimeDir, ".venvs");
-      if (fs.existsSync(venvsDir)) {
-        for (const entry of await fsp.readdir(venvsDir, { withFileTypes: true })) {
-          if (!entry.isDirectory()) continue;
-          const dir = path.join(venvsDir, entry.name);
-          const mtimeMs = await directoryMtimeMs(dir);
-          if (mtimeMs === null || now - mtimeMs < RUNTIME_GC_VENV_MAX_AGE_MS) continue; // 活跃 venv 每次执行都会续期
-          try {
-            await fsp.rm(dir, { recursive: true, force: true, maxRetries: 2, retryDelay: 200 });
-            removed++;
-          } catch { /* 被占用 → 留待下轮 */ }
-        }
-      }
-    }
-    for (const entry of await fsp.readdir(root, { withFileTypes: true })) {
-      if (!entry.isDirectory() || !entry.name.startsWith(".creating-")) continue; // 崩溃遗留的暂存目录
-      const dir = path.join(root, entry.name);
-      const mtimeMs = await directoryMtimeMs(dir);
-      if (mtimeMs === null || now - mtimeMs < RUNTIME_GC_STAGING_MAX_AGE_MS) continue;
-      try {
-        await fsp.rm(dir, { recursive: true, force: true, maxRetries: 2, retryDelay: 200 });
-        removed++;
-      } catch { /* 留待下轮 */ }
-    }
-    if (removed > 0) console.warn(`[skills] runtime GC: removed ${removed} unused snapshot(s)/venv(s) under ${runtimeDir}`);
-  } catch { /* best effort */ }
-}
 
 /** Local filesystem implementation of tenant user_global skill packages. */
 export class FilesystemSkillPackageStore implements ISkillPackageStore {
@@ -156,39 +68,11 @@ export class FilesystemSkillPackageStore implements ISkillPackageStore {
     };
   }
 
-  private executionRecord(name: string): SkillPackageRecord | null {
-    const snapshot = this.snapshot(name);
-    if (!snapshot) return null;
-    const record = parseSkillDir(this.directory(name))!;
-    const target = path.join(this.root, ".runtime", snapshot.revision);
-    if (!fs.existsSync(path.join(target, ".materialized"))) {
-      const staging = path.join(this.root, `.creating-execution-${randomUUID()}`);
-      fs.mkdirSync(staging);
-      try {
-        for (const file of snapshot.bundle.files) {
-          const destination = path.join(staging, requireSkillPath(file.relativePath));
-          fs.mkdirSync(path.dirname(destination), { recursive: true });
-          fs.writeFileSync(destination, file.body);
-        }
-        fs.writeFileSync(path.join(staging, ".materialized"), snapshot.revision);
-        fs.mkdirSync(path.dirname(target), { recursive: true });
-        fs.renameSync(staging, target);
-      } finally { fs.rmSync(staging, { recursive: true, force: true }); }
-    } else {
-      // 活跃快照续期 mtime，供运行时 GC 判定保留。
-      try {
-        const now = new Date();
-        fs.utimesSync(target, now, now);
-      } catch { /* best effort */ }
-    }
-    return { ...record, skillDir: target };
-  }
-
   async list(): Promise<SkillPackageRecord[]> {
-    const records = this.locked(() => listSkillDirs(this.root).map((directory) => this.executionRecord(path.basename(directory)))
-      .filter((record): record is SkillPackageRecord => record !== null).sort((a, b) => a.name.localeCompare(b.name)));
-    scheduleRuntimeGc(this.root, records.map((record) => path.basename(record.skillDir)));
-    return records;
+    return this.locked(() => listSkillDirs(this.root)
+      .map((directory) => parseSkillDir(this.directory(path.basename(directory))))
+      .filter((record): record is SkillPackageRecord => record !== null)
+      .sort((a, b) => a.name.localeCompare(b.name)));
   }
 
   async listMetadata(): Promise<SkillPackageMetadata[]> {
@@ -202,9 +86,7 @@ export class FilesystemSkillPackageStore implements ISkillPackageStore {
   }
 
   async get(name: string): Promise<SkillPackageRecord | null> {
-    const record = this.locked(() => this.executionRecord(name));
-    if (record) scheduleRuntimeGc(this.root, [path.basename(record.skillDir)]);
-    return record;
+    return this.locked(() => parseSkillDir(this.directory(name)));
   }
 
   async readBundle(name: string) { return this.locked(() => this.snapshot(name)); }
@@ -243,9 +125,24 @@ export class FilesystemSkillPackageStore implements ISkillPackageStore {
 
   async readFile(name: string, relativePath: string): Promise<{ body: Uint8Array; contentType: string } | null> {
     return this.locked(() => {
-      const snapshot = this.snapshot(name);
-      const file = snapshot?.bundle.files.find((entry) => entry.relativePath === requireSkillPath(relativePath));
-      return file ? { body: file.body, contentType: guessMime(file.relativePath) } : null;
+      const relative = requireSkillPath(relativePath);
+      const directory = this.directory(name);
+      if (!parseSkillDir(directory)) return null;
+      let target = directory;
+      const parts = relative.split("/");
+      for (const [index, part] of parts.entries()) {
+        if (SKIP_ENTRIES.has(part) || part === ".materialized") return null;
+        target = path.join(target, part);
+        let stat: fs.Stats;
+        try { stat = fs.lstatSync(target); }
+        catch (error) {
+          if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+          throw error;
+        }
+        if (stat.isSymbolicLink()) throw new Error("Skill files cannot be symlinks");
+        if (index < parts.length - 1 ? !stat.isDirectory() : !stat.isFile()) return null;
+      }
+      return { body: fs.readFileSync(target), contentType: guessMime(relative) };
     });
   }
 
@@ -263,7 +160,6 @@ export class FilesystemSkillPackageStore implements ISkillPackageStore {
     });
   }
 
-  async materialize(name: string): Promise<string | null> { return (await this.get(name))?.skillDir ?? null; }
 }
 
 function listSkillDirs(root: string): string[] {

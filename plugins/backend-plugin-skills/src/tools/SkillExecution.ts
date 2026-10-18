@@ -1,29 +1,16 @@
-import { isRecord, normalizeString, asString, asRecord } from "@ragsystem/backend-core/utils/guards.js";
-import { spawn } from "node:child_process";
-import { createHash } from "node:crypto";
+import { normalizeString, asRecord } from "@ragsystem/backend-core/utils/guards.js";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import YAML from "yaml";
-
-import { terminateProcessTree } from "@ragsystem/backend-core/services/runtime/process-tree.js";
-import {
-  createLocalExecutionPaths,
-  executionPathEnvironment,
-} from "@ragsystem/backend-core/contracts/execution/execution-environment.js";
 import type { AgentConfig } from "@ragsystem/backend-core/contracts/agent/agent-config.js";
 import type { PathAccessPolicy } from "@ragsystem/backend-core/contracts/runtime/path-access-policy.js";
-import type { BackgroundTaskPort } from "@ragsystem/backend-core/contracts/runtime/background-tasks.js";
-import type { ClientEventPublisherPort } from "@ragsystem/backend-core/contracts/runtime/core-runtime-ports.js";
-import { ManagedPathResolver } from "@ragsystem/backend-core/tools/shared/managed-path-resolver.js";
+import { toolError, toolSuccess } from "@ragsystem/backend-core/services/agent/sdk/tool-results.js";
 import type { SkillsAgentConfig, SkillsAgentConfigService } from "../config.js";
 import type { ISkillPackageStore, SkillPackageRecord } from "../contracts/skills/skill-package-store.js";
-import type { ToolExecContext, ToolExecutionResult, ToolFile } from "@ragsystem/agent-sdk";
+import { parseSkillMarkdown } from "../contracts/skills/skill-markdown.js";
+import type { ToolExecContext, ToolExecutionResult } from "@ragsystem/agent-sdk";
 
 type SkillSourceType = "workspace" | "user_global" | "builtin";
-
-type SkillIsolationMode = "venv" | "shared";
 
 interface SkillSourceSpec {
   root: string;
@@ -68,13 +55,6 @@ export interface SkillListItem {
 
 export interface SkillToolInput {
   skillName: string;
-  resourceFile?: string | null;
-  scriptName?: string | null;
-  arguments?: string[] | null;
-  cwd?: string | null;
-  runInBackground?: boolean | null;
-  workspaceRoot?: string | null;
-  timeoutSeconds?: number | null;
 }
 
 const SKILL_SOURCE_PRIORITY: Record<SkillSourceType, number> = {
@@ -89,16 +69,10 @@ const SKILL_SOURCE_LABELS: Record<SkillSourceType, string> = {
   builtin: "内置",
 };
 
-/** execute_skill_script 脚本超时（秒）：默认 60、上限 300，与 execute_code 的 timeout 参数对齐。 */
-export const DEFAULT_SCRIPT_TIMEOUT_SECONDS = 60;
-export const MAX_SCRIPT_TIMEOUT_SECONDS = 300;
-
 export class SkillToolService {
-  private readonly dataRoot: string;
   private readonly builtinSkillsRoot: string;
   private readonly additionalBuiltinSkillSources: readonly BuiltinSkillSourceInput[];
   private readonly userGlobalSkillsRoot: string;
-  private readonly paths: ManagedPathResolver;
 
   constructor(
     options: {
@@ -107,9 +81,6 @@ export class SkillToolService {
       additionalBuiltinSkillSources?: readonly BuiltinSkillSourceInput[] | undefined;
       userGlobalSkillsRoot?: string | undefined;
       skillsConfig?: SkillsAgentConfigService | null | undefined;
-      backgroundTasks?: BackgroundTaskPort | null | undefined;
-      clientEvents?: ClientEventPublisherPort | null | undefined;
-      skillIsolationMode?: SkillIsolationMode | undefined;
       /**
        * When set, user_global discovery uses packageStore.list() records (skillDir may be
        * content-addressed). Without it, user_global is scanned under userGlobalSkillsRoot.
@@ -120,55 +91,28 @@ export class SkillToolService {
     if (!options.dataRoot?.trim()) {
       throw new Error("SkillToolService 必须传入已解析的 dataRoot");
     }
-    this.dataRoot = path.resolve(options.dataRoot);
-    this.paths = new ManagedPathResolver(this.dataRoot);
+    const dataRoot = path.resolve(options.dataRoot);
     this.builtinSkillsRoot = path.resolve(options.builtinSkillsRoot ?? resolveDefaultBuiltinSkillsRoot());
     this.additionalBuiltinSkillSources = dedupeBuiltinSkillSources(options.additionalBuiltinSkillSources ?? []);
-    this.userGlobalSkillsRoot = path.resolve(options.userGlobalSkillsRoot ?? path.join(this.dataRoot, "skills"));
+    this.userGlobalSkillsRoot = path.resolve(options.userGlobalSkillsRoot ?? path.join(dataRoot, "skills"));
     this.skillsConfig = options.skillsConfig ?? null;
-    this.backgroundTasks = options.backgroundTasks ?? null;
-    this.clientEvents = options.clientEvents ?? null;
-    this.skillIsolationMode = options.skillIsolationMode ?? resolveDefaultIsolationMode();
     this.packageStore = options.packageStore ?? null;
   }
 
   private readonly skillsConfig: SkillsAgentConfigService | null;
-  private readonly backgroundTasks: BackgroundTaskPort | null;
-  private readonly clientEvents: ClientEventPublisherPort | null;
-  private readonly skillIsolationMode: SkillIsolationMode;
   private readonly packageStore: ISkillPackageStore | null;
-  private readonly envLocks = new Map<string, Promise<unknown>>();
-  /** Serializes packageStore.list() so concurrent hydrates cannot publish stale snapshots. */
   private hydrateChain: Promise<void> = Promise.resolve();
-  /** Last hydrate result from packageStore.list(); only used when packageStore is set. */
   private userGlobalPackageCache: SkillPackageRecord[] = [];
-  /** Discovery never promises an execution directory; scripts resolve their selected package via get(). */
-  private userGlobalDiscoveryCache: SkillPackageRecord[] | null = null;
 
-  /**
-   * Load tenant user_global packages from packageStore (materialize as needed).
-   * When packageStore is set, discovery uses these records instead of scanning userGlobalSkillsRoot.
-   * Always re-lists (queued) so create/update/delete observers never keep a coalesced stale snapshot.
-   */
-  async hydrateUserGlobalPackages(): Promise<void> {
+  /** Refresh only descriptions/instructions, without loading resources or preparing execution. */
+  async hydrateUserGlobalMetadata(): Promise<void> {
     if (!this.packageStore) return;
     const run = async (): Promise<void> => {
-      this.userGlobalPackageCache = await this.packageStore!.list();
-      this.userGlobalDiscoveryCache = null;
-    };
-    // Chain even after rejection so a failed list does not permanently poison later hydrates.
-    this.hydrateChain = this.hydrateChain.then(run, run);
-    await this.hydrateChain;
-  }
-
-  /** Tool definitions and context previews need metadata, not every package's resource bytes. */
-  async hydrateUserGlobalMetadata(): Promise<void> {
-    if (!this.packageStore?.listMetadata) return this.hydrateUserGlobalPackages();
-    const run = async (): Promise<void> => {
-      const records = await this.packageStore!.listMetadata!();
-      this.userGlobalDiscoveryCache = records.map((record) => ({
-        ...record, skillDir: path.join(this.userGlobalSkillsRoot, record.name),
-      }));
+      this.userGlobalPackageCache = this.packageStore!.listMetadata
+        ? (await this.packageStore!.listMetadata()).map((record) => ({
+            ...record, skillDir: path.join(this.userGlobalSkillsRoot, record.name),
+          }))
+        : await this.packageStore!.list();
     };
     this.hydrateChain = this.hydrateChain.then(run, run);
     await this.hydrateChain;
@@ -179,7 +123,7 @@ export class SkillToolService {
     return this.builtinSkillsRoot;
   }
 
-  /** 用户全局 skill 根目录（dataRoot/skills，由 Skill 库物化）。 */
+  /** 用户全局 skill 根目录（dataRoot/skills）。 */
   getUserGlobalSkillsRoot(): string {
     return this.userGlobalSkillsRoot;
   }
@@ -207,16 +151,7 @@ export class SkillToolService {
   }
 
   async listAvailableSkillsAsync(workspaceRoot?: string | null): Promise<SkillListItem[]> {
-    if (this.packageStore?.listMetadata) {
-      const records = await this.packageStore.listMetadata();
-      // These directories are only placeholders for discovery. Never publish metadata
-      // into userGlobalPackageCache: execution still hydrates immutable snapshots.
-      const skills = records.map((record) => skillInfoFromPackageRecord(
-        { ...record, skillDir: this.userGlobalSkillsRoot }, this.userGlobalSkillsRoot,
-      ));
-      return this.toListItems(this.mergeSkillSources(skills, workspaceRoot));
-    }
-    await this.hydrateUserGlobalPackages();
+    await this.hydrateUserGlobalMetadata();
     return this.listAvailableSkills(workspaceRoot);
   }
 
@@ -242,177 +177,36 @@ export class SkillToolService {
     return this.listVisibleSkills(agent, config, workspaceRoot);
   }
 
-  async activateSkill(input: SkillToolInput, context: ToolExecContext, agent: AgentConfig | null, config: SkillsAgentConfig): Promise<ToolExecutionResult> {
-    const toolName = "activate_skill";
-    await this.hydrateUserGlobalMetadata();
-    const workspaceRoot = input.workspaceRoot ?? resolveWorkspaceRoot(context, agent);
-    const skill = this.findVisibleSkill(input.skillName, agent, config, context, workspaceRoot);
-    if (!skill) {
-      return errorResult(
-        `Skill '${input.skillName}' 不存在或当前 Agent 无权使用。可用的 Skills: ${JSON.stringify(this.loadAllSkills(workspaceRoot).map((item) => item.name))}`,
-        toolName,
-      );
-    }
-    return successResult(
-      skill.content,
-      {
-        summary: `Skill '${skill.name}' 已激活，加载主文件 ${skill.content.length} 字符`,
-        outputType: "markdown",
-        metadata: {
-          skill_name: skill.name,
-          description: skill.description,
-          content_length: skill.content.length,
-          activation_time: "now",
-          status: "activated",
-          source_type: skill.sourceType,
-          source_label: skill.sourceLabel,
-        },
-        toolName,
-      },
-    );
-  }
-
-  async loadSkillResource(input: SkillToolInput, context: ToolExecContext, agent: AgentConfig | null, config: SkillsAgentConfig): Promise<ToolExecutionResult> {
-    const toolName = "load_skill_resource";
-    const resourceFile = input.resourceFile?.trim();
-    if (!resourceFile) {
-      return errorResult("resource_file 不能为空", toolName);
-    }
-    await this.hydrateUserGlobalMetadata();
-    const workspaceRoot = input.workspaceRoot ?? resolveWorkspaceRoot(context, agent);
-    const skill = await this.findVisibleExecutionSkill(input.skillName, agent, config, context, workspaceRoot);
-    if (!skill) {
-      return errorResult(`Skill '${input.skillName}' 不存在或当前 Agent 无权使用`, toolName);
-    }
-    const resourcePath = path.resolve(skill.skillDir, resourceFile);
-    const scriptsDir = path.join(skill.skillDir, "scripts");
-    if (!isPathUnder(resourcePath, skill.skillDir) || isPathUnder(resourcePath, scriptsDir)) {
-      return errorResult(`文件 '${resourceFile}' 不存在或无法读取`, toolName);
-    }
-    if (!fs.existsSync(resourcePath) || !fs.statSync(resourcePath).isFile()) {
-      return errorResult(`文件 '${resourceFile}' 不存在或无法读取`, toolName);
-    }
-    const content = fs.readFileSync(resourcePath, "utf8");
-    return successResult(
-      content,
-      {
-        summary: `成功加载 ${resourceFile} (${content.length} 字符)`,
-        outputType: "markdown",
-        metadata: {
-          file_name: resourceFile,
-          skill: skill.name,
-          length: content.length,
-        },
-        toolName,
-      },
-    );
-  }
-
-  async executeSkillScript(
+  async activateSkill(
     input: SkillToolInput,
     context: ToolExecContext,
     agent: AgentConfig | null,
     config: SkillsAgentConfig,
-    pathService: PathAccessPolicy | null = null,
+    pathService?: PathAccessPolicy,
   ): Promise<ToolExecutionResult> {
-    const toolName = "execute_skill_script";
-    const scriptName = input.scriptName?.trim();
-    if (!scriptName) {
-      return errorResult("script_name 不能为空", toolName);
-    }
+    const toolName = "activate_skill";
     await this.hydrateUserGlobalMetadata();
-    const workspaceRoot = input.workspaceRoot ?? resolveWorkspaceRoot(context, agent);
-    const skill = await this.findVisibleExecutionSkill(input.skillName, agent, config, context, workspaceRoot);
-    if (!skill) {
-      return errorResult(`Skill '${input.skillName}' 不存在或当前 Agent 无权使用`, toolName);
+    const visible = this.listVisibleSkills(agent, config, resolveWorkspaceRoot(context, agent));
+    let skill = visible.find((item) => item.name === input.skillName.trim());
+    if (!skill) return toolError(toolName, `Skill '${input.skillName}' 不存在或当前 Agent 无权使用。可用的 Skills: ${visible.map((item) => item.name).join(", ")}`);
+    if (skill.sourceType === "user_global" && this.packageStore) {
+      const record = await this.packageStore.get(skill.name);
+      if (!record) return toolError(toolName, `Skill '${skill.name}' 不存在`);
+      skill = skillInfoFromPackageRecord(record, this.userGlobalSkillsRoot);
     }
-    const scriptsDir = path.join(skill.skillDir, "scripts");
-    if (!fs.existsSync(scriptsDir) || !fs.statSync(scriptsDir).isDirectory()) {
-      return errorResult(`Skill '${skill.name}' 没有 scripts 目录`, toolName);
-    }
-    const scriptPath = path.resolve(scriptsDir, scriptName);
-    if (!isPathUnder(scriptPath, scriptsDir) || !fs.existsSync(scriptPath) || !fs.statSync(scriptPath).isFile()) {
-      return errorResult(`脚本不存在: ${scriptName}`, toolName);
-    }
-    if (input.runInBackground && !agent?.tasks?.background) {
-      return errorResult("当前 Agent 未启用 tasks.background，不能使用 run_in_background 后台执行", toolName, {
-        skill: skill.name,
-        script_name: scriptName,
-        background_started: false,
-      });
-    }
-    const timeoutSeconds = normalizeScriptTimeout(input.timeoutSeconds);
-    if (input.runInBackground) {
-      return this.executeSkillScriptInBackground(
-        skill,
-        scriptPath,
-        scriptName,
-        input.arguments ?? [],
-        input.cwd,
-        timeoutSeconds,
-        workspaceRoot,
-        context,
-        agent,
-        config,
-        pathService,
-      );
-    }
-
-    let cwd: string;
-    try {
-      cwd = this.resolveExecutionCwd(input.cwd, workspaceRoot, context, pathService);
-    } catch (error) {
-      return errorResult(error instanceof Error ? error.message : String(error), toolName);
-    }
-
-    const scriptResult = await this.runScript(
-        skill,
-        scriptPath,
-        input.arguments ?? [],
-        context,
-        workspaceRoot,
-        cwd,
-        timeoutSeconds,
-    );
-      const meta: Record<string, unknown> = {
-        success: scriptResult.returnCode === 0,
-        script_name: scriptName,
-        skill: skill.name,
-        timeout_seconds: timeoutSeconds,
-      };
-      if (scriptResult.stderr.trim()) meta.stderr = scriptResult.stderr;
-      if (scriptResult.stdout.length > 4000) meta.force_file = true;
-
-      if (scriptResult.returnCode === 0) {
-        const parsed = parseJsonStdout(scriptResult.stdout);
-        if (parsed !== null) {
-          const normalized = await this.normalizeStructuredScriptResult(
-            parsed,
-            scriptName,
-            skill.name,
-            meta,
-            cwd,
-            workspaceRoot ?? context.executionPaths?.workspace ?? this.paths.roots(context).workspace,
-          );
-          return normalized;
-        }
-      }
-
-      return successResult(
-        {
-          script_name: scriptName,
-          stdout: scriptResult.stdout,
-          stderr: scriptResult.stderr,
-          return_code: scriptResult.returnCode,
-          skill: skill.name,
-        },
-        {
-          summary: `脚本 ${scriptName} 执行完成（返回码: ${scriptResult.returnCode}）`,
-          outputType: "streams",
-          metadata: meta,
-          toolName,
-        },
-      );
+    const skillRoot = fs.realpathSync(skill.skillDir);
+    pathService?.approveRead?.([skillRoot]);
+    return toolSuccess({
+      skill_name: skill.name,
+      description: skill.description,
+      skill_root: skillRoot,
+      main_content: skill.content,
+    }, {
+      toolName,
+      summary: `已加载 Skill '${skill.name}'`,
+      outputType: "json",
+      metadata: { source_type: skill.sourceType, source_label: skill.sourceLabel },
+    });
   }
 
   loadAllSkills(workspaceRoot?: string | null): SkillInfo[] {
@@ -446,7 +240,7 @@ export class SkillToolService {
    */
   private loadUserGlobalSkills(): SkillInfo[] {
     if (this.packageStore) {
-      return (this.userGlobalDiscoveryCache ?? this.userGlobalPackageCache)
+      return this.userGlobalPackageCache
         .map((record) => skillInfoFromPackageRecord(record, this.userGlobalSkillsRoot));
     }
     const spec: SkillSourceSpec = {
@@ -463,23 +257,6 @@ export class SkillToolService {
     return skills;
   }
 
-  private findSkill(skillName: string, workspaceRoot?: string | null): SkillInfo | null {
-    const normalized = skillName.trim();
-    return this.loadAllSkills(workspaceRoot).find((skill) => skill.name === normalized) ?? null;
-  }
-
-  private findVisibleSkill(skillName: string, agent: AgentConfig | null, config: SkillsAgentConfig, context: ToolExecContext, workspaceRoot?: string | null): SkillInfo | null {
-    const normalized = skillName.trim();
-    return this.resolveVisibleSkills(agent, config, workspaceRoot ?? resolveWorkspaceRoot(context, agent)).find((skill) => skill.name === normalized) ?? null;
-  }
-
-  private async findVisibleExecutionSkill(skillName: string, agent: AgentConfig | null, config: SkillsAgentConfig, context: ToolExecContext, workspaceRoot?: string | null): Promise<SkillInfo | null> {
-    const skill = this.findVisibleSkill(skillName, agent, config, context, workspaceRoot);
-    if (!skill || skill.sourceType !== "user_global" || !this.packageStore) return skill;
-    const record = await this.packageStore.get(skill.name);
-    return record ? skillInfoFromPackageRecord(record, this.userGlobalSkillsRoot) : null;
-  }
-
   private resolveVisibleSkills(agent: AgentConfig | null, config: SkillsAgentConfig, workspaceRoot?: string | null): SkillInfo[] {
     const skills = this.loadAllSkills(workspaceRoot);
     const enabled = new Set(config.enabled_skills);
@@ -492,218 +269,6 @@ export class SkillToolService {
     });
   }
 
-  private async runScript(
-    skill: SkillInfo,
-    scriptPath: string,
-    args: string[],
-    context: ToolExecContext,
-    workspaceRoot: string | null,
-    cwd: string,
-    timeoutSeconds: number,
-  ): Promise<{ stdout: string; stderr: string; returnCode: number }> {
-    const environment = await this.ensureSkillEnvironment(skill, context.signal);
-    if ("error" in environment) {
-      return { stdout: "", stderr: `环境准备失败: ${environment.error}`, returnCode: 1 };
-    }
-    const resolvedWorkspace = workspaceRoot ?? context.executionPaths?.workspace ?? createLocalExecutionPaths(this.dataRoot, context).workspace;
-    const executionPaths = context.executionPaths
-      ? { ...context.executionPaths, workspace: resolvedWorkspace }
-      : createLocalExecutionPaths(this.dataRoot, { ...context, workspaceRoot: resolvedWorkspace });
-    return spawnProcess(environment.python, [scriptPath, ...args.map(String)], {
-      cwd,
-      timeoutMs: timeoutSeconds * 1000,
-      timeoutMessage: `脚本执行超时（>${timeoutSeconds}秒）`,
-      ...(context.signal ? { signal: context.signal } : {}),
-      env: {
-        ...process.env,
-        PYTHONIOENCODING: "utf-8",
-        PYTHONUTF8: "1",
-        RAG_DATA_ROOT: this.dataRoot,
-        ...(context.sessionId ? { RAG_SESSION_ID: context.sessionId } : {}),
-        ...executionPathEnvironment(executionPaths),
-      },
-    });
-  }
-
-  /**
-   * 准备 Skill 运行所需的 Python 环境，返回应使用的解释器路径。
-   *
-   * - shared 模式或无 requirements.txt：直接使用系统/共享解释器。
-   * - venv 模式且存在 requirements.txt：venv 位置由 resolveVenvDirectory 决定——
-   *   包仓库技能按「requirements 哈希 + Python 版本」跨快照共享；就地技能沿用
-   *   skillDir/.venv 并按 .installed marker 与 requirements.txt 的 mtime 决定重装。
-   *
-   * 同一 venv 目录的环境准备通过 envLocks 串行化，避免并发创建/安装竞态。
-   */
-  private async ensureSkillEnvironment(skill: SkillInfo, signal?: AbortSignal): Promise<{ python: string } | { error: string }> {
-    if (this.skillIsolationMode === "shared") {
-      return { python: resolvePythonExecutable() };
-    }
-    const requirementsFile = path.join(skill.skillDir, "requirements.txt");
-    if (!fs.existsSync(requirementsFile)) {
-      return { python: resolvePythonExecutable() };
-    }
-    const venvDir = await resolveVenvDirectory(skill.skillDir, requirementsFile);
-    const previous = this.envLocks.get(venvDir) ?? Promise.resolve();
-    const current = previous.catch(() => undefined).then(() => prepareVenv(venvDir, requirementsFile, signal));
-    this.envLocks.set(venvDir, current.catch(() => undefined));
-    return current;
-  }
-
-  private executeSkillScriptInBackground(
-    skill: SkillInfo,
-    scriptPath: string,
-    scriptName: string,
-    args: string[],
-    cwd: string | null | undefined,
-    timeoutSeconds: number,
-    workspaceRoot: string | null,
-    context: ToolExecContext,
-    agent: AgentConfig | null,
-    config: SkillsAgentConfig,
-    pathService: PathAccessPolicy | null,
-  ): ToolExecutionResult {
-    const toolName = "execute_skill_script";
-    if (!this.backgroundTasks) {
-      return errorResult("execute_skill_script 后台执行暂不可用", toolName, {
-        skill: skill.name,
-        script_name: scriptName,
-        background_started: false,
-      });
-    }
-    const sessionId = normalizeString(context.sessionId);
-    if (!sessionId) {
-      return errorResult("后台执行需要 session_id（无 session_id 时无法路由完成通知）", toolName, {
-        skill: skill.name,
-        script_name: scriptName,
-        background_started: false,
-      });
-    }
-    const outputDir = path.join(os.tmpdir(), "ragsystem-background", sessionId);
-    const resolvedWorkspace = workspaceRoot ?? context.executionPaths?.workspace ?? createLocalExecutionPaths(this.dataRoot, context).workspace;
-    const executionPaths = context.executionPaths
-      ? { ...context.executionPaths, workspace: resolvedWorkspace }
-      : createLocalExecutionPaths(this.dataRoot, { ...context, workspaceRoot: resolvedWorkspace });
-    const task = this.backgroundTasks.runCallable({
-      outputDir,
-      description: `${skill.name}/${scriptName}`,
-      sessionId,
-      runId: normalizeString(context.runId),
-      ownerTaskId: normalizeString(context.taskId),
-      // 发起者分支（§10.4 第六轮）：完成通知路由给发起脚本的线程。
-      initiatorThreadKey: normalizeString(context.threadKey) ?? "root",
-      initiatorChildAgentId: normalizeString(context.currentChildAgentId),
-      kind: "callable",
-      resultType: "tool_execution_result",
-      clientEvents: this.clientEvents,
-      run: ({ signal }) => this.executeSkillScript(
-        {
-          skillName: skill.name,
-          scriptName,
-          arguments: args,
-          ...(cwd !== undefined ? { cwd } : {}),
-          runInBackground: false,
-          workspaceRoot,
-          timeoutSeconds,
-        },
-        { ...context, signal },
-        agent,
-        config,
-        pathService,
-      ),
-    });
-    return successResult(
-      {
-        stdout: "",
-        stderr: "",
-        return_code: null,
-        task_id: task.task_id,
-        background_task_id: task.task_id,
-        background_started: true,
-        skill: skill.name,
-        script_name: scriptName,
-      },
-      {
-        summary: "后台任务已启动",
-        outputType: "streams",
-        metadata: {
-          success: true,
-          skill: skill.name,
-          script_name: scriptName,
-          timeout_seconds: timeoutSeconds,
-          task_id: task.task_id,
-          background_task_id: task.task_id,
-          background_started: true,
-          execution_paths: executionPaths,
-          background_output_path: toDisplayPath(task.output_path),
-          background_kind: task.kind,
-          cancel_supported: task.cancel_supported,
-          run_id: normalizeString(context.runId),
-        },
-        toolName,
-      },
-    );
-  }
-
-  getExternalCwdCandidates(
-    cwd: string | null | undefined,
-    context: ToolExecContext,
-    agent: AgentConfig | null,
-    pathService: PathAccessPolicy,
-  ): string[] {
-    const workspaceRoot = resolveWorkspaceRoot(context, agent);
-    const executionContext = workspaceRoot
-      ? { ...context, executionPaths: { ...this.paths.roots(context), workspace: workspaceRoot } }
-      : context;
-    return this.paths.getExternalCandidates(cwd, executionContext, pathService);
-  }
-
-  private resolveExecutionCwd(
-    cwd: string | null | undefined,
-    workspaceRoot: string | null,
-    context: ToolExecContext,
-    pathService: PathAccessPolicy | null,
-  ): string {
-    const executionPaths = {
-      ...this.paths.roots(context),
-      workspace: path.resolve(workspaceRoot ?? this.paths.roots(context).workspace),
-    };
-    const effectivePolicy = pathService ?? workspaceOnlyPathPolicy(executionPaths.workspace);
-    return this.paths.resolveWorkingDirectory(cwd, { ...context, executionPaths }, effectivePolicy);
-  }
-
-  private async normalizeStructuredScriptResult(
-    rawPayload: unknown,
-    scriptName: string,
-    skillName: string,
-    metadata: Record<string, unknown>,
-    cwd: string,
-    workspaceRoot: string,
-  ): Promise<ToolExecutionResult> {
-    const unwrapped = unwrapScriptResponse(rawPayload);
-    if (unwrapped.error) {
-      return errorResult(unwrapped.error, "execute_skill_script");
-    }
-    let payload = mergeStructuredExtensions(unwrapped.payload, unwrapped.extensions);
-    Object.assign(metadata, unwrapped.metadata);
-    const file = extractSkillFileReference(rawPayload, cwd, workspaceRoot);
-    return successResult(payload, {
-        summary: `脚本 ${scriptName} 执行完成（返回结构化 JSON）`,
-        outputType: "json",
-        metadata: {
-          ...metadata,
-          script_name: scriptName,
-          skill: skillName,
-        },
-        toolName: "execute_skill_script",
-        ...(file ? { files: [file] } : {}),
-      });
-  }
-
-  /**
-   * Disk-scanned sources only. user_global is handled by loadUserGlobalSkills so SaaS
-   * by-hash cache dirs are never mistaken for skill names.
-   */
   private diskSkillSources(workspaceRoot?: string | null): SkillSourceSpec[] {
     const specs: SkillSourceSpec[] = [];
     const workspace = normalizeString(workspaceRoot);
@@ -770,119 +335,15 @@ function skillInfoFromPackageRecord(record: SkillPackageRecord, originRoot: stri
   };
 }
 
-export function readSkillToolArguments(value: Record<string, unknown> | undefined): SkillToolInput {
-  return {
-    skillName: asString(value?.skill_name) ?? asString(value?.skillName) ?? "",
-    resourceFile: asString(value?.resource_file) ?? asString(value?.resourceFile),
-    scriptName: asString(value?.script_name) ?? asString(value?.scriptName),
-    arguments: readStringArray(value?.arguments),
-    cwd: asString(value?.cwd),
-    runInBackground: typeof value?.run_in_background === "boolean"
-      ? value.run_in_background
-      : typeof value?.runInBackground === "boolean"
-        ? value.runInBackground
-        : null,
-    workspaceRoot: asString(value?.workspace_root) ?? asString(value?.workspaceRoot),
-    timeoutSeconds: asInteger(value?.timeout),
-  };
-}
-
-/** 夹取脚本超时（秒）：非法/缺省回落默认值，范围 [1, MAX_SCRIPT_TIMEOUT_SECONDS]。 */
-export function normalizeScriptTimeout(value: number | null | undefined): number {
-  if (value === null || value === undefined || !Number.isInteger(value)) {
-    return DEFAULT_SCRIPT_TIMEOUT_SECONDS;
-  }
-  return Math.max(1, Math.min(MAX_SCRIPT_TIMEOUT_SECONDS, value));
-}
-
-function asInteger(value: unknown): number | null {
-  return typeof value === "number" && Number.isInteger(value) ? value : null;
-}
-
-function workspaceOnlyPathPolicy(workspace: string): PathAccessPolicy {
-  return {
-    approve: () => undefined,
-    isApproved: () => false,
-    collectUnapproved: (candidates) => candidates.filter((item): item is string => typeof item === "string"),
-    setAllowUnapprovedExternalPaths: () => undefined,
-    assertWithin(candidate, _roots, originalPath) {
-      const resolved = path.resolve(candidate);
-      const relative = path.relative(path.resolve(workspace), resolved);
-      if (relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative))) return resolved;
-      throw new Error(`路径 '${originalPath}' 超出 workspace；外部 cwd 需要经过路径审批`);
-    },
-  };
-}
-
 function parseSkill(skillDir: string, spec: SkillSourceSpec): SkillInfo | null {
-  const skillFile = path.join(skillDir, "SKILL.md");
-  let content: string;
   try {
-    content = fs.readFileSync(skillFile, "utf8");
-  } catch {
-    return null;
-  }
-  const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/m.exec(content);
-  if (!match) {
-    return null;
-  }
-  const metadata = parseSkillMetadata(match[1] ?? "");
-  const name = asString(metadata.name);
-  const description = asString(metadata.description);
-  if (!name || !description) {
-    return null;
-  }
-  const info: SkillInfo = {
-    name,
-    description,
-    content: (match[2] ?? "").trim(),
-    skillDir,
-    metadata,
-    sourceType: spec.sourceType,
-    sourceLabel: spec.sourceLabel,
-    isAutoInjectCandidate: spec.isAutoInjectCandidate,
-    originRoot: spec.root,
-  };
-  const requires = readSkillRequires(metadata);
-  if (requires) {
-    info.requires = requires;
-  }
-  return info;
-}
-
-/** 从官方 metadata 扩展字段读 Skill 依赖(ragsystem_requires_mcp_servers/ragsystem_requires_tools,逗号分隔)。 */
-function readSkillRequires(metadata: Record<string, unknown>): SkillRequires | undefined {
-  const metaField = isRecord(metadata.metadata) ? metadata.metadata : null;
-  if (!metaField) return undefined;
-  const mcpServers = parseCsvString(metaField.ragsystem_requires_mcp_servers);
-  const tools = parseCsvString(metaField.ragsystem_requires_tools);
-  if (!mcpServers.length && !tools.length) return undefined;
-  const requires: SkillRequires = {};
-  if (mcpServers.length) requires.mcp_servers = mcpServers;
-  if (tools.length) requires.tools = tools;
-  return requires;
-}
-
-function parseCsvString(value: unknown): string[] {
-  if (typeof value !== "string") return [];
-  return value.split(",").map((part) => part.trim()).filter(Boolean);
-}
-
-function parseSkillMetadata(raw: string): Record<string, unknown> {
-  try {
-    const parsed = YAML.parse(raw) as unknown;
-    return isRecord(parsed) ? parsed : {};
-  } catch {
-    const result: Record<string, string> = {};
-    for (const line of raw.split(/\r?\n/)) {
-      const index = line.indexOf(":");
-      if (index <= 0) {
-        continue;
-      }
-      result[line.slice(0, index).trim()] = line.slice(index + 1).trim();
-    }
-    return result;
-  }
+    const parsed = parseSkillMarkdown(fs.readFileSync(path.join(skillDir, "SKILL.md"), "utf8"));
+    if (!parsed?.name || !parsed.description) return null;
+    return {
+      ...parsed, skillDir, sourceType: spec.sourceType, sourceLabel: spec.sourceLabel,
+      isAutoInjectCandidate: spec.isAutoInjectCandidate, originRoot: spec.root,
+    };
+  } catch { return null; }
 }
 
 function listSkillDirs(root: string): string[] {
@@ -896,365 +357,6 @@ function listSkillDirs(root: string): string[] {
   }
 }
 
-function parseJsonStdout(stdout: string): unknown | null {
-  const text = stdout.trim();
-  if (!text) {
-    return null;
-  }
-  try {
-    return JSON.parse(text) as unknown;
-  } catch {
-    return null;
-  }
-}
-
-function unwrapScriptResponse(payload: unknown): {
-  payload: unknown;
-  error: string | null;
-  metadata: Record<string, unknown>;
-  extensions: Record<string, unknown>;
-} {
-  if (!isRecord(payload) || !("success" in payload) || !("data" in payload)) {
-    return { payload, error: null, metadata: {}, extensions: {} };
-  }
-  if (payload.success === false) {
-    return {
-      payload: null,
-      error: asString(payload.error) ?? asString(payload.message) ?? asString(payload.summary) ?? "脚本返回失败结果",
-      metadata: {},
-      extensions: {},
-    };
-  }
-  const metadata: Record<string, unknown> = {};
-  for (const key of ["message", "summary", "count", "total", "offset", "limit"]) {
-    if (payload[key] !== undefined && payload[key] !== null) {
-      metadata[key] = payload[key];
-    }
-  }
-  if (isRecord(payload.metadata)) {
-    Object.assign(metadata, payload.metadata);
-  }
-  const controlFields = new Set(["success", "data", "error", "message", "summary", "count", "total", "offset", "limit", "metadata"]);
-  const extensions = Object.fromEntries(Object.entries(payload).filter(([key]) => !controlFields.has(key)));
-  return { payload: payload.data, error: null, metadata, extensions };
-}
-
-function mergeStructuredExtensions(payload: unknown, extensions: Record<string, unknown>): unknown {
-  if (Object.keys(extensions).length === 0) return payload;
-  return isRecord(payload) ? { ...payload, ...extensions } : { data: payload, ...extensions };
-}
-
-function extractSkillFileReference(rawPayload: unknown, cwd: string, workspaceRoot: string): ToolFile | null {
-  if (!isRecord(rawPayload)) return null;
-  const candidate = isRecord(rawPayload.file)
-    ? rawPayload.file
-    : isRecord(rawPayload.data) && isRecord(rawPayload.data.file) ? rawPayload.data.file : null;
-  if (!candidate) return null;
-  const rawPath = asString(candidate.path) ?? asString(candidate.filename);
-  if (!rawPath) return null;
-  const resolved = path.resolve(cwd, rawPath);
-  const cwdRelative = path.relative(path.resolve(cwd), resolved);
-  if (cwdRelative.startsWith("..") || path.isAbsolute(cwdRelative)) return null;
-  let size = typeof candidate.size === "number" && Number.isFinite(candidate.size) ? candidate.size : 0;
-  try { size = fs.statSync(resolved).size; } catch { /* The script may return a path before a later stage creates it. */ }
-  const mimeType = asString(candidate.mime_type) ?? asString(candidate.media_type) ?? "application/octet-stream";
-  const fileType: ToolFile["fileType"] = mimeType.startsWith("image/") ? "image" : mimeType.startsWith("text/") ? "text" : "json";
-  const workspace = path.resolve(workspaceRoot);
-  const inWorkspace = isPathUnder(resolved, workspace);
-  const workspaceRelative = inWorkspace ? path.relative(workspace, resolved).replace(/\\/g, "/") : null;
-  return {
-    fileType,
-    path: workspaceRelative ?? resolved,
-    mimeType,
-    size,
-    metadata: {
-      lifecycle: inWorkspace ? "workspace" : "external",
-      ...(workspaceRelative ? { relative_path: workspaceRelative } : {}),
-      cwd_relative_path: cwdRelative.replace(/\\/g, "/"),
-      ...(asString(candidate.kind) ? { kind: candidate.kind } : {}),
-      ...(asString(candidate.subtype) ? { subtype: candidate.subtype } : {}),
-    },
-  };
-}
-
-function successResult<T>(
-  content: T,
-  input: {
-    summary: string;
-    outputType: import("@ragsystem/agent-sdk").ToolOutputType;
-    metadata: Record<string, unknown>;
-    toolName: string;
-    llmHint?: string | null;
-    files?: ToolFile[];
-  },
-): ToolExecutionResult {
-  return {
-    success: true,
-    toolName: input.toolName,
-    summary: input.summary,
-    answer: null,
-    outputType: input.outputType,
-    content,
-    metadata: input.metadata,
-    files: input.files ?? [],
-    llmHint: input.llmHint ?? null,
-  };
-}
-
-function errorResult(
-  message: string,
-  toolName: string,
-  metadata: Record<string, unknown> = {},
-): ToolExecutionResult {
-  return {
-    success: false,
-    toolName,
-    summary: message,
-    answer: null,
-    outputType: "error",
-    content: message,
-    metadata: {
-      source_shape: "error",
-      ...metadata,
-    },
-    files: [],
-    llmHint: null,
-  };
-}
-
-function resolvePythonExecutable(): string {
-  return process.env.RAGSYSTEM_PYTHON?.trim() || process.env.PYTHON?.trim() || "python";
-}
-
-function resolveDefaultIsolationMode(): SkillIsolationMode {
-  return process.env.RAGSYSTEM_SKILL_ISOLATION === "shared" ? "shared" : "venv";
-}
-
-function venvPythonExecutable(venvDir: string): string {
-  return process.platform === "win32"
-    ? path.join(venvDir, "Scripts", "python.exe")
-    : path.join(venvDir, "bin", "python");
-}
-
-function venvPipExecutable(venvDir: string): string {
-  return process.platform === "win32"
-    ? path.join(venvDir, "Scripts", "pip.exe")
-    : path.join(venvDir, "bin", "pip");
-}
-
-const SHARED_VENV_DIR_NAME = ".venvs";
-
-let cachedPythonVersion: string | null = null;
-
-function pythonVersionLabel(): Promise<string> {
-  if (cachedPythonVersion !== null) return Promise.resolve(cachedPythonVersion);
-  return spawnProcess(resolvePythonExecutable(), ["--version"], { timeoutMs: 15_000 }).then(
-    (result) => {
-      const label = /Python \d+(?:\.\d+)*/i.exec(result.stdout)?.[0] ?? "";
-      if (result.returnCode !== 0 || !label) return "python"; // 探测失败不缓存，下次重试
-      cachedPythonVersion = label;
-      return label;
-    },
-    () => "python",
-  );
-}
-
-let cachedUvAvailable: Promise<boolean> | null = null;
-
-function uvAvailable(): Promise<boolean> {
-  cachedUvAvailable ??= spawnProcess(process.platform === "win32" ? "uv.exe" : "uv", ["--version"], { timeoutMs: 15_000 }).then(
-    (result) => result.returnCode === 0,
-    () => false,
-  );
-  return cachedUvAvailable;
-}
-
-/**
- * 计算 skill 的 venv 位置。
- * - 包仓库技能（skillDir 形如 <root>/.runtime/<revision>）：venv 按
- *   「requirements 内容哈希 + Python 版本」共享于 <root>/.runtime/.venvs/<key>，
- *   技能内容变更只重建快照，不再连带重建整份 venv。
- * - requirements 含可编辑安装/相对路径引用（-e、file:./、./…、-r …）时不共享：
- *   这类安装会把路径锚定到物化时刻的快照目录，快照被 GC 后留下坏环境。
- * - 其余（workspace 等就地目录）：沿用 skillDir/.venv。
- * 注意：共享 venv 的创建/安装仅在本进程内串行（envLocks）；同一 dataRoot
- * 起多个后端实例时可能并发安装，共享的前提是单实例部署。
- */
-async function resolveVenvDirectory(skillDir: string, requirementsFile: string): Promise<string> {
-  const runtimeDir = path.dirname(skillDir);
-  if (path.basename(runtimeDir) !== ".runtime") return path.join(skillDir, ".venv");
-  const requirements = fs.readFileSync(requirementsFile, "utf8");
-  if (requirementsUseRelativeReferences(requirements)) return path.join(skillDir, ".venv");
-  const digest = createHash("sha256").update(requirements).digest("hex").slice(0, 16);
-  const version = await pythonVersionLabel();
-  const key = `${digest}-${version}`.replace(/[^A-Za-z0-9._-]+/g, "-").slice(0, 96);
-  return path.join(runtimeDir, SHARED_VENV_DIR_NAME, key);
-}
-
-/** 检测 requirements 是否含可编辑安装、相对路径或嵌套 requirements 引用（均锚定本地目录，不能跨快照共享 venv）。 */
-function requirementsUseRelativeReferences(requirements: string): boolean {
-  return requirements.split(/\r?\n/).some((line) => {
-    const entry = line.trim();
-    if (!entry || entry.startsWith("#")) return false;
-    if (/^(?:-e|--editable|-r|--requirement)\b/i.test(entry)) return true;
-    const target = entry.split(/\s+/).pop() ?? "";
-    return /^(?:\.{1,2}(?:[/\\]|$)|file:[./\\])/i.test(target);
-  });
-}
-
-/**
- * 确保 venv 存在且 requirements.txt 中的依赖已安装，返回 venv 内的 Python 解释器路径。
- * 依赖安装优先走 uv（命中本地缓存时秒级完成），uv 不可用或失败时回退 venv 自带的 pip。
- */
-async function prepareVenv(
-  venvDir: string,
-  requirementsFile: string,
-  signal?: AbortSignal,
-): Promise<{ python: string } | { error: string }> {
-  const shared = path.basename(path.dirname(venvDir)) === SHARED_VENV_DIR_NAME;
-  if (!fs.existsSync(venvDir)) {
-    const create = await spawnProcess(resolvePythonExecutable(), ["-m", "venv", venvDir], {
-      timeoutMs: 60_000,
-      ...(signal ? { signal } : {}),
-    });
-    if (create.returnCode !== 0) {
-      return { error: `创建虚拟环境失败: ${create.stderr.trim() || create.stdout.trim()}` };
-    }
-  }
-
-  const installedMarker = path.join(venvDir, ".installed");
-  if (fs.existsSync(installedMarker)) {
-    if (shared) {
-      // 共享 venv 目录名已含 requirements 哈希，命中即视为安装完成；续期 mtime 供运行时 GC 保留。
-      try {
-        const now = new Date();
-        fs.utimesSync(venvDir, now, now);
-      } catch { /* best effort */ }
-      return { python: venvPythonExecutable(venvDir) };
-    }
-    const requirementsMtime = fs.statSync(requirementsFile).mtimeMs;
-    if (fs.statSync(installedMarker).mtimeMs >= requirementsMtime) {
-      return { python: venvPythonExecutable(venvDir) };
-    }
-  }
-
-  if (await uvAvailable()) {
-    const install = await spawnProcess(
-      process.platform === "win32" ? "uv.exe" : "uv",
-      ["pip", "install", "-r", requirementsFile, "--python", venvPythonExecutable(venvDir)],
-      { timeoutMs: 300_000, ...(signal ? { signal } : {}) },
-    );
-    if (install.returnCode === 0) {
-      fs.writeFileSync(installedMarker, "");
-      return { python: venvPythonExecutable(venvDir) };
-    }
-    if (install.returnCode === 124) {
-      // uv 卡死超时，重试 pip 大概率同样卡住且让最坏等待翻倍，直接报错。
-      return { error: `uv 安装依赖超时: ${install.stderr.trim() || install.stdout.trim()}` };
-    }
-    // uv 失败（代理/索引不兼容等）时回退 pip 重试。
-  }
-  const install = await spawnProcess(venvPipExecutable(venvDir), ["install", "-r", requirementsFile], {
-    timeoutMs: 300_000,
-    ...(signal ? { signal } : {}),
-  });
-  if (install.returnCode !== 0) {
-    return { error: `安装依赖失败: ${install.stderr.trim() || install.stdout.trim()}` };
-  }
-  fs.writeFileSync(installedMarker, "");
-  return { python: venvPythonExecutable(venvDir) };
-}
-
-/**
- * 启动子进程并收集 stdout/stderr，超时后 SIGKILL 并返回 124。
- */
-function spawnProcess(
-  executable: string,
-  args: string[],
-  options: {
-    cwd?: string;
-    env?: NodeJS.ProcessEnv;
-    timeoutMs: number;
-    timeoutMessage?: string;
-    signal?: AbortSignal;
-  },
-): Promise<{ stdout: string; stderr: string; returnCode: number }> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    const errorChunks: Buffer[] = [];
-    let timedOut = false;
-    let abortRequested = false;
-    let settled = false;
-    const child = spawn(executable, args, {
-      cwd: options.cwd,
-      windowsHide: true,
-      env: options.env ?? process.env,
-    });
-    const cleanup = (): void => {
-      clearTimeout(timer);
-      options.signal?.removeEventListener("abort", onAbort);
-    };
-    const onAbort = (): void => {
-      if (settled) return;
-      abortRequested = true;
-      try {
-        terminateProcessTree(child.pid, true);
-      } catch {
-        finishAbort();
-      }
-    };
-    const finishAbort = (): void => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      const error = new Error("Skill script execution cancelled");
-      error.name = "AbortError";
-      reject(error);
-    };
-    const timer = setTimeout(() => {
-      if (settled) return;
-      timedOut = true;
-      terminateProcessTree(child.pid, true);
-    }, options.timeoutMs);
-    if (options.signal?.aborted) onAbort();
-    else options.signal?.addEventListener("abort", onAbort, { once: true });
-    child.stdout?.on("data", (chunk: Buffer) => chunks.push(chunk));
-    child.stderr?.on("data", (chunk: Buffer) => errorChunks.push(chunk));
-    child.on("error", (error) => {
-      if (settled) return;
-      if (abortRequested) {
-        finishAbort();
-        return;
-      }
-      settled = true;
-      cleanup();
-      resolve({ stdout: "", stderr: error.message, returnCode: 1 });
-    });
-    child.on("close", (code) => {
-      if (settled) return;
-      if (abortRequested) {
-        finishAbort();
-        return;
-      }
-      settled = true;
-      cleanup();
-      if (timedOut) {
-        resolve({
-          stdout: Buffer.concat(chunks).toString("utf8"),
-          stderr: options.timeoutMessage ?? "执行超时",
-          returnCode: 124,
-        });
-        return;
-      }
-      resolve({
-        stdout: Buffer.concat(chunks).toString("utf8"),
-        stderr: Buffer.concat(errorChunks).toString("utf8"),
-        returnCode: code ?? 0,
-      });
-    });
-  });
-}
-
 function resolveWorkspaceRoot(context: ToolExecContext, agent: AgentConfig | null): string | null {
   return context.executionPaths?.workspace ?? normalizeString(context.workspaceRoot) ?? resolveAgentWorkspaceRoot(agent);
 }
@@ -1265,28 +367,4 @@ function resolveAgentWorkspaceRoot(agent: AgentConfig | null): string | null {
 
 function titleCase(value: string): string {
   return value.replace(/\b\w/g, (item) => item.toUpperCase());
-}
-
-function readStringArray(value: unknown): string[] | null {
-  if (!Array.isArray(value)) {
-    return null;
-  }
-  return value.map((item) => String(item));
-}
-
-
-
-
-
-
-
-
-
-function toDisplayPath(filePath: string): string {
-  return path.resolve(filePath);
-}
-
-function isPathUnder(candidate: string, root: string): boolean {
-  const relative = path.relative(path.resolve(root), path.resolve(candidate));
-  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }

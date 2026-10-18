@@ -70,6 +70,7 @@ export class ManagedPathResolver {
     const candidatePath = isAbsolutePathLike(raw)
       ? resolvePathLike(raw)
       : path.resolve(roots.workspace, raw);
+    if (pathService.isReadApproved?.(candidatePath)) return [];
     if (pathService.isApproved(candidatePath)) return [];
     if (this.readAllowedRoots(context).some((root) => isPathUnder(candidatePath, root))) return [];
     return [candidatePath];
@@ -94,7 +95,7 @@ export class ManagedPathResolver {
       : path.resolve(roots.workspace, raw);
     const resolved = path.resolve(candidate);
     if (pathService) {
-      pathService.assertWithin(resolved, this.readAllowedRoots(context), raw);
+      if (!pathService.isReadApproved?.(resolved)) pathService.assertWithin(resolved, this.readAllowedRoots(context), raw);
     } else if (!Object.values(roots).some((root) => isPathUnder(resolved, root))) {
       throw new Error(`路径 '${raw}' 超出允许的执行目录范围；workspace=${roots.workspace}`);
     }

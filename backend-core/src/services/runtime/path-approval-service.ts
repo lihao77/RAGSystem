@@ -1,13 +1,27 @@
 import path from "node:path";
+import fs from "node:fs";
 
 import type { PathAccessPolicy } from "../../contracts/runtime/path-access-policy.js";
 
 /** Runtime-scoped path approvals shared by Local and host-tool-restricted deployments. */
 export class PathApprovalService implements PathAccessPolicy {
   private readonly approved: string[] = [];
+  private readonly readable = new Set<string>();
   private allowUnapprovedExternalPaths = false;
 
   setAllowUnapprovedExternalPaths(allow: boolean): void { this.allowUnapprovedExternalPaths = allow; }
+
+  approveRead(directories: string[]): void {
+    for (const directory of directories) this.readable.add(fs.realpathSync(directory));
+  }
+
+  isReadApproved(filePath: string): boolean {
+    const candidate = path.resolve(filePath);
+    try {
+      const real = fs.realpathSync(candidate);
+      return [...this.readable].some((root) => isPathUnder(candidate, root) && isPathUnder(real, root));
+    } catch { return false; }
+  }
 
   approve(candidates: Array<string | null | undefined>): void {
     for (const candidate of candidates) {

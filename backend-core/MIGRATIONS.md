@@ -33,7 +33,7 @@
 
 | id | 针对的历史形状 | 说明 |
 | --- | --- | --- |
-| `builder_skill_direct_save` | Builder 入口仍含旧 Skill 工具名或缺少直接保存协议，包括无版本/当前版本/半迁移状态 | `backend-plugin-agent-builder/src/skill-authoring-hydration.ts` 归一四个编写工具和受管提示词，保留用户指令和其他工具。持久化到 behavior.skill_authoring_migration 的 id/applied_at 仅供审计，是否执行由工具/提示词形态决定。 |
+| `builder_skill_direct_save` | Builder 入口仍含旧 Skill 工具名、缺少直接保存协议，或受管编写协议仍要求 Python-only/execute_skill_script，包括无版本/当前版本/半迁移状态 | `backend-plugin-agent-builder/src/skill-authoring-hydration.ts` 归一四个编写工具和受管提示词；旧执行协议收敛为 activate_skill 加通用文件/执行工具，保留受管块外的用户指令和其他工具。持久化到 behavior.skill_authoring_migration 的 id/applied_at 仅供审计，是否执行由工具/提示词形态决定。 |
 
 Skills 旧自动发布配置不再注册；系统配置已有 `project` 已知根分组投影会忽略旧 `skills.approval`，下次 updateConfig 回写时剥离，无需版本判断。Skill 编写工具退役名同时由插件登记到既有工具名归一注册表，配置与会话快照读取沿用该永久归一能力。
 
@@ -154,7 +154,7 @@ jsonb 存储）当前为 no-op：不落库，审计能力仅存在于 local 装�
 
 ### Skill 包读取（Skills 插件存储层）
 
-永久形态守卫：Local 保持原有目录包形态，读取/写入时在同一 SQLite 锁下恢复 `.replacing-<name>` 中断替换；执行目录按内容版本生成，不作为另一份业务记录。SaaS 读取包元数据与文件索引的事务快照；历史索引缺少 SKILL.md 时从已有 name/description/content/metadata 补齐读取内容，后续整包保存收敛。两类守卫不看 schema 版本，无应用戳。
+永久形态守卫：Local 保持原有目录包形态，读取/写入时在同一 SQLite 锁下恢复 `.replacing-<name>` 中断替换；读取和激活返回保存目录，已移除执行快照；历史 `.runtime` 派生缓存不参与加载、不自动删除，源包目录与内容无需迁移。SaaS 读取包元数据与文件索引的事务快照；历史索引缺少 SKILL.md 时从已有 name/description/content/metadata 补齐读取内容，后续整包保存收敛。两类守卫不看 schema 版本，无应用戳。
 
 SaaS 对象字节回收：`skill_object_garbage`（PostgreSQL schema v5）新增持久化待回收表，应用戳沿用存储层 schema migration 记录。保存/删除在持有包行排他锁的事务内，将旧对象键写入该表后替换/删除索引；读取通过 `withSnapshot` 持有共享锁直到全部字节读取完成，防止连续保存或删除破坏在途读取。对象删除成功（含已不存在）后才移除队列记录，失败记录保留并排到队尾；多实例通过 `FOR UPDATE SKIP LOCKED` 分批领取。保存/删除后、租户运行时启动时和每分钟重试，运行时销毁时停止定时器。
 

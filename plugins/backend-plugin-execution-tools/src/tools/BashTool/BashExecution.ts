@@ -1,17 +1,15 @@
 import { normalizeString } from "@ragsystem/backend-core/utils/guards.js";
-import { spawn } from "node:child_process";
-import { randomUUID } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 
 import type { BackgroundTaskPort } from "@ragsystem/backend-core/contracts/runtime/background-tasks.js";
 import type { ClientEventPublisherPort } from "@ragsystem/backend-core/contracts/runtime/core-runtime-ports.js";
 import { ManagedPathResolver } from "../../paths/managed-path-resolver.js";
-import { RuntimeAbortError, throwIfAborted, type ToolExecContext, type ToolExecutionResult } from "@ragsystem/agent-sdk";
+import { throwIfAborted, type ToolExecContext, type ToolExecutionResult } from "@ragsystem/agent-sdk";
 import { toolError, toolSuccess } from "@ragsystem/backend-core/services/agent/sdk/tool-results.js";
 import type { AgentConfig } from "@ragsystem/backend-core/contracts/agent/agent-config.js";
 import type { PathAccessPolicy } from "@ragsystem/backend-core/contracts/runtime/path-access-policy.js";
-import { terminateProcessTree } from "@ragsystem/backend-core/services/runtime/process-tree.js";
+import { runLocalProcess } from "@ragsystem/backend-core/services/runtime/local-process.js";
 import { executionPathEnvironment } from "@ragsystem/backend-core/contracts/execution/execution-environment.js";
 import { detectHostShell } from "@ragsystem/backend-core/contracts/execution/shell-detection.js";
 import {
@@ -36,8 +34,6 @@ const DEFAULT_TIMEOUT_SECONDS = 120;
 const MAX_TIMEOUT_SECONDS = 600;
 const DEFAULT_MAX_OUTPUT_CHARS = 50000;
 const MAX_STDERR_CHARS = 10000;
-const PROCESS_TERMINATION_WAIT_MS = 5_000;
-const GROUP_KILLER_TIMEOUT_MS = 1_000;
 
 /**
  * 命令分类（不 resolve cwd）—— checkAccess 用。
@@ -50,6 +46,9 @@ interface ForegroundResult {
   stderr: string;
   returnCode: number;
   interrupted: boolean;
+  truncated: boolean;
+  stdoutLog?: string;
+  stderrLog?: string;
 }
 
 export class LocalBashToolService {
@@ -152,13 +151,14 @@ export class LocalBashToolService {
       throwIfAborted(context.signal, "Bash execution aborted");
       let stdout = result.stdout;
       let stderr = result.stderr;
-      let truncated = false;
+      let truncated = result.truncated;
       if (stdout.length > this.maxOutputChars) {
         stdout = stdout.slice(0, this.maxOutputChars);
         truncated = true;
       }
       if (stderr.length > MAX_STDERR_CHARS) {
         stderr = stderr.slice(0, MAX_STDERR_CHARS);
+        truncated = true;
       }
 
       const content = {
@@ -172,7 +172,7 @@ export class LocalBashToolService {
       };
       const summary = result.interrupted
         ? `命令执行超时（${plan.timeoutSeconds} 秒），进程已终止`
-        : `命令执行完成，返回码 ${result.returnCode}${truncated ? "（stdout 已截断）" : ""}`;
+        : `命令执行完成，返回码 ${result.returnCode}${truncated ? "（输出已截断）" : ""}`;
 
       return successResult(content, {
         summary,
@@ -181,6 +181,8 @@ export class LocalBashToolService {
           ...plan.metadata,
           execution_paths: this.paths.roots(context),
           truncated,
+          stdout_log: result.stdoutLog,
+          stderr_log: result.stderrLog,
           shell: this.shellKind,
         },
       });
@@ -253,194 +255,33 @@ export class LocalBashToolService {
     );
   }
 
-  private runForegroundCommand(plan: BashExecutionPlan, context: ToolExecContext): Promise<ForegroundResult> {
-    const signal = context.signal;
-    return new Promise((resolve, reject) => {
-      if (signal?.aborted) {
-        reject(new Error("Bash execution aborted"));
-        return;
-      }
-      // 单次执行内快照一次 shell：spawn、metadata 与终止路径必须用同一个 shell，
-      // 避免执行中途设置变更导致分类与实际执行不一致。
-      const bashExecutable = this.bashExecutable;
-      const env = {
+  private async runForegroundCommand(plan: BashExecutionPlan, context: ToolExecContext): Promise<ForegroundResult> {
+    const bashExecutable = this.bashExecutable;
+    const result = await runLocalProcess(bashExecutable ?? plan.command, bashExecutable ? ["-c", plan.command] : [], {
+      cwd: plan.cwd,
+      env: {
         ...process.env,
         ...executionPathEnvironment(this.paths.roots(context)),
         LC_ALL: process.platform === "win32" ? process.env.LC_ALL : "C.UTF-8",
-      };
-      // Git Bash/MSYS children do not retain a usable Windows parent chain.
-      // Capture the MSYS process-group id before running the command so abort
-      // can kill the whole pipeline with the MSYS `kill` builtin.
-      const msysMarker = process.platform === "win32" && bashExecutable
-        ? `__RAGSYSTEM_PGID_${randomUUID()}__=`
-        : null;
-      const shellCommand = msysMarker
-        ? `printf '${msysMarker}%s\\n' "$$" >&2\n${plan.command}`
-        : plan.command;
-      const proc = bashExecutable
-        ? spawn(bashExecutable, ["-c", shellCommand], {
-            cwd: plan.cwd,
-            env,
-            windowsHide: true,
-            detached: process.platform !== "win32",
-          })
-        : spawn(plan.command, [], {
-            cwd: plan.cwd,
-            env,
-            shell: true,
-            windowsHide: true,
-            detached: process.platform !== "win32",
-          });
-
-      let stdout = "";
-      let stderr = "";
-      let interrupted = false;
-      let settled = false;
-      let terminating = false;
-      let processClosed = false;
-      let msysProcessGroupId: number | null = null;
-
-      const cleanup = (): void => {
-        clearTimeout(timeoutTimer);
-        signal?.removeEventListener("abort", abortHandler);
-      };
-      const waitForClose = (): Promise<void> => {
-        if (processClosed) return Promise.resolve();
-        return new Promise<void>((resolve, reject) => {
-          let timer: ReturnType<typeof setTimeout> | undefined;
-          const onClose = (): void => {
-            if (timer) clearTimeout(timer);
-            resolve();
-          };
-          proc.once("close", onClose);
-          timer = setTimeout(() => {
-            proc.removeListener("close", onClose);
-            reject(new Error("Bash process did not exit after termination"));
-          }, PROCESS_TERMINATION_WAIT_MS);
-          timer.unref?.();
-        });
-      };
-      const terminate = async (): Promise<void> => {
-        const killOperations: Promise<void>[] = [];
-        if (bashExecutable && msysProcessGroupId !== null) {
-          killOperations.push(new Promise<void>((resolve) => {
-            const groupKiller = spawn(
-              bashExecutable,
-              ["-c", `kill -KILL -- -${msysProcessGroupId}`],
-              { stdio: "ignore", windowsHide: true },
-            );
-            let settled = false;
-            const timer = setTimeout(() => {
-              if (settled) return;
-              settled = true;
-              try { groupKiller.kill("SIGKILL"); } catch { /* already exited */ }
-              resolve();
-            }, GROUP_KILLER_TIMEOUT_MS);
-            timer.unref?.();
-            const finishGroupKill = (code: number | null): void => {
-              if (settled) return;
-              settled = true;
-              clearTimeout(timer);
-              if (code !== null && code !== 0) {
-                void terminateProcessTree(proc.pid, true).finally(resolve);
-                return;
-              }
-              resolve();
-            };
-            groupKiller.once("error", () => finishGroupKill(null));
-            groupKiller.once("exit", (code) => finishGroupKill(code));
-          }));
-        }
-        killOperations.push(Promise.resolve(terminateProcessTree(proc.pid, true)));
-        try {
-          proc.kill("SIGKILL");
-        } catch {
-          // The child may have exited between the signal and this call.
-        }
-        await Promise.all(killOperations);
-        await waitForClose();
-      };
-      const finishTimeout = (): void => {
-        if (settled || terminating) return;
-        interrupted = true;
-        terminating = true;
-        cleanup();
-        void terminate().then(() => {
-          if (settled) return;
-          settled = true;
-          resolve({
-            stdout,
-            stderr,
-            returnCode: -1,
-            interrupted: true,
-          });
-        }, () => {
-          if (settled) return;
-          settled = true;
-          reject(new Error("Bash execution could not be terminated"));
-        });
-      };
-      const finishAbort = (): void => {
-        if (settled || terminating) return;
-        interrupted = true;
-        terminating = true;
-        cleanup();
-        void terminate().then(() => {
-          if (settled) return;
-          settled = true;
-          reject(new RuntimeAbortError("Bash execution aborted"));
-        }, () => {
-          if (settled) return;
-          settled = true;
-          reject(new RuntimeAbortError("Bash execution aborted"));
-        });
-      };
-      // User cancellation is explicit: force-kill the complete tree so a shell
-      // wrapper cannot leave its command child running on Windows.
-      const abortHandler = (): void => finishAbort();
-      const timeoutTimer = setTimeout(finishTimeout, plan.timeoutSeconds * 1000);
-
-      signal?.addEventListener("abort", abortHandler, { once: true });
-      proc.stdout?.on("data", (chunk: Buffer | string) => {
-        if (stdout.length <= this.maxOutputChars + 1) {
-          stdout += chunk.toString();
-        }
-      });
-      proc.stderr?.on("data", (chunk: Buffer | string) => {
-        if (stderr.length <= MAX_STDERR_CHARS + 1) {
-          stderr += chunk.toString();
-          if (msysMarker && msysProcessGroupId === null) {
-            const markerIndex = stderr.indexOf(msysMarker);
-            if (markerIndex >= 0) {
-              const valueStart = markerIndex + msysMarker.length;
-              const valueMatch = /^(\d+)\r?\n/.exec(stderr.slice(valueStart));
-              if (valueMatch?.[1]) {
-                msysProcessGroupId = Number(valueMatch[1]);
-                stderr = stderr.slice(0, markerIndex) + stderr.slice(valueStart + valueMatch[0].length);
-              }
-            }
-          }
-        }
-      });
-      proc.on("error", (error) => {
-        if (settled || terminating) return;
-        settled = true;
-        cleanup();
-        reject(error);
-      });
-      proc.on("close", (code) => {
-        processClosed = true;
-        if (settled || terminating) return;
-        settled = true;
-        cleanup();
-        resolve({
-          stdout,
-          stderr,
-          returnCode: code ?? (interrupted ? -1 : 0),
-          interrupted,
-        });
-      });
+      },
+      signal: context.signal,
+      timeoutMs: plan.timeoutSeconds * 1000,
+      shell: !bashExecutable,
+      msysBash: !!bashExecutable,
+      // UTF-8 uses at most four bytes per code point; retain the existing character-level UI cap.
+      maxStdoutBytes: (this.maxOutputChars + 1) * 4,
+      maxStderrBytes: (MAX_STDERR_CHARS + 1) * 4,
+      logDirectory: path.join(this.paths.roots(context).workspace, ".ragsystem", "logs", "shell"),
     });
+    return {
+      stdout: result.stdout,
+      stderr: result.stderr,
+      returnCode: result.timedOut ? -1 : result.returnCode,
+      interrupted: result.timedOut,
+      truncated: result.stdoutTruncated || result.stderrTruncated,
+      ...(result.stdoutLog ? { stdoutLog: result.stdoutLog } : {}),
+      ...(result.stderrLog ? { stderrLog: result.stderrLog } : {}),
+    };
   }
 
 }

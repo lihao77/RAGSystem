@@ -10,9 +10,6 @@ import {
   createSkillTools,
   createSkillsPlugin,
   resolveBuiltinSkillSources,
-  normalizeScriptTimeout,
-  DEFAULT_SCRIPT_TIMEOUT_SECONDS,
-  MAX_SCRIPT_TIMEOUT_SECONDS,
   SKILL_SOURCE_RESOURCE,
 } from "../dist/index.js";
 import { provideBackendResource } from "@ragsystem/backend-core/plugins/resource-registry.js";
@@ -87,7 +84,7 @@ test("skills agent capability provider returns a truncated SKILL.md preview via 
   assert.equal(await provider.getItemDetail("missing"), null);
 });
 
-test("Skill tools expose execution only for explicitly enabled Skills", () => {
+test("Skill tools expose only activation for visible Skills", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "skills-tools-"));
   try {
     const builtinRoot = path.join(root, "builtin", "review-code");
@@ -97,139 +94,12 @@ test("Skill tools expose execution only for explicitly enabled Skills", () => {
     const agent = { agent_name: "writer", default_entry: false, tasks: { background: false }, custom_params: {} };
     assert.equal(createSkillTools({ skillTools: service, agent, config: { enabled_skills: [] } }).length, 0);
     const tools = createSkillTools({ skillTools: service, agent, config: { enabled_skills: ["review-code"] } });
-    assert.deepEqual(tools.map((tool) => tool.name), ["activate_skill", "load_skill_resource", "execute_skill_script"]);
+    assert.deepEqual(tools.map((tool) => tool.name), ["activate_skill"]);
     const activate = tools.find((tool) => tool.name === "activate_skill");
     assert.deepEqual(activate.parameters.properties.skill_name.enum, ["review-code"]);
     assert.match(activate.parameters.properties.skill_name.description, /review-code: Review code/);
     assert.equal(activate.extendedUsage, undefined);
-    const execute = tools.find((tool) => tool.name === "execute_skill_script");
-    assert.equal(execute.parameters.properties.timeout.type, "integer");
-    assert.equal(execute.parameters.properties.timeout.minimum, 1);
-    assert.equal(execute.parameters.properties.timeout.maximum, 300);
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test("execute_skill_script runs from the shared workspace", async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "skills-workspace-"));
-  try {
-    const builtinRoot = path.join(root, "builtin", "review-code");
-    const workspace = path.join(root, "workspace");
-    fs.mkdirSync(path.join(builtinRoot, "scripts"), { recursive: true });
-    fs.mkdirSync(workspace, { recursive: true });
-    fs.writeFileSync(path.join(builtinRoot, "SKILL.md"), skillMarkdown());
-    fs.writeFileSync(path.join(builtinRoot, "scripts", "check.py"), [
-      "import json",
-      "import os",
-      "from pathlib import Path",
-      "request = Path(__import__('sys').argv[1]).read_text(encoding='utf-8')",
-      "Path('script-output.txt').write_text(request, encoding='utf-8')",
-      "print(json.dumps({'cwd': os.getcwd(), 'workspace': os.environ['SESSION_WORKSPACE_DIR'], 'request': request}))",
-    ].join("\n"));
-    fs.writeFileSync(path.join(workspace, "request.json"), "{\"ok\":true}\n");
-    const service = new SkillToolService({ dataRoot: root, builtinSkillsRoot: path.join(root, "builtin") });
-    const result = await service.executeSkillScript(
-      { skillName: "review-code", scriptName: "check.py", arguments: ["request.json"] },
-      { sessionId: "session-skill", runId: "run-skill", workspaceRoot: workspace },
-      { agent_name: "writer", default_entry: false, tasks: { background: false }, custom_params: {} },
-      { enabled_skills: ["review-code"] },
-    );
-    assert.equal(result.success, true, result.summary);
-    assert.equal(result.content.cwd, workspace);
-    assert.equal(result.content.workspace, workspace);
-    assert.equal(result.content.request, "{\"ok\":true}\n");
-    assert.equal(fs.readFileSync(path.join(workspace, "script-output.txt"), "utf8").replaceAll("\r\n", "\n"), "{\"ok\":true}\n");
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-function writeSlowSkill(root) {
-  const builtinRoot = path.join(root, "builtin", "review-code");
-  fs.mkdirSync(path.join(builtinRoot, "scripts"), { recursive: true });
-  fs.writeFileSync(path.join(builtinRoot, "SKILL.md"), skillMarkdown());
-  fs.writeFileSync(path.join(builtinRoot, "scripts", "slow.py"), "import time\ntime.sleep(30)\n");
-  return path.join(root, "builtin");
-}
-
-test("normalizeScriptTimeout falls back to the default and clamps into range", () => {
-  assert.equal(DEFAULT_SCRIPT_TIMEOUT_SECONDS, 60);
-  assert.equal(MAX_SCRIPT_TIMEOUT_SECONDS, 300);
-  assert.equal(normalizeScriptTimeout(null), 60);
-  assert.equal(normalizeScriptTimeout(undefined), 60);
-  assert.equal(normalizeScriptTimeout(45), 45);
-  assert.equal(normalizeScriptTimeout(300), 300);
-  assert.equal(normalizeScriptTimeout(-5), 1);
-  assert.equal(normalizeScriptTimeout(45.5), 60);
-  assert.equal(normalizeScriptTimeout(0), 1);
-  assert.equal(normalizeScriptTimeout(1), 1);
-  assert.equal(normalizeScriptTimeout(9999), 300);
-});
-
-test("execute_skill_script honors the caller timeout and kills overdue scripts", async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "skills-timeout-"));
-  try {
-    const builtinSkillsRoot = writeSlowSkill(root);
-    const service = new SkillToolService({ dataRoot: root, builtinSkillsRoot });
-    const result = await service.executeSkillScript(
-      { skillName: "review-code", scriptName: "slow.py", timeoutSeconds: 1 },
-      { sessionId: "session-skill", runId: "run-skill" },
-      { agent_name: "writer", default_entry: false, tasks: { background: false }, custom_params: {} },
-      { enabled_skills: ["review-code"] },
-    );
-    assert.equal(result.success, true, result.summary);
-    assert.equal(result.content.return_code, 124);
-    assert.equal(result.content.stderr, "脚本执行超时（>1秒）");
-    assert.equal(result.metadata.timeout_seconds, 1);
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test("run_in_background passes the caller timeout through to the background run", async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "skills-bg-timeout-"));
-  try {
-    const builtinSkillsRoot = writeSlowSkill(root);
-    let backgroundRun = null;
-    const backgroundTasks = {
-      spawnBash: () => { throw new Error("unexpected spawnBash"); },
-      runCallable: (input) => {
-        backgroundRun = Promise.resolve(input.run({ taskId: "task-bg-skill", signal: new AbortController().signal })).catch((error) => error);
-        return {
-          task_id: "task-bg-skill",
-          description: input.description,
-          output_path: path.join(root, "bg-output.log"),
-          started_at: Date.now(),
-          status: "running",
-          return_code: null,
-          error: null,
-          expires_at: null,
-          run_id: input.runId ?? null,
-          owner_task_id: input.ownerTaskId ?? null,
-          session_id: input.sessionId ?? null,
-          initiator_thread_key: input.initiatorThreadKey ?? null,
-          initiator_child_agent_id: input.initiatorChildAgentId ?? null,
-          completed_at: null,
-          result_type: input.resultType ?? null,
-          kind: input.kind ?? "callable",
-          cancel_supported: true,
-        };
-      },
-    };
-    const service = new SkillToolService({ dataRoot: root, builtinSkillsRoot, backgroundTasks });
-    const result = await service.executeSkillScript(
-      { skillName: "review-code", scriptName: "slow.py", runInBackground: true, timeoutSeconds: 1 },
-      { sessionId: "session-skill", runId: "run-skill" },
-      { agent_name: "writer", default_entry: false, tasks: { background: true }, custom_params: {} },
-      { enabled_skills: ["review-code"] },
-    );
-    assert.equal(result.metadata.background_started, true, result.summary);
-    const inner = await backgroundRun;
-    assert.equal(inner.success, true, inner.summary);
-    assert.equal(inner.content.return_code, 124);
-    assert.equal(inner.content.stderr, "脚本执行超时（>1秒）");
-    assert.equal(inner.metadata.timeout_seconds, 1);
+    assert.deepEqual(Object.keys(activate.parameters.properties), ["skill_name"]);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

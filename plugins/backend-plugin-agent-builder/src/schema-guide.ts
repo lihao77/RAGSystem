@@ -25,7 +25,7 @@ blueprint.json 是本草稿的唯一编辑对象；manifest.json 由系统维护
 | enabled | 否 | 默认 true |
 | llm / llm_tiers | 否 | 模型配置。llm_tiers 形如 \`{"default": {"provider": "...", "model_name": "..."}}\`；provider 写模型目录里 provider 的 name 或 key（以 list_agent_builder_capabilities 返回的 llm_providers 为准），provider_type 可省略——发布/试运行物化时会按模型目录自动回填。未配置时运行在租户默认模型上（发布校验给出警告，不阻止发布） |
 | tools | 否 | 工具白名单，只能引用能力清单 platform_tools 字段返回的平台原生工具名。MCP/Skill 等能力方的工具经 capabilities 绑定后由运行时自动注入，写进 tools 会被校验拒绝 |
-| capabilities | 否 | 形如 \`{"skills": [...], "mcp": [...]}\`（键 = 能力清单里的 provider id），只能引用对应 provider 分区返回的能力名；绑定前用 get_capability_detail 查看该能力的实际内容（MCP 服务器返回实时工具清单）。为 Agent 绑定 Skill 后，运行时会自动注入 activate_skill / load_skill_resource / execute_skill_script 工具——它们无需也无法写进 tools |
+| capabilities | 否 | 形如 \`{"skills": [...], "mcp": [...]}\`（键 = 能力清单里的 provider id），只能引用对应 provider 分区返回的能力名；绑定前用 get_capability_detail 查看该能力的实际内容（MCP 服务器返回实时工具清单）。绑定 Skill 后仅自动注入 activate_skill（不写进 tools），返回正文和 skill_root；read_file、glob、grep 和需要时的 execute_shell 需显式绑定 |
 | delegates | 否 | 可委派的子 Agent 名单；不允许自委派与委派环 |
 | goals_enabled / background_tasks | 否 | 默认 false |
 | custom_params | 否 | 原样透传到运行时。custom_params.type 仅为展示标签（orchestrator / general），运行时不按它分配工具；入口与委派语义由 entry_agent 和 delegates 决定 |

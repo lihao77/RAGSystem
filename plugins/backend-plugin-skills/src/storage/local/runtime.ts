@@ -37,8 +37,6 @@ export function createLocalSkillsRuntimeFactory(): SkillsPluginRuntimeFactory {
       dataRoot: context.dataRoot,
       userGlobalSkillsRoot: packageRoot,
       skillsConfig: agentConfig,
-      backgroundTasks: context.backgroundTasks,
-      clientEvents: context.clientEvents,
       packageStore,
       additionalBuiltinSkillSources: resolveBuiltinSkillSources(context.resources ?? []),
     });

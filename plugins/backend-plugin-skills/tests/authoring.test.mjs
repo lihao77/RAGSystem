@@ -35,7 +35,7 @@ function fixture(t) {
   return { root, store, tools, library, authoring };
 }
 
-test("Skill discovery reads metadata only, observes edits, and preserves execution snapshots", async (t) => {
+test("Skill discovery reads metadata only and observes live directory edits", async (t) => {
   const { root, store, tools, library } = fixture(t);
   await store.createBundle(bundle());
   const readFile = fs.readFileSync;
@@ -50,21 +50,21 @@ test("Skill discovery reads metadata only, observes edits, and preserves executi
     assert.deepEqual(listed.map((skill) => [skill.name, skill.source_type]), [["example", "user_global"]]);
     assert.equal(reads.length, 1);
     assert.equal(fs.existsSync(path.join(root, "skills/.runtime")), false);
-    assert.deepEqual(tools.loadAllSkills(), [], "metadata must not become an execution record");
+    assert.equal(tools.loadAllSkills()[0].skillDir, path.join(root, "skills/example"));
   } finally { fs.readFileSync = readFile; }
 
-  await tools.hydrateUserGlobalPackages();
+  await tools.hydrateUserGlobalMetadata();
   const previous = tools.loadAllSkills()[0];
-  assert.equal(path.dirname(previous.skillDir), path.join(root, "skills/.runtime"));
+  assert.equal(previous.skillDir, path.join(root, "skills/example"));
   const revision = (await store.readBundle("example")).revision;
   await store.saveBundle(bundle("Updated instructions"), revision);
   const markdown = path.join(root, "skills/example/SKILL.md");
   fs.writeFileSync(markdown, fs.readFileSync(markdown, "utf8").replace("description: Example", "description: Edited externally"));
   assert.equal((await library.listSkills())[0].description, "Edited externally");
   assert.equal(tools.loadAllSkills()[0].skillDir, previous.skillDir);
-  assert.match(fs.readFileSync(path.join(previous.skillDir, "SKILL.md"), "utf8"), /Useful instructions/);
-  await tools.hydrateUserGlobalPackages();
-  assert.notEqual(tools.loadAllSkills()[0].skillDir, previous.skillDir);
+  assert.match(fs.readFileSync(path.join(previous.skillDir, "SKILL.md"), "utf8"), /Updated instructions/);
+  await tools.hydrateUserGlobalMetadata();
+  assert.equal(tools.loadAllSkills()[0].skillDir, previous.skillDir);
   await store.delete("example");
   assert.deepEqual(await library.listSkills(), []);
 });
@@ -80,7 +80,7 @@ test("metadata discovery preserves workspace/global/builtin precedence and legac
   assert.equal((await tools.listAvailableSkillsAsync(root))[0].source_type, "workspace");
   store.listMetadata = undefined;
   assert.equal((await tools.listAvailableSkillsAsync())[0].source_type, "user_global");
-  assert.equal(path.dirname(tools.loadAllSkills()[0].skillDir), path.join(root, "skills/.runtime"));
+  assert.equal(tools.loadAllSkills()[0].skillDir, path.join(root, "skills/example"));
 });
 
 test("SaaS metadata discovery does not download objects or materialize packages", async (t) => {
@@ -97,41 +97,30 @@ test("SaaS metadata discovery does not download objects or materialize packages"
   assert.deepEqual((await store.listMetadata())[0].requires, { tools: ["execute_code"] });
   assert.equal((await tools.listAvailableSkillsAsync())[0].description, "Metadata only");
   assert.equal(fs.existsSync(path.join(root, "cache")), false);
-  assert.deepEqual(tools.loadAllSkills(), []);
+  assert.equal(tools.loadAllSkills()[0].description, "Metadata only");
 });
 
-test("tool preparation and activation use metadata; resources and scripts materialize only the selected package", async (t) => {
+test("activation returns only the selected live package without execution snapshots", async (t) => {
   const { root, store, tools } = fixture(t);
   await store.createBundle(bundle());
   await store.createBundle(bundle("Unrelated instructions", "unrelated"));
   const selected = [];
   const get = store.get.bind(store);
-  store.list = async () => assert.fail("tool preparation must not materialize all packages");
+  store.list = async () => assert.fail("tool preparation must not load all package files");
   store.get = async (name) => { selected.push(name); return get(name); };
   const config = { enabled_skills: ["example"] };
-  const context = { sessionId: "test", runId: "test", workspaceRoot: root };
-  const agent = { agent_name: "writer", default_entry: false, tasks: { background: false }, custom_params: {} };
-  await tools.hydrateUserGlobalMetadata();
-  assert.deepEqual(tools.listVisibleSkills(agent, config).map((skill) => skill.name), ["example"]);
-  assert.equal((await tools.activateSkill({ skillName: "example" }, context, agent, config)).success, true);
-  assert.deepEqual(selected, []);
-  assert.equal(fs.existsSync(path.join(root, "skills/.runtime")), false);
-  const resource = await tools.loadSkillResource({ skillName: "example", resourceFile: "SKILL.md" }, context, agent, config);
-  assert.equal(resource.success, true);
-  assert.match(resource.content, /Useful instructions/);
+  const context = { workspaceRoot: root };
+  const agent = { agent_name: "writer", default_entry: false, custom_params: {} };
+  const activated = await tools.activateSkill({ skillName: "example" }, context, agent, config);
+  assert.equal(activated.success, true);
+  assert.equal(activated.content.skill_root, fs.realpathSync(path.join(root, "skills/example")));
+  assert.match(activated.content.main_content, /Useful instructions/);
   assert.deepEqual(selected, ["example"]);
-  assert.equal(fs.readdirSync(path.join(root, "skills/.runtime")).length, 1);
-  let scriptDirectory;
-  tools.runScript = async (skill) => {
-    scriptDirectory = skill.skillDir;
-    return { returnCode: 0, stdout: "ok", stderr: "" };
-  };
-  assert.equal((await tools.executeSkillScript({ skillName: "example", scriptName: "check.py" }, context, agent, config)).success, true);
-  assert.equal(path.dirname(scriptDirectory), path.join(root, "skills/.runtime"));
-  assert.deepEqual(selected, ["example", "example"]);
-  const denied = await tools.loadSkillResource({ skillName: "unrelated", resourceFile: "SKILL.md" }, context, agent, config);
+  assert.equal(fs.existsSync(path.join(root, "skills/.runtime")), false);
+  const denied = await tools.activateSkill({ skillName: "unrelated" }, context, agent, config);
   assert.equal(denied.success, false);
-  assert.deepEqual(selected, ["example", "example"], "invisible Skills must not be materialized");
+  assert.doesNotMatch(denied.content, /Unrelated instructions/);
+  assert.deepEqual(selected, ["example"]);
 });
 
 test("plugin tool assembly and capability inventory preserve metadata without execution hydration", async (t) => {
@@ -149,7 +138,7 @@ test("plugin tool assembly and capability inventory preserve metadata without ex
   const provider = listAgentCapabilityProviders(runtime.capabilities).find((item) => item.id === "skills");
   assert.deepEqual((await provider.listItems())[0].metadata.requires, { tools: ["execute_code"] });
   const prepared = await contributions.createTools({ agent: { agent_name: "writer", tools: { enabled_tools: [] }, custom_params: {} }, teamName: "default", capabilities: runtime.capabilities });
-  assert.deepEqual(prepared.map((tool) => tool.name), ["activate_skill", "load_skill_resource", "execute_skill_script"]);
+  assert.deepEqual(prepared.map((tool) => tool.name), ["activate_skill"]);
   assert.equal(fs.existsSync(path.join(root, "skills/.runtime")), false);
   runtime.dispose();
 });
@@ -204,7 +193,7 @@ test("concurrent editors get 409, validation failures preserve the current Skill
   assert.deepEqual(await library.listSkills(), []);
 });
 
-test("filesystem replacement recovers failure/crash; in-flight execution retains the previous version", async (t) => {
+test("filesystem replacement recovers failure/crash and keeps the live directory stable", async (t) => {
   const { root, store } = fixture(t);
   await store.createBundle(bundle());
   const previous = await store.get("example");
@@ -223,8 +212,8 @@ test("filesystem replacement recovers failure/crash; in-flight execution retains
   assert.equal((await store.readBundle("example")).revision, snapshot.revision);
   await store.saveBundle(bundle("new"), snapshot.revision);
   const current = await store.get("example");
-  assert.notEqual(previous.skillDir, current.skillDir);
-  assert.match(fs.readFileSync(path.join(previous.skillDir, "SKILL.md"), "utf8"), /Useful instructions/);
+  assert.equal(previous.skillDir, current.skillDir);
+  assert.equal(fs.existsSync(path.join(root, "skills/.runtime")), false);
   assert.match(fs.readFileSync(path.join(current.skillDir, "SKILL.md"), "utf8"), /new/);
 });
 

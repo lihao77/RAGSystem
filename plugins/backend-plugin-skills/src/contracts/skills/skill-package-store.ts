@@ -13,7 +13,7 @@ export interface SkillPackageRecord {
   description: string;
   /** SKILL.md body without frontmatter. */
   content: string;
-  /** Local directory ready for script execution (materialized if remote). */
+  /** Local directory containing the Skill files. */
   skillDir: string;
   metadata: Record<string, unknown>;
   requires?: {
@@ -22,7 +22,7 @@ export interface SkillPackageRecord {
   };
 }
 
-/** Discovery metadata has no execution directory and must not populate execution caches. */
+/** Discovery metadata does not load resource bytes. */
 export type SkillPackageMetadata = Omit<SkillPackageRecord, "skillDir">;
 
 export interface SkillPackageBundleFile {
@@ -40,7 +40,7 @@ export interface CreateSkillPackageBundleInput {
 }
 
 /**
- * Persistence + materialization for tenant user_global skills.
+ * Persistence for user_global skills.
  * Builtin and workspace skills stay process/workspace-local and are outside this port.
  */
 export interface ISkillPackageStore {
@@ -56,9 +56,4 @@ export interface ISkillPackageStore {
   readFile(name: string, relativePath: string): Promise<{ body: Uint8Array; contentType: string } | null>;
   listFiles(name: string): Promise<SkillPackageFileNode[]>;
   delete(name: string, expectedRevision?: string): Promise<boolean>;
-  /**
-   * Ensure package bytes are available on the local filesystem for script execution.
-   * Local store returns the durable directory; SaaS store materializes into a content-addressed cache.
-   */
-  materialize(name: string): Promise<string | null>;
 }

@@ -14,6 +14,14 @@ export function hydrateSkillAuthoring(configs: Record<string, AgentConfig>, inst
   const behavior = isRecord(params.behavior) ? params.behavior : {};
   const original = typeof behavior.system_prompt === "string" ? behavior.system_prompt : "";
   let prompt = original.replace(/Use list_skill_drafts, with a query when needed[\s\S]*?A Skill is not available to Agents until publication succeeds\./g, instruction);
+  // Replace only the managed contract, preserving the user's surrounding instructions.
+  // Shape-driven: current-version and partially updated configurations also converge.
+  const marker = "Skill authoring runtime contract:";
+  const managed = /Skill authoring runtime contract:[\s\S]*?A Skill becomes available to Agents when saving succeeds\./g;
+  prompt = prompt.replace(managed, (block) =>
+    instruction.includes(marker) && /execute_skill_script|load_skill_resource|runtime executes Python only/.test(block)
+      ? instruction.slice(instruction.indexOf(marker)) : block,
+  );
   for (const [retired, name] of Object.entries(ALIASES)) prompt = prompt.replaceAll(retired, name);
   prompt = prompt.replaceAll("Skill drafts", "Skills").replaceAll("Skill 草稿", "Skill");
   if (!prompt.includes("Skill direct-save workflow:")) prompt = `${prompt} ${instruction}`.trim();

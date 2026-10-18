@@ -37,8 +37,6 @@ export function createPostgresSkillsRuntimeFactory(options: {
       dataRoot: context.dataRoot,
       userGlobalSkillsRoot: cacheRoot,
       skillsConfig: agentConfig,
-      backgroundTasks: context.backgroundTasks,
-      clientEvents: context.clientEvents,
       packageStore,
       additionalBuiltinSkillSources: resolveBuiltinSkillSources(context.resources ?? []),
     });

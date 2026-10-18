@@ -749,7 +749,7 @@ test("Builder template migration adds Skill authoring tools without replacing us
     assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /^Keep this custom instruction\./);
     assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /save_skill/);
     assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /Skill authoring runtime contract:/);
-    assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /current Skill runtime executes Python only/);
+    assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /Skill activation-only workflow:/);
     assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /validate_agent_draft/);
     assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /artifacts parameter/);
     assert.match(configs.builder_orchestrator.custom_params.behavior.system_prompt, /Capability discovery protocol:/);
@@ -803,7 +803,7 @@ test("Builder template migration adds the workspace draft workflow", async () =>
     assert.match(orchestrator.custom_params.behavior.system_prompt, /^Keep this custom builder instruction\./);
     assert.match(orchestrator.custom_params.behavior.system_prompt, /save_skill/);
     assert.match(orchestrator.custom_params.behavior.system_prompt, /current Session workspace/);
-    assert.match(orchestrator.custom_params.behavior.system_prompt, /execute_skill_script can run only a saved, visible Skill/);
+    assert.match(orchestrator.custom_params.behavior.system_prompt, /Skill activation-only workflow:/);
     assert.equal(orchestrator.custom_params.behavior.builder_template_version, 17);
   } finally {
     fixture.cleanup();
@@ -823,7 +823,7 @@ test("Builder template migration upgrades a version 7 Skill authoring prompt", a
     const orchestrator = fixture.agentConfig.getConfig("builder_orchestrator", { teamName: AGENT_BUILDER_TEAM_NAME });
     assert.match(orchestrator.custom_params.behavior.system_prompt, /^Keep this version 7 instruction\./);
     assert.match(orchestrator.custom_params.behavior.system_prompt, /Skill authoring runtime contract:/);
-    assert.match(orchestrator.custom_params.behavior.system_prompt, /current Skill runtime executes Python only/);
+    assert.match(orchestrator.custom_params.behavior.system_prompt, /Skill activation-only workflow:/);
     assert.equal(orchestrator.custom_params.behavior.builder_template_version, 17);
   } finally {
     fixture.cleanup();
@@ -1171,11 +1171,11 @@ test("Builder template opts its orchestrator into Skill authoring tools explicit
   }
   const prompt = orchestrator.custom_params.behavior.system_prompt;
   assert.match(prompt, /root SKILL\.md/);
-  assert.match(prompt, /scripts\/ with a \.py extension/);
-  assert.match(prompt, /root requirements\.txt/);
-  assert.match(prompt, /Never instruct an Agent to run python, python3, a shell, execute_code/);
+  assert.match(prompt, /scripts\/ only when/);
+  assert.match(prompt, /Skills do not install dependencies/);
+  assert.match(prompt, /Run them with execute_shell/);
   assert.match(prompt, /Saving validates the complete bundle but does not execute scripts/);
-  assert.match(prompt, /choose workspace cwd or copy the deliverable into workspace/);
+  assert.match(prompt, /Use the task workspace as cwd/);
   assert.doesNotMatch(prompt, /kind=skill Artifact|\[artifact:|RAGSYSTEM_ARTIFACT_OUTPUT_DIR|submit_skill_artifact|create_skill_artifact/i);
 });
 

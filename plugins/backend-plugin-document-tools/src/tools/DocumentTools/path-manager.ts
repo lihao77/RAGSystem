@@ -79,6 +79,7 @@ export class LocalDocumentPathManager {
     const candidatePath = isAbsolutePathLike(rawPath)
       ? resolvePathLike(rawPath)
       : path.resolve(roots.workspace, rawPath);
+    if (operation === "read" && pathService.isReadApproved?.(candidatePath)) return [];
     if (pathService.isApproved(candidatePath)) return [];
     if (this.allowedRoots(roots, operation).some((root) => isPathUnder(candidatePath, root))) return [];
     return [candidatePath];
@@ -122,6 +123,7 @@ export class LocalDocumentPathManager {
     originalPath: string,
     pathService: PathAccessPolicy,
   ): string {
+    if (operation === "read" && pathService.isReadApproved?.(candidatePath)) return candidatePath;
     return pathService.assertWithin(candidatePath, this.allowedRoots(roots, operation), originalPath);
   }
 
