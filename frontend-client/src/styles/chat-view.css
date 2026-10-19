@@ -494,6 +494,30 @@
   margin-top: 6px;
 }
 
+/* Leading gaps belong to measured rows so disjoint windows keep identical offsets. */
+.message-stream--windowed > .message[data-msg-index],
+.message-stream--windowed > .message-window-spacer,
+.message-stream--windowed > .message.user.message--has-execution + .message.assistant {
+  margin-top: 0;
+}
+
+.message-stream--history > .message[data-msg-index] {
+  animation: none;
+  opacity: 1;
+}
+
+.message-window-spacer {
+  flex: none;
+  pointer-events: none;
+  overflow-anchor: none;
+}
+
+.message-window-controls {
+  max-width: var(--content-max-width);
+  margin: 0 auto var(--spacing-sm);
+  z-index: 1;
+}
+
 .chat-main.is-restoring-session-scroll .message-stream {
   visibility: hidden;
   animation: none !important;

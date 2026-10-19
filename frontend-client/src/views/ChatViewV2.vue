@@ -22,6 +22,9 @@
       />
       <div class="chat-messages-wrapper" ref="messagesRef" @scroll="handleScroll">
         <ChatMessageList
+          :scroll-container="messagesRef"
+          :following="isFollowing"
+          :context-key="currentSessionId || 'draft'"
           :messages-loading="messagesLoading"
           :messages="messages"
           :visible-messages="visibleMessages"
@@ -37,7 +40,7 @@
             <!-- 幽灵气泡必须 v-if 直插直拔：不能包 <Transition>，离场走 nextFrame 双 rAF，
                  真实消息同帧上屏后气泡还会残留 1-2 帧，出现"真假消息一上一下"的闪烁。
                  进入淡入由组件根上的 CSS animation 承担。 -->
-            <PendingImageMessage v-if="pendingImageSendState.active" />
+            <PendingImageMessage v-if="pendingImageSendState.active" role="listitem" />
           </template>
         </ChatMessageList>
       <div
@@ -274,6 +277,7 @@ watch(inputMessage, (val) => {
 const topControlsBarScrolled = ref(false);
 const {
   messagesRef,
+  isFollowing,
   showScrollToBottomButton,
   unreadCount,
   updateScrollBottomGap,

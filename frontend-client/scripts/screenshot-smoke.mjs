@@ -17,15 +17,16 @@ const outputDir = resolve(rootDir, 'screenshots', 'smoke');
 const minScreenshotBytes = 8 * 1024;
 const maxHorizontalOverflowPx = 2;
 
-const performanceShots = [1440, 390].map(width => ({
-  name: `chat-performance-${width === 390 ? 'mobile' : 'desktop'}`,
+const performanceShots = [1000, 5000].flatMap(messageCount => [1440, 390].map(width => ({
+  name: `chat-performance-${width === 390 ? 'mobile' : 'desktop'}${messageCount === 5000 ? '-5000' : ''}`,
   path: '/?__smoke=empty', width, height: 900,
   actions: [
     { type: 'mockProviderApi' },
     { type: 'expectVisible', selector: '.bottom-dock textarea' },
-    { type: 'benchmarkChat' },
+    { type: 'benchmarkChat', messageCount },
+    { type: 'verifyMessageWindow' },
   ],
-}));
+})));
 
 function providerCreateActions(mobile = false) {
   return [
@@ -2304,8 +2305,17 @@ function jsString(value) {
 
 async function runShotActions(client, shot) {
   for (const action of shot.actions || []) {
+    if (action.type === 'verifyMessageWindow') {
+      if (process.env.CHAT_PERF_FULL_HISTORY === '1') continue;
+      const result = await evaluate(client, `(async () => {
+        const { verifyMessageWindowFixture } = await import('/src/utils/chatPerformanceFixture.js');
+        return verifyMessageWindowFixture();
+      })()`);
+      console.log(`${shot.name} message window: ${JSON.stringify(result)}`);
+      continue;
+    }
     if (action.type === 'benchmarkChat') {
-      const options = { messageCount: action.messageCount || 1000, updates: action.updates || 90 };
+      const options = { messageCount: action.messageCount || 1000, updates: action.updates || 90, fullHistory: process.env.CHAT_PERF_FULL_HISTORY === '1' };
       const metrics = await evaluate(client, `(async () => {
         const { runChatPerformanceFixture } = await import('/src/utils/chatPerformanceFixture.js');
         return runChatPerformanceFixture(${JSON.stringify(options)});
