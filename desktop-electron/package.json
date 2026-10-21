@@ -6,9 +6,10 @@
   "scripts": {
     "dev": "npm run build:frontend && npm run build:backend && electron .",
     "dev:fast": "node scripts/dev-fast.mjs",
-    "build:frontend": "npm --prefix .. -w frontend-client run build",
+    "build:frontend": "npm --prefix .. run build:frontend",
     "build:backend": "npm --prefix .. run build:backend-local-deps && node scripts/prepare-backend.mjs && node scripts/probe-backend.mjs",
     "smoke:desktop": "node scripts/smoke-desktop.mjs",
+    "smoke:packaged": "node scripts/smoke-desktop.mjs --packaged",
     "test:attachments": "node scripts/probe-file-path.cjs",
     "build:installer": "npm run build:frontend && npm run build:backend && electron-builder --win nsis",
     "pack": "npm run build:frontend && npm run build:backend && electron-builder --dir"
@@ -35,17 +36,8 @@
         "from": "dist/backend-local",
         "to": "backend-local",
         "filter": [
-          "**/*",
-          "!node_modules/**/*"
+          "**/*"
         ]
-      },
-      {
-        "from": "dist/backend-local/node_modules/sqlite-vec",
-        "to": "backend-local/node_modules/sqlite-vec"
-      },
-      {
-        "from": "dist/backend-local/node_modules/sqlite-vec-windows-x64",
-        "to": "backend-local/node_modules/sqlite-vec-windows-x64"
       },
       {
         "from": "../frontend-client/dist",
@@ -73,5 +65,10 @@
       "uninstallerIcon": "build/icon.ico",
       "artifactName": "${productName}-Setup-${version}.${ext}"
     }
+  },
+  "allowScripts": {
+    "electron@37.10.3": true,
+    "electron-winstaller@5.4.0": true,
+    "esbuild@0.27.2": true
   }
 }

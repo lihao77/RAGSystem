@@ -137,6 +137,8 @@ npm run build:installer
 - 构建并探测 `backend-local` 的桌面 bundle
 - 通过 `electron-builder` 输出 NSIS 安装包到 `desktop-electron/release/`
 
+安装包保留 SQLite 向量扩展与 sharp 图片处理模块的原生运行时文件。构建后可在 `desktop-electron` 中执行 `npm run smoke:packaged`，使用临时数据目录验证打包后的程序启动；CI 同样执行此检查。
+
 安装后的桌面端会：
 - 使用 Electron Node 模式启动本地 TypeScript 后端
 - 使用内置窗口访问 `http://127.0.0.1:5002`

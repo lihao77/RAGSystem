@@ -282,6 +282,10 @@ async function startBackend() {
   backendProcess.once('exit', (code, signal) => {
     backendProcess = null
     if (!app.isQuitting) {
+      if (isSmoke) {
+        failSmoke(new Error(`backend exited: code=${code ?? 'null'} signal=${signal ?? 'null'}; logs=${logsDir}`))
+        return
+      }
       dialog.showErrorBox(
         APP_NAME,
         `后端进程已退出。\ncode=${code ?? 'null'} signal=${signal ?? 'null'}\n请查看日志：${logsDir}`,

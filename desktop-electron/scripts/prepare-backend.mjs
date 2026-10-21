@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
 import { build } from "esbuild";
@@ -28,7 +29,7 @@ await build({
   target: "node22",
   sourcemap: true,
   packages: "bundle",
-  external: ["node:*", "sqlite-vec"],
+  external: ["node:*", "sqlite-vec", "sharp"],
   banner: {
     js: 'import { createRequire as __createRequire } from "node:module"; const require = __createRequire(import.meta.url);',
   },
@@ -54,7 +55,7 @@ if (Object.keys(pluginEntryPoints).length > 0) {
     format: "esm",
     target: "node22",
     sourcemap: true,
-    external: ["node:*", "sqlite-vec", "sqlite-vec-*"],
+    external: ["node:*", "sqlite-vec", "sqlite-vec-*", "sharp"],
     banner: {
       js: 'import { createRequire as __createRequire } from "node:module"; import { fileURLToPath as __fileURLToPath } from "node:url"; import { dirname as __pathDirname } from "node:path"; const require = __createRequire(import.meta.url); const __filename = __fileURLToPath(import.meta.url); const __dirname = __pathDirname(__filename);',
     },
@@ -71,6 +72,15 @@ copyPackage(
   "sqlite-vec-windows-x64",
   path.join(repoRoot, "node_modules", "sqlite-vec-windows-x64"),
 );
+// sharp 的原生模块与 DLL 必须保留 npm 包布局，不能嵌入单文件 bundle。
+const sharpRoot = path.join(repoRoot, "node_modules", "sharp");
+const sharpRequire = createRequire(path.join(sharpRoot, "package.json"));
+const sharpManifest = JSON.parse(fs.readFileSync(path.join(sharpRoot, "package.json"), "utf8"));
+copyPackage("sharp", sharpRoot);
+for (const dependency of Object.keys(sharpManifest.dependencies)) {
+  copyPackage(dependency, path.dirname(sharpRequire.resolve(`${dependency}/package.json`)));
+}
+copyPackage("@img/sharp-win32-x64", path.join(repoRoot, "node_modules", "@img", "sharp-win32-x64"));
 fs.cpSync(
   path.join(repoRoot, "plugins", "backend-plugin-skills", "skills"),
   path.join(outputRoot, "plugin-modules", "plugin-assets", "skills"),

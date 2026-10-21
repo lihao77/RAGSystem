@@ -14,7 +14,10 @@ const runtimeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ragsystem-desktop-smo
 const port = await getFreePort();
 const { ELECTRON_RUN_AS_NODE: _runAsNode, ...baseEnv } = process.env;
 
-const child = spawn(electronPath, ["."], {
+const packaged = process.argv.includes("--packaged");
+const executable = packaged ? path.join(desktopRoot, "release", "win-unpacked", "RAGSystem.exe") : electronPath;
+const args = [...(packaged ? [] : ["."]), `--user-data-dir=${path.join(runtimeRoot, "electron-profile")}`];
+const child = spawn(executable, args, {
   cwd: desktopRoot,
   env: {
     ...baseEnv,

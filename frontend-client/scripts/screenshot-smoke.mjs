@@ -953,7 +953,7 @@ const shots = [
     height: 900,
     actions: [
       { type: 'mockAgentStudioApi' },
-      { type: 'expectText', selector: 'body', text: 'Agent 配置' },
+      { type: 'expectText', selector: 'body', text: 'Agent 编排' },
       { type: 'expectText', selector: '.panel-form', text: '基础信息' },
     ],
   },
@@ -1715,16 +1715,15 @@ async function setupShotMocks(client, shot, baseUrl) {
   const mockKnowledgeSearchApi = (shot.actions || []).some(action => action.type === 'mockKnowledgeSearchApi');
   const mockSessionSidebarApi = (shot.actions || []).some(action => action.type === 'mockSessionSidebarApi');
   const mockFileRefApi = (shot.actions || []).some(action => action.type === 'mockFileRefApi');
-  const mockAgentStudioApi = (shot.actions || []).some(action => action.type === 'mockAgentStudioApi');
+  const mockAgentStudioApi = /^\/(agent-config|agent-studio|team-builder)(?:\?|$)/.test(shot.path)
+    || (shot.actions || []).some(action => action.type === 'mockAgentStudioApi');
   const mockKnowledgeBaseApi = (shot.actions || []).some(action => action.type === 'mockKnowledgeBaseApi');
   const mockMcpApi = (shot.actions || []).some(action => action.type === 'mockMcpApi');
-  if (
-    !mockArtifactApi && !mockKnowledgeSearchApi && !mockSessionSidebarApi && !mockFileRefApi
-    && !mockAgentStudioApi && !mockKnowledgeBaseApi && !mockMcpApi && !providerApi
-  ) return;
-
   await client.send('Fetch.enable', {
     patterns: [
+      ...['/api/bootstrap', '/api/auth/me', '/api/plugins', '/api/plugins/ui-manifests'].map(path => ({
+        urlPattern: new URL(path, baseUrl).href, requestStage: 'Request',
+      })),
       ...(providerApi ? [{ urlPattern: new URL('/api/*', baseUrl).href, requestStage: 'Request' }] : []),
       ...(mockArtifactApi ? [
         {
@@ -1790,6 +1789,19 @@ async function setupShotMocks(client, shot, baseUrl) {
 
   let pendingReceipt = { request_id: 'smoke-followup-1', content: '请先检查异常站点，再补充最近一周的数据。', status: 'queued', can_manage: true, error: null, message_id: null, updated_at: '' };
   client.on('Fetch.requestPaused', async (event) => {
+    const pathname = new URL(event.request.url).pathname;
+    const localIdentityBodies = {
+      '/api/bootstrap': { auth: 'local', ui: 'local', deployment: 'local', installed: true, capabilities: {} },
+      '/api/auth/me': { user: { id: 'usr_local', displayName: 'Local User' }, tenantId: 'tnt_local', role: 'owner', platformRole: 'admin' },
+      '/api/plugins': { data: { plugins: [] } },
+      '/api/plugins/ui-manifests': { data: { plugins: [] } },
+    };
+    if (localIdentityBodies[pathname]) {
+      await client.send('Fetch.fulfillRequest', { requestId: event.requestId, responseCode: 200,
+        responseHeaders: [{ name: 'Content-Type', value: 'application/json; charset=utf-8' }],
+        body: Buffer.from(JSON.stringify(localIdentityBodies[pathname]), 'utf8').toString('base64') });
+      return;
+    }
     if (providerApi) {
       let body;
       let responseCode = 200;

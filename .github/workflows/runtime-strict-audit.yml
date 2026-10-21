@@ -133,3 +133,9 @@ jobs:
       - name: Smoke test Electron startup
         run: npm run smoke:desktop
         working-directory: desktop-electron
+      - name: Build Windows installer
+        run: node node_modules/electron-builder/cli.js --win nsis --publish never
+        working-directory: desktop-electron
+      - name: Smoke test packaged app
+        run: npm run smoke:packaged
+        working-directory: desktop-electron
