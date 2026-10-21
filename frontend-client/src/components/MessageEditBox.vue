@@ -10,8 +10,7 @@
         @input="onInput"
         @focus="isFocused = true"
         @blur="isFocused = false"
-        @keydown.ctrl.enter.prevent="$emit('confirm')"
-        @keydown.meta.enter.prevent="$emit('confirm')"
+        @keydown.enter="handleEnter"
         @keydown.esc.prevent="$emit('cancel')"
       />
     </div>
@@ -44,7 +43,7 @@
         <span>附件</span>
       </Button>
       <div class="msg-edit-hint">
-        <span class="hint-text">{{ isFocused ? 'Ctrl+Enter 提交 · Esc 取消' : '' }}</span>
+        <span class="hint-text">{{ isFocused ? 'Enter 提交 · Shift+Enter 换行 · Esc 取消' : '' }}</span>
       </div>
       <Button variant="ghost" size="sm" :disabled="submitting" @click="$emit('cancel')">
         <IconClose />
@@ -83,6 +82,13 @@ const emit = defineEmits(['update:modelValue', 'confirm', 'cancel', 'openAttachm
 
 const textareaRef = ref(null);
 const isFocused = ref(false);
+
+const handleEnter = (event) => {
+  if (event.shiftKey || event.isComposing || event.keyCode === 229) return;
+  event.preventDefault();
+  if (props.submitting) return;
+  emit('confirm');
+};
 
 const isImage = (att) => isImageAttachment(att);
 const previewUrl = (att) => {
@@ -288,7 +294,8 @@ onMounted(async () => {
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
   opacity: 0.8;
-  white-space: nowrap;
+  white-space: normal;
+  text-align: center;
   transition: opacity 0.2s ease;
 }
 

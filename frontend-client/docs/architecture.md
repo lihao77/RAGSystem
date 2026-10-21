@@ -4,6 +4,10 @@
 
 The frontend is a Vue 3 + Vite application. Chat execution is driven by the session WebSocket and Pinia stores. ECharts renders chart presentations.
 
+## Chat Keyboard Input
+
+The chat composer and message editor use Enter to send or submit and Shift+Enter to insert a newline. Enter during IME composition keeps the browser's native candidate-confirmation behavior. Default prevention belongs in the submit handler after these guards, so template event modifiers cannot swallow newlines or IME confirmation. The message editor retains Escape to cancel and ignores submissions while a request is pending.
+
 ## Default Model Resolution
 
 The model and thinking selectors resolve the effective default through `/api/agent/runtime-core/status`, scoped by team and entry Agent. The frontend preserves the model's `source` and `fallback_reason`: a broken Agent default tier shows a warning next to the model selector, explains the system-model fallback in its menu, and offers administrators an Agent configuration link. Normal inheritance from the system configuration has no warning; an explicit model selection hides the default-tier warning. Missing references are never presented as available models.

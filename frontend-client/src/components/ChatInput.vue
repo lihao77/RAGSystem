@@ -69,7 +69,7 @@
         <div class="input-wrapper">
           <textarea
             v-model="inputText"
-            @keydown.enter.prevent="handleEnter"
+            @keydown.enter="handleEnter"
             @paste="handlePaste"
             :placeholder="composerPlaceholder"
             rows="1"
@@ -332,6 +332,7 @@ const handleEnter = (event) => {
   if (event.shiftKey) return;
   // IME 组合输入中（中文/日文选词回车）不触发发送
   if (event.isComposing || event.keyCode === 229) return;
+  event.preventDefault();
   if (props.canResume) {
     emit('resume');
     return;
