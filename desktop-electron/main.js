@@ -512,9 +512,10 @@ async function waitForRendererReady(webContents, timeoutMs) {
     page = await webContents.executeJavaScript(`({
       title: document.title,
       textLength: document.body?.innerText?.trim().length || 0,
-      rootChildren: document.querySelector('#app')?.childElementCount || 0
+      rootChildren: document.querySelector('#app')?.childElementCount || 0,
+      hasMainContent: !!document.querySelector('#main-content')
     })`)
-    if (page.textLength > 0 && page.rootChildren > 0) return page
+    if (page.hasMainContent && page.textLength > 0 && page.rootChildren > 0) return page
     await new Promise((resolve) => setTimeout(resolve, 100))
   }
   throw new Error(`renderer did not mount within ${timeoutMs}ms: ${JSON.stringify(page)}`)
